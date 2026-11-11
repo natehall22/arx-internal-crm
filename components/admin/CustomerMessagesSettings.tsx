@@ -11,16 +11,18 @@ type View = {
   proposalWord?: string
   describe: Record<MessageKind, string>
   quiet: string
+  /** Texting is on and the company's number is ready: each message can also go by text. */
+  texting?: boolean
   blockers: string[]
   samples: Record<MessageKind, { subject: string; html: string }>
 }
 
-const MESSAGES: Array<{ kind: MessageKind; key: keyof CustomerMessageSettings; title: string }> = [
-  { kind: 'visit_reminder', key: 'visitReminder', title: 'Visit reminder' },
-  { kind: 'visit_on_the_way', key: 'onTheWay', title: '“On the way”' },
-  { kind: 'visit_done', key: 'visitDone', title: '“Visit done”' },
-  { kind: 'quote_follow_up', key: 'quoteFollowUp', title: 'Quote follow-up' },
-  { kind: 'invoice_reminder', key: 'invoiceReminder', title: 'Invoice reminder' },
+const MESSAGES: Array<{ kind: MessageKind; key: keyof CustomerMessageSettings; via: keyof CustomerMessageSettings; title: string }> = [
+  { kind: 'visit_reminder', key: 'visitReminder', via: 'visitReminderVia', title: 'Visit reminder' },
+  { kind: 'visit_on_the_way', key: 'onTheWay', via: 'onTheWayVia', title: '“On the way”' },
+  { kind: 'visit_done', key: 'visitDone', via: 'visitDoneVia', title: '“Visit done”' },
+  { kind: 'quote_follow_up', key: 'quoteFollowUp', via: 'quoteFollowUpVia', title: 'Quote follow-up' },
+  { kind: 'invoice_reminder', key: 'invoiceReminder', via: 'invoiceReminderVia', title: 'Invoice reminder' },
 ]
 
 const HOURS = Array.from({ length: 24 }, (_, h) => ({ value: h, label: h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM` }))
@@ -127,6 +129,22 @@ export default function CustomerMessagesSettings({ initial = null }: { initial?:
               </label>
               <p className="text-ui-base text-ink">{view.describe[m.kind]}</p>
 
+              {on && view.texting ? (
+                <label className="flex flex-col gap-1 text-ui-sm font-semibold text-ink">
+                  How it’s sent
+                  <Select value={s[m.via] as string} disabled={busy} onChange={(e) => void save({ [m.via]: e.target.value } as Partial<CustomerMessageSettings>)}>
+                    <option value="email">Email</option>
+                    <option value="text">Text</option>
+                    <option value="both">Email and text</option>
+                  </Select>
+                  {s[m.via] !== 'email' ? (
+                    <span className="text-ui-sm font-normal text-ink">
+                      Texts only go to customers who have said it’s OK to text, between 8 AM and 8 PM, and the first one says how to opt out.
+                      {m.kind === 'quote_follow_up' || m.kind === 'invoice_reminder' ? ' Keep this one to email unless your customers expect it by text: a text that asks for a sale or payment can need their written OK.' : ''}
+                    </span>
+                  ) : null}
+                </label>
+              ) : null}
               {on && m.kind === 'visit_reminder' ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="flex flex-col gap-1 text-ui-sm font-semibold text-ink">

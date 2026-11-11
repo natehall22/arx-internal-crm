@@ -4,12 +4,18 @@ import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, usePathname } from 'next/navigation'
 
+import { TextBlockedNotice, useTextStatus } from '@/components/customer/TextCustomer'
 import { Badge } from '@/components/ui'
+import { STAFF_TEXT_MAX } from '@/lib/sms/compliance'
+import type { TextDelivery } from '@/lib/sms/delivery'
 import { noteMentionHighlightRegex } from '@/lib/note-mentions'
 import { looksLikePricing, type Audience } from '@/lib/threads/visibility'
 import type { ThreadMessage } from '@/lib/threads/get-thread'
 
 type Payload = {
+  /** Texting is on for this company: "To customer" can be sent by text, and sent texts show delivery. */
+  texting?: boolean
+  textDeliveries?: Record<string, TextDelivery>
   messages: ThreadMessage[]
   pinned: ThreadMessage[]
   nextBefore: string | null
@@ -31,7 +37,7 @@ const AUDIENCE_HINT: Record<Audience, string> = {
   sales: 'The sales side. Ops can look it up.',
   production: 'Ops, owners and the closer. Never setters.',
   crew: 'Crew will see this on their link',
-  customer: 'Emailed to the customer and shown in their account',
+  customer: 'Sent to the customer (email or text) and shown in their account',
 }
 const AUDIENCE_TONE: Record<Audience, 'neutral' | 'info' | 'warning' | 'accent'> = { team: 'neutral', sales: 'accent', production: 'info', crew: 'warning', customer: 'warning' }
 
@@ -244,6 +250,13 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
         <span className="font-semibold text-ink">{m.author_name ?? 'ARX'}</span>
         <span>{when(m.created_at)}</span>
         {m.audience && m.audience !== 'team' && <Badge tone={AUDIENCE_TONE[m.audience]}>{AUDIENCE_LABEL[m.audience]}</Badge>}
+        {m.via === 'sms' && <Badge tone="info">By text</Badge>}
+        {data.textDeliveries?.[m.id] && (
+          <span className={data.textDeliveries[m.id].state === 'failed' || data.textDeliveries[m.id].state === 'not_sent' ? 'font-semibold text-danger' : 'font-semibold text-ink'} title={data.textDeliveries[m.id].detail ?? undefined}>
+            {data.textDeliveries[m.id].label}
+            {data.textDeliveries[m.id].detail && data.textDeliveries[m.id].state !== 'delivered' ? `: ${data.textDeliveries[m.id].detail}` : ''}
+          </span>
+        )}
         {m.restricted_pricing && <Badge tone="warning">Pricing</Badge>}
         {m.priority === 'needs_reply' && <Badge tone="info">Needs reply</Badge>}
         {m.priority === 'urgent' && <Badge tone="danger">Urgent</Badge>}
@@ -289,6 +302,8 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
   const [people, setPeople] = useState<{ id: string; full_name: string }[]>([])
   const [picked, setPicked] = useState<string[]>([])
   const clientId = useRef<string>(crypto.randomUUID())
+  // "To customer" can go by email (default) or by text — picked on purpose, never inferred. Replies start on the channel the customer used.
+  const [byText, setByText] = useState(false)
 
   useEffect(() => { if (data.writable.includes(data.defaultAudience)) setAudience(data.defaultAudience) }, [data.defaultAudience]) // eslint-disable-line react-hooks/exhaustive-deps -- only when the server's default changes, never on a poll
   useEffect(() => { if (replyTo?.audience === 'customer') setAudience('team') }, [replyTo?.id]) // eslint-disable-line react-hooks/exhaustive-deps -- replying to a customer message starts as Team; "To customer" is picked on purpose
@@ -298,6 +313,11 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
     fetch(`/api/threads/${dealId}/mentionable?audience=${effective}`).then((r) => (r.ok ? r.json() : { users: [] })).then((j) => setPeople(j.users ?? [])).catch(() => setPeople([]))
   }, [dealId, effective])
 
+  const toCustomer = effective === 'customer'
+  const { data: textData, record: recordTextConsent } = useTextStatus(dealId, !!data.texting && toCustomer)
+  const textReady = textData?.status?.state === 'ready'
+  useEffect(() => { if (toCustomer && textData?.lastCameBy === 'sms' && textReady) setByText(true) }, [toCustomer, textData?.lastCameBy, textReady])
+  const sendingText = toCustomer && byText && !!data.texting
   const atMatch = AT_TAIL.exec(body)
   const suggestions = atMatch ? people.filter((p) => p.full_name.toLowerCase().includes(atMatch[1].trim().toLowerCase())).slice(0, 5) : []
   const pricing = looksLikePricing(body) && data.canAllowSetters
@@ -311,7 +331,7 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
       const res = await fetch(`/api/threads/${dealId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body, audience: effective, replyToId: replyTo?.id ?? null, selectedMentionIds: picked, priority: priority === 'fyi' ? null : priority, allowSetters, clientId: clientId.current, surface: 'other' }),
+        body: JSON.stringify({ body, audience: effective, ...(sendingText ? { channel: 'sms' } : {}), replyToId: replyTo?.id ?? null, selectedMentionIds: picked, priority: priority === 'fyi' ? null : priority, allowSetters, clientId: clientId.current, surface: 'other' }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Not sent — tap to retry')
       setBody(''); setPicked([]); setPriority('fyi'); setAllowSetters(false); onClearReply()
@@ -339,7 +359,26 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
         </select>
         <span className="text-ui-sm text-ink-muted">{AUDIENCE_HINT[effective]}</span>
       </div>
-      {effective === 'customer' && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">The customer gets this by email and can read it in their account. Nothing internal, please.</p>}
+      {toCustomer && data.texting && (
+        <div className="mb-2 flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Send by">
+          <span className="text-ui-sm font-semibold text-ink">Send by</span>
+          {[false, true].map((t) => (
+            <button
+              key={String(t)}
+              type="button"
+              role="radio"
+              aria-checked={byText === t}
+              onClick={() => setByText(t)}
+              className={`min-h-tap rounded-full border px-4 text-ui-base font-medium ${byText === t ? 'border-ink bg-ink text-white' : 'border-surface-line bg-surface text-ink'}`}
+            >
+              {t ? 'Text' : 'Email'}
+            </button>
+          ))}
+        </div>
+      )}
+      {sendingText && textData?.status?.state === 'blocked' && <div className="mb-2"><TextBlockedNotice status={textData.status} onRecord={recordTextConsent} /></div>}
+      {toCustomer && !sendingText && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">The customer gets this by email and can read it in their account. Nothing internal, please.</p>}
+      {sendingText && textReady && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">Texts {textData?.status?.state === 'ready' ? textData.status.masked : 'the customer'} from your company number ({body.length}/{STAFF_TEXT_MAX}). They can read it in their account too. Nothing internal, please.</p>}
       {effective === 'crew' && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">👷 Crew will see this on their link. No prices.</p>}
       {pricing && (
         <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm text-ink">
@@ -368,8 +407,8 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
         </ul>
       )}
       {err && <p role="alert" className="mt-1 text-ui-sm text-danger">{err}</p>}
-      <button type="button" onClick={send} disabled={busy || !body.trim()} className="mt-2 min-h-tap w-full rounded-ui bg-brand-700 px-4 text-ui-sm font-semibold text-white disabled:opacity-50">
-        {busy ? 'Sending…' : 'Send'}
+      <button type="button" onClick={send} disabled={busy || !body.trim() || (sendingText && !textReady) || (sendingText && body.length > STAFF_TEXT_MAX)} className="mt-2 min-h-tap w-full rounded-ui bg-brand-700 px-4 text-ui-sm font-semibold text-white disabled:opacity-50">
+        {busy ? 'Sending…' : sendingText ? 'Send text' : 'Send'}
       </button>
     </div>
   )

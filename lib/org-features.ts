@@ -72,6 +72,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Visit reminders, “on the way” and “done” emails, quote follow-ups and invoice reminders, sent on their own. Each one is turned on separately in Settings → Customer messages.',
     defaultOn: false,
   },
+  texting: {
+    label: 'Text messages (two-way)',
+    description: 'Text your customers from the company’s own local number: reminders and “on the way” texts on their own, and staff can text a customer from their file. Customers’ replies land in the same conversation. Needs a registered number and the customer’s OK to text (Settings → Texting).',
+    defaultOn: false,
+  },
   customerPortal: {
     label: 'Customer portal',
     description: 'Customers sign in with a link emailed to them and see their own visits, invoices, quotes, shared documents and plan, pay, and message you. Nothing internal is ever shown.',

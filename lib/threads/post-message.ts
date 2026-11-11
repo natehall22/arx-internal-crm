@@ -93,7 +93,7 @@ export async function postMessage(
   const viewer = opts.viewer ?? (await resolveThreadViewer(admin, profile))
   const dealRef: DealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id, closer_user_ids: deal.closer_user_ids ?? [], extra_user_ids: deal.extra_user_ids ?? [] }
   const features = await loadOrgFeatures(admin, viewer.orgId)
-  const allowed = writableAudiences(viewer, dealRef, features.customerPortal || features.customerMessages)
+  const allowed = writableAudiences(viewer, dealRef, features.customerPortal || features.customerMessages || features.texting)
   if (allowed.length === 0) return { ok: false, status: 403, error: 'You cannot post on this deal' }
 
   // Idempotent retry (offline outbox): the same client_id returns the original message.
@@ -292,19 +292,28 @@ export async function ensureThread(
   return created as { id: string }
 }
 
-/** What the portal may write: ONE customer's message, on their latest deal (or, with no deal, on the customer alone). */
-export type CustomerPortalPost = { orgId: string; customerId: string; body: string; clientId?: string | null }
+/**
+ * What a customer's own words may write: ONE customer's message, on their latest deal (or, with no deal, on the customer
+ * alone). `origin` says how it arrived: their portal (default) or a text to the company's number.
+ */
+export type CustomerPortalPost = { orgId: string; customerId: string; body: string; clientId?: string | null; origin?: 'customer_portal' | 'sms' }
 
 /**
- * The customer wrote to the company from their portal. Written through THIS module (the one write path for conversations)
- * as an ordinary team-audience row — `origin: 'customer_portal'`, no user, type 'text' so job catch-up reads it as the
- * customer's own contact. Staff see it in the Customer File thread like any other message; the customer sees only
- * their own rows (audience 'customer' or origin 'customer_portal') through `loadPortalThread`.
+ * The customer wrote to the company — from their portal, or by text. Written through THIS module (the one write path for
+ * conversations) as an ordinary team-audience row — `origin: 'customer_portal'` / `'sms'`, no user, type 'text' so job
+ * catch-up reads it as the customer's own contact. Staff see it in the Customer File thread like any other message; the
+ * customer sees only their own rows (audience 'customer', or origin 'customer_portal' / 'sms') through `loadPortalThread`.
+ * With a `clientId` the write is idempotent: the same id returns the first row (a carrier retrying a webhook).
  */
 export async function postCustomerMessage(admin: SupabaseClient, p: CustomerPortalPost): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const body = String(p.body ?? '').trim()
   if (!body) return { ok: false, error: 'Message is required' }
   if (body.length > 2000) return { ok: false, error: 'Message is too long' }
+  const origin = p.origin ?? 'customer_portal'
+  if (p.clientId) {
+    const { data: again } = await admin.from('activities').select('id').eq('org_id', p.orgId).eq('client_id', p.clientId).eq('origin', origin).maybeSingle()
+    if (again) return { ok: true, id: (again as { id: string }).id }
+  }
   // The customer's most recent deal, if any (org- and customer-scoped).
   const { data: deal } = await admin
     .from('opportunities')
@@ -328,13 +337,13 @@ export async function postCustomerMessage(admin: SupabaseClient, p: CustomerPort
       type: 'text',
       contact_outcome: 'replied',
       body,
-      origin: 'customer_portal',
+      origin,
       audience: 'team',
       restricted_pricing: false,
       priority: 'fyi',
       mentioned_user_ids: [],
       client_id: p.clientId ?? null,
-      source: 'customer_portal',
+      source: origin,
       created_at: new Date().toISOString(),
     })
     .select('id, created_at')

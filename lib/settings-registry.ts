@@ -41,6 +41,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Roof measure tool', description: 'In-house satellite roof measurement', href: '/tools/roof-measure', access: 'leadership', feature: 'roofMeasure' },
       { title: 'Email blasts', description: 'Who gets sale, payment and funding emails', href: '/admin/email-blasts', access: 'leadership' },
       { title: 'Customer messages', description: 'Visit reminders, “on the way” and “done” emails, quote follow-ups and invoice reminders (owners only)', href: '/admin/customer-messages', access: 'superAdmin', feature: 'customerMessages', keywords: 'reminder email notify customer automatic follow up unsubscribe quiet hours overdue on the way' },
+      { title: 'Texting', description: 'Your company’s texting number and its status, the details carriers ask for, usage and texts nobody could be matched to (owners only)', href: '/admin/texting', access: 'superAdmin', feature: 'texting', keywords: 'sms text message number 10dlc stop opt out consent reminders' },
     ],
   },
   {

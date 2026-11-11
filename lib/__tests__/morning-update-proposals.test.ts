@@ -44,7 +44,7 @@ describe('company feature switches in the morning email', () => {
     } as never,
   })
   it('every switch on / nothing stored: unchanged (doors + insurance rows in all three sections)', () => {
-    for (const html of [buildMorningUpdateHtml(withGoals()), buildMorningUpdateHtml(withGoals(), { features: { canvassing: true, insurance: true, roofMeasure: true, incentives: true, stormAlerts: true, squaresPricing: true, servicePlans: false, timeTracking: false, hourlyBilling: false, onlinePayments: false, customerMessages: false, customerPortal: false } })]) {
+    for (const html of [buildMorningUpdateHtml(withGoals()), buildMorningUpdateHtml(withGoals(), { features: { canvassing: true, insurance: true, roofMeasure: true, incentives: true, stormAlerts: true, squaresPricing: true, servicePlans: false, timeTracking: false, hourlyBilling: false, onlinePayments: false, customerMessages: false, texting: false, customerPortal: false } })]) {
       expect(html.match(/Doors knocked<\/td>/g)).toHaveLength(3)
       expect(html.match(/Inspections going through insurance<\/td>/g)).toHaveLength(3)
       expect(html).toContain('>Doors</td>')
@@ -52,7 +52,7 @@ describe('company feature switches in the morning email', () => {
     }
   })
   it('door knocking off drops every doors row; insurance off drops the insurance rows and footnote', () => {
-    const html = buildMorningUpdateHtml(withGoals(), { features: { canvassing: false, insurance: false, roofMeasure: true, incentives: true, stormAlerts: true, squaresPricing: true, servicePlans: false, timeTracking: false, hourlyBilling: false, onlinePayments: false, customerMessages: false, customerPortal: false } })
+    const html = buildMorningUpdateHtml(withGoals(), { features: { canvassing: false, insurance: false, roofMeasure: true, incentives: true, stormAlerts: true, squaresPricing: true, servicePlans: false, timeTracking: false, hourlyBilling: false, onlinePayments: false, customerMessages: false, texting: false, customerPortal: false } })
     expect(html).not.toContain('Doors knocked')
     expect(html).not.toContain('>Doors</td>')
     expect(html).not.toContain('going through insurance')

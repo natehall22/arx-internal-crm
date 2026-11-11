@@ -196,7 +196,7 @@ describe('switching profile', () => {
     const plan = planProfileSwitch({ features: {} }, [...DEFAULT_ORG_TRADES], 'lawn_landscape')
     expect(plan.from.id).toBe('roofing')
     // Roofing: every switch on except the default-off modules (service plans, time clock); lawn: the reverse.
-    expect(plan.features.map((f) => [f.key, f.now, f.after])).toEqual(ORG_FEATURE_KEYS.filter((k) => k !== 'onlinePayments').map((k) => (k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' ? [k, false, true] : [k, true, false])))
+    expect(plan.features.map((f) => [f.key, f.now, f.after])).toEqual(ORG_FEATURE_KEYS.filter((k) => k !== 'onlinePayments' && k !== 'texting').map((k) => (k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' ? [k, false, true] : [k, true, false])))
     expect(plan.trades).toEqual({
       add: ['Lawn care', 'Landscaping', 'Tractor / land work', 'Clean-up', 'Soft wash / pressure washing'],
       turnOn: [],
