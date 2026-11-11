@@ -62,6 +62,12 @@ export default function SelectionClient({ token, view }: { token: string; view: 
           <div aria-hidden className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#dcfce7] text-3xl text-[#166534]">✓</div>
           <h1 className="text-2xl font-bold text-[#2c2c2a]">{done ? 'Thank you!' : 'Already chosen'}</h1>
           <p className="mt-2 text-base text-[#2c2c2a]">{view.item}{picked ? `: ${picked.label}` : view.chosenLabel ? `: ${view.chosenLabel}` : ''}</p>
+          {view.signingUrl && !done ? (
+            <>
+              <p className="mt-3 text-base text-[#2c2c2a]">One more step: sign the change order for the difference.</p>
+              <a href={view.signingUrl} className="mt-3 inline-flex min-h-[52px] w-full items-center justify-center rounded-xl bg-[#1f2937] px-4 text-lg font-bold text-white">Sign the change order</a>
+            </>
+          ) : null}
         </div>
       ) : (
         <>

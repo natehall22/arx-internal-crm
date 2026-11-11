@@ -241,7 +241,7 @@ export async function chooseSelection(
 
   const { data: claimed, error: claimErr } = await db
     .from('job_selections')
-    .update({ status: 'chosen', chosen_option_id: option.id, chosen_label: option.label, chosen_price: option.price, chosen_at: new Date().toISOString(), chosen_by_name: args.byName.slice(0, 120), chosen_source: args.source, link_token: null, updated_at: new Date().toISOString() })
+    .update({ status: 'chosen', chosen_option_id: option.id, chosen_label: option.label, chosen_price: option.price, chosen_at: new Date().toISOString(), chosen_by_name: args.byName.slice(0, 120), chosen_source: args.source, updated_at: new Date().toISOString() })
     .eq('id', args.selectionId)
     .in('status', ['draft', 'sent'])
     .select('id')
@@ -251,7 +251,7 @@ export async function chooseSelection(
   if (diff <= 0) return { ok: true, state: 'approved', difference: diff, signingUrl: null }
 
   const undo = async (message: string, status = 500): Promise<Fail> => {
-    await db.from('job_selections').update({ status: 'sent', chosen_option_id: null, chosen_label: null, chosen_price: null, chosen_at: null, chosen_by_name: null, chosen_source: null, link_token: sel.link_token, updated_at: new Date().toISOString() }).eq('id', args.selectionId).eq('status', 'chosen').is('change_order_id', null)
+    await db.from('job_selections').update({ status: 'sent', chosen_option_id: null, chosen_label: null, chosen_price: null, chosen_at: null, chosen_by_name: null, chosen_source: null, updated_at: new Date().toISOString() }).eq('id', args.selectionId).eq('status', 'chosen').is('change_order_id', null)
     return { error: message, status }
   }
 

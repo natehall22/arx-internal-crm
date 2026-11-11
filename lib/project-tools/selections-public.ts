@@ -8,7 +8,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { fenceAllowsOrg } from '@/lib/company-host'
 import { getRequestHostFence } from '@/lib/company-host-server'
 import { orgLogoHref } from '@/lib/files/files-object'
+import { orgAppUrl } from '@/lib/company-links'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { orgDb } from '@/lib/supabase/org-db'
 import { readStoredOptions, type SelectionOption } from '@/lib/selections'
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{24,64}$/
@@ -50,5 +52,18 @@ export async function loadPublicSelectionView(admin: SupabaseClient, sel: Resolv
     options: sel.options,
     chosenLabel: sel.chosen_label,
     signingUrl,
+  }
+}
+
+/** A chosen selection whose change order is still unsigned: the signing link, so the customer can come back and finish. */
+export async function pendingSigningUrl(admin: SupabaseClient, sel: ResolvedSelection): Promise<string | null> {
+  if (sel.status !== 'chosen' || !sel.change_order_id) return null
+  const { data } = await orgDb(admin, sel.org_id).from('job_change_orders').select('status, signing_token, token_expires_at').eq('id', sel.change_order_id).maybeSingle()
+  if (!data || data.status === 'completed' || !data.signing_token) return null
+  if (data.token_expires_at && new Date(data.token_expires_at) < new Date()) return null
+  try {
+    return `${await orgAppUrl(sel.org_id)}/change-orders/sign/${data.signing_token}`
+  } catch {
+    return null
   }
 }
