@@ -1093,6 +1093,14 @@ export async function recordPoBill(
   if (!po || po.kind !== 'general') return { ok: false, status: 404, message: 'Order not found.' }
   if (po.status === 'draft' || po.status === 'cancelled') return { ok: false, status: 409, message: 'Record a bill once the order has been sent.' }
 
+  // A repeat of the same bill sheet (double tap, retry) answers with the bill already recorded, before any check.
+  if (input.clientKey) {
+    const { data: prior } = await admin.from('purchase_order_bills').select('id, cost_line_id').eq('org_id', orgId).eq('supplier_order_id', poId).eq('client_key', input.clientKey).maybeSingle()
+    if (prior) {
+      const p = prior as OrderRow
+      return { ok: true, billId: String(p.id), costLineId: s(p.cost_line_id), status: await refreshPoStatus(admin, orgId, poId), warning: null }
+    }
+  }
   if (!input.isCredit) {
     const check = checkBillAgainstPo(po.totalCents, po.billedCents, input.amountCents)
     if (check.message && !confirm.over) return { ok: false, status: 409, message: check.message, needsConfirm: true, confirmKind: 'over' }
@@ -1111,13 +1119,6 @@ export async function recordPoBill(
     }
   }
 
-  if (input.clientKey) {
-    const { data: prior } = await admin.from('purchase_order_bills').select('id, cost_line_id').eq('org_id', orgId).eq('supplier_order_id', poId).eq('client_key', input.clientKey).maybeSingle()
-    if (prior) {
-      const p = prior as OrderRow
-      return { ok: true, billId: String(p.id), costLineId: s(p.cost_line_id), status: await refreshPoStatus(admin, orgId, poId), warning: null }
-    }
-  }
   const { data: bill, error } = await admin
     .from('purchase_order_bills')
     .insert({

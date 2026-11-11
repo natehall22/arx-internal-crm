@@ -116,6 +116,6 @@ describe('materials readers ignore general purchase orders', () => {
   })
 })
 
-const GOLDEN_PDF_TEXT_SHA = 'TBD'
-const GOLDEN_PO_PDF_TEXT_SHA = 'TBD'
+const GOLDEN_PDF_TEXT_SHA = '3e83db5e2ce9d9251f7ec0634c59862db8adfd0da211074e607ff8e18e2ab7a4'
+const GOLDEN_PO_PDF_TEXT_SHA = 'da2f433e241a979ad62aec64209a373bcde07778f36d5ef88581a911ded4fde4'
 const GOLDEN_EMAIL_SHA = 'e4cfb2354d7a4be4483613b37f59892c6cceed8c6a59dd78bc374cac9c9d36cd'
