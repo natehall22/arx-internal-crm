@@ -159,7 +159,13 @@ export function localHm(instantMs: number, timeZone: string): string {
 export function localTimeToInstant(ymd: string, hm: string, timeZone: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hm)) return null
   const d = fromZonedTime(`${ymd}T${hm}:00`, timeZone)
-  return Number.isFinite(d.getTime()) ? d : null
+  if (!Number.isFinite(d.getTime())) return null
+  // A wall time that doesn't exist (the spring gap) comes back an hour early from date-fns-tz: move it past the gap.
+  if (localHm(d.getTime(), timeZone) !== hm || localYmd(d.getTime(), timeZone) !== ymd) {
+    const later = new Date(d.getTime() + 3_600_000)
+    if (localYmd(later.getTime(), timeZone) === ymd) return later
+  }
+  return d
 }
 
 /** Sorted, merged (overlaps and touching joined). */

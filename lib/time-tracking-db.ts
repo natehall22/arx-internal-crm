@@ -994,7 +994,8 @@ export async function editTimeEntry(admin: SupabaseClient, orgId: string, actorU
     patch.production_job_id = where.jobId
   }
   // Looking at it and fixing it is the review; the office can also just clear the flag.
-  patch.needs_review = edit.needsReview ?? false
+  if (edit.needsReview !== undefined) patch.needs_review = edit.needsReview
+  else if (before.needs_review === true) patch.needs_review = false
   const changes = diffFields(
     { ...before, started_at: normIso(before.started_at), ended_at: normIso(before.ended_at) },
     { ...patch, ...(patch.started_at ? { started_at: normIso(patch.started_at) } : {}), ...('ended_at' in patch ? { ended_at: normIso(patch.ended_at) } : {}) },
