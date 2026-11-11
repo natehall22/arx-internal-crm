@@ -14,6 +14,8 @@ import VisitsBoard from '@/components/service-plans/VisitsBoard'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import ReadyToBill from '@/components/billing/ReadyToBill'
 import { canBillService } from '@/lib/service-billing-access'
+import HoursToBill from '@/components/billing/HoursToBill'
+import { resolveHourlyAccess } from '@/lib/hourly-billing-access'
 
 function transformCalendarJobs(rows: unknown[]): ProductionCalendarJob[] {
   return (rows || []).map((job: any) => ({
@@ -41,6 +43,9 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
   // Ready to bill: the one rule in lib/service-billing-access.ts (service plans on + records money).
   const billingOn = visitsOn && (await canBillService(admin, profile)).bill
   const billing = billingOn && searchParams?.view === 'billing'
+  // Hours to bill: hourly billing on + records money (lib/hourly-billing-access.ts) — with or without service plans.
+  const hoursOn = (await resolveHourlyAccess(admin, profile)).bill
+  const hours = hoursOn && searchParams?.view === 'hours'
   const calendar = searchParams?.view === 'calendar'
   let calendarJobs: ProductionCalendarJob[] = []
   let crews: ProductionCalendarCrew[] = []
@@ -71,7 +76,7 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <nav aria-label="Schedule views" className="mx-auto flex max-w-[1800px] flex-wrap gap-2 px-4 pt-4">
-        <Link href="/ops/schedule" className={tab(!calendar && !visits && !billing)} aria-current={!calendar && !visits && !billing ? 'page' : undefined}>Board</Link>
+        <Link href="/ops/schedule" className={tab(!calendar && !visits && !billing && !hours)} aria-current={!calendar && !visits && !billing && !hours ? 'page' : undefined}>Board</Link>
         <Link href="/ops/schedule?view=calendar" className={tab(calendar)} aria-current={calendar ? 'page' : undefined}>Calendar</Link>
         {visitsOn ? (
           <Link href="/ops/schedule?view=visits" className={tab(visits)} aria-current={visits ? 'page' : undefined}>Visits</Link>
@@ -79,8 +84,11 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
         {billingOn ? (
           <Link href="/ops/schedule?view=billing" className={tab(billing)} aria-current={billing ? 'page' : undefined}>Ready to bill</Link>
         ) : null}
+        {hoursOn ? (
+          <Link href="/ops/schedule?view=hours" className={tab(hours)} aria-current={hours ? 'page' : undefined}>Hours to bill</Link>
+        ) : null}
       </nav>
-      {billing ? <ReadyToBill /> : visits ? <VisitsBoard /> : calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
+      {hours ? <HoursToBill /> : billing ? <ReadyToBill /> : visits ? <VisitsBoard /> : calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
     </div>
   )
 }
