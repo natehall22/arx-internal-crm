@@ -1,3 +1,4 @@
+import { syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -136,6 +137,9 @@ export async function POST(
       method,
       payer,
     }).catch(err => console.error('Failed to enqueue payment event:', err))
+
+    // Billed by the hour: money in can make newly billed hours payable (commission change lines). No-op for fixed-price jobs.
+    await syncTimeAndMaterialsCommissionBase(adminClient, profile.org_id, params.id)
 
     // Email admin + operations (non-blocking)
     getJobPaymentSummary(adminClient, params.id)

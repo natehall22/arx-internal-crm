@@ -375,8 +375,13 @@ doors `lib/hourly-billing-access.ts` (bill = money:record; job setup = `jobs:edi
   fixed-price jobs). Fixed-price jobs (ARX): unchanged. **Paid before more hours were billed (or an invoice voided):** the
   paid week never changes — `syncCommissionChangesForJob` (lib/payroll-commission-change.ts) puts one signed
   `payroll_adjustments` line per paid person (kind `commission_change`, `base_delta`, the math in `reason`) on the next open
-  week = base change × that person's paid share (net ÷ the snapshot base); negatives carry forward like any fix. Writer SQL
-  `payroll_add_commission_changes` (per-job lock, refuses a stale "base covered so far" → recompute). Once a job is paid its
+  week = change in the PAID-FOR base (issued pre-tax × share of it collected; billed-but-unpaid counts only once paid; a
+  void / refund claws back) × that person's PERCENT rate only (`percentRateOfLine`: flat Change-sheet dollars, flat-rate plans
+  and volume bonuses never scale; unknown snapshot shape = 0); negatives carry forward like any fix. Writer SQL
+  `payroll_add_commission_changes` (per-job lock, refuses a stale "base covered so far" → recompute). Refused during an
+  approval (55006) → job marked `commission_change_wait 'approval_running'`, retried by the morning cron and Pay this week;
+  pay-week flag off → `'pay_week_off'`, no line, owners see "N commission changes waiting" (Today + morning email;
+  docs/payroll-cutover.md step 8). Profit tracker labels T&M revenue "billed so far". Once a job is paid its
   billing mode can't switch. Profit tracker: T&M revenue = issued pre-tax, "Not billed yet" when nothing is issued, status
   from the one paid-in-full rule (fixed-price jobs now also get its $0.05 tolerance there).
 - **Guards:** a T&M job gets no deposit / final / "job total" invoice (custom amounts for extras, not capped by the estimate);

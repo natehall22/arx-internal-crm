@@ -1,13 +1,22 @@
 /**
- * A time & materials job paid on an approved week, then billed more (or an invoice voided): the paid week never changes;
- * the next open week gets commission change lines (+ or −) = base change × each person's paid share, math in the reason.
- * Re-running writes nothing. The SQL writer (payroll_add_commission_changes) is mirrored here (KR #38 pattern) and runs on
- * Postgres in supabase/tests/hourly_billing.test.sql.
+ * A time & materials job paid on an approved week, then more hours billed (and paid for), an invoice voided, or money refunded:
+ * the paid week never changes; the next open week gets commission change lines = each person's PERCENT rate × the change in
+ * the paid-for base. Flat dollars never scale. Refused during an approval → kept waiting and retried. Pay week switched off →
+ * kept waiting and shown to owners. The SQL writer (payroll_add_commission_changes) is mirrored here (KR #38 pattern) and runs
+ * on Postgres in supabase/tests/hourly_billing.test.sql.
  */
 jest.mock('@/lib/payroll-periods', () => ({ ensureNextOpenPeriod: async () => ({ id: 'P2' }) }))
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { planCommissionChanges, syncCommissionChangesForJob } from '@/lib/payroll-commission-change'
+import {
+  loadCommissionChangesWaitingQueue,
+  payableBaseFromFacts,
+  percentRateOfLine,
+  planCommissionChanges,
+  retryDueCommissionChanges,
+  syncCommissionChangesForJob,
+  type PaidJobLine,
+} from '@/lib/payroll-commission-change'
 import { syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { personTotalsFromTables } from '@/lib/payroll-week-total'
 import { saveJobHourlySetup } from '@/lib/hourly-billing-db'
@@ -17,8 +26,56 @@ const JOB = 'job-tm'
 const CLOSER = 'u-closer'
 const SETTER = 'u-setter'
 
+const planLine = (rate: number, base: number, extra: Partial<PaidJobLine> = {}, flatBonus = 0, scaledNet?: number): PaidJobLine => {
+  const total = Math.round(base * rate) / 100
+  return {
+    userId: CLOSER,
+    gross: total + flatBonus,
+    net: (scaledNet ?? total) + flatBonus,
+    base,
+    snapshot: { plan: { plan_type: 'percentage' }, calculation: { effectiveRate: rate, totalAmount: total } },
+    periodId: 'P1',
+    cutoffAt: 'x',
+    ...extra,
+  }
+}
+
+describe('only percentage pay scales', () => {
+  it('rates per kind of line', () => {
+    expect(percentRateOfLine(planLine(7, 10000))).toBeCloseTo(0.07)
+    expect(percentRateOfLine(planLine(7, 10000, {}, 250))).toBeCloseTo(0.07) // a flat volume bonus never scales
+    expect(percentRateOfLine(planLine(7, 10000, {}, 0, 650))).toBeCloseTo(0.065) // pool cap scaled it down: as paid
+    expect(percentRateOfLine({ net: 500, gross: 500, base: 10000, snapshot: { basis: 'flat' } })).toBe(0) // Change-sheet $
+    expect(percentRateOfLine({ net: 500, gross: 500, base: 10000, snapshot: { basis: 'percent' } })).toBeCloseTo(0.05)
+    expect(percentRateOfLine({ net: 300, gross: 300, base: 10000, snapshot: { plan: { plan_type: 'flat_rate' }, calculation: { effectiveRate: 0, totalAmount: 300 } } })).toBe(0)
+    expect(percentRateOfLine({ net: 300, gross: 300, base: 10000, snapshot: null })).toBe(0) // unknown shape: never pay on a guess
+  })
+  it('closer flat $500 on $10k → $14k = $0', () => {
+    const paid = [{ userId: CLOSER, net: 500, gross: 500, base: 10000, snapshot: { basis: 'flat' }, periodId: 'P1', cutoffAt: 'x' }]
+    expect(planCommissionChanges({ jobNumber: '1', currentBase: 14000, paid, prior: new Map() })).toEqual([])
+  })
+  it('closer 7% + $250 bonus, +$4k = +$280', () => {
+    const lines = planCommissionChanges({ jobNumber: '26-0141', currentBase: 14000, paid: [planLine(7, 10000, {}, 250)], prior: new Map() })
+    expect(lines).toEqual([
+      { userId: CLOSER, baseDelta: 4000, amount: 280, expectedPrior: 0, reason: 'Commission change, job 26-0141: paid base $10,000.00 → $14,000.00 (+$4,000.00) × 7.0000% = $280.00' },
+    ])
+  })
+  it('earlier change lines count as covered', () => {
+    expect(planCommissionChanges({ jobNumber: null, currentBase: 14000, paid: [planLine(7, 10000)], prior: new Map([[CLOSER, 4000]]) })).toEqual([])
+    expect(planCommissionChanges({ jobNumber: null, currentBase: 10000, paid: [planLine(7, 10000)], prior: new Map([[CLOSER, 4000]]) })[0]).toMatchObject({ baseDelta: -4000, amount: -280 })
+  })
+  it('the base follows money in: issued invoices × the share the payments cover', () => {
+    expect(payableBaseFromFacts({ issuedTotalCents: 400000, issuedPreTaxCents: 400000 }, 100000)).toBe(1000)
+    expect(payableBaseFromFacts({ issuedTotalCents: 428000, issuedPreTaxCents: 400000 }, 428000)).toBe(4000)
+    expect(payableBaseFromFacts({ issuedTotalCents: 100000, issuedPreTaxCents: 100000 }, 500000)).toBe(1000) // capped
+    expect(payableBaseFromFacts({ issuedTotalCents: 0, issuedPreTaxCents: 0 }, 500)).toBe(0)
+  })
+})
+
 type Row = Record<string, unknown>
+let claimed = false
 function fakeAdd(args: Record<string, unknown>, t: Record<string, Row[]>) {
+  if (claimed) throw Object.assign(new Error('being approved'), { code: '55006' })
   const lines = args.p_lines as Row[]
   let n = 0
   for (const l of lines) {
@@ -31,16 +88,17 @@ function fakeAdd(args: Record<string, unknown>, t: Record<string, Row[]>) {
 }
 
 function seed() {
-  // Day 1: one $1,000 invoice (sent), paid in full; week P1 approved paid closer 7% ($70) + setter 5% ($50) on base $1,000.
+  // Day 1: one $1,000 invoice, $1,000 paid; week P1 approved paid the closer 7% ($70, plan) + the setter 5% ($50, override).
   return createFakeDb(
     {
-      production_jobs: [{ id: JOB, org_id: ORG, job_number: '26-0141', billing_mode: 'time_materials', sale_amount: 5000, commission_comp_base: 1000, commission_pre_tax_subtotal: null, project_id: null }],
+      production_jobs: [{ id: JOB, org_id: ORG, job_number: '26-0141', billing_mode: 'time_materials', sale_amount: 5000, commission_comp_base: 1000, commission_pre_tax_subtotal: null, project_id: null, commission_change_due_at: null, commission_change_wait: null }],
       job_invoices: [{ id: 'i1', org_id: ORG, job_id: JOB, status: 'paid', invoice_number: 'INV-1', total_cents: 100000, tax_cents: 0 }],
+      job_payments: [{ id: 'pay1', job_id: JOB, amount_cents: 100000, funding_status: 'cleared' }],
       payroll_periods: [{ id: 'P1', org_id: ORG, status: 'paid', cutoff_at: '2026-11-08T04:59:59Z' }, { id: 'P2', org_id: ORG, status: 'open', cutoff_at: '2026-11-15T04:59:59Z' }],
       payroll_job_snapshots: [{ id: 's1', org_id: ORG, payroll_period_id: 'P1', job_id: JOB, commission_base: 1000 }],
       payroll_payout_lines: [
-        { id: 'l1', org_id: ORG, payroll_period_id: 'P1', payroll_job_snapshot_id: 's1', job_id: JOB, user_id: CLOSER, participant_role: 'sales_rep', net_amount: 70 },
-        { id: 'l2', org_id: ORG, payroll_period_id: 'P1', payroll_job_snapshot_id: 's1', job_id: JOB, user_id: SETTER, participant_role: 'setter', net_amount: 50 },
+        { id: 'l1', org_id: ORG, payroll_period_id: 'P1', payroll_job_snapshot_id: 's1', job_id: JOB, user_id: CLOSER, participant_role: 'sales_rep', gross_amount: 70, net_amount: 70, comp_plan_snapshot: { plan: { plan_type: 'percentage' }, calculation: { effectiveRate: 7, totalAmount: 70 } } },
+        { id: 'l2', org_id: ORG, payroll_period_id: 'P1', payroll_job_snapshot_id: 's1', job_id: JOB, user_id: SETTER, participant_role: 'setter', gross_amount: 50, net_amount: 50, comp_plan_snapshot: { basis: 'percent' } },
       ],
       payroll_adjustments: [],
       billed_time_days: [],
@@ -49,71 +107,91 @@ function seed() {
   )
 }
 const lines = (db: ReturnType<typeof seed>) => db.tables.payroll_adjustments.map((a) => [a.user_id, a.amount, a.base_delta, a.payroll_period_id])
+const addInvoice = (db: ReturnType<typeof seed>, id: string, cents: number, status = 'sent') => db.tables.job_invoices.push({ id, org_id: ORG, job_id: JOB, status, invoice_number: id, total_cents: cents, tax_cents: 0 })
+const pay = (db: ReturnType<typeof seed>, id: string, cents: number) => db.tables.job_payments.push({ id, job_id: JOB, amount_cents: cents, funding_status: 'cleared' })
 
-describe('commission change lines (pure)', () => {
-  it('base change × paid share; nothing when in step; prior changes counted', () => {
-    const paid = [{ userId: CLOSER, net: 70, base: 1000, periodId: 'P1', cutoffAt: 'x' }]
-    expect(planCommissionChanges({ jobNumber: '26-0141', currentBase: 4000, paid, prior: new Map() })).toEqual([
-      { userId: CLOSER, baseDelta: 3000, amount: 210, expectedPrior: 0, reason: 'Commission change, job 26-0141: base $1,000.00 → $4,000.00 (+$3,000.00) × 7.0000% = $210.00' },
-    ])
-    expect(planCommissionChanges({ jobNumber: null, currentBase: 4000, paid, prior: new Map([[CLOSER, 3000]]) })).toEqual([])
-    expect(planCommissionChanges({ jobNumber: '1', currentBase: 3000, paid, prior: new Map([[CLOSER, 3000]]) })[0]).toMatchObject({ baseDelta: -1000, amount: -70 })
-    expect(planCommissionChanges({ jobNumber: '1', currentBase: 0, paid: [{ ...paid[0], base: 0 }], prior: new Map() })).toEqual([])
-  })
+beforeEach(() => {
+  claimed = false
+  process.env.PAYROLL_PAY_WEEK_ENABLED = 'true'
+})
+afterAll(() => {
+  delete process.env.PAYROLL_PAY_WEEK_ENABLED
 })
 
-describe('a T&M job billed more / voided after it was paid', () => {
-  it('day 1 $1k paid → days 2–5 +$3k → next open week pays commission on the $3k; the paid week is untouched', async () => {
+describe('a T&M job billed more after it was paid', () => {
+  it('day 1 $1k paid → days 2–5 +$3k: nothing until it is PAID, then commission on the $3k on the next open week', async () => {
     const db = seed()
-    db.tables.job_invoices.push({ id: 'i2', org_id: ORG, job_id: JOB, status: 'sent', invoice_number: 'INV-2', total_cents: 300000, tax_cents: 0 })
+    addInvoice(db, 'i2', 300000)
     await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
-    expect(db.tables.production_jobs[0].commission_comp_base).toBe(4000)
+    expect(db.tables.production_jobs[0].commission_comp_base).toBe(4000) // issued, pre-tax
+    expect(db.tables.payroll_adjustments).toEqual([]) // billed, not paid yet
+    pay(db, 'pay2', 300000)
+    await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
     expect(lines(db)).toEqual([[CLOSER, 210, 3000, 'P2'], [SETTER, 150, 3000, 'P2']])
-    expect(db.tables.payroll_adjustments[0].reason).toContain('× 7.0000% = $210.00')
-    // The paid week's lines and snapshot never change.
-    expect(db.tables.payroll_payout_lines.map((l) => l.net_amount)).toEqual([70, 50])
-    // Counted on the open week's check through the one week-total definition.
+    expect(db.tables.payroll_payout_lines.map((l) => l.net_amount)).toEqual([70, 50]) // the paid week never changes
     expect(personTotalsFromTables(db.tables, ORG, 'P2').get(CLOSER)).toBe(210)
-    // Again: nothing more.
     await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
-    expect(db.tables.payroll_adjustments).toHaveLength(2)
+    expect(db.tables.payroll_adjustments).toHaveLength(2) // again: nothing more
   })
 
-  it('a draft invoice adds nothing until it is sent', async () => {
+  it('a paid invoice voided, or the money refunded → a negative line (clawback); negatives carry forward like any fix', async () => {
     const db = seed()
-    db.tables.job_invoices.push({ id: 'i2', org_id: ORG, job_id: JOB, status: 'draft', invoice_number: 'INV-2', total_cents: 300000, tax_cents: 0 })
+    addInvoice(db, 'i2', 300000)
+    pay(db, 'pay2', 300000)
     await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
-    expect(db.tables.production_jobs[0].commission_comp_base).toBe(1000)
-    expect(db.tables.payroll_adjustments).toEqual([])
-  })
-
-  it('voided after payroll: a negative line (clawback) on the next open week', async () => {
-    const db = seed()
-    db.tables.job_invoices.push({ id: 'i2', org_id: ORG, job_id: JOB, status: 'sent', invoice_number: 'INV-2', total_cents: 300000, tax_cents: 0 })
+    pay(db, 'refund', -300000)
     await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
-    db.tables.job_invoices[1].status = 'void'
-    await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
-    expect(lines(db)).toEqual([[CLOSER, 210, 3000, 'P2'], [SETTER, 150, 3000, 'P2'], [CLOSER, -210, -3000, 'P2'], [SETTER, -150, -3000, 'P2']])
-    expect(personTotalsFromTables(db.tables, ORG, 'P2').get(CLOSER)).toBe(0)
-    // Voiding the day-1 invoice too takes back what week P1 paid (carried forward at approve if the check goes below $0).
+    expect(lines(db).slice(2)).toEqual([[CLOSER, -210, -3000, 'P2'], [SETTER, -150, -3000, 'P2']])
+    // Voiding the day-1 invoice too takes back what week P1 paid.
     db.tables.job_invoices[0].status = 'void'
+    db.tables.job_invoices[1].status = 'void'
     await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
     expect(personTotalsFromTables(db.tables, ORG, 'P2').get(CLOSER)).toBe(-70)
     expect(personTotalsFromTables(db.tables, ORG, 'P2').get(SETTER)).toBe(-50)
   })
 
-  it('not paid yet (no approved week): no lines — the week that pays it uses the current base', async () => {
+  it('refused while a week is being approved → kept waiting, retried later (never only logged)', async () => {
+    const db = seed()
+    addInvoice(db, 'i2', 300000)
+    pay(db, 'pay2', 300000)
+    claimed = true
+    const r = await syncCommissionChangesForJob(db.client, ORG, JOB)
+    expect(r.waiting).toBe('approval_running')
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_change_wait: 'approval_running' })
+    expect(db.tables.payroll_adjustments).toEqual([])
+    claimed = false
+    expect(await retryDueCommissionChanges(db.client, ORG)).toMatchObject({ tried: 1, written: 1 })
+    expect(lines(db)).toEqual([[CLOSER, 210, 3000, 'P2'], [SETTER, 150, 3000, 'P2']])
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_change_due_at: null, commission_change_wait: null })
+  })
+
+  it('new pay week switched off (legacy payroll): no lines written — kept waiting and shown to owners', async () => {
+    const db = seed()
+    delete process.env.PAYROLL_PAY_WEEK_ENABLED
+    addInvoice(db, 'i2', 300000)
+    pay(db, 'pay2', 300000)
+    await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
+    expect(db.tables.payroll_adjustments).toEqual([])
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_change_wait: 'pay_week_off' })
+    expect(await loadCommissionChangesWaitingQueue(db.client, ORG)).toMatchObject({ title: '1 commission change waiting for the new payroll', count: 1 })
+    process.env.PAYROLL_PAY_WEEK_ENABLED = 'true'
+    await retryDueCommissionChanges(db.client, ORG)
+    expect(lines(db)).toEqual([[CLOSER, 210, 3000, 'P2'], [SETTER, 150, 3000, 'P2']])
+    expect(await loadCommissionChangesWaitingQueue(db.client, ORG)).toBeNull()
+  })
+
+  it('not paid on an approved week yet: no lines — the week that pays it uses the current base', async () => {
     const db = seed()
     db.tables.payroll_periods[0].status = 'open'
-    db.tables.job_invoices.push({ id: 'i2', org_id: ORG, job_id: JOB, status: 'sent', invoice_number: 'INV-2', total_cents: 300000, tax_cents: 0 })
-    expect(await syncCommissionChangesForJob(db.client, ORG, JOB)).toMatchObject({ added: 0 })
+    addInvoice(db, 'i2', 300000)
+    pay(db, 'pay2', 300000)
+    expect(await syncCommissionChangesForJob(db.client, ORG, JOB)).toMatchObject({ added: 0, waiting: null })
   })
 
   it('a concurrent run is refused by the "base covered" check and recomputed (never paid twice)', async () => {
     const db = seed()
-    db.tables.job_invoices.push({ id: 'i2', org_id: ORG, job_id: JOB, status: 'sent', invoice_number: 'INV-2', total_cents: 300000, tax_cents: 0 })
-    db.tables.production_jobs[0].commission_comp_base = 4000
-    // Someone else's run already wrote the closer's line.
+    addInvoice(db, 'i2', 300000)
+    pay(db, 'pay2', 300000)
     db.tables.payroll_adjustments.push({ id: 'x', org_id: ORG, payroll_period_id: 'P2', user_id: CLOSER, job_id: JOB, amount: 210, base_delta: 3000, kind: 'commission_change', status: 'pending' })
     await syncCommissionChangesForJob(db.client, ORG, JOB)
     expect(lines(db)).toEqual([[CLOSER, 210, 3000, 'P2'], [SETTER, 150, 3000, 'P2']])

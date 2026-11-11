@@ -250,6 +250,8 @@ export default async function AdminJobProfitTrackerPage({
     return {
       index: index + 1,
       job,
+      // Billed by the hour: the "contract" column is what has been invoiced so far (issued, tax out), not the estimate.
+      billedSoFar: facts?.timeAndMaterials === true,
       customerName,
       lastName: lastNameFor(customerName),
       saleAmount,
@@ -405,6 +407,7 @@ export default async function AdminJobProfitTrackerPage({
             address: r.job.address_text,
             saleDate: r.job.sale_date,
             saleAmount: r.saleAmount,
+            billedSoFar: r.billedSoFar,
             financeCost: r.financeCost,
             commissionable: r.commissionableAmount,
             materials: r.materials,

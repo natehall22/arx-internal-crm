@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { orgFeatureChecker } from '@/lib/org-features-server'
 import { getOrgEmailBlastSettings } from '@/lib/admin-email-blasts'
 import { ensureCheckups } from '@/lib/checkups'
+import { retryDueCommissionChanges } from '@/lib/payroll-commission-change'
 import { ensureServiceVisits } from '@/lib/service-plans-db'
 import { autoCloseForgotten } from '@/lib/time-tracking-db'
 import { getBlastSendDate, runClaimedBlast, type BlastResult } from '@/lib/email-blast-ledger'
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
   const canvassingOn = orgFeatureChecker('canvassing')
   const servicePlansOn = orgFeatureChecker('servicePlans')
   const timeTrackingOn = orgFeatureChecker('timeTracking')
+  const hourlyBillingOn = orgFeatureChecker('hourlyBilling')
   for (const org of orgRows || []) {
     const orgId = org.id
     // Each company's morning is its own: 5:30am in `orgs.timezone`, and the once-a-day claim is keyed to
@@ -81,6 +83,13 @@ export async function GET(request: NextRequest) {
     if (await servicePlansOn(orgId)) {
       await ensureServiceVisits(admin, orgId, { now, timeZone: org.timezone }).catch((error) => {
         console.error(`[cron/morning-update] service visits failed for org ${orgId}:`, error)
+      })
+    }
+    // Commission changes that couldn't be written yet (an approval was running, or the new pay week isn't on): retried
+    // every morning (lib/payroll-commission-change.ts; nothing waiting = one empty read).
+    if (await hourlyBillingOn(orgId)) {
+      await retryDueCommissionChanges(admin, orgId).catch((error) => {
+        console.error(`[cron/morning-update] commission change retry failed for org ${orgId}:`, error)
       })
     }
     // Clocks left running overnight are stopped at the last tap and flagged before anyone's morning (time clock companies).

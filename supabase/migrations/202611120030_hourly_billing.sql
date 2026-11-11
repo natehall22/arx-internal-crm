@@ -280,6 +280,16 @@ exception when duplicate_object then null; end $$;
 create index if not exists idx_payroll_adjustments_commission_change on public.payroll_adjustments (job_id, user_id)
   where kind = 'commission_change' and status <> 'void';
 
+-- A job whose commission change could not be written yet (an approval was mid-claim, or the new pay week is not switched
+-- on): retried by the morning cron and the Pay this week screen; owners see "N commission changes waiting".
+alter table public.production_jobs
+  add column if not exists commission_change_due_at timestamptz null,
+  add column if not exists commission_change_wait text null;
+do $$ begin
+  alter table public.production_jobs add constraint production_jobs_commission_change_wait_check
+    check (commission_change_wait is null or commission_change_wait in ('approval_running', 'pay_week_off'));
+exception when duplicate_object then null; end $$;
+
 -- p_lines: [{ user_id, amount, base_delta, reason, expected_prior }] — expected_prior = the sum of base_delta of this
 -- person's live commission_change lines on the job when the app computed the line. Returns the number of lines written.
 create or replace function public.payroll_add_commission_changes(
