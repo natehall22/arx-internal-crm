@@ -14,7 +14,7 @@ import { computeProposalTotals, isPercentageLineItem } from '@/lib/proposal-pric
 import {
   LEGACY_MANUAL_DEFAULT_PERCENT,
   combinedTaxPercent,
-  defaultTaxRates,
+  initialQuoteTaxRateIds,
   legacyTaxLabel,
   readStoredTaxLines,
   taxLineLabel,
@@ -247,15 +247,17 @@ export default function ProposalBuilderPage() {
       setSalesTax(companyTax)
       setCustomerTaxExempt(data.customerTaxExempt === true)
       const savedTaxLines = data.existingProposal ? readStoredTaxLines(data.existingProposal.proposal?.tax_lines) : null
-      setTaxRateIds(
-        data.existingProposal
-          ? savedTaxLines && companyTax
-            ? savedTaxLines.map((l) => l.id).filter((id): id is string => !!id)
-            : null
-          : companyTax
-            ? defaultTaxRates(companyTax).map((r) => r.id)
-            : null
-      )
+      const initialTax = initialQuoteTaxRateIds({
+        settings: companyTax,
+        existing: !!data.existingProposal,
+        savedTaxLines,
+        savedExempt: data.existingProposal?.proposal?.tax_exempt === true,
+        customerExempt: data.customerTaxExempt === true,
+      })
+      if (initialTax.exemptionLifted) {
+        toast('This customer is no longer tax exempt — the company’s sales tax rates were added. Check them before saving.')
+      }
+      setTaxRateIds(initialTax.ids)
       setPricebookItems(data.pricebookItems || [])
       setAdders(data.adders || [])
       setTemplates(data.templates || [])

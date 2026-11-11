@@ -100,14 +100,8 @@ export async function saveSalesTaxSettings(
   if ('error' in parsed) return { error: parsed.error }
   // Set-up tax writes per-rate snapshots on quotes and invoices: refuse until those columns exist, so a company never
   // switches to rates while documents could only store the legacy single rate.
-  for (const [table, column] of [['proposals', 'tax_lines'], ['job_invoices', 'tax_lines']] as const) {
-    const probe = table === 'proposals'
-      ? await client.from('proposals').select(column).eq('org_id', orgId).limit(1)
-      // org-scope-ok: column probe only (limit 0 rows read); job_invoices.org_id may not exist before 202611100040
-      : await client.from('job_invoices').select(column).limit(0)
-    if (isMissingColumn(probe.error, column)) {
-      return { error: 'Sales tax needs a database update first (migration 202611110040). Nothing was changed.' }
-    }
+  if (!(await salesTaxColumnsReady(client))) {
+    return { error: 'Sales tax needs a database update first (migration 202611110040). Nothing was changed.' }
   }
   const { error } = await mergeOrgSettings(client, orgId, { ...parsed.value }, { path: [SALES_TAX_SETTINGS_KEY] })
   if (error) return { error }
@@ -165,4 +159,18 @@ export async function proposalSalesTaxFields(
     taxable_subtotal: t.taxableCents / 100,
     tax_exempt: t.exempt,
   }
+}
+
+/**
+ * Has migration 202611110040 been applied (the snapshot columns on proposals and job_invoices)? The one check used by
+ * the owner save and the company seed. Reads no rows. Any error other than "column missing" is thrown.
+ */
+export async function salesTaxColumnsReady(client: SupabaseClient): Promise<boolean> {
+  for (const table of ['proposals', 'job_invoices'] as const) {
+    // org-scope-ok: column probe only — limit(0) reads no rows of any company
+    const { error } = await client.from(table).select('tax_lines').limit(0)
+    if (isMissingColumn(error, 'tax_lines')) return false
+    if (error) throw new Error(`sales tax: check ${table}.tax_lines: ${error.message}`)
+  }
+  return true
 }

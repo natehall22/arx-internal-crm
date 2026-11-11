@@ -208,20 +208,33 @@ export async function createInvoiceForJob(
 }
 
 /**
- * Sum of non-void invoice totals for a job (used for remaining-balance checks).
+ * Sum of non-void invoices for a job, BEFORE invoice sales tax (used for remaining-balance checks).
+ * Rule (lib/sales-tax.ts): `sale_amount` is the signed contract (+ COs) and never includes tax an invoice adds on
+ * taxable lines; that tax is billed on top. So contract-balance checks compare pre-tax amounts: a taxed invoice uses
+ * up only its pre-tax amount of the contract. Companies with no invoice tax get the old total sum.
  */
 export async function getTotalInvoicedCentsForJob(
   supabase: SupabaseClient,
   jobId: string
 ): Promise<number> {
   // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
-  const { data: rows } = await supabase
+  const first = await supabase
     .from('job_invoices')
-    .select('total_cents')
+    .select('total_cents, tax_cents')
     .eq('job_id', jobId)
     .neq('status', 'void')
+  let rows = first.data as Array<{ total_cents: number | null; tax_cents?: number | null }> | null
+  if (isMissingColumn(first.error, 'tax_cents')) {
+    // org-scope-ok: same job as above; before migration 202611110040 there is no invoice tax
+    const { data } = await supabase.from('job_invoices').select('total_cents').eq('job_id', jobId).neq('status', 'void')
+    rows = data as Array<{ total_cents: number | null }> | null
+  }
+  return invoicedPreTaxCents(rows || [])
+}
 
-  return (rows || []).reduce((sum, r) => sum + (r.total_cents || 0), 0)
+/** Pure: pre-tax invoiced cents (total − invoice tax) over non-void invoices already filtered by the caller. */
+export function invoicedPreTaxCents(rows: Array<{ total_cents: number | null; tax_cents?: number | null }>): number {
+  return rows.reduce((sum, r) => sum + (r.total_cents || 0) - (r.tax_cents || 0), 0)
 }
 
 /**

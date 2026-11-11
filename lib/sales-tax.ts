@@ -270,3 +270,23 @@ export function parseTaxExemptionPatch(input: unknown): { value: TaxExemptionPat
     },
   }
 }
+
+/**
+ * Which rates a quote opens with in the builder. `ids: null` = legacy single typed rate (company not set up, or an
+ * older quote without a snapshot). A quote saved while the customer was exempt has no rates in its snapshot; if the
+ * customer is no longer exempt it opens with the company's current default rates (`exemptionLifted`), never $0.
+ */
+export function initialQuoteTaxRateIds(input: {
+  settings: SalesTaxSettings | null
+  existing: boolean
+  savedTaxLines: TaxLine[] | null
+  savedExempt: boolean
+  customerExempt: boolean
+}): { ids: string[] | null; exemptionLifted: boolean } {
+  const defaults = defaultTaxRates(input.settings).map((r) => r.id)
+  if (!input.settings) return { ids: null, exemptionLifted: false }
+  if (!input.existing) return { ids: defaults, exemptionLifted: false }
+  if (!input.savedTaxLines) return { ids: null, exemptionLifted: false }
+  if (input.savedExempt && !input.customerExempt) return { ids: defaults, exemptionLifted: defaults.length > 0 }
+  return { ids: input.savedTaxLines.map((l) => l.id).filter((id): id is string => !!id), exemptionLifted: false }
+}
