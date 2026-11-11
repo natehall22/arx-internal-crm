@@ -218,7 +218,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     if (others.length) {
       throw new SeedStop(`The web address "${input.org.subdomain}" already belongs to org ${others.map((o) => o.id).join(', ')}; nothing was written.`)
     }
-    // A former address of another company stays theirs (its old links redirect there; migration 202611100090).
+    // A former address of another company stays theirs (its old links redirect there; migration 202611100095).
     // org-scope-ok: deliberately across companies — is this name any OTHER company's former address?
     const aliases = await client.from('org_subdomain_aliases').select('org_id').eq('subdomain', input.org.subdomain)
     if (aliases.error && !isMissingTable(aliases.error)) throw new Error(`read former company addresses: ${aliases.error.message ?? aliases.error.code}`)

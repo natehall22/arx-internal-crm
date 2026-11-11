@@ -225,7 +225,7 @@ function putAlias(map: Map<string, AliasEntry>, max: number, key: string, entry:
 
 /**
  * A name that is no company's CURRENT address may be one a company used before a rename
- * (`org_subdomain_aliases`, migration 202611100090). Middleware asks this only after `lookupCompanyBySubdomain` said
+ * (`org_subdomain_aliases`, migration 202611100095). Middleware asks this only after `lookupCompanyBySubdomain` said
  * not_found, and answers `moved` with a 308 to the same path on the current address — so links already sent on the
  * old address (/r, /crew, signing, reviews, staff emails) keep working while new links use the current name. Never
  * used for sign-in: an alias host is not a company host. Function not deployed yet (PGRST202/404) = not_found.
@@ -267,7 +267,7 @@ async function fetchAlias(sub: string): Promise<AliasLookup> {
       body: JSON.stringify({ p_subdomain: sub }),
       cache: 'no-store',
     })
-    if (res.status === 404) return { status: 'not_found' } // migration 202611100090 not applied: no aliases exist
+    if (res.status === 404) return { status: 'not_found' } // migration 202611100095 not applied: no aliases exist
     if (!res.ok) {
       console.error('company-host: alias lookup failed', res.status)
       return { status: 'error' }

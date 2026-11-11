@@ -70,7 +70,7 @@ At least **60 days**, and until all of these are true:
 
 ## Before setting `APP_BASE_DOMAIN` (company addresses on)
 - **Every active company needs a web name first** (`orgs.subdomain`; ARX e.g. `arx`). Apply migrations 202611100070 and
-  202611100090, then `update public.orgs set subdomain = '<name>' where id = '<org id>'` for each company with an active user.
+  202611100095, then `update public.orgs set subdomain = '<name>' where id = '<org id>'` for each company with an active user.
 - A company with no web name still gets links on the legacy `NEXT_PUBLIC_APP_URL` address, with a warning in the logs
   ("has no web name"). If `NEXT_PUBLIC_APP_URL` is itself under `APP_BASE_DOMAIN` (the bare domain or a company address),
   that company gets **no link at all** (contract/report/review/reset sends refuse with "app address is not configured";
@@ -79,7 +79,7 @@ At least **60 days**, and until all of these are true:
 - Check: `select id, name from orgs o where subdomain is null and exists (select 1 from users u where u.org_id = o.id and u.active)` returns nothing.
 
 ## Renaming a company's web address
-Change `orgs.subdomain`. The old name is kept automatically (`org_subdomain_aliases`, migration 202611100090) and
+Change `orgs.subdomain`. The old name is kept automatically (`org_subdomain_aliases`, migration 202611100095) and
 every request on it gets a 308 to the same path on the new address, so links already sent (reports `/r`, crew `/crew`,
 signing pages, review links, staff emails) keep working. New links use the new name. A former name can never be taken
 by another company; the same company may take it back. Staff sign in again on the new address (cookies are per host).
