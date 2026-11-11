@@ -14,7 +14,7 @@ import { reinstateCancelledJob } from '@/lib/job-cancellation'
 import { applyContractSignedStatuses } from '@/lib/job-status-events'
 import { depositRequiredFraction } from '@/lib/job-pipeline'
 import { ensureContractPdf } from '@/lib/contracts/finalize-pdf'
-import { findBySigningToken } from '@/lib/signing-tokens'
+import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
 import {
   cleanInitials,
   cleanPreferredContact,
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Choose phone or email as your preferred contact' }, { status: 400 })
     }
 
-    const contract = await findBySigningToken(supabase, 'contract', token)
+    const contract = await findBySigningTokenOnThisHost(supabase, 'contract', token)
 
     if (!contract) {
       return NextResponse.json(

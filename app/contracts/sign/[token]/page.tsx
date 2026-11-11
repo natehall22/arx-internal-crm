@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { createServiceClient } from '@/lib/supabase/service'
 import { customerSignedDocPath } from '@/lib/files/files-object'
 import { getDocumentBrand } from '@/lib/org-brand'
-import { findBySigningToken } from '@/lib/signing-tokens'
+import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
 import { noticeOfCancellation } from '@/lib/contracts/terms'
 import CustomerSigningForm from './CustomerSigningForm'
 
@@ -14,7 +14,7 @@ export default async function ContractSigningPage({
 }) {
   const supabase = createServiceClient()
 
-  const contract = await findBySigningToken(supabase, 'contract', params.token)
+  const contract = await findBySigningTokenOnThisHost(supabase, 'contract', params.token)
 
   // Company identity from the contract's org (no contract → the default identity).
   const brand = await getDocumentBrand(supabase, contract?.org_id)
