@@ -106,6 +106,24 @@ import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
 import type { PayPageView } from '@/lib/online-payments/public'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
+import CustomerMessagesSettings from '@/components/admin/CustomerMessagesSettings'
+import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
+import { MESSAGE_KINDS, describeMessages, quietHoursPhrase, readCustomerMessageSettings, sampleMessages } from '@/lib/customer-messages'
+
+const HARNESS_MESSAGE_SETTINGS = readCustomerMessageSettings({ visitReminder: true, visitWindow: 'between 8 AM and 5 PM', visitDone: true, invoiceReminder: true })
+const HARNESS_MESSAGE_SAMPLES = sampleMessages(
+  { name: 'Precision Maintenance', phone: '(850) 443-0000', email: 'office@precision.test', website: 'precision.test', addressLine: '12 Main St, Crawfordville, FL 32327' },
+  HARNESS_MESSAGE_SETTINGS,
+  '2026-11-11',
+  'Quote'
+)
+const HARNESS_MESSAGES_VIEW = {
+  settings: HARNESS_MESSAGE_SETTINGS,
+  describe: describeMessages(HARNESS_MESSAGE_SETTINGS),
+  quiet: quietHoursPhrase(HARNESS_MESSAGE_SETTINGS),
+  blockers: ['The database needs an update before any email can go out (migration 202611120050).'],
+  samples: Object.fromEntries(MESSAGE_KINDS.map((k) => [k, { subject: HARNESS_MESSAGE_SAMPLES[k].subject, html: HARNESS_MESSAGE_SAMPLES[k].html }])) as Record<(typeof MESSAGE_KINDS)[number], { subject: string; html: string }>,
+}
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
@@ -265,7 +283,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, onlinePayments: false, aiConnector: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, onlinePayments: false, customerMessages: false, aiConnector: false }} />
         </div>
       )
     case 'org-profile':
@@ -451,6 +469,30 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <HoursToBill />
     case 'job-hourly':
       return <div className="mx-auto max-w-md p-4"><JobHourlyCard jobId="dddddddd-0000-4000-8000-000000000001" /></div>
+    case 'customer-messages-settings':
+      return <div className="mx-auto max-w-3xl p-4"><CustomerMessagesSettings initial={HARNESS_MESSAGES_VIEW} /></div>
+    case 'customer-messages-card':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <CustomerMessagesCard
+            customerId="c1"
+            canEdit
+            initial={{
+              off: false,
+              offAt: null,
+              offBy: null,
+              email: 'jane.smith.long.address@example.com',
+              suppressed: null,
+              recent: [
+                { id: 'm1', kind: 'visit_reminder', status: 'sent', at: '2026-11-10T13:30:00Z', reason: null, subject: 'Reminder: we’ll see you tomorrow' },
+                { id: 'm2', kind: 'invoice_reminder', status: 'skipped', at: '2026-11-09T13:30:00Z', reason: 'daily_limit', subject: null },
+              ],
+            }}
+          />
+        </div>
+      )
+    case 'crew-day-on-the-way':
+      return <CrewDayList token="harness-token-harness-token-harness-4" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} onTheWay />
     case 'hourly-settings':
       return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
     case 'customer-invoices':

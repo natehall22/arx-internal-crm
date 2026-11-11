@@ -67,6 +67,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Customers pay invoices and deposits by card or bank from a link, save a card for automatic payments on service plans, and payments are recorded on their own. Money goes to your own Stripe account.',
     defaultOn: false,
   },
+  customerMessages: {
+    label: 'Automatic customer emails',
+    description: 'Visit reminders, “on the way” and “done” emails, quote follow-ups and invoice reminders, sent on their own. Each one is turned on separately in Settings → Customer messages.',
+    defaultOn: false,
+  },
   aiConnector: {
     label: 'AI connector (Claude, ChatGPT)',
     description: 'People can connect their own AI app to look things up in the CRM as themselves. Read-only for now; the AI sees only what that person can see, and every request is logged.',

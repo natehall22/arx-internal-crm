@@ -75,23 +75,28 @@ export function proposalWaitingSince(p: Pick<UnsignedRow, 'sent_at' | 'pdf_gener
   return p.sent_at || p.pdf_generated_at || p.created_at
 }
 
+/** A waiting proposal as `listUnsignedProposals` returns it: `sent_at` = when it started waiting (`proposalWaitingSince`). */
+export type UnsignedProposal = ProposalRow & { sent_at: string; opportunity_id: string | null; customer_email: string | null }
+
 /**
  * The one definition of "a proposal waiting for a signature": status 'sent', and its deal not already won or lost
  * (a won/lost deal's other proposals keep their old 'sent' label). Oldest first. `olderThan` keeps only those waiting
- * since before that moment. Returns the capped rows plus the true count.
+ * since before that moment. Every one (up to 1,000) — the Today card caps them (`loadUnsignedProposals`); quote
+ * follow-up emails (lib/customer-messages-db.ts) read them all.
  */
-export async function loadUnsignedProposals(
+export async function listUnsignedProposals(
   admin: SupabaseClient,
   orgId: string,
-  opts: { createdBy?: string; olderThan?: Date } = {}
-): Promise<{ rows: ProposalRow[]; count: number }> {
+  opts: { createdBy?: string; olderThan?: Date; ids?: string[] } = {}
+): Promise<UnsignedProposal[]> {
   let q = admin
     .from('proposals')
-    .select('id, customer_name, proposal_number, total, sent_at, opportunity_id, pdf_generated_at, created_at')
+    .select('id, customer_name, customer_email, proposal_number, total, sent_at, opportunity_id, pdf_generated_at, created_at')
     .eq('org_id', orgId)
     .eq('status', 'sent')
   if (opts.createdBy) q = q.eq('created_by', opts.createdBy)
-  const rows = (ok(await q.order('created_at', { ascending: true }).limit(1000)).data ?? []) as UnsignedRow[]
+  if (opts.ids) q = q.in('id', opts.ids)
+  const rows = (ok(await q.order('created_at', { ascending: true }).limit(1000)).data ?? []) as Array<UnsignedRow & { customer_email: string | null }>
   const oppIds = Array.from(new Set(rows.map((r) => r.opportunity_id).filter((v): v is string => Boolean(v))))
   const closed = new Set<string>()
   for (let i = 0; i < oppIds.length; i += 200) {
@@ -101,11 +106,28 @@ export async function loadUnsignedProposals(
     for (const o of (opps.data ?? []) as Array<{ id: string }>) closed.add(o.id)
   }
   const cutoff = opts.olderThan?.getTime()
-  const open = rows
+  return rows
     .filter((r) => !(r.opportunity_id && closed.has(r.opportunity_id)))
-    .map((r) => ({ ...r, sent_at: proposalWaitingSince(r) }))
+    .map((r) => ({
+      id: r.id,
+      customer_name: r.customer_name,
+      customer_email: r.customer_email ?? null,
+      proposal_number: r.proposal_number,
+      total: r.total,
+      opportunity_id: r.opportunity_id,
+      sent_at: proposalWaitingSince(r),
+    }))
     .filter((r) => cutoff == null || new Date(r.sent_at).getTime() < cutoff)
     .sort((a, b) => a.sent_at.localeCompare(b.sent_at))
+}
+
+/** The Today card / morning email cut of `listUnsignedProposals`: the first LIST_CAP rows plus the true count. */
+export async function loadUnsignedProposals(
+  admin: SupabaseClient,
+  orgId: string,
+  opts: { createdBy?: string; olderThan?: Date } = {}
+): Promise<{ rows: ProposalRow[]; count: number }> {
+  const open = await listUnsignedProposals(admin, orgId, opts)
   return { rows: open.slice(0, LIST_CAP), count: open.length }
 }
 /** `money` = the viewer has reports:financials; without it the proposal total is not shown. */

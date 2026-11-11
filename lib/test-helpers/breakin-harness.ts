@@ -134,12 +134,18 @@ export function attackerSeed(table: string, hasOrgId = true): Row {
   // A live pay link (lib/online-payments/links.ts: hashed token, unexpired) and a connected Stripe account that can take
   // charges, so B's pay page and the billing routes get past "not set up" to B's own invoice.
   if (table === 'payment_links') Object.assign(r, { token_hash: createHash('sha256').update(BRAVO_PUBLIC_TOKEN).digest('hex'), kind: 'invoice', revoked_at: null, expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString() })
+  // A SENT customer message whose link token is B's public token (lib/customer-messages-db.ts findMessageByToken: hashed
+  // per-message token; /m/<token> and /api/m/<token>/unsubscribe only open a sent one) — a "done" visit email, so the
+  // photos page and the unsubscribe reach B's own message, customer and visit.
+  if (table === 'customer_messages') Object.assign(r, { link_token_hash: createHash('sha256').update(BRAVO_PUBLIC_TOKEN).digest('hex'), status: 'sent', kind: 'visit_done', channel: 'email', to_address: 'customer@bravo.test', sent_at: new Date().toISOString(), refs: { visitId: BRAVO_ROW_ID }, customer_id: BRAVO_ROW_ID })
   if (table === 'payment_accounts') Object.assign(r, { account_id: 'acct_BRAVO', status: 'active', charges_enabled: true, livemode: false, disconnected_at: null })
   Object.assign(r, { user_id: ATTACKER_ID, owner_user_id: ATTACKER_ID, created_at: '2026-11-02T12:00:00.000Z', updated_at: '2026-11-02T12:00:00.000Z' })
   if (hasOrgId) r.org_id = ORG_B
   else r[OWNER_TAG] = ORG_B
   return r
 }
+
+const ALL_CUSTOMER_MESSAGES_ON = { visitReminder: true, onTheWay: true, visitDone: true, quoteFollowUp: true, invoiceReminder: true }
 
 /** Every default-OFF feature switch turned on (lib/org-features.ts) — new modules join automatically. */
 const DEFAULT_OFF_MODULES_ON = Object.fromEntries(ORG_FEATURE_KEYS.filter((k) => !featureDefaultOn(k)).map((k) => [k, true]))
@@ -154,8 +160,10 @@ export function seedTables(tables: string[], orgTables: Set<string>, attackerRol
   seed.orgs = [
     // Default-OFF modules are ON for both companies, so their routes are attacked past the feature gate (BOTH: a route
     // that checks the record's company switch must not be masked by A's being off).
-    { ...victimRow('orgs'), id: ORG_A, org_id: undefined, settings: { brand: { shortName: MARK }, features: DEFAULT_OFF_MODULES_ON }, subdomain: 'alpha' },
-    { id: ORG_B, name: 'Bravo Co', settings: { features: DEFAULT_OFF_MODULES_ON }, subdomain: 'bravo', timezone: 'America/New_York' },
+    // Every automatic customer message on for both (lib/customer-messages.ts), so the crew "On my way" and the sender reach
+    // the visit / customer instead of stopping at "turned off".
+    { ...victimRow('orgs'), id: ORG_A, org_id: undefined, settings: { brand: { shortName: MARK }, features: DEFAULT_OFF_MODULES_ON, customerMessages: ALL_CUSTOMER_MESSAGES_ON }, subdomain: 'alpha' },
+    { id: ORG_B, name: 'Bravo Co', email: 'office@bravo.test', address: '1 Bravo Way', settings: { features: DEFAULT_OFF_MODULES_ON, customerMessages: ALL_CUSTOMER_MESSAGES_ON }, subdomain: 'bravo', timezone: 'America/New_York' },
   ]
   seed.users = [
     { ...victimRow('users'), role: 'admin', is_super_admin: true, active: true },

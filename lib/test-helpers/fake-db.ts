@@ -15,6 +15,8 @@ export function createFakeDb(
     onRpc?: (name: string, args: Record<string, unknown>) => void
     /** Called with the rows every select returned (before range/limit). */
     onSelect?: (table: string, rows: Row[]) => void
+    /** Unique keys besides `id` (e.g. { customer_messages: [['org_id', 'message_key']] }): an insert hitting one fails 23505, as in Postgres. */
+    unique?: Record<string, string[][]>
   } = {}
 ) {
   const tables: Record<string, Row[]> = {}
@@ -56,6 +58,7 @@ export function createFakeDb(
     let payload: Row[] = []
     let patch: Row = {}
     let onConflict: string | null = null
+    let ignoreDuplicates = false
     let orderBy: Array<{ col: string; asc: boolean }> = []
     let lim: number | null = null
     let range: [number, number] | null = null
@@ -97,18 +100,23 @@ export function createFakeDb(
         // Postgres refuses an insert whose id already exists (duplicate key), it never overwrites.
         const dup = payload.find((p) => p.id != null && rows.some((r) => r.id === p.id))
         if (dup) return { data: null, error: { message: `duplicate key value violates unique constraint "${table}_pkey"`, code: '23505' }, count: null }
+        const uniq = opts.unique?.[table] ?? []
+        const clash = payload.some((p, i) => uniq.some((cols) => [...rows, ...payload.slice(0, i)].some((r) => cols.every((c) => r[c] === p[c]))))
+        if (clash) return { data: null, error: { message: `duplicate key value violates unique constraint on "${table}"`, code: '23505' }, count: null }
         data = payload.map((p) => ({ id: p.id ?? `gen-${autoId++}`, ...p }))
         rows.push(...data)
         writes.push({ table, op, rows: data })
       } else if (op === 'upsert') {
         const keys = (onConflict ?? 'id').split(',')
-        data = payload.map((p) => {
+        const upserted: Array<Row | null> = payload.map((p) => {
           const hit = rows.find((r) => keys.every((k) => r[k] === p[k]))
+          if (hit && ignoreDuplicates) return null
           if (hit) { Object.assign(hit, p); return hit }
           const n = { id: p.id ?? `gen-${autoId++}`, ...p }
           rows.push(n)
           return n
         })
+        data = upserted.filter((d): d is Row => d != null)
         writes.push({ table, op, rows: data.map((d) => ({ ...d })) })
       } else if (op === 'update') {
         data = rows.filter((r) => filters.every((f) => f(r)))
@@ -133,7 +141,7 @@ export function createFakeDb(
     const api: Record<string, unknown> = {
       select(cols = '*', o?: { count?: string; head?: boolean }) { if (op === 'select') selectCols = cols; head = !!o?.head; count = !!o?.count; return api },
       insert(p: Row | Row[]) { op = 'insert'; payload = Array.isArray(p) ? p : [p]; return api },
-      upsert(p: Row | Row[], o?: { onConflict?: string }) { op = 'upsert'; payload = Array.isArray(p) ? p : [p]; onConflict = o?.onConflict ?? null; return api },
+      upsert(p: Row | Row[], o?: { onConflict?: string; ignoreDuplicates?: boolean }) { op = 'upsert'; payload = Array.isArray(p) ? p : [p]; onConflict = o?.onConflict ?? null; ignoreDuplicates = !!o?.ignoreDuplicates; return api },
       update(p: Row) { op = 'update'; patch = p; return api },
       delete() { op = 'delete'; return api },
       // `rel.col` filters an embedded parent (e.g. `.eq('production_jobs.org_id', org)` with `production_jobs!inner(...)`).
