@@ -50,6 +50,8 @@ ALTER TABLE job_payments ADD COLUMN funding_status text; -- 121_weekly_sales_pay
 \i supabase/migrations/202611110030_service_plans.sql
 \i supabase/migrations/202611110040_sales_tax.sql
 \i supabase/migrations/202611110060_customer_invoices.sql
+CREATE TABLE payroll_periods (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs(id), status text NOT NULL DEFAULT 'open', cutoff_at timestamptz);
+\i supabase/migrations/202610250010_payroll_adjustments.sql
 \i supabase/migrations/202611120030_hourly_billing.sql
 -- Idempotent: a second apply changes nothing and does not fail.
 \i supabase/migrations/202611120030_hourly_billing.sql
@@ -196,6 +198,30 @@ BEGIN
   ASSERT NOT has_table_privilege('authenticated', 'billed_time_days', 'SELECT'), 'T9 no browser reads';
   ASSERT NOT has_function_privilege('authenticated', 'approve_billed_time(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb)', 'EXECUTE'), 'T9 no browser calls';
   ASSERT NOT has_function_privilege('anon', 'unapprove_billed_time(uuid, uuid, uuid, text)', 'EXECUTE'), 'T9 no anon calls';
+
+  -- T10 commission change lines: written on an OPEN week with the base they cover; a stale "covered so far" is refused
+  DECLARE p1 uuid; p2 uuid; u2 uuid := '90000000-0000-0000-0000-000000000002';
+  BEGIN
+    INSERT INTO users VALUES (u2, o1);
+    INSERT INTO payroll_periods (org_id, status, cutoff_at) VALUES (o1, 'paid', '2026-11-08') RETURNING id INTO p1;
+    INSERT INTO payroll_periods (org_id, status, cutoff_at) VALUES (o1, 'open', '2026-11-15') RETURNING id INTO p2;
+    n := payroll_add_commission_changes(o1, j1, p2, p1, u1, jsonb_build_array(
+      jsonb_build_object('user_id', u1, 'amount', 210, 'base_delta', 3000, 'reason', 'Commission change: +$3,000 × 7%', 'expected_prior', 0),
+      jsonb_build_object('user_id', u2, 'amount', 150, 'base_delta', 3000, 'reason', 'Commission change: +$3,000 × 5%', 'expected_prior', 0)));
+    ASSERT n = 2, 'T10 two lines';
+    ASSERT (SELECT sum(amount) FROM payroll_adjustments WHERE job_id = j1 AND kind = 'commission_change' AND payroll_period_id = p2) = 360, 'T10 on the open week';
+    ASSERT (SELECT source_period_id FROM payroll_adjustments WHERE user_id = u1 AND kind = 'commission_change') = p1, 'T10 source week';
+    -- the same run again (stale expected_prior 0) is refused: never paid twice
+    ok := false; BEGIN PERFORM payroll_add_commission_changes(o1, j1, p2, p1, u1, jsonb_build_array(jsonb_build_object('user_id', u1, 'amount', 210, 'base_delta', 3000, 'reason', 'x', 'expected_prior', 0))); EXCEPTION WHEN serialization_failure THEN ok := true; END; ASSERT ok, 'T10 stale refused';
+    -- a clawback with the right prior is fine (negative amount)
+    n := payroll_add_commission_changes(o1, j1, p2, p1, u1, jsonb_build_array(jsonb_build_object('user_id', u1, 'amount', -210, 'base_delta', -3000, 'reason', 'Commission change: −$3,000 × 7%', 'expected_prior', 3000)));
+    ASSERT (SELECT sum(amount) FROM payroll_adjustments WHERE user_id = u1 AND kind = 'commission_change') = 0, 'T10 clawback';
+    -- a paid week can't take one; another company's job / person refused; a zero base change refused by the shape check
+    ok := false; BEGIN PERFORM payroll_add_commission_changes(o1, j1, p1, p1, u1, jsonb_build_array(jsonb_build_object('user_id', u1, 'amount', 1, 'base_delta', 1, 'reason', 'x', 'expected_prior', 0))); EXCEPTION WHEN SQLSTATE '55006' THEN ok := true; END; ASSERT ok, 'T10 paid week refused';
+    ok := false; BEGIN PERFORM payroll_add_commission_changes(o2, j1, p2, p1, u1, jsonb_build_array(jsonb_build_object('user_id', u1, 'amount', 1, 'base_delta', 1, 'reason', 'x', 'expected_prior', 0))); EXCEPTION WHEN no_data_found THEN ok := true; END; ASSERT ok, 'T10 other company';
+    ok := false; BEGIN PERFORM payroll_add_commission_changes(o1, j1, p2, p1, u1, jsonb_build_array(jsonb_build_object('user_id', u2, 'amount', 1, 'base_delta', 0, 'reason', 'x', 'expected_prior', 3000))); EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T10 zero base change';
+    ASSERT NOT has_function_privilege('authenticated', 'payroll_add_commission_changes(uuid, uuid, uuid, uuid, uuid, jsonb)', 'EXECUTE'), 'T10 service role only';
+  END;
 
   RAISE NOTICE 'REPORT: all assertions passed';
 END $t$;
