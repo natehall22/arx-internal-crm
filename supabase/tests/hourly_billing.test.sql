@@ -220,6 +220,9 @@ BEGIN
     ok := false; BEGIN PERFORM payroll_add_commission_changes(o1, j1, p1, p1, u1, jsonb_build_array(jsonb_build_object('user_id', u1, 'amount', 1, 'base_delta', 1, 'reason', 'x', 'expected_prior', 0))); EXCEPTION WHEN SQLSTATE '55006' THEN ok := true; END; ASSERT ok, 'T10 paid week refused';
     ok := false; BEGIN PERFORM payroll_add_commission_changes(o2, j1, p2, p1, u1, jsonb_build_array(jsonb_build_object('user_id', u1, 'amount', 1, 'base_delta', 1, 'reason', 'x', 'expected_prior', 0))); EXCEPTION WHEN no_data_found THEN ok := true; END; ASSERT ok, 'T10 other company';
     ok := false; BEGIN PERFORM payroll_add_commission_changes(o1, j1, p2, p1, u1, jsonb_build_array(jsonb_build_object('user_id', u2, 'amount', 1, 'base_delta', 0, 'reason', 'x', 'expected_prior', 3000))); EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T10 zero base change';
+    -- waiting marks: only the two known reasons
+    UPDATE production_jobs SET commission_change_due_at = now(), commission_change_wait = 'pay_week_off' WHERE id = j1;
+    ok := false; BEGIN UPDATE production_jobs SET commission_change_wait = 'later' WHERE id = j1; EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T10 wait reason checked';
     ASSERT NOT has_function_privilege('authenticated', 'payroll_add_commission_changes(uuid, uuid, uuid, uuid, uuid, jsonb)', 'EXECUTE'), 'T10 service role only';
   END;
 
