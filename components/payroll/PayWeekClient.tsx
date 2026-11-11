@@ -18,6 +18,7 @@ import type { PayWeek as PayWeekData, PayWeekLine, PayWeekNeed, PayWeekPerson } 
 
 import JobSplitSheet from './JobSplitSheet'
 import PayWeekScheduleSheet from './PayWeekScheduleSheet'
+import { AdvancesSection, ExportButtons, PaySheetButton } from './PayWeekExtras'
 
 /** What GET pay-week returns: the week plus what this viewer may do (only owners approve or change the pay week). */
 type PayWeek = PayWeekData & { viewer?: { canApprove: boolean; canEditSchedule: boolean } }
@@ -160,6 +161,8 @@ export default function PayWeekClient() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="secondary" size="sm"><a href={csvHref}>Download CSV</a></Button>
+          <PaySheetButton periodId={week.period.id} draft={draft} />
+          {!draft ? <ExportButtons periodId={week.period.id} canEditCodes={!!week.viewer?.canEditSchedule} /> : null}
           <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>How this is calculated</Button>
         </div>
       </header>
@@ -262,6 +265,8 @@ export default function PayWeekClient() {
           </div>
         </section>
       ) : null}
+
+      <AdvancesSection advances={week.advances ?? []} directory={week.directory} canEdit={!!week.viewer?.canApprove} draft={draft} onChanged={load} />
 
       <div>
         <Button variant="secondary" onClick={() => setFixing(true)}>Fix a mistake</Button>

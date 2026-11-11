@@ -110,6 +110,16 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
       else tables.payroll_week_minimums.push({ id: id('min'), org_id: orgId, payroll_period_id: periodId, user_id: m.user_id, amount: r2(m.amount), detail: m.detail, met: null })
     }
 
+    // Advance recoveries (SQL: delete the week's pending lines, insert from the plan, guard against over-recovery).
+    tables.payroll_advances ??= []
+    tables.payroll_adjustments = tables.payroll_adjustments.filter((x) => !(x.org_id === orgId && x.payroll_period_id === periodId && x.kind === 'advance_recovery' && x.status === 'pending'))
+    for (const r of (args.p_plan as { advances?: Array<{ advance_id: string; amount: number; reason: string }> }).advances ?? []) {
+      const adv = tables.payroll_advances.find((x) => x.id === r.advance_id && x.org_id === orgId)
+      if (!adv || r.amount <= 0) continue
+      const taken = tables.payroll_adjustments.filter((x) => x.advance_id === adv.id && x.kind === 'advance_recovery' && x.status !== 'void').reduce((t, x) => t - num(x.amount), 0)
+      if (adv.status !== 'active' || r2(taken + r.amount) > num(adv.amount)) throw new Error('payroll_advance:over_recovered')
+      tables.payroll_adjustments.push({ id: id('adj'), org_id: orgId, payroll_period_id: periodId, user_id: adv.user_id, amount: -r2(r.amount), reason: r.reason, kind: 'advance_recovery', status: 'pending', advance_id: adv.id, created_by: args.p_actor_user_id })
+    }
     if (minimumUnanswered(tables, orgId, periodId).length) throw new Error('payroll_commit:minimum_unanswered')
     const totals = personTotals(tables, orgId, periodId)
     const total = r2(Array.from(totals.values()).reduce((s, v) => s + Math.max(0, v), 0))

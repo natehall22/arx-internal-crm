@@ -38,6 +38,8 @@ export function holdStatusClass(
 /** The statement's label for its "fixes" row: it also carries a weekly-minimum top-up when there is one. Pure. */
 export function adjustmentsLabel(adjustments: ReadonlyArray<{ kind: string }> | undefined): string {
   const hasMin = (adjustments ?? []).some((a) => a.kind === 'weekly_minimum')
-  const hasFix = (adjustments ?? []).some((a) => a.kind !== 'weekly_minimum')
-  return hasMin ? (hasFix ? 'Weekly minimum & fixes' : 'Weekly minimum') : 'Fixes'
+  const hasAdv = (adjustments ?? []).some((a) => a.kind === 'advance' || a.kind === 'advance_recovery')
+  const hasFix = (adjustments ?? []).some((a) => a.kind !== 'weekly_minimum' && a.kind !== 'advance' && a.kind !== 'advance_recovery')
+  const parts = [hasMin && 'Weekly minimum', hasAdv && 'Advances', hasFix && 'Fixes'].filter(Boolean) as string[]
+  return parts.length === 0 ? 'Fixes' : parts.join(' & ')
 }

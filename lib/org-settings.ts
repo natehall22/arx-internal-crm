@@ -57,6 +57,10 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('aiConnector' in set || remove.includes('aiConnector'))) return { error: 'aiConnector is saved at path [aiConnector]' }
   // Automatic customer messages are only ever written at path ['customerMessages'] (owners, /api/admin/customer-messages).
   if (path.length === 0 && ('customerMessages' in set || remove.includes('customerMessages'))) return { error: 'customerMessages is saved at path [customerMessages]' }
+  // The provider export codes are only ever written at path ['payrollExport'] (owners, /api/admin/payroll/pay-week/export).
+  if (path.length === 0 && ('payrollExport' in set || remove.includes('payrollExport'))) return { error: 'payrollExport is saved at path [payrollExport]' }
+  // The pay sheet's colors, labels and math switch are only ever written at path ['paySheet'] (owners).
+  if (path.length === 0 && ('paySheet' in set || remove.includes('paySheet'))) return { error: 'paySheet is saved at path [paySheet]' }
   // QuickBooks choices (account mapping, invoice mode, start date — later PRs) are only ever written at path ['quickbooks'] (owners).
   if (path.length === 0 && ('quickbooks' in set || remove.includes('quickbooks'))) return { error: 'quickbooks is saved at path [quickbooks]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }

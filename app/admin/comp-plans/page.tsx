@@ -518,6 +518,17 @@ export default function CompPlansPage() {
     }
 
     try {
+      // Edits to an existing plan show what the last 4 weeks would have paid, old vs new, before anything is saved.
+      if (editingPlan) {
+        const pr = await fetch('/api/admin/comp-plans/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(planData) })
+        const pv = pr.ok ? await pr.json().catch(() => null) : null
+        if (pv?.changed) {
+          const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+          const rows = (pv.people as Array<{ name: string; before: number; after: number; difference: number }>).slice(0, 10).map((x) => `${x.name}: ${money(x.before)} to ${money(x.after)} (${x.difference > 0 ? '+' : ''}${money(x.difference)})`)
+          const head = rows.length ? `Last 4 weeks, old plan vs new plan:\n\n${rows.join('\n')}${pv.people.length > 10 ? `\n…and ${pv.people.length - 10} more` : ''}` : 'Last 4 weeks: nobody\'s pay would have changed.'
+          if (!(await confirmDialog({ title: `${head}\n\n${pv.note}\n\nSave this change?` }))) return
+        }
+      }
       const saved = await submit()
       if (!saved) return
 

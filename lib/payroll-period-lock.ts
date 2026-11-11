@@ -31,7 +31,9 @@ export function buildCommitPlan(full: PayWeekFull) {
   const units = Array.from(full.units.entries()).map(([user_id, v]) => ({ user_id, amount: roundMoney(v.total), detail: v.detail }))
   // Weekly-minimum top-ups (migration 202611120010 stores them in payroll_week_minimums and counts them in the total).
   const minimums = full.minimums.map((m) => ({ user_id: m.userId, amount: roundMoney(m.amount), detail: m.detail }))
-  return { jobs, units, minimums }
+  // Advance recoveries (migration 202611140070): payroll_commit_week writes them as negative lines in the same transaction.
+  const advances = full.recoveries.map((r) => ({ advance_id: r.advanceId, amount: roundMoney(r.amount), reason: r.reason }))
+  return { jobs, units, minimums, advances }
 }
 
 /** Turns a Postgres exception raised by payroll_commit_week into the response the admin sees. Pure. */
@@ -41,7 +43,7 @@ export function mapCommitError(error: { message?: string; code?: string }, compu
   if (/payroll_commit:earlier_week_open/.test(msg)) {
     return { ok: false, status: 409, body: { error: "An earlier week still has fixes waiting on it. Approve that week first, so they aren't stranded.", code: 'earlier_week_open' } }
   }
-  if (/payroll_commit:(total_mismatch|job_changed)|payroll_already_paid/.test(msg)) {
+  if (/payroll_commit:(total_mismatch|job_changed)|payroll_already_paid|payroll_advance:/.test(msg)) {
     return { ok: false, status: 409, body: { error: 'The numbers changed while approving. Nothing was paid; review them again.', code: 'changed', total: computedTotal } }
   }
   if (/payroll_commit:minimum_unanswered/.test(msg)) return { ok: false, status: 409, body: { error: 'Answer the weekly minimum for everyone on this week first. Nothing was paid.', code: 'minimum_unanswered' } }
