@@ -75,6 +75,19 @@ added; not built.
   if unchanged. Everything else is kept and listed ("Changed here since the import", "Used by something added since").
 - One open import per company (draft / importing / undoing).
 
+## Review fixes (2026-11-12)
+- A re-run that changes nothing records no target for its items, so undoing the second import never deletes the first
+  import's rows (test: import → re-run → undo second → first intact, `lib/__tests__/jobber-import-db.test.ts`).
+- An invoice renamed `J-<n>` keeps that number on every re-run (found by Jobber id; the number is never written back).
+- Recurring jobs, quotes, one-off jobs and invoices are kept once across overlapping exports (listed); a client split
+  across Jobber's ~1,500-row files is one customer; a J-ID with no property part (`12_`) gets numbered properties.
+- Files are decoded as UTF-8, or Windows-1252 when Excel re-saved them; Excel damage (`8.50555E+09` phones — dropped —
+  and ZIPs that lost a leading zero) is listed on Check.
+- Check runs one file per request (date evidence, then each file read and stored, then the plan) with "N of M" progress.
+- Customer documents: only PDF, photos (JPG/PNG/GIF/WebP/HEIC), Word and CSV are accepted (server + picker); downloads are
+  signed links with `Content-Disposition: attachment`.
+- Signed out → 401, not an owner → 403; every action is in the cross-company break-in suite.
+
 ## Not built / open
 
 - The Jobber history card is on the customer page without deals (`/c/[customerId]`), not yet on the deal Overview.
