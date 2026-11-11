@@ -258,6 +258,8 @@ const SCREENS: Screen[] = [
       } })))
     },
     states: [{ name: 'preview', run: async (p) => { await p.getByLabel('Switch to').selectOption('lawn_landscape'); await p.waitForSelector('text=What changes with Lawn & landscape') } }] },
+  { name: 'sales-tax', path: '/dev-harness/sales-tax', ready: 'text=Rates stack' },
+  { name: 'tax-exemption', path: '/dev-harness/tax-exemption', ready: 'text=Tax exempt (no sales tax' },
   { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',
     states: [{ name: 'editing-brand', run: async (p) => { await p.getByLabel('Website').fill('example.test/roofing'); await p.waitForTimeout(200) } }] },
   { name: 'admin-settings-readonly', path: '/dev-harness/admin-settings-readonly', ready: 'text=Only an owner can change these' },

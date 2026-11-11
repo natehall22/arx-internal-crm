@@ -8,6 +8,8 @@ import { CHECKUPS_ASSIGNEE_KEY, CHECKUPS_SETTINGS_KEYS, canEditCheckupSettings, 
 import { JOB_CATCH_UP_SETTINGS_KEYS, canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { ORG_FEATURES_SETTINGS_KEY, parseOrgFeaturesPatch } from '@/lib/org-features'
+import { SALES_TAX_SETTINGS_KEY } from '@/lib/sales-tax'
+import { saveSalesTaxSettings } from '@/lib/sales-tax-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -107,6 +109,7 @@ export async function GET(request: NextRequest) {
       role: profile.role,
       // brand fields (settings.brand) are editable only by super admins; the page shows them read-only otherwise
       canEditBrand: isSuperAdmin(profile),
+      canEditSalesTax: isSuperAdmin(profile),
       org: org || {},
       settings: org?.settings || {},
     })
@@ -162,6 +165,14 @@ export async function PATCH(request: NextRequest) {
       const { error } = await mergeOrgSettings(adminClient, profile.org_id, parsed.set, { path: [ORG_FEATURES_SETTINGS_KEY] })
       if (error) return NextResponse.json({ error }, { status: 400 })
       return NextResponse.json({ success: true })
+    }
+
+    // Sales tax rates / default / on-off (lib/sales-tax.ts): owners (super admins) only, written per key under settings.salesTax.
+    if (type === 'salesTax') {
+      if (!profile?.org_id || !isSuperAdmin(profile)) return NextResponse.json({ error: 'Only an owner can change sales tax' }, { status: 403 })
+      const { error, value } = await saveSalesTaxSettings(adminClient, profile.org_id, data.salesTax)
+      if (error) return NextResponse.json({ error }, { status: 400 })
+      return NextResponse.json({ success: true, salesTax: value })
     }
 
     // Customer checkup schedule + who it's assigned to: same gate and per-key write as job catch-up.
@@ -272,7 +283,8 @@ export async function PATCH(request: NextRequest) {
       // managers — pre-existing; Known Redundancy #25 (should become an allow-list).
       // Feature switches (settings.features) are owner-only and written only by the `features` save above; the industry
       // profile (settings.profile) only by /api/admin/industry-profile (owners).
-      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, profile: _profile, ...rest } = data
+      // Sales tax (settings.salesTax) is owner-only and written only by the `salesTax` save above.
+      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, [SALES_TAX_SETTINGS_KEY]: _salesTax, profile: _profile, ...rest } = data
       const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k) && !CHECKUPS_SETTINGS_KEYS.includes(k)))
       const { error } = await adminClient
         .from('orgs')

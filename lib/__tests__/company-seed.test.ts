@@ -116,6 +116,8 @@ describe('runCompanySeed (dry run)', () => {
     expect(writes).toEqual([])
     const text = report.lines.join('\n')
     expect(text).toContain('create org "Example Landscapes & Hardscapes"')
+    // sales tax starts set up with no rates (never the original company's typed 8.25% default)
+    expect(text).toContain('sales tax: on, no rates until the owner adds them')
     expect(text).toContain('set legalName, set shortName, set website, set serviceArea')
     expect(text).toContain('create login + profile (admin, super admin)')
     expect(text).toContain('create the default permission presets')

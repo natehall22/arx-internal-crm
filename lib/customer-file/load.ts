@@ -40,6 +40,8 @@ export type FileContext = {
   tabs: FileTab[]
   /** Tab names in the company's words (industry profile). */
   tabLabels: Record<FileTab, string>
+  /** The company's word for a proposal (industry profile: Proposal / Quote / Bid). */
+  proposalWord: string
   landing: FileTab
   pinned: ThreadMessage[]
   canViewJobBilling: boolean
@@ -127,6 +129,7 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
     next: nextAction(stages, cancelled, orgProfile.terms),
     tabs: tabsFor(viewer, { hasJob }),
     tabLabels: tabLabelsFor(orgProfile.terms),
+    proposalWord: orgProfile.terms.proposal,
     landing: defaultTab(viewer, { hasJob }, remembered),
     pinned,
     canViewJobBilling: await callerCanAccessJobBilling(admin, profile),

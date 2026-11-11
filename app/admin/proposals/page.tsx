@@ -57,6 +57,32 @@ const visibilityOptions = [
   { value: 'all', label: 'Everyone', description: 'All users' },
 ]
 
+/** A blank add-on form (new item, after save, cancel) — one definition instead of four copies. */
+function emptyAdderForm() {
+  return {
+    name: '',
+    category: 'addons' as 'roofing' | 'siding' | 'windows' | 'addons',
+    unit: 'each',
+    unit_price: '',
+    adder_category: 'Other',
+    price_type: 'fixed' as 'fixed' | 'percentage',
+    // Cost & Profit fields
+    material_cost: '',
+    labor_cost: '',
+    profit_margin_percent: '',
+    // Commission fields
+    is_commissionable: true,  // Default to yes - flows through regular commission
+    commission_percent: '',   // Empty = flows through regular commission from comp plans
+    commission_cap: '',       // No cap by default
+    manager_spo_enabled: false,
+    manager_spo_percent: '',
+    // Customer visibility
+    show_to_customer: false,  // Default: adders hidden from customer proposal
+    // Sales tax default for lines added from this item (lib/sales-tax.ts)
+    is_taxable: true,
+  }
+}
+
 export default function AdminProposalsPage() {
   const router = useRouter()
   /** Roof squares pricing switched off (Settings → Features): no roof-square add-on units. */
@@ -76,26 +102,7 @@ export default function AdminProposalsPage() {
   const [editingAdder, setEditingAdder] = useState<PricebookItem | null>(null)
   
   // Form states
-  const [adderForm, setAdderForm] = useState({
-    name: '',
-    category: 'addons' as 'roofing' | 'siding' | 'windows' | 'addons',
-    unit: 'each',
-    unit_price: '',
-    adder_category: 'Other',
-    price_type: 'fixed' as 'fixed' | 'percentage',
-    // Cost & Profit fields
-    material_cost: '',
-    labor_cost: '',
-    profit_margin_percent: '',
-    // Commission fields
-    is_commissionable: true,  // Default to yes - flows through regular commission
-    commission_percent: '',   // Empty = flows through regular commission from comp plans
-    commission_cap: '',       // No cap by default
-    manager_spo_enabled: false,
-    manager_spo_percent: '',
-    // Customer visibility
-    show_to_customer: false,  // Default: adders hidden from customer proposal
-  })
+  const [adderForm, setAdderForm] = useState(emptyAdderForm())
   
   const [templateForm, setTemplateForm] = useState({
     name: '',
@@ -239,23 +246,7 @@ export default function AdminProposalsPage() {
         console.log('Success! Closing modal and reloading data...')
         setShowAddAdder(false)
         setEditingAdder(null)
-        setAdderForm({
-          name: '',
-          category: 'addons',
-          unit: 'each',
-          unit_price: '',
-          adder_category: 'Other',
-          price_type: 'fixed',
-          material_cost: '',
-          labor_cost: '',
-          profit_margin_percent: '',
-          is_commissionable: true,
-          commission_percent: '',
-          commission_cap: '',
-          manager_spo_enabled: false,
-          manager_spo_percent: '',
-          show_to_customer: false,
-        })
+        setAdderForm(emptyAdderForm())
         await loadData()
         console.log('Data reloaded')
       } else {
@@ -348,6 +339,7 @@ export default function AdminProposalsPage() {
       manager_spo_enabled: adder.manager_spo_enabled ?? false,
       manager_spo_percent: adder.manager_spo_percent != null ? String(adder.manager_spo_percent) : '',
       show_to_customer: (adder as any).show_to_customer ?? false,
+      is_taxable: (adder as any).is_taxable !== false,
     })
     setShowAddAdder(true)
   }
@@ -512,23 +504,7 @@ export default function AdminProposalsPage() {
               <button
                 onClick={() => {
                   setEditingAdder(null)
-                  setAdderForm({
-                    name: '',
-                    category: 'addons',
-                    unit: 'each',
-                    unit_price: '',
-                    adder_category: 'Other',
-                    price_type: 'fixed',
-                    material_cost: '',
-                    labor_cost: '',
-                    profit_margin_percent: '',
-                    is_commissionable: true,
-                    commission_percent: '',
-                    commission_cap: '',
-                    manager_spo_enabled: false,
-                    manager_spo_percent: '',
-                    show_to_customer: false,
-                  })
+                  setAdderForm(emptyAdderForm())
                   setShowAddAdder(true)
                 }}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
@@ -550,23 +526,7 @@ export default function AdminProposalsPage() {
                   <button
                     onClick={() => {
                       setEditingAdder(null)
-                      setAdderForm({
-                        name: '',
-                        category: 'addons',
-                        unit: 'each',
-                        unit_price: '',
-                        adder_category: 'Other',
-                        price_type: 'fixed',
-                        material_cost: '',
-                        labor_cost: '',
-                        profit_margin_percent: '',
-                        is_commissionable: true,
-                        commission_percent: '',
-                        commission_cap: '',
-                        manager_spo_enabled: false,
-                        manager_spo_percent: '',
-                        show_to_customer: false,
-                      })
+                      setAdderForm(emptyAdderForm())
                       setShowAddAdder(true)
                     }}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
@@ -952,6 +912,24 @@ export default function AdminProposalsPage() {
                     </p>
                   </div>
                 )}
+
+                {/* Sales tax default (lib/sales-tax.ts) */}
+                <div className="pt-4 border-t">
+                  <label className="flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all hover:border-indigo-200">
+                    <input
+                      type="checkbox"
+                      checked={adderForm.is_taxable}
+                      onChange={(e) => setAdderForm(prev => ({ ...prev, is_taxable: e.target.checked }))}
+                      className="w-5 h-5 mt-0.5 rounded border-gray-300 text-indigo-600"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">Taxable</span>
+                      <p className="text-sm text-[#2c2c2a] mt-0.5">
+                        Charge sales tax on this item when your company uses sales tax rates. Can be changed on each quote line.
+                      </p>
+                    </div>
+                  </label>
+                </div>
 
                 {/* Customer Visibility Toggle */}
                 <div className="pt-4 border-t">

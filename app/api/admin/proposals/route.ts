@@ -180,6 +180,8 @@ export async function POST(request: NextRequest) {
         price_type: data.price_type || 'fixed',
         is_commissionable: data.is_commissionable ?? true,
         show_to_customer: data.show_to_customer ?? false,  // Customer visibility setting
+        // Sales tax (lib/sales-tax.ts): the default for lines added from this item; changeable per line on a quote.
+        is_taxable: data.is_taxable !== false,
         visibility: 'sales_reps',
         active: true,
       }
@@ -379,6 +381,7 @@ export async function PATCH(request: NextRequest) {
         price_type: data.price_type || 'fixed',
         is_commissionable: data.is_commissionable ?? true,
         show_to_customer: data.show_to_customer ?? false,  // Customer visibility setting
+        ...(typeof data.is_taxable === 'boolean' ? { is_taxable: data.is_taxable } : {}),
         commission_percent: commissionPercent,
         commission_cap: commissionCap,
       }

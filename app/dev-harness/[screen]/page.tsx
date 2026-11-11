@@ -83,6 +83,8 @@ import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import OrgProfileCard from '@/components/admin/OrgProfileCard'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
+import SalesTaxCard from '@/components/admin/SalesTaxCard'
+import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
@@ -236,6 +238,31 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <OrgProfileCard
             current={{ id: 'roofing', label: INDUSTRY_PROFILES.roofing.label, description: INDUSTRY_PROFILES.roofing.description }}
             profiles={INDUSTRY_PROFILE_IDS.map((id) => ({ id, label: INDUSTRY_PROFILES[id].label, description: INDUSTRY_PROFILES[id].description }))}
+          />
+        </div>
+      )
+    case 'sales-tax':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <SalesTaxCard
+            initial={{
+              enabled: true,
+              rates: [
+                { id: 'state', name: 'State', percent: 6, active: true },
+                { id: 'county', name: 'Leon County surtax', percent: 1.5, active: true },
+              ],
+              defaultRateIds: ['state', 'county'],
+            }}
+          />
+        </div>
+      )
+    case 'tax-exemption':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <TaxExemptionCard
+            customerId="00000000-0000-0000-0000-000000000001"
+            initial={{ exempt: true, reason: 'Church', certificateNumber: 'FL-85-123', documentId: null }}
+            documents={[{ id: '00000000-0000-0000-0000-000000000002', label: 'Exemption certificate.pdf' }]}
           />
         </div>
       )

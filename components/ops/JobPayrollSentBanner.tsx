@@ -43,6 +43,7 @@ export default function JobPayrollSentBanner({
   // forced it (who is on record) — a legacy "close with balance" flag alone does not.
   const collection = evaluateJobCollection({
     saleAmount,
+    invoiceTaxCents: paymentSummary.invoice_tax_cents,
     collectedCents: paymentSummary.collected_cents ?? 0,
     allowCloseWithBalance,
     closeBalanceBy,

@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { sumCollectedCents } from '@/lib/job-collection'
+import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -44,6 +45,8 @@ export default async function OpsPage() {
   const catchUp = await attachBoardCatchUps(admin, profile.org_id, profile, rawJobs)
   const jobIds = rawJobs.map((j) => j.id)
   const collectedByJob: Record<string, number> = {}
+  // Invoice sales tax owed on top of the sale amount (lib/job-invoice-tax.ts) — feeds the board's paid chip.
+  const invoiceTaxByJob = jobIds.length > 0 ? await loadInvoiceTaxCentsByJob(admin, jobIds) : new Map<string, number>()
   if (jobIds.length > 0) {
     const { data: paymentRows } = await supabase
       .from('job_payments')
@@ -80,6 +83,7 @@ export default async function OpsPage() {
     const transformed = {
       ...job,
       collected_cents: collectedByJob[job.id] || 0,
+      invoice_tax_cents: invoiceTaxByJob.get(job.id) ?? 0,
       assigned_crew: Array.isArray(job.assigned_crew) ? job.assigned_crew[0] : job.assigned_crew,
       assigned_sub: Array.isArray(job.assigned_sub) ? job.assigned_sub[0] : job.assigned_sub,
       customer: customer,

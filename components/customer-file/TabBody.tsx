@@ -16,6 +16,20 @@ import { loadFile } from '@/lib/customer-file/load'
 import { loadCustomerExtras } from '@/lib/customer-file/customer-extras'
 import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
+import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
+import { loadCustomerTaxExemption, loadOrgSalesTax } from '@/lib/sales-tax-server'
+import { orgDb } from '@/lib/supabase/org-db'
+
+async function loadTaxExemptionCard(orgId: string, customerId: string) {
+  const admin = createServiceClient()
+  if (!(await loadOrgSalesTax(admin, orgId))) return null
+  const [initial, { data: docs }] = await Promise.all([
+    loadCustomerTaxExemption(admin, orgId, customerId),
+    orgDb(admin, orgId).from('documents').select('id, title, filename').eq('customer_id', customerId).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
+  ])
+  const documents = ((docs ?? []) as Array<{ id: string; title: string | null; filename: string | null }>).map((d) => ({ id: d.id, label: d.title || d.filename || 'File' }))
+  return { initial, documents }
+}
 
 /** One tab's content. Each tab is its own route, so only the active one runs its queries. */
 export default async function TabBody({ customerId, dealId, tab, jobTab = null }: { customerId: string; dealId: string; tab: string; jobTab?: string | null }) {
@@ -56,12 +70,14 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
   const { job, deal, customer } = ctx
   // Checkups are job-side: only people with the job board see them (field roles never do).
   const admin = createServiceClient()
-  const [checkups, extras] = await Promise.all([
+  const [checkups, extras, taxExemption] = await Promise.all([
     ctx.viewer.jobBoard || ctx.viewer.ownerLike
       ? loadCheckups(admin, ctx.viewer.orgId, { customerId: customer.id }).catch(() => null)
       : Promise.resolve(null),
     // The customer's own records: properties and the company's custom fields (lib/customer-file/customer-extras.ts).
     loadCustomerExtras(admin, ctx.viewer, customer.id).catch(() => null),
+    // Sales tax exemption: billing staff, and only once the company has set up sales tax (lib/sales-tax.ts).
+    ctx.canViewJobBilling ? loadTaxExemptionCard(ctx.viewer.orgId, customer.id).catch(() => null) : Promise.resolve(null),
   ])
   return (
     <div className="space-y-4">
@@ -98,6 +114,8 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
           </CardContent>
         </Card>
       )}
+
+      {taxExemption && <TaxExemptionCard proposalWord={ctx.proposalWord} customerId={customer.id} initial={taxExemption.initial} documents={taxExemption.documents} />}
 
       {checkups && checkups.length > 0 && (
         <Card>

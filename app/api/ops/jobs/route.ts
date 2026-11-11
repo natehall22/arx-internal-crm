@@ -1,4 +1,5 @@
 import { sumCollectedCents } from '@/lib/job-collection'
+import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { importProjectReviewNoteToJob } from '@/lib/project-review'
@@ -325,6 +326,8 @@ export async function GET(request: Request) {
     const catchUp = searchParams.get('catch_up') === '1' ? await attachBoardCatchUps(adminClient, profile.org_id, profile, jobList) : null
     const jobIds = jobList.map((j) => j.id)
     const collectedByJob: Record<string, number> = {}
+    // Invoice sales tax owed on top of the sale amount (lib/job-invoice-tax.ts) — feeds the board's paid chip.
+    const invoiceTaxByJob = jobIds.length > 0 ? await loadInvoiceTaxCentsByJob(adminClient, jobIds) : new Map<string, number>()
     if (jobIds.length > 0) {
       const { data: paymentRows } = await adminClient
         .from('job_payments')
@@ -339,6 +342,7 @@ export async function GET(request: Request) {
     const withPayments = jobList.map((j) => ({
       ...j,
       collected_cents: collectedByJob[j.id] || 0,
+      invoice_tax_cents: invoiceTaxByJob.get(j.id) ?? 0,
     }))
 
     const safeJobs = redactProductionJobsFinancialSummaryRows(

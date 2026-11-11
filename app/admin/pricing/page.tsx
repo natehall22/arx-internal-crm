@@ -23,7 +23,6 @@ interface RoofingType {
 }
 
 interface OrgPricing {
-  default_tax_rate: number | null
   sub_install_per_square: number | null
   sub_tearoff_per_square: number | null
   sub_dump_run_flat: number | null
@@ -49,7 +48,6 @@ export default function AdminPricingPage() {
   // Simple state
   const [roofingTypes, setRoofingTypes] = useState<RoofingType[]>([])
   const [orgPricing, setOrgPricing] = useState<OrgPricing>({
-    default_tax_rate: 8.25,
     sub_install_per_square: null,
     sub_tearoff_per_square: null,
     sub_dump_run_flat: null,
@@ -473,28 +471,10 @@ export default function AdminPricingPage() {
             </div>
           </div>
 
-          <div className="mt-6 pt-6 border-t">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Default Tax Rate</label>
-                <p className="text-xs text-gray-500">Applied to proposals by default</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  step="0.01"
-                  value={orgPricing.default_tax_rate || ''}
-                  onChange={(e) => setOrgPricing(prev => ({ 
-                    ...prev, 
-                    default_tax_rate: e.target.value ? parseFloat(e.target.value) : null 
-                  }))}
-                  className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-right"
-                  placeholder="8.25"
-                />
-                <span className="text-gray-500">%</span>
-              </div>
-            </div>
-          </div>
+          {/* The old "Default Tax Rate" box was never read by the proposal builder; sales tax lives in one place now. */}
+          <p className="mt-6 pt-6 border-t text-sm text-[#2c2c2a]">
+            Sales tax rates are set by an owner in <a href="/admin#sales-tax" className="font-semibold text-indigo-700 hover:underline">Settings → Sales tax</a>.
+          </p>
 
           <div className="mt-6 flex justify-end">
             <button
