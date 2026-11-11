@@ -1,6 +1,7 @@
 /**
- * The one writer of `org_trades`: Settings → Job setup → Trades (via /api/admin/job-setup/trades) and the new-company seed
- * (scripts/seed-company.ts → planOrgTradesSeed / applyOrgTradesSeed).
+ * The one writer of `org_trades`: Settings → Job setup → Trades (via /api/admin/job-setup/trades), the new-company seed
+ * (scripts/seed-company.ts → planOrgTradesSeed / applyOrgTradesSeed) and an industry-profile switch
+ * (lib/org-profile-server.ts → planOrgTradesAddOnly / applyOrgTradesSeed).
  * Owner-only is enforced by the route; this module only enforces the list's own rules:
  *   - slugs are created from the label once and never change (rows reference them);
  *   - no deletes — deactivate instead (existing work orders and jobs keep the slug);
@@ -223,4 +224,38 @@ export async function applyOrgTradesSeed(client: SupabaseClient, orgId: string, 
     check(error, `deactivate ${slug}`)
   }
   forgetOrgTrades(client, orgId)
+}
+
+/**
+ * Pure: an ADD-ONLY plan for switching a company's industry profile (lib/org-profile-server.ts). Wanted trades the
+ * company lacks are added after its own list; wanted trades it turned off are turned back on. Nothing is renamed,
+ * re-sorted or turned off — the company's own list stays as it is (turning trades off stays a Settings → Job setup step).
+ * A company with no rows yet works off the standard list, so that list is written first (same as the first edit on
+ * Settings → Job setup), so adding a trade never makes the standard ones disappear.
+ */
+export function planOrgTradesAddOnly(existing: readonly OrgTrade[], wanted: readonly OrgTradeSeed[]): OrgTradesSeedPlan {
+  const plan: OrgTradesSeedPlan = { insert: [], update: [], deactivate: [] }
+  const current: Array<Pick<OrgTrade, 'slug' | 'label' | 'sort' | 'active'>> = existing.length ? [...existing] : []
+  if (existing.length === 0) {
+    for (const t of DEFAULT_ORG_TRADES) {
+      plan.insert.push({ slug: t.slug, label: t.label, sort: t.sort, match_keywords: t.matchKeywords })
+      current.push(t)
+    }
+  }
+  const taken = current.map((t) => t.slug)
+  let sort = Math.max(0, ...current.map((t) => t.sort))
+  for (const w of wanted) {
+    const hit = current.find((t) => t.label.toLowerCase() === w.label.toLowerCase())
+    if (hit) {
+      if (!hit.active) plan.update.push({ slug: hit.slug, set: { active: true } })
+      continue
+    }
+    const slug = slugForNewTrade(w.label, taken)
+    if (!slug) throw new Error(`Trade "${w.label}" needs letters or numbers in its name`)
+    taken.push(slug)
+    sort += 10
+    plan.insert.push({ slug, label: w.label, sort, match_keywords: w.matchKeywords?.length ? [...w.matchKeywords] : null })
+    current.push({ slug, label: w.label, sort, active: true })
+  }
+  return plan
 }

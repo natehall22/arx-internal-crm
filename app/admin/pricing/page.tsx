@@ -6,7 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
 
 interface RoofingType {
   id: string
@@ -57,6 +57,8 @@ export default function AdminPricingPage() {
   
   /** Roof squares pricing switched off (Settings → Features): no "Per Square" choice, no per-square sub labor. */
   const squaresOn = useOrgFeatures().squaresPricing
+  /** Which units a service type can use — the company's industry profile (lib/industry-profiles.ts; roofing = the old three). */
+  const typeUnits = useOrgProfile().pricebook.serviceTypeUnits
 
   // Modal state
   const [showAddType, setShowAddType] = useState(false)
@@ -558,12 +560,17 @@ export default function AdminPricingPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   How do you price this?
                 </label>
+                {typeUnits.length === 0 && (
+                  <p className="mb-2 text-sm text-[#2c2c2a]">
+                    Service types are priced from a roof measurement. Price your services (per visit, per month, per hour…) as add-ons under Settings → Proposals &amp; add-ons.
+                  </p>
+                )}
                 <div className={`grid gap-2 ${squaresOn || typeForm.pricing_unit === 'square' ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                  {[
-                    { value: 'square', label: 'Per Square', desc: '100 sq ft' },
-                    { value: 'sqft', label: 'Per Sq Ft', desc: 'square foot' },
-                    { value: 'lf', label: 'Per Linear Ft', desc: 'linear foot' },
-                  ]
+                  {(typeUnits.some((u) => u.value === typeForm.pricing_unit) || !editingType
+                    ? typeUnits
+                    : // an existing type keeps showing its own unit even if the profile doesn't offer it
+                      [...typeUnits, { value: typeForm.pricing_unit, label: typeForm.pricing_unit, desc: '' }]
+                  )
                     // an existing per-square type keeps showing its own choice
                     .filter((option) => squaresOn || option.value !== 'square' || typeForm.pricing_unit === 'square')
                     .map((option) => (

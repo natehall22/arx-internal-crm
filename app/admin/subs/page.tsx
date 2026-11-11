@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import { BASE_TERMS } from '@/lib/industry-profiles'
 import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@/components/ui/button'
@@ -86,6 +88,9 @@ That's it. ARX will only see when you're busy, never any details about the appoi
 
 export default function SubContractorsPage() {
   const router = useRouter()
+  // The company's word for subcontractors (industry profile). The default profile keeps this page's own spelling.
+  const subsTerm = useOrgProfile().terms.subs
+  const subsHeading = subsTerm === BASE_TERMS.subs ? 'Sub-Contractors' : subsTerm
   const [subs, setSubs] = useState<SubContractor[]>([])
   /** The ARX account crews share their calendar with — server-resolved, see the API route. */
   const [installSchedulingEmail, setInstallSchedulingEmail] = useState<string | null>(null)
@@ -365,7 +370,7 @@ export default function SubContractorsPage() {
 
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Sub-Contractors</h1>
+            <h1 className="text-3xl font-bold text-gray-900">{subsHeading}</h1>
             <p className="text-gray-500 mt-1">Manage your sub-contractor network</p>
           </div>
           <button

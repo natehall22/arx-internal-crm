@@ -212,7 +212,7 @@ describe('runCompanySeed (dry run)', () => {
       { slug: 'pressure_washing', label: 'Pressure washing', sort: 30, active: true, matchKeywords: ['pressure wash', 'power wash'] },
     ].map((t) => ({ org_id: id, slug: t.slug, label: t.label, sort: t.sort, active: t.active, match_keywords: t.matchKeywords }))
     const { client, writes } = fakeClient({
-      orgs: [{ ...input.org, id, timezone: null, brand: { legalName: 'Example Landscapes & Hardscapes, LLC', shortName: 'Example', website: 'landscapes.example', serviceArea: 'Anytown, ST' } }],
+      orgs: [{ ...input.org, id, timezone: null, brand: { legalName: 'Example Landscapes & Hardscapes, LLC', shortName: 'Example', website: 'landscapes.example', serviceArea: 'Anytown, ST' }, profile: { id: 'lawn_landscape', version: 1 } }],
       users: [{ id: 'u1', org_id: id, email: 'owner@landscapes.example', role: 'admin', is_super_admin: true, active: true }],
       permission_presets: [{ id: 'p', org_id: id }],
       org_trades: trades,
@@ -222,6 +222,7 @@ describe('runCompanySeed (dry run)', () => {
     expect(report.lines).toEqual([
       `org ${id}: columns already match`,
       'brand: already matches',
+      'profile: already Lawn & landscape',
       'owner owner@landscapes.example: already the super admin',
       'roles: presets already exist',
       'trades: already match',

@@ -73,6 +73,8 @@ export async function GET() {
     .filter((d) => ctx.finance || (!d.financeOnly && (d.ownerColumn || ctx.scope === 'all')))
     .map((d) => ({ key: d.key, label: d.label, description: d.description, columns: visibleColumns(ctx, d) }))
   const allowed = new Set(datasets.map((d) => d.key))
-  const templates = REPORT_TEMPLATES.filter((t) => (ctx.finance || !specTouchesFinancials(t.spec, ctx.scope)) && allowed.has(t.spec.dataset))
+  // Starter templates follow the company's industry profile (null = all); Explore still offers every allowed dataset.
+  const starter = ctx.starterReports ? new Set(ctx.starterReports) : null
+  const templates = REPORT_TEMPLATES.filter((t) => (ctx.finance || !specTouchesFinancials(t.spec, ctx.scope)) && allowed.has(t.spec.dataset) && (!starter || starter.has(t.key)))
   return NextResponse.json({ templates, datasets, canExport: ctx.canExport, finance: ctx.finance, scope: ctx.scope, role: profile.role ?? null })
 }

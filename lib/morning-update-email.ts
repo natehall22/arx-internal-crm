@@ -9,7 +9,8 @@ import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morn
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
-import { loadOrgFeatures, resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
+import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
+import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 import { getAppUrl, tryGetAppUrl } from '@/lib/app-url'
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { formatPhone, telHref } from '@/lib/format'
@@ -174,16 +175,20 @@ export async function loadMorningTodayQueues(
   focus: MorningUpdateFocus,
   now = new Date()
 ): Promise<Queue[]> {
+  // The company's industry profile renames / hides Today cards the same way as the Today screen (lib/org-profile.ts);
+  // the email keeps its own order (storm hits lead). Roofing = unchanged.
+  const orgProfile = await loadOrgProfile(supabase, orgId)
+  const asProfile = (queues: Queue[]) => applyTodayProfile(queues, { ...orgProfile.today, order: [] }, orgProfile.terms)
   if (focus === 'crews') {
     const [crews, ops] = await Promise.all([loadCrewWeekQueue(supabase, orgId, now), loadOpsQueues(supabase, orgId)])
-    return [crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')]
+    return asProfile([crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')])
   }
   // Storm hits lead: they are the most time-sensitive, and only this version carries them (ops don't need them).
   // A storm lookup failure drops only the storm list (and says so), never the rest of Today.
   let stormFailed = false
   let checkupsFailed = false
   // Storm alerts switched off (Settings → Features): no storm list, even while older alert rows are still recent.
-  const stormAlertsOn = (await loadOrgFeatures(supabase, orgId)).stormAlerts
+  const stormAlertsOn = orgProfile.features.stormAlerts
   const noStorm: Queue = { id: 'storm-hits', title: 'Storm hits on open deals and customers', count: 0, empty: '', items: [] }
   const [storm, owner, checkups] = await Promise.all([
     (stormAlertsOn ? loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS) : Promise.resolve(noStorm)).catch((error): Queue => {
@@ -201,11 +206,11 @@ export async function loadMorningTodayQueues(
         return { id: 'checkups-due', title: 'Customer checkups due', count: 0, empty: 'Checkups couldn’t load today.', items: [] }
       }),
   ])
-  return [
+  return asProfile([
     ...(storm.count > 0 || stormFailed ? [storm] : []),
     ...owner.filter((q) => q.id !== 'no-outcome'),
     ...(checkups && (checkups.count > 0 || checkupsFailed) ? [checkups] : []),
-  ]
+  ])
 }
 
 /**

@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import { TAB_LABELS, type FileTab } from '@/lib/customer-file/access'
 
 /** Lazy tabs = route segments: only the active tab's data loads. The Notes tab is the phone's home for the thread (the desktop rail covers it). */
-export default function FileTabs({ base, tabs }: { base: string; tabs: FileTab[] }) {
+export default function FileTabs({ base, tabs, labels = TAB_LABELS }: { base: string; tabs: FileTab[]; labels?: Record<FileTab, string> }) {
   const pathname = usePathname()
   const active = tabs.find((t) => pathname === `${base}/${t}` || pathname.startsWith(`${base}/${t}/`)) ?? null
 
@@ -26,7 +26,7 @@ export default function FileTabs({ base, tabs }: { base: string; tabs: FileTab[]
             aria-current={active === t ? 'page' : undefined}
             className={`inline-flex min-h-tap shrink-0 items-center border-b-2 px-4 text-ui-sm font-semibold ${t === 'notes' ? 'lg:hidden' : ''} ${active === t ? 'border-brand-700 text-ink' : 'border-transparent text-ink-muted'}`}
           >
-            {TAB_LABELS[t]}
+            {labels[t]}
           </Link>
         ))}
       </div>

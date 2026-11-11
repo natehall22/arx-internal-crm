@@ -225,6 +225,20 @@ const SCREENS: Screen[] = [
   { name: 'catch-up-job-v2', path: '/dev-harness/catch-up-job-v2', ready: 'text=Where this stands', mock: mockJob0037 },
   { name: 'catch-up-settings', path: '/dev-harness/catch-up-settings', ready: 'text=Flag a job as stuck' },
   { name: 'org-features', path: '/dev-harness/org-features', ready: 'text=Turn off what your company doesn’t use' },
+  { name: 'org-profile', path: '/dev-harness/org-profile', ready: 'text=A profile sets the starting point',
+    mock: async (p) => {
+      await p.route('**/api/admin/industry-profile**', (route) => route.fulfill(json({ plan: {
+        from: { id: 'roofing', label: 'Roofing' },
+        to: { id: 'lawn_landscape', label: 'Lawn & landscape', version: 1, description: 'Recurring lawn maintenance' },
+        resetFeatures: false,
+        features: [{ key: 'canvassing', label: 'Door knocking (Canvass app)', now: true, after: false, keptByOwnSwitch: false }],
+        trades: { add: ['Lawn care', 'Landscaping', 'Tractor / land work', 'Clean-up', 'Soft wash / pressure washing'], turnOn: [], keep: ['Roofing', 'Gutters', 'Siding', 'Windows', 'Other'] },
+        words: [{ key: 'proposal', now: 'Proposal', after: 'Quote' }, { key: 'inspection', now: 'Inspection', after: 'Estimate visit' }],
+        other: ['Menu order: Today · Work · Customers · Pipeline · Money · Insights', 'Price book units: Per visit, Per month, Per sq ft, Per hour, Each, Per job'],
+        noChange: false,
+      } })))
+    },
+    states: [{ name: 'preview', run: async (p) => { await p.getByLabel('Switch to').selectOption('lawn_landscape'); await p.waitForSelector('text=What changes with Lawn & landscape') } }] },
   { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',
     states: [{ name: 'editing-brand', run: async (p) => { await p.getByLabel('Website').fill('example.test/roofing'); await p.waitForTimeout(200) } }] },
   { name: 'admin-settings-readonly', path: '/dev-harness/admin-settings-readonly', ready: 'text=Only an owner can change these' },

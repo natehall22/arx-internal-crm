@@ -15,7 +15,7 @@ export default async function CustomerFileLayout({ children, params }: { childre
       <Nav />
       <FileHeader ctx={ctx} />
       <div className="sticky top-0 z-10">
-        <FileTabs base={base} tabs={ctx.tabs} />
+        <FileTabs base={base} tabs={ctx.tabs} labels={ctx.tabLabels} />
       </div>
       <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <main className="min-w-0">{children}</main>

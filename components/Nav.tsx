@@ -21,7 +21,8 @@ import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { ALL_FEATURES_ON, type OrgFeatures } from '@/lib/org-features'
-import { featuresFromEffectivePermissions, fetchEffectivePermissions } from '@/hooks/useOrgFeatures'
+import { featuresFromEffectivePermissions, fetchEffectivePermissions, profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
+import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import GlobalSearch from '@/components/search/GlobalSearch'
 import { BarChart3, DollarSign, Filter, Hammer, Home, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
@@ -39,6 +40,11 @@ export default function Nav() {
   const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
   const [payWeekEnabled, setPayWeekEnabled] = useState(false)
   const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(ALL_FEATURES_ON)
+  // No first-paint flash by construction: the profile only reorders/renames/hides permission-gated entries, and those
+  // stay hidden until the same effective-permissions answer that carries the profile arrives (one batched update below).
+  // Before that only Today and Insights → Dashboard can show, which every profile keeps first/last with the same names
+  // (lib/__tests__/industry-profiles.test.ts locks this).
+  const [orgProfile, setOrgProfile] = useState<ClientOrgProfile>(() => coerceClientOrgProfile(null))
   const [effectivePermissionNames, setEffectivePermissionNames] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [companyName, setCompanyName] = useState<string>('ARX CRM')
@@ -82,6 +88,7 @@ export default function Nav() {
           setEffectiveFullAccess(apiFullAccess)
           setPayWeekEnabled((data as { flags?: { payWeek?: unknown } }).flags?.payWeek === true)
           setOrgFeatures(featuresFromEffectivePermissions(data))
+          setOrgProfile(profileFromEffectivePermissions(data))
           if (!apiFullAccess) {
             setEffectivePermissionNames(new Set(serverPerms))
           }
@@ -230,6 +237,7 @@ export default function Nav() {
     fullAccess: hasFullNavAccess,
     permissionNames: effectivePermissionNames,
     features: orgFeatures,
+    profile: orgProfile,
     flags: {
       isOpsOnly,
       canSeeOpsDashboard: canAccessOpsDashboardFromPermissionNames(navPermInput),

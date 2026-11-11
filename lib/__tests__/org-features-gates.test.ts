@@ -107,7 +107,8 @@ describe('1, 4, 7. UI guards', () => {
     expect(s).toMatch(/\{featureTabs\.showStorm && \(\s*<div className="rounded-xl border border-sky-200/)
   })
   it('7. server pages hand the resolved switches to the client so nothing flashes', () => {
-    expect(src('app/ops/jobs/[id]/JobView.tsx')).toContain('orgFeatures={await getOrgFeatures(profile.org_id)}')
+    // JobView reads the switches off the industry profile it already loads (same rule: resolveOrgFeatures).
+    expect(src('app/ops/jobs/[id]/JobView.tsx')).toContain('orgFeatures={orgProfile.features}')
     expect(src('app/dashboard/page.tsx')).toContain('orgFeatures={await getOrgFeatures(profile.org_id)}')
     expect(src('app/opportunities/[id]/OpportunityView.tsx')).toContain('orgFeatures={await getOrgFeatures(profile.org_id)}')
     expect(src('components/contracts/ContractModal.tsx')).toContain('useOrgFeatures(orgFeatures)')

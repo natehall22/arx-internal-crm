@@ -3,6 +3,7 @@
  * Access mirrors what each card's own gate has always been (the hub only hides what the page itself would refuse).
  */
 import type { OrgFeature, OrgFeatures } from '@/lib/org-features'
+import type { Terms } from '@/lib/industry-profiles'
 
 /** `superAdmin` = `isSuperAdmin` (users.is_super_admin) — stricter than `owner`, which also lets the owner role in. */
 export type SettingsAccess = 'leadership' | 'cost' | 'payroll' | 'superuser' | 'workAreas' | 'owner' | 'superAdmin'
@@ -75,6 +76,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     title: 'System',
     items: [
       { title: 'Company settings', description: 'Workflows, fields, dispositions and system options', href: '/admin/settings', access: 'leadership' },
+      { title: 'Industry profile', description: 'Your type of business: sets the starting features, trades, words and menu (owners only)', href: '/admin#industry-profile', access: 'superAdmin', keywords: 'roofing lawn landscape cleaning builder template industry terminology' },
       { title: 'Features', description: 'Turn whole parts of the app on or off for your company (owners only)', href: '/admin#features', access: 'superAdmin', keywords: 'canvass insurance roof measure sisu incentives squares switch hide' },
       { title: 'Dashboard settings', description: 'What shows on each dashboard', href: '/admin/dashboard-settings', access: 'leadership' },
       { title: 'Announcements', description: "What's-new banners shown to the team", href: '/admin/announcements', access: 'leadership' },
@@ -91,11 +93,13 @@ export function canOpenSettingsHub(role: string): boolean {
   return LEADERSHIP.includes(role)
 }
 
-export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean; canSuperAdmin?: boolean; features?: Partial<OrgFeatures> }): SettingsGroup[] {
+export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean; canSuperAdmin?: boolean; features?: Partial<OrgFeatures>; terms?: Pick<Terms, 'subs'> }): SettingsGroup[] {
   const featureOn = (i: SettingsItem) => !i.feature || flags.features?.[i.feature] !== false
   const ok = (a: SettingsAccess) =>
     a === 'leadership' || (a === 'cost' && flags.canCost) || (a === 'payroll' && flags.canPayroll) || (a === 'superuser' && flags.canSuperuser) || (a === 'workAreas' && flags.canWorkAreas) || (a === 'owner' && !!flags.canOwner) || (a === 'superAdmin' && !!flags.canSuperAdmin)
-  return SETTINGS_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => ok(i.access) && featureOn(i)) })).filter((g) => g.items.length > 0)
+  // The company's word for subcontractors (industry profile; roofing = "Subcontractors", unchanged).
+  const word = (i: SettingsItem): SettingsItem => (i.href === '/admin/subs' && flags.terms ? { ...i, title: flags.terms.subs } : i)
+  return SETTINGS_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => ok(i.access) && featureOn(i)).map(word) })).filter((g) => g.items.length > 0)
 }
 
 /** Case-insensitive match on title, description and keywords; every word must match somewhere. */

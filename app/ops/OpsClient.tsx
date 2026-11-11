@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import type { ClientOrgProfile } from '@/lib/org-profile'
 import Link from 'next/link'
 import { jobDirectCost } from '@/lib/job-cost-ledger'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
@@ -42,6 +44,8 @@ interface OpsClientProps {
   canViewProfitability: boolean
   /** Job catch-up (org setting). Absent = off: the board renders exactly as before. */
   catchUp?: { enabled: boolean; stuckDays: number; failed?: boolean; viewerId?: string }
+  /** The company's industry profile resolved on the server (lib/org-profile.ts), so the heading paints first time. */
+  orgProfile?: ClientOrgProfile | null
 }
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
@@ -113,7 +117,9 @@ function formatJobTypeLabel(jobType: string): string {
     .join(' ')
 }
 
-export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp }: OpsClientProps) {
+export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp, orgProfile }: OpsClientProps) {
+  // The company's words (industry profile, lib/org-profile.ts; server-resolved by the page so the first paint is right).
+  const terms = useOrgProfile(orgProfile).terms
   const catchUpOn = catchUp?.enabled === true
   const viewerId = catchUp?.viewerId ?? null
   // Same notice as the first render when a refresh couldn't build the lines.
@@ -480,8 +486,8 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
       <div className="max-w-[1800px] mx-auto px-4 py-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Production Board</h1>
-            <p className="text-gray-500 text-sm">Track each job from sold through payment</p>
+            <h1 className="text-2xl font-bold text-gray-900">{terms.productionBoard}</h1>
+            <p className="text-gray-500 text-sm">Track each {terms.job.toLowerCase()} from sold through payment</p>
             {catchUpFailed && (
               <p role="status" className="mt-1 text-sm text-amber-950">The where-it-stands lines couldn&apos;t load. Refresh to try again.</p>
             )}

@@ -59,7 +59,8 @@ import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { formatPhone, telHref } from '@/lib/format'
 import { filesDocHref } from '@/lib/files/files-object'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import type { ClientOrgProfile } from '@/lib/org-profile'
 import type { OrgFeatures } from '@/lib/org-features'
 
 
@@ -386,6 +387,8 @@ interface JobDetailClientProps {
   catchUp?: JobCatchUpResult | null
   /** Company feature switches resolved on the server (lib/org-features.ts), so a switched-off card never flashes. */
   orgFeatures?: OrgFeatures | null
+  /** The company's industry profile resolved on the server (lib/org-profile.ts), so its words paint first time. */
+  orgProfile?: ClientOrgProfile | null
 }
 
 /** Old six-tab keys -> the five job tabs, so every "jump to X" in this file works on both pages. */
@@ -615,11 +618,14 @@ export default function JobDetailClient({
   notesSlot,
   catchUp = null,
   orgFeatures: serverOrgFeatures = null,
+  orgProfile: serverOrgProfile = null,
 }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
   /** Company feature switches (Settings → Features): Insurance off hides the Job Source / claim card. */
   const orgFeatures = useOrgFeatures(serverOrgFeatures)
+  /** The company's words (industry profile; server-resolved by JobView so the first paint is right). */
+  const orgTerms = useOrgProfile(serverOrgProfile).terms
   /** The job cost ledger summary (`lib/job-cost-ledger.ts`), reported by the Materials card. */
   const [costSummary, setCostSummary] = useState<JobCostSummary | null>(null)
   /** Bumped when either card changes the ledger so the other card reloads. */
@@ -1547,7 +1553,7 @@ export default function JobDetailClient({
         {!embedded && (
           <div className="mb-4 sm:mb-6">
             <Link href="/ops" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium min-h-[44px] inline-flex items-center">
-              ← Back to Production Board
+              ← Back to {orgTerms.productionBoard}
             </Link>
           </div>
         )}

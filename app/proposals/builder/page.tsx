@@ -583,6 +583,13 @@ export default function ProposalBuilderPage() {
     return 1
   }
 
+  /** "per visit", not "per visits": the singular for the service units, else the usual label. */
+  const perUnitLabel = (unit: string): string => {
+    const u = unitLower(unit)
+    if (u === 'visit' || u === 'month' || u === 'hour') return u
+    return getUnitLabel(unit)
+  }
+
   const getUnitLabel = (unit: string): string => {
     const u = unitLower(unit)
     switch (u) {
@@ -604,6 +611,10 @@ export default function ProposalBuilderPage() {
         return 'job'
       case 'hour':
         return 'hours'
+      case 'visit':
+        return 'visits'
+      case 'month':
+        return 'months'
       case 'watt':
         return 'watts'
       case 'bundle':
@@ -696,6 +707,13 @@ export default function ProposalBuilderPage() {
       'linear foot',
       'linear feet',
       'per_sqft',
+      // service units (industry profiles: lawn, cleaning, builders) — the rep enters how many
+      'visit',
+      'visits',
+      'month',
+      'months',
+      'hour',
+      'hours',
     ].includes(u)
   }
 
@@ -1827,7 +1845,7 @@ export default function ProposalBuilderPage() {
                           {isPercent ? (
                             <p className="text-xs text-gray-500">{item.unit_price}% of project total</p>
                           ) : (
-                            <p className="text-xs text-gray-500">${item.unit_price.toLocaleString()} per {getUnitLabel(item.unit)}</p>
+                            <p className="text-xs text-gray-500">${item.unit_price.toLocaleString()} per {perUnitLabel(item.unit)}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3">
@@ -1950,7 +1968,7 @@ export default function ProposalBuilderPage() {
                         ) : (
                           <>
                             <p className="font-bold text-indigo-600">${(adder.unit_price || 0).toLocaleString()}</p>
-                            <p className="text-xs text-gray-400">per {getUnitLabel(adder.unit)}</p>
+                            <p className="text-xs text-gray-400">per {perUnitLabel(adder.unit)}</p>
                           </>
                         )}
                       </div>
@@ -2365,7 +2383,7 @@ export default function ProposalBuilderPage() {
                         </div>
                         <div className="text-right">
                           <p className="font-bold text-indigo-600">${(item.unit_price || 0).toLocaleString()}</p>
-                          <p className="text-xs text-gray-400">per {getUnitLabel(item.unit)}</p>
+                          <p className="text-xs text-gray-400">per {perUnitLabel(item.unit)}</p>
                         </div>
                       </button>
                     ))}
@@ -2409,7 +2427,7 @@ export default function ProposalBuilderPage() {
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-indigo-600">${(quantityModalItem.unit_price || 0).toLocaleString()}</p>
-                      <p className="text-xs text-gray-400">per {getUnitLabel(quantityModalItem.unit)}</p>
+                      <p className="text-xs text-gray-400">per {perUnitLabel(quantityModalItem.unit)}</p>
                     </div>
                   </div>
 
@@ -2513,7 +2531,7 @@ export default function ProposalBuilderPage() {
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    {quantityModalValue} × ${quantityModalItem.unit_price.toLocaleString()} per {getUnitLabel(quantityModalItem.unit)}
+                    {quantityModalValue} × ${quantityModalItem.unit_price.toLocaleString()} per {perUnitLabel(quantityModalItem.unit)}
                   </p>
                 </div>
               </div>

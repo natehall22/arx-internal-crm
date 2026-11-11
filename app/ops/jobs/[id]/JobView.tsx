@@ -1,6 +1,6 @@
 import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
-import { getOrgFeatures } from '@/lib/org-features-server'
+import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { notFound, redirect } from 'next/navigation'
@@ -582,9 +582,12 @@ export default async function JobView({ params, embedded = false, initialTab = n
     }
   }
 
+  // Industry profile (lib/org-profile.ts): its feature map is the same rule getOrgFeatures used; its words paint first time.
+  const orgProfile = await loadOrgProfile(createServiceClient(), profile.org_id)
   return (
     <JobDetailClient
-      orgFeatures={await getOrgFeatures(profile.org_id)}
+      orgFeatures={orgProfile.features}
+      orgProfile={clientOrgProfile(orgProfile)}
       catchUp={catchUp}
       embedded={embedded}
       v2={(profile as { ui_prefs?: { jobPageV2?: unknown } | null }).ui_prefs?.jobPageV2 === true}

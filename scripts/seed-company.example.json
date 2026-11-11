@@ -1,4 +1,5 @@
 {
+  "profile": "lawn_landscape",
   "org": {
     "id": null,
     "name": "Example Landscapes & Hardscapes",
@@ -15,10 +16,34 @@
     "serviceArea": "Anytown, ST"
   },
   "trades": [
-    { "label": "Landscaping", "matchKeywords": ["landscap", "mulch", "sod", "planting"] },
-    { "label": "Hardscape", "matchKeywords": ["hardscap", "paver", "retaining wall", "patio"] },
-    { "label": "Pressure washing", "matchKeywords": ["pressure wash", "power wash"] },
-    { "label": "Other" }
+    {
+      "label": "Landscaping",
+      "matchKeywords": [
+        "landscap",
+        "mulch",
+        "sod",
+        "planting"
+      ]
+    },
+    {
+      "label": "Hardscape",
+      "matchKeywords": [
+        "hardscap",
+        "paver",
+        "retaining wall",
+        "patio"
+      ]
+    },
+    {
+      "label": "Pressure washing",
+      "matchKeywords": [
+        "pressure wash",
+        "power wash"
+      ]
+    },
+    {
+      "label": "Other"
+    }
   ],
   "owner": {
     "email": "owner@landscapes.example",

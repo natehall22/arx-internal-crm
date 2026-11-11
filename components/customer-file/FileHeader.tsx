@@ -52,7 +52,7 @@ export default function FileHeader({ ctx }: { ctx: FileContext }) {
             const cls = `inline-flex min-h-tap items-center whitespace-nowrap rounded-full border px-3 text-ui-sm ${s.state === 'done' ? 'border-green-700 bg-green-50 text-ink' : s.state === 'current' ? 'border-brand-700 bg-brand-100 font-semibold text-ink' : 'border-surface-line text-ink-muted'}`
             return (
               <li key={s.key}>
-                {allowed ? <Link href={`${base}/${s.tab}`} className={cls} title={`Open ${TAB_LABELS[s.tab]}`}>{s.state === 'done' ? '✓ ' : ''}{s.label}</Link> : <span className={cls}>{s.state === 'done' ? '✓ ' : ''}{s.label}</span>}
+                {allowed ? <Link href={`${base}/${s.tab}`} className={cls} title={`Open ${(ctx.tabLabels ?? TAB_LABELS)[s.tab]}`}>{s.state === 'done' ? '✓ ' : ''}{s.label}</Link> : <span className={cls}>{s.state === 'done' ? '✓ ' : ''}{s.label}</span>}
               </li>
             )
           })}
