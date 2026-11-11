@@ -28,7 +28,7 @@ describe('thread visibility: the deny comes before the grant', () => {
     const ops = { ...base, ...GRANTS }
     expect(canReadMessage(owner, deal, { audience: 'crew' })).toBe(true)
     expect(canReadMessage(ops, deal, { audience: 'production' })).toBe(true)
-    expect(writableAudiences(ops, deal)).toEqual(['team', 'sales', 'production', 'crew', 'customer'])
+    expect(writableAudiences(ops, deal)).toEqual(['team', 'sales', 'production', 'crew'])
   })
 })
 

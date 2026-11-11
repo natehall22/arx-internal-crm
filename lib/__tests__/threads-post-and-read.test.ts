@@ -256,3 +256,40 @@ describe('crew notes', () => {
     expect(ok.ok).toBe(true)
   })
 })
+
+describe('"To customer" through postMessage', () => {
+  const withOrg = (settings: Record<string, unknown>) => createFakeDb({ users, orgs: [{ id: ORG, settings }], opportunities: [{ org_id: ORG, ...deal }], activities: [], threads: [], thread_members: [] })
+  const on = { features: { customerPortal: true } }
+
+  it('is refused when the company has neither the portal nor automatic customer emails on', async () => {
+    const db = withOrg({})
+    const r = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer' })
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.status).toBe(403)
+  })
+  it('is written as audience customer when picked; a field role cannot', async () => {
+    const db = withOrg(on)
+    const r = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer' })
+    expect(r.ok && r.message.audience).toBe('customer')
+    const s = await post(db, 'setter', { body: 'hi', audience: 'customer' })
+    expect(s.ok).toBe(false)
+  })
+  it('a reply to a customer-audience message is Team unless "To customer" is picked again', async () => {
+    const db = withOrg(on)
+    const parent = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer' })
+    if (!parent.ok) throw new Error('x')
+    const internal = await post(db, 'ops', { body: 'internal thought', replyToId: parent.message.id })
+    expect(internal.ok && internal.message.audience).not.toBe('customer')
+    const stillInternal = await post(db, 'ops', { body: 'internal thought', audience: 'production', replyToId: parent.message.id })
+    expect(stillInternal.ok && stillInternal.message.audience).toBe('production')
+    const again = await post(db, 'owner', { body: 'one more thing', audience: 'customer', replyToId: parent.message.id })
+    expect(again.ok && again.message.audience).toBe('customer')
+  })
+  it('a retried post (same clientId) is flagged as a replay so nothing is emailed twice', async () => {
+    const db = withOrg(on)
+    const first = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer', clientId: 'c-1' })
+    const second = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer', clientId: 'c-1' })
+    expect(first.ok && first.replayed).toBeFalsy()
+    expect(second.ok && second.replayed).toBe(true)
+  })
+})

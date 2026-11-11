@@ -111,7 +111,8 @@ export function canReadRowOnDeal(v: ThreadViewer, ref: DealRef | 'none', m: Mess
 }
 
 /** Audiences the viewer may WRITE on this deal, in composer order. Crew is never a default. */
-export function writableAudiences(v: ThreadViewer, deal: DealRef): Audience[] {
+/** `customerChannel` = the company has the customer portal or automatic customer emails on: only then is "To customer" offered. */
+export function writableAudiences(v: ThreadViewer, deal: DealRef, customerChannel = false): Audience[] {
   const out: Audience[] = []
   if (!v.ownerLike && !isRecognizedViewer(v)) return out
   if ((v.setterLike || v.closerLike) && deal && !ownsDeal(v, deal)) return out
@@ -120,7 +121,7 @@ export function writableAudiences(v: ThreadViewer, deal: DealRef): Audience[] {
   if (canSeeProduction(v, deal) && (v.ownerLike || v.jobEdit || v.jobBoard || ownsDealAsCloser(v, deal))) out.push('production')
   if (!isFieldRole(v) && (v.ownerLike || v.jobEdit)) out.push('crew')
   // "To customer": an email the customer also sees in their portal. Field roles (setters, canvassers, inside sales) do not write it.
-  if (!isFieldRole(v)) out.push('customer')
+  if (customerChannel && !isFieldRole(v)) out.push('customer')
   return out
 }
 
@@ -134,7 +135,8 @@ export function defaultAudience(
 ): Audience {
   const allowed = writableAudiences(v, deal)
   const pick = (a: Audience): Audience => (allowed.includes(a) ? a : 'team')
-  if (input.replyTo?.audience && allowed.includes(input.replyTo.audience)) return input.replyTo.audience
+  // A reply inherits the thread's audience EXCEPT 'customer': going out to the customer is always picked on purpose, never inherited.
+  if (input.replyTo?.audience && input.replyTo.audience !== 'customer' && allowed.includes(input.replyTo.audience)) return input.replyTo.audience
   if (v.setterLike) return 'team'
   if (input.surface === 'job') return pick('production')
   if (input.surface === 'sales') return v.closerLike && !input.dealSold ? pick('sales') : 'team'
@@ -174,7 +176,9 @@ export function canPin(v: ThreadViewer, m: { user_id: string | null }): boolean 
 }
 
 /** Re-classify someone else's message: owners any; ops to Production/Team (Crew needs jobEdit); sales managers Sales<->Team. */
-export function canReclassify(v: ThreadViewer, to: Audience): boolean {
+export function canReclassify(v: ThreadViewer, to: Audience, from?: Audience | null): boolean {
+  // Nothing is moved onto or off the customer audience after the fact: it is what the customer was (or was not) sent.
+  if (to === 'customer' || from === 'customer') return false
   if (v.ownerLike) return true
   if (to === 'crew' || to === 'production') return v.jobEdit
   if (to === 'team') return v.jobEdit || v.managerLike

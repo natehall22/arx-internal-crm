@@ -1063,9 +1063,10 @@ export async function setCustomerMessages(
 // ── A staff reply "To customer" (Customer File thread) ──────────────────────────────────────────────────────────────
 
 /**
- * Email the customer a reply a staff member wrote "To customer" — the company's own From and Reply-To, the same
- * recipient rules as every other customer email (office "don't email", suppression list). Not an automatic message, so it
- * does not need the automatic-emails switch; the portal still shows it either way. Never throws.
+ * Email the customer a reply a staff member wrote "To customer". It goes through the SAME checks as every customer email:
+ * the company's `customerMessages` switch and identity (loadSendContext — name / email / address on file, mail set up),
+ * then the recipient rules (office "don't email", suppression list). With the switch off nothing is emailed; the portal
+ * still shows the reply. Company From / Reply-To. Never throws.
  */
 export async function sendCustomerReply(
   admin: SupabaseClient,
@@ -1073,19 +1074,19 @@ export async function sendCustomerReply(
   customerId: string,
   activityId: string,
   body: string
-): Promise<'sent' | 'skipped' | 'not_ready' | 'failed'> {
+): Promise<'sent' | 'skipped' | 'off' | 'not_ready' | 'failed'> {
   try {
-    const channel = channelSender('email')
-    if (!channel.available()) return 'not_ready'
-    const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings, timezone, logo_url').eq('id', orgId).maybeSingle()
-    if (!org) return 'not_ready'
-    const appUrl = await tryOrgAppUrl(orgId, 'customer-reply')
-    const id = companyIdentity(org as OrgRow, appUrl)
-    if (id.missing.length > 0) return 'not_ready'
+    const loaded = await loadSendContext(admin, orgId)
+    if (!loaded.ok) return loaded.reason === 'feature_off' || loaded.reason === 'all_off' ? 'off' : 'not_ready'
+    const ctx = loaded.ctx
+    if (ctx.blocked) return 'not_ready'
     const customer = await loadCustomer(admin, orgId, customerId)
-    const to = channel.addressFor({ email: customer?.email ?? null, phone: null })
-    if (!to || customer?.off || (await suppressionOf(admin, orgId, 'email', to))) return 'skipped'
+    const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: null })
+    if (await recipientRefusal(ctx, customer, to)) return 'skipped'
     const portalOn = (await loadOrgFeatures(admin, orgId)).customerPortal
+    const appUrl = ctx.appUrl
+    const id = { company: ctx.company, from: ctx.from }
+    const channel = ctx.channel
     const rendered = renderCustomerReply({ company: id.company, customerName: customer?.name ?? null, unsubscribeUrl: null }, { body, accountUrl: portalOn && appUrl ? `${appUrl}/portal` : null })
     let host = 'localhost'
     try {
@@ -1093,7 +1094,7 @@ export async function sendCustomerReply(
     } catch {
       /* keep localhost */
     }
-    const out = await channel.send(to, rendered, { from: id.from, replyTo: id.company.email || null, messageId: `<cr-${activityId}@${host}>`, unsubscribeUrl: null, unsubscribePostUrl: null })
+    const out = await channel.send(to as string, rendered, { from: id.from, replyTo: ctx.replyTo, messageId: `<cr-${activityId}@${host}>`, unsubscribeUrl: null, unsubscribePostUrl: null })
     return out.ok ? 'sent' : 'failed'
   } catch (e) {
     console.error('[customer-messages] reply email failed', { orgId, e })
