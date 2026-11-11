@@ -268,3 +268,50 @@ describe('guard: server links are built for a company', () => {
     expect(src).toMatch(/buildMorningUpdateHtml\(metrics, \{[^}]*\bappUrl\b[^}]*\}\)/)
   })
 })
+
+describe('wiring: each sent link is built on the record company address', () => {
+  // Route-level links are inline strings; this pins each one to the company-links helper and the org that owns the
+  // record (or the signed-in user's own org, which is the record's org because every record read is org-scoped).
+  const root = path.resolve(__dirname, '..', '..')
+  const WIRING: Array<[string, string, RegExp]> = [
+    ['signing link: contract created', 'app/api/contracts/create/route.ts', /orgAppUrl\(supabase, profile\.org_id\)[\s\S]*\$\{appUrl\}\/contracts\/sign\//],
+    ['signing link: contract re-sent', 'app/api/contracts/[id]/send/route.ts', /\$\{await orgAppUrl\(admin, contract\.org_id\)\}\/contracts\//],
+    ['signing link: change order', 'app/api/change-orders/create/route.ts', /orgAppUrl\(createServiceClient\(\), profile\.org_id\)[\s\S]*\$\{appUrl\}\/change-orders\/sign\//],
+    ['signed contract download', 'app/api/contracts/sign/route.ts', /customerSignedDocUrl\('contract', [^\n]*tryOrgAppUrl\(supabase, contract\.org_id,/],
+    ['contract signed: admin sale email', 'app/api/contracts/sign/route.ts', /tryOrgAppUrl\(supabase, contract\.org_id, 'contract signed: admin sale email'\)/],
+    ['signed change-order download', 'app/api/change-orders/sign/route.ts', /tryOrgAppUrl\(supabase, changeOrder\.org_id,/],
+    ['/r report link', 'app/api/inspection-reports/[id]/send/route.ts', /\$\{await orgAppUrl\(admin, profile\.org_id\)\}\/r\//],
+    ['review link (SMS)', 'app/api/jobs/[id]/review-request/route.ts', /orgAppUrl\(supabase, job\.org_id\)/],
+    ['password reset', 'app/api/admin/users/route.ts', /orgAppUrl\(adminClient, targetUser\.org_id\)[\s\S]*\$\{appUrl\}\/reset-password/],
+    ['employee agreement', 'app/api/admin/employee-agreements/route.ts', /orgAppUrl\(admin, claimed\.org_id as string\)/],
+    ['crew links (crews list)', 'app/api/ops/jobs/[id]/trades/route.ts', /tryOrgAppUrl\(admin, orgId,[\s\S]*crewLinkUrl\(t\.crew_link_token, appUrl\)/],
+    ['calendar invite', 'lib/install-calendar.ts', /params\.appUrl \?\? \(await orgAppUrl\(adminClient, trade\.org_id\)\)/],
+    ['sub work order complete', 'app/api/subs/work-orders/[id]/complete/route.ts', /orgAppUrl\(serviceClient, workOrder\.org_id\)/],
+    ['canvass lead emails', 'app/api/canvass/lead/route.ts', /orgAppUrl\(createServiceClient\(\), profile\.org_id\)/],
+    ['webhook lead email', 'app/api/webhooks/leads/route.ts', /orgAppUrl\(adminClient, org_id\)/],
+    ['appointment email', 'app/api/appointments/[id]/route.ts', /orgAppUrl\(adminClient, profile\.org_id\)/],
+    ['website estimate lead', 'lib/public-estimate-lead.ts', /\$\{await orgAppUrl\(adminClient, orgId\)\}\/leads\//],
+    ['payment email', 'lib/job-payment-email.ts', /\$\{await orgAppUrl\(supabase, params\.orgId\)\}\/ops\/jobs\//],
+    ['thread notifications', 'lib/threads/notify.ts', /\$\{await orgAppUrl\(admin, input\.orgId\)\}\$\{path\}/],
+    ['payroll statement (manual)', 'app/api/admin/payroll/statements/email/route.ts', /linkOrg: await loadOrgForLinks\(supabase, orgId\)/],
+    ['payroll statement (approve)', 'lib/payroll-approve.ts', /loadOrgForLinks\(admin, orgId\)/],
+    ['morning update (cron)', 'lib/morning-update-email.ts', /tryOrgAppUrl\(supabase, params\.orgId,/],
+  ]
+  it.each(WIRING)('%s', (_name, file, pattern) => {
+    expect(fs.readFileSync(path.join(root, file), 'utf8')).toMatch(pattern)
+  })
+
+  it('browser copy buttons go through clientLinkBase', () => {
+    for (const f of [
+      'components/inspection-report/CopyShareLinkButton.tsx',
+      'components/inspection-report/ReportBuilder.tsx',
+      'components/contracts/ContractListItem.tsx',
+      'components/change-orders/ChangeOrdersSection.tsx',
+      'app/admin/campaigns/page.tsx',
+    ]) {
+      const src = fs.readFileSync(path.join(root, f), 'utf8')
+      expect(src).toMatch(/clientLinkBase\(/)
+      expect(src).not.toMatch(/window\.location\.origin|NEXT_PUBLIC_APP_URL/)
+    }
+  })
+})
