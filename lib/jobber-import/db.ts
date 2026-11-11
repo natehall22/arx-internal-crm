@@ -92,7 +92,7 @@ export async function listRuns(admin: SupabaseClient, orgId: string): Promise<{ 
 }
 
 export async function loadRun(admin: SupabaseClient, orgId: string, runId: string): Promise<RunRow | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(runId)) return null
+  if (typeof runId !== 'string' || !/^[0-9a-z-]{1,64}$/i.test(runId)) return null
   const { data } = await orgDb(admin, orgId).from('import_runs').select(RUN_COLS).eq('id', runId).maybeSingle()
   return data ? runFromRow(data as Record<string, unknown>) : null
 }

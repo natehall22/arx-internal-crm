@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -137,5 +138,51 @@ describe('Jobber status, schedule', () => {
     const s = inferSchedule({ visitDates: [], words: 'Lawn', startDate: '2025-04-03' })
     expect(s).toMatchObject({ source: 'default', weekday: 4 })
     expect(inferSchedule({ visitDates: [], words: 'Bi-weekly mowing', startDate: null }).seasons[0].frequency).toBe('every_2_weeks')
+  })
+})
+
+describe('Jobber review fixes — overlapping exports, odd J-IDs, Excel, encoding', () => {
+  const csv = (id: string, name: string, text: string): RunFile => {
+    const rows = parseCsv(text)
+    return { id, name, kind: detectFileKind(rows[0])!, headers: rows[0], rows: rows.slice(1) }
+  }
+  it('the same recurring job, quote and invoice in two exports is kept once (and listed)', () => {
+    const files = [file('clients-1.csv'), file('recurring.csv'), { ...file('recurring.csv'), id: 'again', name: 'recurring (1).csv' }, file('invoices.csv'), { ...file('invoices.csv'), id: 'inv2', name: 'invoices-old.csv' }, file('quotes.csv'), { ...file('quotes.csv'), id: 'q2', name: 'quotes2.csv' }]
+    const r = plan(EMPTY, OPTS, files)
+    expect(r.items.filter((i) => i.source_id === 'job:7')).toHaveLength(1)
+    expect(r.items.filter((i) => i.source_id === 'invoice:1042')).toHaveLength(1)
+    expect(r.items.filter((i) => i.source_id === 'quote:55')).toHaveLength(1)
+    expect(r.summary.problems.some((p) => /also in recurring.csv/.test(p.message))).toBe(true)
+  })
+  it('a client split across two client files is one customer with both properties', () => {
+    const head = 'J-ID,Display Name,E-mails,Service Street 1,Service City,Service State,Service Zip code\n'
+    const a = csv('a', 'clients-1.csv', head + '9_1,Pat Lee,pat@x.com,1 Elm St,Panacea,FL,32346\n')
+    const b = csv('b', 'clients-2.csv', head + '9_2,Pat Lee,pat@x.com,2 Oak St,Panacea,FL,32346\n')
+    const r = plan(EMPTY, OPTS, [a, b])
+    expect(r.items.filter((i) => i.kind === 'customer')).toHaveLength(1)
+    expect(r.items.filter((i) => i.kind === 'property').map((i) => i.source_id).sort()).toEqual(['9_1', '9_2'])
+  })
+  it('a J-ID with no property part ("12_") gets numbered properties, never a clash', () => {
+    const head = 'J-ID,Display Name,Service Street 1,Service City\n'
+    const r = plan(EMPTY, OPTS, [csv('c', 'clients.csv', head + '12_,Sam,1 A St,Medart\n12_,Sam,2 B St,Medart\n')])
+    expect(r.items.filter((i) => i.kind === 'property').map((i) => i.source_id)).toEqual(['12:1', '12:2'])
+  })
+  it('Excel damage: scientific-notation phones are dropped and listed; a 4-digit ZIP is flagged', () => {
+    const head = 'J-ID,Display Name,Main Phone #s,Service Street 1,Service Zip code\n'
+    const r = plan(EMPTY, OPTS, [csv('d', 'clients.csv', head + '5_1,Ann,8.50555E+09,1 A St,2108\n')])
+    expect(r.items.find((i) => i.kind === 'customer')!.payload.phone).toBeNull()
+    const msgs = r.summary.problems.map((p) => p.message).join(' | ')
+    expect(msgs).toMatch(/looks changed by Excel/)
+    expect(msgs).toMatch(/lost its leading zero/)
+  })
+})
+
+describe('CSV bytes', () => {
+  it('UTF-8 (with BOM) and Windows-1252 (Excel) both decode', () => {
+    const { decodeCsvBytes } = jest.requireActual('@/lib/csv') as typeof import('@/lib/csv')
+    const utf8 = new TextEncoder().encode('﻿Name\nJosé\n')
+    expect(decodeCsvBytes(utf8)).toEqual({ text: 'Name\nJosé\n', encoding: 'utf-8' })
+    const cp1252 = new Uint8Array([0x4e, 0x61, 0x6d, 0x65, 0x0a, 0x4a, 0x6f, 0x73, 0xe9, 0x20, 0x96, 0x20, 0x92, 0x0a])
+    expect(decodeCsvBytes(cp1252)).toEqual({ text: 'Name\nJosé – ’\n', encoding: 'windows-1252' })
   })
 })
