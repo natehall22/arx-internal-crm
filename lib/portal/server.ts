@@ -154,22 +154,22 @@ export async function consumeLoginLink(admin: SupabaseClient, token: unknown, ho
   return { orgId: row.org_id, customerId: row.customer_id }
 }
 
-const MIN_REQUEST_MS = 900
+/** Every answer takes this long (default 1.5 s; env PORTAL_REQUEST_MIN_MS for tests): a match (database + email) and a stranger look the same. */
+const requestFloorMs = () => {
+  const n = Number(process.env.PORTAL_REQUEST_MIN_MS)
+  return Number.isFinite(n) && n >= 0 ? n : 1500
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * A customer asked for a link. ALWAYS resolves the same way (the caller shows the same words); the work and the time it
- * takes do not depend on whether anyone matched. Mail goes only to the address on file.
+ * A customer asked for a link. ALWAYS resolves the same way (the caller shows the same words) and takes the same time:
+ * the work races a fixed floor, so a slow mail server cannot tell a stranger from a customer. Mail goes only to the
+ * address on file.
  */
 export async function requestLoginLink(admin: SupabaseClient, orgId: string, raw: unknown, ip: string): Promise<void> {
-  const started = Date.now()
-  try {
-    await doRequest(admin, orgId, raw, ip)
-  } catch (e) {
-    console.error('portal link request failed', e)
-  }
-  const wait = MIN_REQUEST_MS - (Date.now() - started)
-  if (wait > 0) await sleep(wait)
+  const floor = requestFloorMs()
+  const work = doRequest(admin, orgId, raw, ip).catch((e) => console.error('portal link request failed', e))
+  await Promise.all([Promise.race([work, sleep(floor)]), sleep(floor)])
 }
 
 async function doRequest(admin: SupabaseClient, orgId: string, raw: unknown, ip: string): Promise<void> {

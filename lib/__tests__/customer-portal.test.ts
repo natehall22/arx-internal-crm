@@ -10,6 +10,7 @@ import { createHash } from 'crypto'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 
 process.env.SMTP_HOST = 'smtp.test'
+process.env.PORTAL_REQUEST_MIN_MS = '0'
 const A = 'org-a'
 const B = 'org-b'
 const iso = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString()
