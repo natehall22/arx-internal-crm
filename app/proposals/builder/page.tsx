@@ -15,6 +15,7 @@ import {
   LEGACY_MANUAL_DEFAULT_PERCENT,
   combinedTaxPercent,
   defaultTaxRates,
+  legacyTaxLabel,
   readStoredTaxLines,
   taxLineLabel,
   taxRatesByIds,
@@ -861,7 +862,7 @@ export default function ProposalBuilderPage() {
     const taxAmount = fromCents(t.taxCents)
     const total = fromCents(t.totalCents)
     const taxRows = t.legacy
-      ? [{ label: `Tax (${form.tax_rate}%)`, amount: taxAmount }]
+      ? [{ label: legacyTaxLabel(form.tax_rate), amount: taxAmount }]
       : t.exempt
         ? [{ label: 'Sales tax (exempt)', amount: 0 }]
         : t.taxLines.map((l) => ({ label: taxLineLabel(l), amount: fromCents(l.amount_cents) }))

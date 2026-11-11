@@ -1,5 +1,5 @@
 import { roundMoney } from '@/lib/money'
-import { computeSalesTax, lineIsTaxable, readStoredTaxLines, taxLineLabel, type TaxRateInput } from '@/lib/sales-tax'
+import { computeSalesTax, legacyTaxLabel, lineIsTaxable, readStoredTaxLines, taxLineLabel, type TaxRateInput } from '@/lib/sales-tax'
 
 const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
 const fromCents = (cents: number) => cents / 100
@@ -118,7 +118,7 @@ export function getProposalDisplayPricing(proposal: ProposalPricingInput) {
       rates: [{ name: 'Tax', percent: Number(proposal.tax_rate) || 0 }],
     })
     taxCents = r.taxCents
-    taxLines = [{ label: `Tax (${proposal.tax_rate}%)`, amount: fromCents(taxCents) }]
+    taxLines = [{ label: legacyTaxLabel(proposal.tax_rate), amount: fromCents(taxCents) }]
   }
 
   return {

@@ -224,6 +224,11 @@ export function readStoredTaxLines(v: unknown): TaxLine[] | null {
   return out
 }
 
+/** The original single-rate row label, exactly as quotes always printed it: "Tax (7%)". */
+export function legacyTaxLabel(ratePercent: unknown): string {
+  return `Tax (${ratePercent}%)`
+}
+
 /** Customer-facing row label, e.g. "Cabarrus County (2.25%)". */
 export function taxLineLabel(line: Pick<TaxLine, 'name' | 'percent'>): string {
   return `${line.name} (${line.percent}%)`
