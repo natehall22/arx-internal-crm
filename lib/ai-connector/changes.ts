@@ -85,7 +85,7 @@ export async function proposeChange<A>(tool: McpTool & { write: WriteSpec<A> }, 
     status: 'pending',
     expires_at: new Date(nowOf(ctx) + CHANGE_TTL_SECONDS * 1000).toISOString(),
   })
-  // Fails closed (nothing to confirm) until migration 202611150010 is applied.
+  // Fails closed (nothing to confirm) until migration 202611150070 is applied.
   if (error) {
     console.error('[ai-connector] could not store a proposed change', error.message)
     throw new ToolError('unavailable', 'Changes are not available right now. Nothing was saved.', 'store_failed')
