@@ -9,14 +9,11 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/toast'
 import type { CheckupResult, CheckupView } from '@/lib/checkups'
 import { formatDate, formatDateShort } from '@/lib/format'
+import { HEALTH_RESULT_STYLE } from '@/lib/health-result'
 
 type Section = { id: string; title: string; empty: string; rows: CheckupView[] }
 
-const RESULT_STYLE: Record<CheckupResult, { label: string; cls: string }> = {
-  green: { label: 'Green — looks good', cls: 'bg-green-700 text-white' },
-  yellow: { label: 'Yellow — watch / minor repair', cls: 'bg-amber-400 text-[#2c2c2a]' },
-  red: { label: 'Red — needs repair', cls: 'bg-red-700 text-white' },
-}
+const RESULT_STYLE = HEALTH_RESULT_STYLE
 
 const STATUS_TEXT: Record<CheckupView['status'], string> = {
   due: 'Due',

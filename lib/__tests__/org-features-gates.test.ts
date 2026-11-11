@@ -6,7 +6,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-import { ALL_FEATURES_ON } from '@/lib/org-features'
+import { DEFAULT_ORG_FEATURES } from '@/lib/org-features'
 import { ReportAccessError, checkAccess, datasetOffered, type ReportContext } from '@/lib/reporting/run'
 import { DATASETS } from '@/lib/reporting/catalog'
 
@@ -50,18 +50,18 @@ describe('5. reports: one rule for the list and every run (screen, CSV, schedule
   const ctx = (features?: ReportContext['features']): ReportContext => ({ orgId: 'o', userId: 'u', scope: 'all', finance: true, canExport: true, scopedUserIds: null, features })
   const spec = { dataset: 'canvass_doors', mode: 'summary', metric: { kind: 'count' }, filters: [] } as never
   it('a dataset of a switched-off feature is refused with 403 (scheduled runs skip ReportAccessError)', () => {
-    expect(() => checkAccess(ctx({ ...ALL_FEATURES_ON, canvassing: false }), DATASETS.canvass_doors, spec)).toThrow(ReportAccessError)
+    expect(() => checkAccess(ctx({ ...DEFAULT_ORG_FEATURES, canvassing: false }), DATASETS.canvass_doors, spec)).toThrow(ReportAccessError)
     try {
-      checkAccess(ctx({ ...ALL_FEATURES_ON, canvassing: false }), DATASETS.canvass_doors, spec)
+      checkAccess(ctx({ ...DEFAULT_ORG_FEATURES, canvassing: false }), DATASETS.canvass_doors, spec)
     } catch (e) {
       expect((e as ReportAccessError).status).toBe(403)
     }
   })
   it('switch on, or a context built without features (older callers): unchanged', () => {
-    expect(() => checkAccess(ctx(ALL_FEATURES_ON), DATASETS.canvass_doors, spec)).not.toThrow()
+    expect(() => checkAccess(ctx(DEFAULT_ORG_FEATURES), DATASETS.canvass_doors, spec)).not.toThrow()
     expect(() => checkAccess(ctx(undefined), DATASETS.canvass_doors, spec)).not.toThrow()
-    expect(datasetOffered(ctx({ ...ALL_FEATURES_ON, roofMeasure: false }), 'instant_estimate_accuracy')).toBe(false)
-    expect(datasetOffered(ctx({ ...ALL_FEATURES_ON, roofMeasure: false }), 'sales')).toBe(true)
+    expect(datasetOffered(ctx({ ...DEFAULT_ORG_FEATURES, roofMeasure: false }), 'instant_estimate_accuracy')).toBe(false)
+    expect(datasetOffered(ctx({ ...DEFAULT_ORG_FEATURES, roofMeasure: false }), 'sales')).toBe(true)
   })
   it('the list (GET) uses the same datasetOffered rule', () => {
     expect(src('app/api/reports/run/route.ts')).toMatch(/\.filter\(\(d\) => datasetOffered\(ctx, d\.key\)\)/)

@@ -9,36 +9,35 @@
  *
  * Shared by the ops routes (`/api/ops/jobs/[id]/photos/*`, staff session) and
  * the crew routes (`/api/crew/[token]/photos/*`, trade link) — the callers only
- * differ in how they authorize and which job/trade they resolve to.
+ * differ in how they authorize and which job/trade they resolve to. Service
+ * visits (no job) use the same two steps through {@link registerVisitPhotoUpload}
+ * / {@link finalizeVisitPhotoUpload}: their own folder, `job_id` NULL.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { FILES_BUCKET, buildJobPhotoStoragePath, safeUploadFilename } from '@/lib/files/storage'
+import { FILES_BUCKET, buildJobPhotoStoragePath, buildVisitPhotoStoragePath, safeUploadFilename, visitPhotoFolder } from '@/lib/files/storage'
 import { signedUploadTokenForPath } from '@/lib/files/signed-upload'
 import { findStorageObjectByRecordPrefix } from '@/lib/files/direct-upload-utils'
 
-export async function registerJobPhotoUpload(
-  admin: SupabaseClient,
-  args: { orgId: string; jobId: string; filename: string }
-): Promise<
-  | { photoId: string; storagePath: string; bucket: string; signedUploadToken: string }
-  | { error: string; status: number }
-> {
-  if (!args.filename.trim()) return { error: 'filename is required', status: 400 }
+type Registered = { photoId: string; storagePath: string; bucket: string; signedUploadToken: string } | { error: string; status: number }
 
+async function registerPhoto(admin: SupabaseClient, filename: string, pathFor: (photoId: string, safeName: string) => string): Promise<Registered> {
+  if (!filename.trim()) return { error: 'filename is required', status: 400 }
   const photoId = crypto.randomUUID()
-  const storagePath = buildJobPhotoStoragePath({
-    orgId: args.orgId,
-    jobId: args.jobId,
-    photoId,
-    filename: safeUploadFilename(args.filename, 'photo'),
-  })
-
+  const storagePath = pathFor(photoId, safeUploadFilename(filename, 'photo'))
   const signed = await signedUploadTokenForPath(admin, FILES_BUCKET, storagePath)
   if ('error' in signed) return { error: signed.error, status: 500 }
-
   return { photoId, storagePath, bucket: FILES_BUCKET, signedUploadToken: signed.token }
+}
+
+export async function registerJobPhotoUpload(admin: SupabaseClient, args: { orgId: string; jobId: string; filename: string }): Promise<Registered> {
+  return registerPhoto(admin, args.filename, (photoId, filename) => buildJobPhotoStoragePath({ orgId: args.orgId, jobId: args.jobId, photoId, filename }))
+}
+
+/** A service visit's photo (no job): its own folder under the visit. */
+export async function registerVisitPhotoUpload(admin: SupabaseClient, args: { orgId: string; visitId: string; filename: string }): Promise<Registered> {
+  return registerPhoto(admin, args.filename, (photoId, filename) => buildVisitPhotoStoragePath({ orgId: args.orgId, visitId: args.visitId, photoId, filename }))
 }
 
 export async function finalizeJobPhotoUpload(
@@ -56,7 +55,22 @@ export async function finalizeJobPhotoUpload(
     workOrderId?: string | null
   }
 ): Promise<{ photo: Record<string, unknown> } | { error: string; status: number }> {
-  const folderPath = `${args.orgId}/jobs/${args.jobId}/photos`
+  return finalizePhoto(admin, `${args.orgId}/jobs/${args.jobId}/photos`, { ...args, jobId: args.jobId })
+}
+
+/** Records a service visit's photo (`job_id` NULL, `work_order_id` = the visit) once it is in the visit's folder. */
+export async function finalizeVisitPhotoUpload(
+  admin: SupabaseClient,
+  args: { orgId: string; visitId: string; photoId: string; photoTag: string | null; mimeType: string | null; fileSize: number | null; uploadedBy: string | null }
+): Promise<{ photo: Record<string, unknown> } | { error: string; status: number }> {
+  return finalizePhoto(admin, visitPhotoFolder(args.orgId, args.visitId), { ...args, jobId: null, workOrderId: args.visitId })
+}
+
+async function finalizePhoto(
+  admin: SupabaseClient,
+  folderPath: string,
+  args: { orgId: string; jobId: string | null; photoId: string; photoTag: string | null; mimeType: string | null; fileSize: number | null; uploadedBy: string | null; workOrderId?: string | null }
+): Promise<{ photo: Record<string, unknown> } | { error: string; status: number }> {
   const found = await findStorageObjectByRecordPrefix(admin, FILES_BUCKET, folderPath, args.photoId)
   if (!found) {
     return { error: 'Upload not found in storage. Try uploading again.', status: 400 }
@@ -83,13 +97,9 @@ export async function finalizeJobPhotoUpload(
     // A duplicate finalize (retry after a dropped response) hits the primary key:
     // the photo is already recorded, so do NOT delete the stored object.
     if (error?.code === '23505') {
-      const { data: existing } = await admin
-        .from('photos')
-        .select('*')
-        .eq('id', args.photoId)
-        .eq('org_id', args.orgId)
-        .eq('job_id', args.jobId)
-        .maybeSingle()
+      let again = admin.from('photos').select('*').eq('id', args.photoId).eq('org_id', args.orgId)
+      again = args.jobId ? again.eq('job_id', args.jobId) : again.is('job_id', null).eq('work_order_id', args.workOrderId ?? '')
+      const { data: existing } = await again.maybeSingle()
       if (existing) return { photo: existing }
     }
     await admin.storage.from(FILES_BUCKET).remove([found.storagePath])

@@ -14,13 +14,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { CHECKUP_LEAD_DAYS, addMonthsYmd, checkupLabel, checkupOffsets, monthsBetweenYmd, readCheckupSettings, type CheckupSettings } from '@/lib/checkups-settings'
 import { contactConnected, type ContactOutcome } from '@/lib/customer-contact'
+import { HEALTH_RESULTS, type HealthResult } from '@/lib/health-result'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 
 export const CHECKUP_STATUSES = ['due', 'booked', 'done', 'declined', 'unreachable'] as const
 export type CheckupStatus = (typeof CHECKUP_STATUSES)[number]
 export const OPEN_CHECKUP_STATUSES: readonly CheckupStatus[] = ['due', 'booked']
-export const CHECKUP_RESULTS = ['green', 'yellow', 'red'] as const
-export type CheckupResult = (typeof CHECKUP_RESULTS)[number]
+/** Checkup results are the shared health vocabulary (lib/health-result.ts). */
+export const CHECKUP_RESULTS = HEALTH_RESULTS
+export type CheckupResult = HealthResult
 
 /** Installed = complete or collected (same rule as review requests); a later job at the same home within this many days does not start a second schedule. */
 const INSTALLED_STATUSES = ['complete', 'collected']
