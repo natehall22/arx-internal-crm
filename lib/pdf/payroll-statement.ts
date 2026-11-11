@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 import { formatPhoneDashed } from '@/lib/format'
 import type { OrgBrand } from '@/lib/org-brand'
-import { formatPayrollMoney } from '@/lib/payroll-format'
+import { adjustmentsLabel, formatPayrollMoney } from '@/lib/payroll-format'
 
 const COLORS = {
   navy: [30, 58, 95] as const,
@@ -324,7 +324,7 @@ export function buildPayrollStatementPdfBuffer(
 
   if ((statement.totals.adjustments ?? 0) !== 0) {
     summaryRows.push({
-      label: 'Fixes',
+      label: adjustmentsLabel(statement.adjustments),
       amount: formatPayrollMoney(statement.totals.adjustments),
       subtitle: statement.adjustments?.map((a) => a.reason).join('; ') || undefined,
     })

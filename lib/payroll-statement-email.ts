@@ -1,7 +1,7 @@
 import type { OrgBrand } from '@/lib/org-brand'
 import { getAppUrl, type AppUrlOrg } from '@/lib/app-url'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
-import { formatPayrollMoney } from '@/lib/payroll-format'
+import { adjustmentsLabel, formatPayrollMoney } from '@/lib/payroll-format'
 import {
   buildPayrollStatementPdfBuffer,
   formatNegativePayrollMoney,
@@ -49,7 +49,7 @@ export function buildPayrollStatementEmailHtml(input: {
     rows.push({ label: 'Bonuses', value: formatPayrollMoney(totals.bonusEarnings) })
   }
   if ((totals.adjustments ?? 0) !== 0) {
-    rows.push({ label: 'Fixes', value: formatPayrollMoney(totals.adjustments) })
+    rows.push({ label: adjustmentsLabel(statement.adjustments), value: formatPayrollMoney(totals.adjustments) })
   }
   rows.push({ label: 'Chargebacks', value: formatNegativePayrollMoney(totals.chargebacksApplied) })
   rows.push({ label: 'Period status', value: period.status })

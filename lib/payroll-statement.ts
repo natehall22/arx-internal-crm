@@ -10,6 +10,7 @@ import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
 import { loadActiveCompPlanForUser, producerStorageRoleForParticipant } from '@/lib/payroll-export'
 import { roundMoney } from '@/lib/money'
 import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
+import { loadMinimumDecisions, weeklyMinimumMath } from '@/lib/payroll-weekly-minimum'
 import { cutoffYmdEt } from '@/lib/weekly-payroll/cutoff'
 
 /**
@@ -312,6 +313,14 @@ export async function buildPayrollStatement(
   const periodUnitEarnings = periodUnits?.total ?? 0
   const adjustmentRows = (await loadPeriodAdjustments(supabase, orgId, periodId)).filter((a) => a.userId === userId)
   const adjustments: PayrollStatementAdjustment[] = adjustmentRows.map((a) => ({ id: a.id, kind: a.kind, reason: a.reason, amount: a.amount }))
+  // A weekly-minimum top-up ("greater of $X or commission") stored when the week was approved shows as its own line with its math,
+  // so the emailed statement adds up to the check (lib/payroll-weekly-minimum.ts). Open weeks show it on the Pay screen instead.
+  if (period.status !== 'open') {
+    const min = (await loadMinimumDecisions(supabase, orgId, periodId)).get(userId)
+    if (min && min.amount > 0) {
+      adjustments.push({ id: `minimum-${periodId}`, kind: 'weekly_minimum', reason: `Weekly minimum — ${weeklyMinimumMath(min.detail?.minimum ?? min.amount, min.detail?.commission ?? 0, min.amount)}`, amount: roundMoney(min.amount) })
+    }
+  }
   const adjustmentTotal = roundMoney(adjustments.reduce((s, a) => s + a.amount, 0))
   const bonusEarnings = bonuses.reduce((s, b) => s + b.amount, 0)
   const chargebacksApplied = chargebacks.reduce((s, c) => s + c.appliedAmount, 0)

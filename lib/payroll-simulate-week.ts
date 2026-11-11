@@ -5,7 +5,7 @@
  *
  * A job counts in the week its pay first became due: it pays at this week's cutoff (or late-money window) and did NOT at the previous
  * week's. Covered: commission lines and the weekly minimum. Not covered (say so next to the numbers): hourly, per-unit pay, bonuses
- * and fixes — they need rows typed into a real week. ARX reps are commission/bonus only.
+ * and fixes — they need rows typed into a real week. (A commission-only company loses nothing.)
  */
 import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
