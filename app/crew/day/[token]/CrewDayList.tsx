@@ -48,6 +48,7 @@ export default function CrewDayList({
   today,
   visits: initial,
   clock: initialClock = null,
+  onTheWay = false,
 }: {
   token: string
   crewName: string
@@ -56,6 +57,8 @@ export default function CrewDayList({
   visits: CrewDayVisit[]
   /** The crew's time clock (only when the company uses it AND this crew clocks in; subs never get one). */
   clock?: ClockState | null
+  /** The company emails the customer when the crew taps "On my way" (Settings → Customer messages). */
+  onTheWay?: boolean
 }) {
   const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(initial)
   const [busy, setBusy] = useState<string | null>(null)
@@ -67,6 +70,8 @@ export default function CrewDayList({
   // A skip waits a few seconds so a wrong tap can be undone; it is sent at once if the page is closed or hidden.
   const pendingSkip = useRef<{ id: string; body: Record<string, unknown>; before: CrewDayVisit; timer: number } | null>(null)
   const [undoFor, setUndoFor] = useState<string | null>(null)
+  // "On my way" answers per visit (what the customer was told).
+  const [told, setTold] = useState<Record<string, string>>({})
   // Hooks run either way; with no clock the endpoint is never called (the empty state renders nothing).
   const clock = useClock(`/api/crew/day/${token}/clock`, {
     tapperKey: token.slice(0, 12),
@@ -196,6 +201,20 @@ export default function CrewDayList({
     return true
   }
 
+  async function onMyWay(id: string) {
+    setBusy(id)
+    setError(null)
+    const res = await fetch(`${base(id)}/on-the-way`, { method: 'POST' }).catch(() => null)
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { message?: string; error?: string }
+    setBusy(null)
+    if (!res || !res.ok) {
+      if (res && res.status === 404) void recheck()
+      setError(out.message || out.error || 'No signal? Try again in a moment.')
+      return
+    }
+    setTold((t) => ({ ...t, [id]: out.message || 'Customer told you’re on the way' }))
+  }
+
   async function onPhotos(id: string, files: File[]) {
     if (files.length === 0) return
     setBusy(id)
@@ -258,6 +277,11 @@ export default function CrewDayList({
                       Directions
                     </a>
                   ) : null}
+                  {onTheWay && !closed && !told[v.id] ? (
+                    <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} disabled={busy === v.id} onClick={() => void onMyWay(v.id)}>
+                      On my way
+                    </button>
+                  ) : null}
                   {askPhoto !== v.id ? (
                     <FileDropZone
                       compact
@@ -289,6 +313,11 @@ export default function CrewDayList({
                     </>
                   ) : null}
                 </div>
+                {told[v.id] && !closed ? (
+                  <p role="status" className="mt-2 text-base font-semibold">
+                    {told[v.id]}
+                  </p>
+                ) : null}
                 {undoFor === v.id ? (
                   <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-[#2c2c2a] px-3 py-2 text-white" role="status">
                     <span className="text-base font-semibold">Skipped.</span>

@@ -67,6 +67,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Customers pay invoices and deposits by card or bank from a link, save a card for automatic payments on service plans, and payments are recorded on their own. Money goes to your own Stripe account.',
     defaultOn: false,
   },
+  customerMessages: {
+    label: 'Automatic customer emails',
+    description: 'Visit reminders, “on the way” and “done” emails, quote follow-ups and invoice reminders, sent on their own. Each one is turned on separately in Settings → Customer messages.',
+    defaultOn: false,
+  },
   customerPortal: {
     label: 'Customer portal',
     description: 'Customers sign in with a link emailed to them and see their own visits, invoices, quotes, shared documents and plan, pay, and message you. Nothing internal is ever shown.',

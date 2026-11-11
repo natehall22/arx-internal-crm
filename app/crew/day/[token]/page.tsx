@@ -9,6 +9,7 @@ import { loadVisits } from '@/lib/service-plans-db'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { loadClockState } from '@/lib/time-tracking-db'
 import { createServiceClient } from '@/lib/supabase/service'
+import { readCustomerMessageSettings } from '@/lib/customer-messages'
 import CrewDayList from './CrewDayList'
 
 export const dynamic = 'force-dynamic'
@@ -51,9 +52,14 @@ export default async function CrewDayPage({ params }: { params: { token: string 
         return null
       })
     : null
+  // "On my way" button: only when the company sends that email (Settings → Customer messages).
+  const onTheWay =
+    (await isOrgFeatureOn(crew.orgId, 'customerMessages')) &&
+    readCustomerMessageSettings(((await admin.from('orgs').select('cm:settings->customerMessages').eq('id', crew.orgId).maybeSingle()).data as { cm?: unknown } | null)?.cm).onTheWay
   return (
     <CrewDayList
       token={params.token}
+      onTheWay={onTheWay}
       crewName={crew.crewName}
       companyName={brand.casualName}
       today={today}
