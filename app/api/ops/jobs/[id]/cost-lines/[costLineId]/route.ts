@@ -36,6 +36,7 @@ async function loadLine(
 }
 
 /** Crew time lines are written by the time clock feed (lib/time-tracking-db.ts); a hand edit would be overwritten. */
+const VENDOR_BILL_LOCKED = 'This cost comes from a vendor bill on a purchase order. Change or void the bill on the order, not here.'
 const TIME_CLOCK_LOCKED = 'This line comes from the crew time clock. Fix the time in Time (it updates this line), not here.'
 
 const DEALER_FEE_LOCKED =
@@ -111,6 +112,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
     if (existing.source === 'time_entries') {
       return NextResponse.json({ error: TIME_CLOCK_LOCKED }, { status: 409 })
+    }
+    if (existing.source === 'vendor_bill') {
+      return NextResponse.json({ error: VENDOR_BILL_LOCKED }, { status: 409 })
     }
 
     const patch: Record<string, unknown> = {}
@@ -196,6 +200,9 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     }
     if (existing.source === 'time_entries') {
       return NextResponse.json({ error: TIME_CLOCK_LOCKED }, { status: 409 })
+    }
+    if (existing.source === 'vendor_bill') {
+      return NextResponse.json({ error: VENDOR_BILL_LOCKED }, { status: 409 })
     }
     const { error } = await supabase
       .from('job_cost_lines')

@@ -119,6 +119,80 @@ export function composeSupplierOrderEmail(args: {
   }
 }
 
+export type PurchaseOrderEmailLine = { description: string; qtyText: string; totalText: string | null }
+
+/**
+ * The email for a general purchase order (any vendor or subcontractor). Same shape, sender and CC rules as the
+ * materials order email; the vendor also gets an optional "confirm" link (`ackUrl`).
+ */
+export function composePurchaseOrderEmail(args: {
+  kind: SendKind
+  vendor: SupplierRecord
+  sender: SupplierOrderSender
+  orgName: string
+  orgPhone: string | null
+  /** Job number or visit number the work is for, when there is one. */
+  reference: string | null
+  poLabel: string
+  subject: string
+  dateKind: 'delivery' | 'start'
+  date: string | null
+  address: string | null
+  note: string | null
+  lines: PurchaseOrderEmailLine[]
+  totalText: string | null
+  changes: string[]
+  ackUrl: string | null
+}): ComposedSupplierEmail {
+  const forWhat = args.reference ? ` for job ${args.reference}` : ''
+  const at = args.address ? ` at ${args.address}` : ''
+  const out: string[] = [`Hi ${args.vendor.name},`, '']
+  if (args.kind === 'cancellation') {
+    out.push(`Please CANCEL purchase order ${args.poLabel}${forWhat}${at}. Do not deliver it or start the work.`)
+  } else if (args.kind === 'revision') {
+    out.push(`This REVISED purchase order ${args.poLabel}${forWhat} replaces the earlier one. The PDF is attached.`)
+  } else {
+    out.push(`Please see the attached purchase order ${args.poLabel}${forWhat}.`)
+  }
+  out.push('')
+  if (args.kind !== 'cancellation') {
+    out.push(`${args.dateKind === 'start' ? 'Start on' : 'Deliver on'}: ${formatDeliveryDate(args.date)}`)
+    if (args.address) out.push(`${args.dateKind === 'start' ? 'Work at' : 'Deliver to'}: ${args.address}`)
+  }
+  if (args.vendor.accountNumber) out.push(`Account: ${args.vendor.accountNumber}`)
+  if (args.note) out.push(`Note: ${args.note}`)
+  if (args.changes.length > 0 && args.kind === 'revision') {
+    out.push('', 'What changed:')
+    for (const c of args.changes) out.push(`- ${c}`)
+  }
+  if (args.kind !== 'cancellation' && args.lines.length > 0) {
+    out.push('', 'Items (same as the attached PDF):')
+    for (const l of args.lines) out.push(`- ${l.description}: ${l.qtyText}${l.totalText ? ` = ${l.totalText}` : ''}`)
+    if (args.totalText) out.push(`Total: ${args.totalText}`)
+  }
+  if (args.ackUrl && args.kind !== 'cancellation') out.push('', `Confirm you have this order (one tap): ${args.ackUrl}`)
+  out.push('', args.kind === 'cancellation' ? 'Please reply to confirm the cancellation.' : 'Please reply to confirm this order.')
+  out.push('', 'Thank you,')
+  if (args.sender.name) out.push(args.sender.name)
+  out.push([args.orgName, args.orgPhone].filter(Boolean).join(' · '))
+
+  const body = out.join('\n')
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#2c2c2a;line-height:1.5">${body
+    .split('\n')
+    .map((l) => (l === '' ? '<br>' : `<div>${escapeHtml(l)}</div>`))
+    .join('')}</div>`
+  return {
+    from: getCrmEmailFrom(),
+    to: (args.vendor.orderEmail ?? '').trim(),
+    cc: orderCcList(args.vendor, args.sender),
+    replyTo: isValidEmail(args.sender.email) ? args.sender.email.trim() : null,
+    subject: args.subject,
+    text: body,
+    html,
+    attachmentName: args.kind === 'cancellation' ? null : `PO ${args.poLabel}.pdf`.replace(/[^A-Za-z0-9 ._-]/g, '-'),
+  }
+}
+
 /**
  * Puts one composed email on the wire. Throws on any SMTP problem — the caller logs the failure
  * and never marks anything ordered.
