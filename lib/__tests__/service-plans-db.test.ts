@@ -4,6 +4,7 @@ import {
   applyTemplateToPlans,
   applyVisitAction,
   bulkShiftVisits,
+  createCustomerWithPlan,
   createServicePlan,
   loadChangeHistory,
   saveTemplate,
@@ -491,3 +492,29 @@ describe('review fixes', () => {
     expect((await loadVisits(db.client, ORG, { from: '2026-11-10', to: '2026-12-31', accessNotes: false })).length).toBe(18)
   })
 })
+
+describe('new customer + plan in one go', () => {
+  const plan = { trade: 'lawn', name: 'Weekly mowing', price: 45, start_date: '2026-11-10', seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' }] }
+  const property = { address_line1: '9 Pine Ln', city: 'Crawfordville', state: 'FL', zip: '32327', access_notes: 'Gate 9999' }
+  it('creates the customer, their property and the plan (visits on the calendar)', async () => {
+    const db = seed()
+    const r = await createCustomerWithPlan(db.client, ORG, 'u1', { customer: { name: 'Sam New', phone: '850-555-0199' }, property, plan }, { accessNotes: true, now: NOW })
+    if (!r.ok) throw new Error(r.error)
+    expect(r.matchedExisting).toBe(false)
+    const cust = (db.tables.customers as Array<Record<string, unknown>>).find((c) => c.id === r.customerId)
+    expect(cust).toMatchObject({ org_id: ORG, name: 'Sam New' })
+    const prop = (db.tables.properties as Array<Record<string, unknown>>).find((p) => p.customer_id === r.customerId)
+    expect(prop).toMatchObject({ org_id: ORG, address_line1: '9 Pine Ln', access_notes: 'Gate 9999' })
+    expect(r.plan.property_id).toBe(prop?.id)
+    expect(visitsOf(db, r.plan.id).length).toBeGreaterThan(0)
+  })
+  it('a bad plan creates nobody; a missing name or address is refused first', async () => {
+    const db = seed()
+    const before = db.tables.customers.length
+    expect(await createCustomerWithPlan(db.client, ORG, 'u1', { customer: { name: 'Sam' }, property, plan: { ...plan, trade: 'nope' } }, { accessNotes: true, now: NOW })).toMatchObject({ ok: false, status: 400 })
+    expect(await createCustomerWithPlan(db.client, ORG, 'u1', { customer: { name: '' }, property, plan }, { accessNotes: true, now: NOW })).toMatchObject({ ok: false, error: 'Enter the customer’s name' })
+    expect(await createCustomerWithPlan(db.client, ORG, 'u1', { customer: { name: 'Sam' }, property: { city: 'X' }, plan }, { accessNotes: true, now: NOW })).toMatchObject({ ok: false, status: 400 })
+    expect(db.tables.customers.length).toBe(before)
+  })
+})
+

@@ -651,7 +651,7 @@ export const HARNESS_VISITS = {
   from: '2026-11-10',
   to: '2026-11-16',
   canEdit: true,
-  crews: [{ id: 'sub-1', name: 'Green Team', hasPhoneLink: true }, { id: 'sub-2', name: 'Blue Team', hasPhoneLink: false }],
+  crews: [{ id: 'sub-1', name: 'Green Team', hasPhoneLink: true, phone: '(850) 555-0101' }, { id: 'sub-2', name: 'Blue Team', hasPhoneLink: false, phone: null }],
   visits: [
     visit({ id: 'v1' }),
     visit({ id: 'v2', planName: 'Biweekly mowing', address: '88 Oak Ridge Rd, Crawfordville, FL 32327', routePosition: 5, status: 'completed', photoCount: 3, accessNotes: null }),

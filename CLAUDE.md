@@ -220,6 +220,16 @@ follow-on visit). Feature switch `servicePlans` — the first **default-OFF** sw
 - **Statuses** scheduled → completed | skipped (`skip_reason`) | cancelled. A step visit with result options is done only with
   one of the plan's options; done starts the plan's NEXT step (`followUpVisitFields`, chained).
 - **Bulk shift** (`bulkShiftVisits`): a day range, all / one crew / unassigned, ±1–30 days; slots kept.
+- **"New price starts on"** (plan edit + template push): `previous_price` + `price_starts_on` on the plan; a slot before
+  that day keeps the old price (`planPriceOn` / `visitPrice(plan, slotDay)` — the ONE price rule for charges, generator,
+  refresh and preview). No date = the new price from the next visit (schedule cleared).
+- **Desire paths (2026-11-11):** ONE plan form `components/service-plans/PlanForm.tsx` (Customer File card and "New
+  customer + plan"): a new plan from a plan type shows plan type / starts / crew (+ price if it needs an answer) and one
+  summary line with "Change". "New customer + plan" (`NewCustomerPlan.tsx`, `POST /api/service-plans` →
+  `createCustomerWithPlan`: `upsertCustomer` matching rule, property, plan; plan checked before anyone is created) on the
+  Visits board and the customers list. Editor options come from ONE loader (`lib/service-plans-options.ts`). Rain day:
+  From/Through default tomorrow, Next day / Day after / Pick a day. Crew page: one tap on a skip reason skips, with a
+  6-second Undo (sent at once if the page is hidden); Done offers "Add a photo?". Crew links: Copy + Text (crew phone).
 - **Screens:** Customer File → Service plans card (start from a template; edit everything; preview; history); Jobs → Schedule →
   **Visits** tab (paged 300 at a time with a total and "Load more"; photo/charge lookups in chunks of 200 ids); crew phone page `/crew/day/<token>` (token in service-role `crew_day_links`, one per crew, **expires after 30
   days** or when replaced or the switch is off; the open page re-checks `/api/crew/day/<token>/status` on focus / return / every

@@ -43,6 +43,8 @@ export default function ServicePlanTemplatesCard() {
   const [detail, setDetail] = React.useState<Detail | null>(null)
   const [push, setPush] = React.useState<{ id: string; summary: string } | null>(null)
   const [busy, setBusy] = React.useState(false)
+  // "New prices start on": plans keep today's price for visits before this day (empty = from each plan's next visit).
+  const [startsOn, setStartsOn] = React.useState('')
 
   const load = React.useCallback(async () => {
     const res = await fetch('/api/admin/service-plan-templates', { cache: 'no-store' }).catch(() => null)
@@ -83,7 +85,7 @@ export default function ServicePlanTemplatesCard() {
   }
 
   async function previewPush(id: string) {
-    const out = await call(`/api/admin/service-plan-templates/${id}/apply`, 'POST', { preview: true })
+    const out = await call(`/api/admin/service-plan-templates/${id}/apply`, 'POST', { preview: true, priceStartsOn: startsOn || null })
     if (out) setPush({ id, summary: String(out.summary ?? '') })
   }
 
@@ -194,6 +196,22 @@ export default function ServicePlanTemplatesCard() {
         <Dialog open onOpenChange={(o) => !o && !busy && (setDetail(null), setPush(null))}>
           <DialogContent title={detail.template.name} description={`Version ${detail.template.version}. ${detail.plans} plan${detail.plans === 1 ? '' : 's'} sold from it; ${detail.behind} on an older version.`}>
             {detail.behind > 0 ? (
+              <Field label="New prices start on (optional)" hint="Visits before this day keep their old price. Leave empty to change prices from the next visit.">
+                {(a) => (
+                  <Input
+                    {...a}
+                    type="date"
+                    className="text-base"
+                    value={startsOn}
+                    onChange={(e) => {
+                      setStartsOn(e.target.value)
+                      setPush(null) // the preview must match the date
+                    }}
+                  />
+                )}
+              </Field>
+            ) : null}
+            {detail.behind > 0 ? (
               push?.id === detail.template.id ? (
                 <div className="flex flex-col gap-2 rounded-ui border border-amber-600 bg-amber-50 p-3">
                   <p className="text-ui-base text-ink">{push.summary}</p>
@@ -201,7 +219,7 @@ export default function ServicePlanTemplatesCard() {
                     <Button
                       loading={busy}
                       onClick={async () => {
-                        const out = await call(`/api/admin/service-plan-templates/${detail.template.id}/apply`, 'POST', { preview: false })
+                        const out = await call(`/api/admin/service-plan-templates/${detail.template.id}/apply`, 'POST', { preview: false, priceStartsOn: startsOn || null })
                         if (out) {
                           toast.success(String(out.summary ?? 'Plans updated'))
                           setPush(null)
