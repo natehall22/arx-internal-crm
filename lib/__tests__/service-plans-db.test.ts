@@ -245,9 +245,9 @@ describe('bulk shift preview', () => {
     const a = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
     const aId = (a as { plan: { id: string } }).plan.id
     const p = await previewBulkShift(db.client, ORG, s2, NOW)
-    const mine = visitsOf(db, aId).filter((x) => x.scheduled_date >= s2.from && x.scheduled_date <= s2.to)
+    const mine = visitsOf(db, aId).filter((x) => String(x.scheduled_date) >= s2.from && String(x.scheduled_date) <= s2.to)
     const out = mine[0]
-    const inn = visitsOf(db, aId).find((x) => x.scheduled_date > s2.to)!
+    const inn = visitsOf(db, aId).find((x) => String(x.scheduled_date) > s2.to)!
     inn.scheduled_date = out.scheduled_date
     out.scheduled_date = '2026-12-30'
     const res = await bulkShiftVisits(db.client, ORG, s2, { expectKey: p.selectionKey, now: NOW })
