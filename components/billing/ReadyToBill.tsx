@@ -38,7 +38,7 @@ const LONG_LOOKBACK = 365
 
 /**
  * Jobs → Schedule → Ready to bill: every done service visit not yet on an invoice, already grouped into the invoices it
- * would make — one per customer per month (default) or one per visit. The office's whole job is one button: "Bill N"
+ * would make — one per customer per month (default), one per customer property per month (commercial accounts), or one per visit. The office's whole job is one button: "Bill N"
  * (every invoice ticked; untick to hold one back), with "Email them now" on. Totals include sales tax exactly as the
  * invoice will (lib/sales-tax.ts). Safe to press twice: anything already billed is skipped.
  */
@@ -57,7 +57,7 @@ export default function ReadyToBill() {
 
   React.useEffect(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem(GROUPING_KEY) : null
-    if (saved === 'visit' || saved === 'month') setGrouping(saved)
+    if (saved === 'visit' || saved === 'month' || saved === 'property') setGrouping(saved)
   }, [])
 
   const load = React.useCallback(async (days: number | null) => {
@@ -216,9 +216,12 @@ export default function ReadyToBill() {
         </Card>
       ) : null}
 
-      <div className="flex gap-2" role="group" aria-label="How to group invoices">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="How to group invoices">
         <button type="button" className={seg(grouping === 'month')} aria-pressed={grouping === 'month'} onClick={() => setGroupingSaved('month')}>
           One per customer a month
+        </button>
+        <button type="button" className={seg(grouping === 'property')} aria-pressed={grouping === 'property'} onClick={() => setGroupingSaved('property')}>
+          One per property a month
         </button>
         <button type="button" className={seg(grouping === 'visit')} aria-pressed={grouping === 'visit'} onClick={() => setGroupingSaved('visit')}>
           One per visit
@@ -264,7 +267,8 @@ export default function ReadyToBill() {
                         <span>
                           <span className="block text-ui-base font-semibold text-ink">{c?.name ?? 'Customer'}</span>
                           <span className="block text-ui-sm text-ink">
-                            {grouping === 'month' ? `${monthLabel(d.month)} · ` : ''}
+                            {grouping === 'property' && d.propertyId && address(d.propertyId) ? `${address(d.propertyId)} · ` : ''}
+                            {grouping !== 'visit' ? `${monthLabel(d.month)} · ` : ''}
                             {visits === 0 ? 'monthly fee' : `${visits} visit${visits === 1 ? '' : 's'}`}
                             {send && !c?.email ? ' · no email' : ''}
                           </span>

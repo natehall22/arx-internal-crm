@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { billingRouteAuth } from '@/lib/service-billing-access'
-import { loadCustomerServiceInvoices } from '@/lib/service-billing-db'
+import { loadAddresses, loadCustomerServiceInvoices } from '@/lib/service-billing-db'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export const dynamic = 'force-dynamic'
@@ -14,5 +14,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const invoices = await loadCustomerServiceInvoices(ctx.admin, ctx.orgId, params.id)
   if (!invoices) return NextResponse.json({ invoices: [], ready: false })
-  return NextResponse.json({ invoices, ready: true, customerEmail: (customer as { email?: string | null }).email ?? null })
+  // Which property each invoice is for (a commercial customer has many): property id → address, company-scoped.
+  const propertyIds = Array.from(new Set(invoices.map((i) => i.property_id).filter((x): x is string => !!x)))
+  const addresses = propertyIds.length ? await loadAddresses(ctx.admin, ctx.orgId, propertyIds) : {}
+  return NextResponse.json({ invoices, addresses, ready: true, customerEmail: (customer as { email?: string | null }).email ?? null })
 }
