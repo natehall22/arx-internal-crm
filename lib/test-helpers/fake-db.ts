@@ -71,6 +71,15 @@ export function createFakeDb(
         const rl = rel[table]?.[name]
         if (rl) out[name] = (tables[rl.table] ?? []).find((x) => x.id === r[rl.fk]) ?? null
       }
+      // JSON path with an alias: `features:settings->features` (`->>` = text). Rows keep every column besides.
+      for (const m of Array.from(selectCols.matchAll(/([a-z_]+)\s*:\s*([a-z_]+)((?:->>?[a-z_A-Z0-9]+)+)/g))) {
+        let v: unknown = r[m[2]]
+        for (const step of Array.from(m[3].matchAll(/->(>?)([a-z_A-Z0-9]+)/g))) {
+          v = v && typeof v === 'object' ? (v as Row)[step[2]] : undefined
+          if (step[1] && v != null) v = typeof v === 'string' ? v : JSON.stringify(v)
+        }
+        out[m[1]] = v ?? null
+      }
       return out
     }
     const embeddedValue = (r: Row, path: string): unknown => {

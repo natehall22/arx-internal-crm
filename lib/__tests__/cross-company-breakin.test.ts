@@ -201,6 +201,7 @@ function bodyFor(routePath: string, method: string, shape: RequestShape): Record
 type Variant = (id: string, ref: string) => { body?: Record<string, unknown>; query?: Record<string, string> }
 let variant: Variant | null = null
 const each = (field: string, values: string[]): Variant[] => values.map((v) => () => ({ body: { [field]: v }, query: { [field]: v } }))
+const TODAY_YMD = new Date().toISOString().slice(0, 10)
 const POLYGON = { type: 'Polygon', coordinates: [[[-80.7, 35.4], [-80.6, 35.4], [-80.6, 35.5], [-80.7, 35.4]]] }
 const FIXTURES: Record<string, Variant[]> = {
   'GET /api/admin/data': each('resource', ['comp_plans', 'regions', 'teams', 'users', 'campaigns', 'scheduling']),
@@ -227,6 +228,23 @@ const FIXTURES: Record<string, Variant[]> = {
   'PATCH /api/admin/payroll/bonus-lines/[bonusLineId]/status': [() => ({ body: { status: 'approved' } })],
   'POST /api/admin/canvass-territories': [() => ({ body: { boundary_geojson: POLYGON } })],
   '/api/admin/canvass-territories/[id]': [() => ({ body: { boundary_geojson: POLYGON } })],
+  // Service plans + visits (default-OFF module; on for both companies in the seed).
+  'POST /api/ops/visits/[id]': [
+    () => ({ body: { action: 'done' } }),
+    () => ({ body: { action: 'skip', reason: 'rain' } }),
+    () => ({ body: { action: 'move', date: TODAY_YMD } }),
+    (id, ref) => ({ body: { action: 'assign', subId: ref } }),
+    () => ({ body: { action: 'reopen' } }),
+  ],
+  'POST /api/crew/day/[token]/visits/[id]': [() => ({ body: { action: 'done' } }), () => ({ body: { action: 'skip', reason: 'rain' } })],
+  'POST /api/ops/visits/shift': [(id, ref) => ({ body: { from: TODAY_YMD, days: 1, subId: ref } }), () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all' } })],
+  'PATCH /api/service-plans/[id]': [
+    () => ({ body: { action: 'pause' } }),
+    () => ({ body: { action: 'resume' } }),
+    () => ({ body: { action: 'end', on: TODAY_YMD } }),
+    () => ({ body: { preview: true, price: 55 } }),
+    () => ({ body: { price: 55 } }),
+  ],
 }
 
 /** A real 1x1 PNG, so upload routes that sniff the file get past their checks. */
@@ -416,10 +434,10 @@ describe('harness catches a planted hole', () => {
 
 /** Upload routes get real multipart first; anything else JSON, falling back to multipart if JSON is refused. */
 async function send(h: never, method: string, routePath: string, shape: RequestShape) {
-  mockWorld = createWorld(TABLES, ORG_TABLES)
+  mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', routePath)
   let r = await attack(h, method, routePath, shape.multipart ? 'form' : 'json', shape)
   if (!shape.multipart && r.status === 'threw' && /Content-Type was not one of/.test(r.text)) {
-    mockWorld = createWorld(TABLES, ORG_TABLES)
+    mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', routePath)
     r = await attack(h, method, routePath, 'form', shape)
   }
   return r

@@ -14,6 +14,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { createHash } from 'node:crypto'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
+import { ORG_FEATURE_KEYS, featureDefaultOn } from '@/lib/org-features'
 
 type Row = Record<string, unknown>
 
@@ -128,11 +129,16 @@ export function attackerSeed(table: string, hasOrgId = true): Row {
   // An enabled lead-source webhook, so B's webhook token is accepted.
   if (table === 'lead_sources') Object.assign(r, { webhook_enabled: true, is_active: true })
   if (table === 'work_orders') Object.assign(r, { trade: 'roofing', status: 'scheduled', install_days: 1, scheduled_date: new Date().toISOString().slice(0, 10) })
+  // A live crew phone link (lib/service-plans-db.ts resolveCrewDay: unexpired), so B's crew day link resolves.
+  if (table === 'crew_day_links') r.expires_at = new Date(Date.now() + 7 * 86_400_000).toISOString()
   Object.assign(r, { user_id: ATTACKER_ID, owner_user_id: ATTACKER_ID, created_at: '2026-11-02T12:00:00.000Z', updated_at: '2026-11-02T12:00:00.000Z' })
   if (hasOrgId) r.org_id = ORG_B
   else r[OWNER_TAG] = ORG_B
   return r
 }
+
+/** Every default-OFF feature switch turned on (lib/org-features.ts) — new modules join automatically. */
+const DEFAULT_OFF_MODULES_ON = Object.fromEntries(ORG_FEATURE_KEYS.filter((k) => !featureDefaultOn(k)).map((k) => [k, true]))
 
 export function seedTables(tables: string[], orgTables: Set<string>, attackerRole = 'admin'): Record<string, Row[]> {
   const seed: Record<string, Row[]> = {}
@@ -142,8 +148,10 @@ export function seedTables(tables: string[], orgTables: Set<string>, attackerRol
     seed[t] = [victimRow(t, org), attackerSeed(t, org)]
   }
   seed.orgs = [
-    { ...victimRow('orgs'), id: ORG_A, org_id: undefined, settings: { brand: { shortName: MARK } }, subdomain: 'alpha' },
-    { id: ORG_B, name: 'Bravo Co', settings: {}, subdomain: 'bravo', timezone: 'America/New_York' },
+    // Default-OFF modules are ON for both companies, so their routes are attacked past the feature gate (BOTH: a route
+    // that checks the record's company switch must not be masked by A's being off).
+    { ...victimRow('orgs'), id: ORG_A, org_id: undefined, settings: { brand: { shortName: MARK }, features: DEFAULT_OFF_MODULES_ON }, subdomain: 'alpha' },
+    { id: ORG_B, name: 'Bravo Co', settings: { features: DEFAULT_OFF_MODULES_ON }, subdomain: 'bravo', timezone: 'America/New_York' },
   ]
   seed.users = [
     { ...victimRow('users'), role: 'admin', is_super_admin: true, active: true },
@@ -160,6 +168,17 @@ export function seedTables(tables: string[], orgTables: Set<string>, attackerRol
   return seed
 }
 
+/**
+ * Routes whose record is a special kind of a shared table: both companies' rows are made that kind (A's and B's alike,
+ * before the "before" snapshot), so the attack reaches the org check instead of a "wrong kind" 404.
+ */
+export function seedForRoute(seed: Record<string, Row[]>, routePath: string) {
+  // Service-plan visits are work_orders rows of type 'service_visit' with no job (lib/service-plans-db.ts).
+  if (/^\/api\/(ops\/visits|crew\/day)\//.test(routePath)) {
+    for (const r of seed.work_orders ?? []) Object.assign(r, { work_order_type: 'service_visit', visit_step: 'service', job_id: null, service_planned_date: r.scheduled_date ?? null })
+  }
+}
+
 export type Finding = { kind: 'leak' | 'write' | 'insert_into_a' | 'moved_into_a' | 'storage' | 'auth_admin' | 'exfil'; detail: string }
 
 /** Columns that point at shared reference tables (GLOBAL_TABLES): an id there is nobody's company data. */
@@ -168,11 +187,12 @@ const GLOBAL_REF_COLUMNS = new Set(['permission_id'])
 export type World = ReturnType<typeof createWorld>
 
 /** One fresh database + side-effect logs for one attack request. */
-export function createWorld(tables: string[], orgTables: Set<string>, attackerRole = 'admin') {
+export function createWorld(tables: string[], orgTables: Set<string>, attackerRole = 'admin', routePath?: string) {
   const rpcs: Array<{ name: string; args: Row }> = []
   const readsOfA: string[] = []
   const readsOfBRecord: string[] = []
   const seed = seedTables(tables, orgTables, attackerRole)
+  if (routePath) seedForRoute(seed, routePath)
   const db = createFakeDb(seed, {
     onRpc: (name, args) => rpcs.push({ name, args }),
     onSelect: (table, rows) => {
