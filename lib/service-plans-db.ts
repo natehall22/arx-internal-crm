@@ -153,8 +153,8 @@ async function checkRefs(admin: SupabaseClient, orgId: string, customerId: strin
 
 /** The company's standard-tier rule (orgs.settings.servicePlans.standardTier), or null. */
 export async function loadStandardTier(admin: SupabaseClient, orgId: string): Promise<StandardTierRule | null> {
-  const { data } = await admin.from('orgs').select('service_plans:settings->servicePlans').eq('id', orgId).maybeSingle()
-  return readStandardTier((data as { service_plans?: unknown } | null)?.service_plans ?? null)
+  const { data } = await admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
+  return readStandardTier((data as { settings?: unknown } | null)?.settings ?? null)
 }
 
 /** Standard tier → the company's price; custom → the typed price. Only when a pricing field is in the save. */

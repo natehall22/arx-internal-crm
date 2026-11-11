@@ -6,6 +6,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { SERVICE_VISIT_TYPE } from '@/lib/service-plans'
 
 export async function POST(
   request: NextRequest,
@@ -52,6 +53,8 @@ export async function POST(
       `)
       .eq('id', params.id)
       .eq('assigned_sub_id', subId)
+      // A service-plan visit is completed only through lib/service-plans-db (it starts the follow-on inspection).
+      .neq('work_order_type', SERVICE_VISIT_TYPE)
       .single()
 
     if (woError || !workOrder) {
