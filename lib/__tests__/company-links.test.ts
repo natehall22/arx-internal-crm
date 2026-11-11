@@ -231,8 +231,15 @@ describe('clientLinkBase (browser copy buttons)', () => {
 describe('guard: server links are built for a company', () => {
   // Every server-side link must name the record's company (orgAppUrl / tryOrgAppUrl / loadOrgForLinks → getAppUrl(org)).
   // Allowed bare calls: the helpers themselves, the Google OAuth callback (one fixed return host by design) and the
-  // signed-doc builder's fallback when no address is handed in.
-  const ALLOWED = new Set(['lib/app-url.ts', 'lib/company-links.ts', 'lib/google-calendar.ts', 'lib/files/files-object.ts'])
+  // signed-doc builder's and the morning-email builders' fallback when no address is handed in (their one sender
+  // passes the company's address — checked below).
+  const ALLOWED = new Set([
+    'lib/app-url.ts',
+    'lib/company-links.ts',
+    'lib/google-calendar.ts',
+    'lib/files/files-object.ts',
+    'lib/morning-update-email.ts',
+  ])
   const root = path.resolve(__dirname, '..', '..')
   function walk(dir: string, out: string[]) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -253,5 +260,11 @@ describe('guard: server links are built for a company', () => {
       if (/\bgetAppUrl\(\s*\)/.test(src) || /\btryGetAppUrl\(\s*['"`][^'"`]*['"`]\s*\)/.test(src)) offenders.push(rel)
     }
     expect(offenders).toEqual([])
+  })
+
+  it('the morning email sender hands its builders the company address', () => {
+    const src = fs.readFileSync(path.join(root, 'lib/morning-update-email.ts'), 'utf8')
+    expect(src).toMatch(/await tryOrgAppUrl\(supabase, params\.orgId,/)
+    expect(src).toMatch(/buildMorningUpdateHtml\(metrics, \{[^}]*\bappUrl\b[^}]*\}\)/)
   })
 })

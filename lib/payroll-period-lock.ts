@@ -119,12 +119,12 @@ export async function lockPayrollPeriod(
     if (error) return mapCommitError(error, computed)
     committed = true
     const summary = data as unknown as CommitSummary
-    const { data: period } = await supabase.from('payroll_periods').select(PAYROLL_PERIOD_COLUMNS).eq('id', periodId).single()
+    const { data: period } = await supabase.from('payroll_periods').select(PAYROLL_PERIOD_COLUMNS).eq('id', periodId).eq('org_id', orgId).single()
     return { ok: true, period, summary, message: commitSummaryMessage(summary) }
   } finally {
     if (!committed) {
       // The commit clears the claim itself; on any other exit release it so the week is editable again (it expires in 15 min regardless).
-      const { error: releaseErr } = await supabase.from('payroll_periods').update({ lock_claimed_at: null, lock_claim_token: null }).eq('id', periodId).eq('lock_claim_token', lockToken)
+      const { error: releaseErr } = await supabase.from('payroll_periods').update({ lock_claimed_at: null, lock_claim_token: null }).eq('id', periodId).eq('org_id', orgId).eq('lock_claim_token', lockToken)
       if (releaseErr) console.error('period lock claim release (expires in 15 min)', releaseErr)
     }
   }

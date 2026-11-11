@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { orgAppUrl } from '@/lib/company-links'
+import { tryOrgAppUrl } from '@/lib/company-links'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { removeInstallFromCalendar } from '@/lib/install-calendar'
 import { loadTradeWithJob } from '@/lib/job-trade-calendar'
@@ -95,9 +95,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     tagsByTrade.set(p.work_order_id, list)
   }
 
-  // Crew links open on this company's own address (lib/company-links).
-  const linkBase = ((tradesData ?? []) as { crew_link_token?: string | null }[]).some((t) => t.crew_link_token)
-    ? await orgAppUrl(admin, orgId)
+  // Crew links open on this company's own address (lib/company-links). They are extra on this list: a missing app
+  // address leaves them out (logged) instead of failing the Crews tab.
+  const appUrl = ((tradesData ?? []) as { crew_link_token?: string | null }[]).some((t) => t.crew_link_token)
+    ? await tryOrgAppUrl(admin, orgId, 'crews list: crew photo links')
     : null
   return NextResponse.json({
     canEdit: canEditJobs,
@@ -123,7 +124,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
         has_calendar_event: Boolean(t.install_google_event_id),
         missing_photo_tags: missingRequiredPhotoTags(tags),
         photo_count: tags.length,
-        crew_link_url: t.crew_link_token ? crewLinkUrl(t.crew_link_token, linkBase) : null,
+        crew_link_url: t.crew_link_token && appUrl ? crewLinkUrl(t.crew_link_token, appUrl) : null,
       }
     }),
   })

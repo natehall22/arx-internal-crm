@@ -185,10 +185,28 @@ export async function POST(
       return NextResponse.json({ error: 'Period is locked' }, { status: 409 })
     }
 
+    // Every person on the sheet must be an active user of THIS company. user_id comes from the request body, and the
+    // upsert below is keyed on (period, user): a foreign id would put another company's person on this payroll.
+    const entryUserIds = Array.from(new Set(entries.map((e) => e?.user_id).filter((v): v is string => typeof v === 'string' && v.length > 0)))
+    if (entryUserIds.length > 0) {
+      const { data: ownUsers } = await supabase
+        .from('users')
+        .select('id')
+        .in('id', entryUserIds)
+        .eq('org_id', orgId)
+        .eq('active', true)
+      const ok = new Set((ownUsers ?? []).map((u: { id: string }) => u.id))
+      const bad = entryUserIds.filter((id) => !ok.has(id))
+      if (bad.length > 0) {
+        return NextResponse.json({ error: 'Some people on this sheet are not active users in your company' }, { status: 400 })
+      }
+    }
+
     const { data: periodMeta } = await supabase
       .from('payroll_periods')
       .select('cutoff_at')
       .eq('id', periodId)
+      .eq('org_id', orgId)
       .single()
     const saleDate = periodMeta?.cutoff_at
       ? String(periodMeta.cutoff_at).slice(0, 10)
@@ -243,7 +261,7 @@ export async function POST(
       }
 
       const { data: saved, error: saveErr } = await supabase
-        // org-scope-ok: the period was loaded company-scoped above; the row keys on that period
+        // org-scope-ok: conflict key (period, user): the period was loaded company-scoped and every user_id was checked active in this company above
         .from('payroll_rep_hours')
         .upsert(upsertPayload, { onConflict: 'payroll_period_id,user_id' })
         .select('id')

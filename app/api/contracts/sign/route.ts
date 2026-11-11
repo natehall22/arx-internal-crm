@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tryOrgAppUrl } from '@/lib/company-links'
-import { customerSignedDocUrl } from '@/lib/files/files-object'
+import { customerSignedDocLinkForPage, customerSignedDocUrl } from '@/lib/files/files-object'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildContractSignedEmail } from '@/lib/contracts/customer-emails'
@@ -969,7 +969,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      pdfUrl: customerPdfUrl,
+      // The signing page links relative to itself, so it keeps a download link even with no app address configured.
+      pdfUrl: pdfUrl ? customerPdfUrl ?? customerSignedDocLinkForPage('contract', String(contract.signing_token)) : null,
       projectId,
       emailSent,
       pdfGenerationError,
