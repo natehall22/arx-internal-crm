@@ -247,8 +247,8 @@ export async function loadMorningTodayQueues(
   })
   return asProfile([
     ...(reversals && (reversals.count > 0 || reversalsFailed) ? [reversals] : []),
-    ...(unpaid && (unpaid.count > 0 || unpaid.empty.includes('couldn’t load')) ? [unpaid] : []),
     ...(storm.count > 0 || stormFailed ? [storm] : []),
+    ...(unpaid && (unpaid.count > 0 || unpaid.empty.includes('couldn’t load')) ? [unpaid] : []),
     ...(commissionWaiting ? [commissionWaiting] : []),
     ...visits,
     ...owner.filter((q) => q.id !== 'no-outcome'),
