@@ -117,3 +117,14 @@ vendor bills and 1099 flags | refunds at gross, tax not split | customers are ma
 vendors adopted on exact name | each job is a sub-customer of the customer | change-order tax treated as tax-included | T&M jobs and no-job invoices send each CRM invoice
 even in per-job mode | payroll via the payroll provider, not here | cron every 10 min.
 Migration order (Phase 1, both BEFORE the code): 202611210010 (additive columns) then 202611210020 (NOT additive: drops the outbox policies that let any signed-in member of the company read/update rows; every reader and writer uses the service role). Needs 202611100040 first.
+
+## PR4 backfill + review fixes (2026-11-11)
+- **Backfill (link-first), `lib/quickbooks/backfill.ts`, `POST /api/admin/quickbooks/backfill` (owners; `action: preview | apply`):** pulls QuickBooks customers, sub-customers and invoices, matches CRM records
+  (customers by the CRM's ONE identity rule `matchExistingCustomer` via `lib/quickbooks/identity.ts`; jobs by job number under the matched customer; invoices by DocNumber, a different amount goes to the owner),
+  owner resolves ambiguous ones, `apply` writes `qb_links` only (re-planned on the server). It creates nothing in QuickBooks; unmatched records are created later by the worker from the start date on.
+  The worker's first-send customer adoption now uses the same rule (the old street-only match is gone).
+- **Undo-cancel:** the void clears the fingerprint; the restored job is sent again as a NEW invoice numbered `<number>-R` (QuickBooks cannot un-void). A queued void for a job that is no longer cancelled is dropped.
+- **Refund on a cancelled/voided sale** is not posted (it would cut income twice): Needs you, "refund the customer credit in QuickBooks". Whether Intuit can refund that credit through the API is unverified.
+- **Invoice mode** applies to new jobs; a job whose sale invoice is already in QuickBooks keeps it. Customers carry `CRM:<org>:<id>` in Notes (find-before-retry). Skip records who/when/why; a skipped line stays closed.
+- No outbox rows are written for a company with the QuickBooks switch off (TS enqueue). Still open: the SQL `record_job_payment` writes its payment row regardless of the switch.
+- Sandbox checklist before go-live: every `*` item above, plus the `-R` reissue number and a customer-credit refund.
