@@ -731,3 +731,54 @@ describe('Skip stays visible in the activity log', () => {
     expect(items[0].skippedAt).toBeTruthy()
   })
 })
+
+describe('cancel -> undo with a deposit already paid', () => {
+  it('the deposit follows the job: after the reissue it is applied to the NEW invoice (balance = sale - deposit), once, and nothing stays on the voided one', async () => {
+    const w = makeWorld([{ id: A }])
+    const { jid } = w.seeds[0].ids
+    const jobs = w.fake.tables.production_jobs as any[]
+    ;(w.fake.tables.job_payments as any[]).push({ id: 'dep-1', job_id: jid, org_id: null, paid_at: '2026-11-08', amount_cents: 400000, payment_type: 'deposit', method: 'check' })
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 1070000)
+    await w.enqueue(A, 'payment.recorded', 'job_payments', 'dep-1')
+    await w.run(A)
+    jobs[0].status = 'cancelled'
+    await w.enqueue(A, 'invoice.voided', 'production_jobs', jid, 1)
+    await w.run(A)
+    jobs[0].status = 'sold'
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 2)
+    await w.run(A)
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 3)
+    await w.run(A)
+    const c = w.companies[A]
+    const live = c.all('Invoice').filter((i) => cents(i.TotalAmt) > 0)
+    expect(live).toHaveLength(1)
+    expect(cents(live[0].Balance)).toBe(1070000 - 400000)
+    const [pay] = c.all('Payment')
+    const lines = (pay.Line as any[]).filter((l) => l.LinkedTxn?.length)
+    expect(lines).toHaveLength(1)
+    expect(lines[0].LinkedTxn[0].TxnId).toBe(live[0].Id)
+    expect(cents(lines[0].Amount)).toBe(400000)
+    expect(cents(pay.TotalAmt)).toBe(400000)
+    expect(c.calls.filter((x) => x.op === 'update' && x.entity === 'Payment')).toHaveLength(1) // idempotent: not re-applied on the repeat
+  })
+
+  it('a payment that cannot be moved is a plain Needs-you warning with the exact steps, never silent', async () => {
+    const w = makeWorld([{ id: A }])
+    const { jid } = w.seeds[0].ids
+    const jobs = w.fake.tables.production_jobs as any[]
+    ;(w.fake.tables.job_payments as any[]).push({ id: 'dep-1', job_id: jid, org_id: null, paid_at: '2026-11-08', amount_cents: 400000, payment_type: 'deposit', method: 'check' })
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 1070000)
+    await w.enqueue(A, 'payment.recorded', 'job_payments', 'dep-1')
+    await w.run(A)
+    jobs[0].status = 'cancelled'
+    await w.enqueue(A, 'invoice.voided', 'production_jobs', jid, 1)
+    await w.run(A)
+    jobs[0].status = 'sold'
+    w.companies[A].failNext(fault(400, '2010', 'Request has invalid or unsupported property'), { op: 'update', entity: 'Payment' })
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 2)
+    await w.run(A)
+    const row = w.outbox().find((o) => o.idempotency_key.endsWith(':invoice.upserted:v2'))!
+    expect(row).toMatchObject({ status: 'completed', error_kind: 'needs_you', error_code: 'payments_not_reapplied' })
+    expect(row.last_error).toMatch(/Receive payment/)
+  })
+})
