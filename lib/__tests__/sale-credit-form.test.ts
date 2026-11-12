@@ -27,6 +27,18 @@ describe('sale credit form', () => {
     expect(setSelfGenerated(ticked, false).setterUserId).toBe('')
   })
 
+  it('unticking restores the setter the form loaded with', () => {
+    const ticked = setSelfGenerated({ closerUserId: 'nathan', setterUserId: 'sam', isSelfGenerated: false }, true, 'sam')
+    expect(ticked.setterUserId).toBe('')
+    expect(setSelfGenerated(ticked, false, 'sam')).toEqual({ closerUserId: 'nathan', setterUserId: 'sam', isSelfGenerated: false })
+  })
+
+  it('keepIds keeps an inactive loaded setter in the options while it is not selected', () => {
+    const people = [{ id: 'gone', name: 'Dana Departed', active: false }]
+    expect(creditSelectOptions(users, '', people, ['gone']).at(-1)).toEqual({ id: 'gone', label: 'Dana Departed (inactive)' })
+    expect(creditSelectOptions(users, 'gone', people, ['gone']).filter((o) => o.id === 'gone')).toHaveLength(1)
+  })
+
   it('a stored setter who is not in the active list is shown by name with (inactive), never as "No setter"', () => {
     const people = [{ id: 'gone', name: 'Dana Departed', active: false }]
     expect(creditSelectOptions(users, 'gone', people)).toEqual([

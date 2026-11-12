@@ -24,9 +24,16 @@ export function saleCreditFormProblem(credit: SaleCreditForm): string | null {
   return null
 }
 
-/** Ticking self-generated clears the setter in the form itself, so what is on screen is what is checked and saved. */
-export function setSelfGenerated(credit: SaleCreditForm, checked: boolean): SaleCreditForm {
-  return { ...credit, isSelfGenerated: checked, setterUserId: checked ? '' : credit.setterUserId }
+/**
+ * Ticking self-generated clears the setter in the form itself, so what is on screen is what is checked and saved.
+ * Unticking restores the setter the form loaded with (`loadedSetterUserId`), so a mis-tick does not lose the stored one.
+ */
+export function setSelfGenerated(credit: SaleCreditForm, checked: boolean, loadedSetterUserId = ''): SaleCreditForm {
+  return {
+    ...credit,
+    isSelfGenerated: checked,
+    setterUserId: checked ? '' : credit.setterUserId || loadedSetterUserId,
+  }
 }
 
 /**
@@ -37,12 +44,15 @@ export function setSelfGenerated(credit: SaleCreditForm, checked: boolean): Sale
 export function creditSelectOptions(
   activeUsers: Array<{ id: string; full_name: string | null }>,
   selectedId: string,
-  people: CreditPerson[]
+  people: CreditPerson[],
+  /** Ids to keep listed even when not selected (the setter the form loaded with, while self-generated hides it). */
+  keepIds: string[] = []
 ): Array<{ id: string; label: string }> {
   const options = activeUsers.map((u) => ({ id: u.id, label: u.full_name || 'Unnamed' }))
-  if (selectedId && !activeUsers.some((u) => u.id === selectedId)) {
-    const person = people.find((p) => p.id === selectedId)
-    options.push({ id: selectedId, label: `${person?.name || 'Unknown user'}${person?.active === false || !person ? ' (inactive)' : ''}` })
+  for (const id of [selectedId, ...keepIds]) {
+    if (!id || options.some((o) => o.id === id)) continue
+    const person = people.find((p) => p.id === id)
+    options.push({ id, label: `${person?.name || 'Unknown user'}${person?.active === false || !person ? ' (inactive)' : ''}` })
   }
   return options
 }
