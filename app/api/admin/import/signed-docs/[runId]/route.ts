@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { importOwner } from '@/lib/jobber-import/access'
-import { runProgress } from '@/lib/jobber-import/db'
+import { loadCustomerNames, runProgress } from '@/lib/jobber-import/db'
 import {
   addEnvelopeIndex,
   confirmUploads,
@@ -47,7 +47,7 @@ export async function GET(_request: Request, { params }: { params: { runId: stri
 /**
  * POST — one step: { action }
  *   register { files[{name,dir,origin,size,sha256}], skipped? } · confirm { itemIds[] } · addIndex { name, text } · removeIndex { fileId }
- *   dropUnfinished · provider { value } · read · match { at } · picks { picks } · discard
+ *   dropUnfinished · provider { value } · customers · read · match { at } · picks { picks } · discard
  *   import (starts, then one batch per call) · undo (starts, then one batch per call)
  */
 export async function POST(request: Request, { params }: { params: { runId: string } }) {
@@ -74,6 +74,9 @@ export async function POST(request: Request, { params }: { params: { runId: stri
     }
     case 'removeIndex':
       return answer(await removeEnvelopeIndex(admin, owner.org_id, run, String(body?.fileId ?? '')))
+    case 'customers':
+      // The picker's list (id + name, this company only) — the same loader the Jobber file step uses.
+      return NextResponse.json({ customers: (await loadCustomerNames(admin, owner.org_id)).sort((a, b) => a.name.localeCompare(b.name)) })
     case 'dropUnfinished':
       return answer(await dropUnfinished(admin, owner.org_id, run))
     case 'provider':

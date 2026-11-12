@@ -101,7 +101,7 @@ function world(extra: Record<string, Row[]> = {}) {
   )
   const bucket = () => ({
     createSignedUploadUrl: async (path: string) => ({ data: { token: `tok:${path}`, path }, error: null }),
-    download: async (path: string) => (storage.has(path) ? { data: new Blob([storage.get(path)!]), error: null } : { data: null, error: { message: 'not found' } }),
+    download: async (path: string) => (storage.has(path) ? { data: new Blob([new Uint8Array(storage.get(path)!)]), error: null } : { data: null, error: { message: 'not found' } }),
     remove: async (paths: string[]) => { removed.push(...paths); for (const p of paths) storage.delete(p); return { data: [], error: null } },
   })
   const client = Object.assign({}, db.client, { storage: { from: bucket } }) as never
@@ -362,7 +362,6 @@ describe('Move signed documents', () => {
     await importBatch(w.client, ORG, USER, run)
     // Pretend the process died right after the insert, before the item was marked done.
     w.db.tables.import_run_items.forEach((i) => Object.assign(i, { status: 'pending', target_id: null, applied: null }))
-    await w.client.from('import_runs') // (no-op; keeps the client used)
     await importBatch(w.client, ORG, USER, run)
     expect(w.db.tables.documents.filter((d) => d.sha256 === sha(FILES.bob.bytes))).toHaveLength(1)
     expect(w.db.tables.import_run_items[0]).toMatchObject({ status: 'done' })

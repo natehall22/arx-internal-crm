@@ -138,7 +138,8 @@ export async function registerFiles(
 ): Promise<{ ok: true; results: RegisterResult[] } | Fail> {
   if (run.status !== 'draft') return fail(409, 'This import has already started')
   const list = (Array.isArray(files) ? files : []).slice(0, 100) as Array<Record<string, unknown>>
-  if (!list.length) return fail(400, 'No files')
+  // A call with only "skipped" names (a ZIP that held no PDF at all) is allowed: it still records what was left out.
+  if (!list.length && !(Array.isArray(skipped) && skipped.length)) return fail(400, 'No files')
   const db = orgDb(admin, orgId)
 
   const clean: Array<RegisterInput & { refused?: string }> = list.map((f) => {
