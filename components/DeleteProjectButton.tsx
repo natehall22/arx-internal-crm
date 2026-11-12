@@ -60,7 +60,7 @@ export default function DeleteProjectButton({ projectId, address }: DeleteProjec
               </div>
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Delete Project</h3>
-                <p className="text-sm text-gray-500">This action cannot be undone</p>
+                <p className="text-sm text-gray-700">This action cannot be undone</p>
               </div>
             </div>
 

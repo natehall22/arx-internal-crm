@@ -58,7 +58,7 @@ export default function CompleteJobModal({
             <h3 className="text-lg font-bold text-gray-900">
               {variant === 'collect' ? 'Outstanding balance' : 'Balance Remaining'}
             </h3>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-700">
               {variant === 'collect'
                 ? 'Payments recorded do not cover the contract'
                 : 'This job has an unpaid balance'}

@@ -152,28 +152,28 @@ export default function ApplyPaymentModal({
           <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-600 hover:text-gray-900"
           >
             ✕
           </button>
         </div>
 
         {loading ? (
-          <div className="text-center py-8 text-gray-500">Loading...</div>
+          <div className="text-center py-8 text-gray-700">Loading...</div>
         ) : (
           <>
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
-                  <div className="text-gray-500">Invoice Total</div>
+                  <div className="text-gray-700">Invoice Total</div>
                   <div className="font-semibold">{formatCurrency(balance.total_cents)}</div>
                 </div>
                 <div>
-                  <div className="text-gray-500">Applied</div>
+                  <div className="text-gray-700">Applied</div>
                   <div className="font-semibold text-green-600">{formatCurrency(balance.applied_cents)}</div>
                 </div>
                 <div>
-                  <div className="text-gray-500">Balance Due</div>
+                  <div className="text-gray-700">Balance Due</div>
                   <div className="font-semibold text-amber-600">{formatCurrency(balance.balance_cents)}</div>
                 </div>
               </div>
@@ -238,7 +238,7 @@ export default function ApplyPaymentModal({
                               {formatCurrency(payment.remaining_cents)} available
                             </span>
                           </div>
-                          <div className="text-sm text-gray-500">
+                          <div className="text-sm text-gray-700">
                             {PAYMENT_TYPE_LABELS[payment.payment_type as keyof typeof PAYMENT_TYPE_LABELS] || payment.payment_type}
                             {' · '}
                             {PAYMENT_METHOD_LABELS[payment.method as keyof typeof PAYMENT_METHOD_LABELS] || payment.method}
@@ -266,7 +266,7 @@ export default function ApplyPaymentModal({
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       required
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-700 mt-1">
                       Max: {formatCurrency(Math.min(selectedPaymentData?.remaining_cents || 0, balance.balance_cents))}
                     </p>
                   </div>

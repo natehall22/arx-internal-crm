@@ -265,7 +265,7 @@ export default function AdminPayrollPage() {
                           className="text-xs text-gray-700 mt-0.5 max-w-[220px] leading-snug"
                           title={r.customer_name || undefined}
                         >
-                          {r.customer_name?.trim() ? r.customer_name : <span className="text-gray-400">—</span>}
+                          {r.customer_name?.trim() ? r.customer_name : <span className="text-gray-600">—</span>}
                         </div>
                       </td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{r.sale_date || '—'}</td>
@@ -294,7 +294,7 @@ export default function AdminPayrollPage() {
             </div>
           )}
 
-          <div className="mt-8 text-xs text-gray-500 space-y-1">
+          <div className="mt-8 text-xs text-gray-700 space-y-1">
             <p>
               <strong>Who appears on a job:</strong> <strong>Sales rep</strong> from the job, plus{' '}
               <strong>Setter</strong> and <strong>Closer</strong> from the linked opportunity when set (each person once).

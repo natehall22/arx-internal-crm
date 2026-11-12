@@ -340,7 +340,7 @@ export default function ReferralsSection({
       case 'qualified': return 'bg-blue-100 text-blue-700'
       case 'installed': return 'bg-purple-100 text-purple-700'
       case 'paid': return 'bg-green-100 text-green-700'
-      case 'cancelled': return 'bg-gray-100 text-gray-500'
+      case 'cancelled': return 'bg-gray-100 text-gray-700'
       default: return 'bg-gray-100 text-gray-700'
     }
   }
@@ -365,7 +365,7 @@ export default function ReferralsSection({
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Referrals</h2>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-700">
               {customerId ? 'Track referrals made by this customer' : 'Referral linked to this project'}
             </p>
           </div>
@@ -456,7 +456,7 @@ export default function ReferralsSection({
             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
-            <p className="mt-2 text-sm text-gray-500">No referrals yet</p>
+            <p className="mt-2 text-sm text-gray-700">No referrals yet</p>
             {customerId && (
               <button
                 onClick={() => openModal()}
@@ -477,7 +477,7 @@ export default function ReferralsSection({
               <h2 className="text-xl font-bold text-gray-900">
                 {editingReferral ? 'Edit Referral' : 'Add New Referral'}
               </h2>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-gray-700 mt-1">
                 {customerName ? `Referral from ${customerName}` : 'Track a customer referral'}
               </p>
             </div>
@@ -618,7 +618,7 @@ export default function ReferralsSection({
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Bonus Amount</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                     <input
                       type="number"
                       value={form.bonus_amount}
@@ -717,7 +717,7 @@ function ReferralCard({
             )}
           </div>
           
-          <div className="mt-1 text-sm text-gray-500 space-y-1">
+          <div className="mt-1 text-sm text-gray-700 space-y-1">
             {type === 'received' && (
               <p>You were referred by this customer</p>
             )}
@@ -731,7 +731,7 @@ function ReferralCard({
               ${referral.bonus_amount.toFixed(2)} {referral.bonus_type}
             </span>
             {referral.install_date && (
-              <span className="text-gray-500">
+              <span className="text-gray-700">
                 Installed: {new Date(referral.install_date).toLocaleDateString()}
               </span>
             )}
@@ -775,7 +775,7 @@ function ReferralCard({
             )}
             <button
               onClick={onEdit}
-              className="p-1 text-gray-400 hover:text-indigo-600"
+              className="p-1 text-gray-600 hover:text-indigo-600"
               title="Edit"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

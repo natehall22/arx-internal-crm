@@ -472,7 +472,7 @@ export default function AppointmentFeedbackPage() {
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             {appointment ? 'Appointment Feedback' : 'Inspection Status Update'}
           </h1>
-          <p className="text-gray-500">
+          <p className="text-gray-700">
             {appointment ? 'Please provide feedback for this appointment' : 'Update the inspection outcome for this lead'}
           </p>
         </div>
@@ -484,20 +484,20 @@ export default function AppointmentFeedbackPage() {
           </h2>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <p className="text-gray-500">Customer</p>
+              <p className="text-gray-700">Customer</p>
               <p className="font-medium text-gray-900">
                 {appointment?.leads?.homeowner_name || lead?.homeowner_name || 'N/A'}
               </p>
             </div>
             <div>
-              <p className="text-gray-500">Phone</p>
+              <p className="text-gray-700">Phone</p>
               <p className="font-medium text-gray-900">
                 <PhoneLink value={appointment?.leads?.phone || lead?.phone} empty="N/A" />
               </p>
             </div>
             {(appointmentDate || inspectionDate) && (
               <div>
-                <p className="text-gray-500">
+                <p className="text-gray-700">
                   {appointment ? 'Date & Time' : 'Inspection Scheduled'}
                 </p>
                 <p className="font-medium text-gray-900">
@@ -511,14 +511,14 @@ export default function AppointmentFeedbackPage() {
               </div>
             )}
             <div>
-              <p className="text-gray-500">Address</p>
+              <p className="text-gray-700">Address</p>
               <p className="font-medium text-gray-900">
                 {appointment?.address_text || lead?.address_text || 'N/A'}
               </p>
             </div>
             {appointment?.setter?.full_name && (
               <div>
-                <p className="text-gray-500">Set By</p>
+                <p className="text-gray-700">Set By</p>
                 <p className="font-medium text-gray-900">{appointment.setter.full_name}</p>
               </div>
             )}
@@ -558,7 +558,7 @@ export default function AppointmentFeedbackPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-900 break-words">{opt.label}</p>
-                    <p className="text-xs text-gray-500 mt-0.5 break-words">{opt.description}</p>
+                    <p className="text-xs text-gray-700 mt-0.5 break-words">{opt.description}</p>
                   </div>
                 </div>
               </button>

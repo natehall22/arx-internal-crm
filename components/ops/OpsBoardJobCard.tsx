@@ -85,7 +85,7 @@ function OpsBoardJobCardInner({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           {priority.icon && <span className="text-sm">{priority.icon}</span>}
-          <span className="text-xs font-mono text-gray-400">{job.job_number}</span>
+          <span className="text-xs font-mono text-gray-600">{job.job_number}</span>
         </div>
         <span
           className={`text-xs px-2 py-0.5 rounded-full ${
@@ -104,7 +104,7 @@ function OpsBoardJobCardInner({
 
       <div className="mb-2.5">
         {job.customer?.name && <div className="font-semibold text-gray-900 truncate">{job.customer.name}</div>}
-        <div className="text-xs text-gray-500 truncate">{job.address_text}</div>
+        <div className="text-xs text-gray-700 truncate">{job.address_text}</div>
       </div>
 
       {job.catch_up && <JobCatchUpLine catchUp={job.catch_up} className="mb-2.5" />}
@@ -194,7 +194,7 @@ function OpsBoardJobCardInner({
               Sub: {job.assigned_sub.company_name}
             </span>
           )}
-          {!job.assigned_crew && !job.assigned_sub && <span className="text-xs text-gray-500">Not assigned</span>}
+          {!job.assigned_crew && !job.assigned_sub && <span className="text-xs text-gray-700">Not assigned</span>}
         </div>
         {job.sale_amount && (
           <span className="text-xs font-semibold text-gray-700 shrink-0 ml-2">${job.sale_amount.toLocaleString()}</span>

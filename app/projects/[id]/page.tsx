@@ -463,7 +463,7 @@ export default async function ProjectDetailPage({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <h3 className="text-sm font-medium text-gray-500">Customer</h3>
+              <h3 className="text-sm font-medium text-gray-700">Customer</h3>
               <div className="mt-1">
                 {!project.customer_id && project.leads?.homeowner_name && (
                   <p className="text-sm text-gray-900 mb-1">
@@ -479,14 +479,14 @@ export default async function ProjectDetailPage({
               </div>
             </div>
             <div>
-              <h3 className="text-sm font-medium text-gray-500">Status</h3>
+              <h3 className="text-sm font-medium text-gray-700">Status</h3>
               <p className="mt-1 text-sm text-gray-900 capitalize">
                 {productionJob?.status
                   ? projectStatusLabelForJobStatus(productionJob.status)
                   : String(project.status || 'open').replace('_', ' ')}
               </p>
               {productionJob?.id ? (
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-700">
                   {showOpsJobLinks ? (
                     <>
                       Set on the{' '}
@@ -503,15 +503,15 @@ export default async function ProjectDetailPage({
                   )}
                 </p>
               ) : (
-                <p className="mt-1 text-xs text-gray-500">Updates when a job is created from this project (Send to Ops).</p>
+                <p className="mt-1 text-xs text-gray-700">Updates when a job is created from this project (Send to Ops).</p>
               )}
             </div>
             <div>
-              <h3 className="text-sm font-medium text-gray-500">Project Type</h3>
+              <h3 className="text-sm font-medium text-gray-700">Project Type</h3>
               <p className="mt-1 text-sm text-gray-900 capitalize">{project.project_type}</p>
             </div>
             <div className="md:col-span-2">
-              <h3 className="text-sm font-medium text-gray-500">Address</h3>
+              <h3 className="text-sm font-medium text-gray-700">Address</h3>
               {canEditProjectAddress ? (
                 <ProjectAddressEdit
                   currentAddress={project.address_text}
@@ -520,7 +520,7 @@ export default async function ProjectDetailPage({
               ) : (
                 <>
                   <p className="mt-1 text-sm text-gray-900">{project.address_text || 'N/A'}</p>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-700">
                     Job site address stored on the project (from proposal/lead when created). Ask an admin or
                     ops to correct it if needed.
                   </p>
@@ -529,37 +529,37 @@ export default async function ProjectDetailPage({
             </div>
             {project.roof_squares && (
               <div>
-                <h3 className="text-sm font-medium text-gray-500">Roof Squares</h3>
+                <h3 className="text-sm font-medium text-gray-700">Roof Squares</h3>
                 <p className="mt-1 text-sm text-gray-900">{project.roof_squares}</p>
               </div>
             )}
             {project.siding_squares && (
               <div>
-                <h3 className="text-sm font-medium text-gray-500">Siding Squares</h3>
+                <h3 className="text-sm font-medium text-gray-700">Siding Squares</h3>
                 <p className="mt-1 text-sm text-gray-900">{project.siding_squares}</p>
               </div>
             )}
             {project.vents_count > 0 && (
               <div>
-                <h3 className="text-sm font-medium text-gray-500">Vents Count</h3>
+                <h3 className="text-sm font-medium text-gray-700">Vents Count</h3>
                 <p className="mt-1 text-sm text-gray-900">{project.vents_count}</p>
               </div>
             )}
             {project.layers > 1 && (
               <div>
-                <h3 className="text-sm font-medium text-gray-500">Layers</h3>
+                <h3 className="text-sm font-medium text-gray-700">Layers</h3>
                 <p className="mt-1 text-sm text-gray-900">{project.layers}</p>
               </div>
             )}
             {project.total_windows > 0 && (
               <div>
-                <h3 className="text-sm font-medium text-gray-500">Total Windows</h3>
+                <h3 className="text-sm font-medium text-gray-700">Total Windows</h3>
                 <p className="mt-1 text-sm text-gray-900">{project.total_windows}</p>
               </div>
             )}
             {project.windows_by_type && (
               <div className="md:col-span-2">
-                <h3 className="text-sm font-medium text-gray-500">Windows by Type</h3>
+                <h3 className="text-sm font-medium text-gray-700">Windows by Type</h3>
                 <pre className="mt-1 text-sm text-gray-900">
                   {JSON.stringify(project.windows_by_type, null, 2)}
                 </pre>
@@ -567,7 +567,7 @@ export default async function ProjectDetailPage({
             )}
             {project.notes && (
               <div className="md:col-span-2">
-                <h3 className="text-sm font-medium text-gray-500">Notes</h3>
+                <h3 className="text-sm font-medium text-gray-700">Notes</h3>
                 <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{project.notes}</p>
               </div>
             )}
@@ -608,7 +608,7 @@ export default async function ProjectDetailPage({
                   View {agreementLabel}
                 </a>
               ) : (
-                <span className="text-sm text-gray-500 flex items-center gap-2">
+                <span className="text-sm text-gray-700 flex items-center gap-2">
                   <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
@@ -647,7 +647,7 @@ export default async function ProjectDetailPage({
                     <span className="text-sm font-medium text-gray-900 capitalize">
                       {estimate.status}
                     </span>
-                    <span className="text-sm text-gray-500 ml-4">
+                    <span className="text-sm text-gray-700 ml-4">
                       ${estimate.total.toFixed(2)}
                     </span>
                   </div>
@@ -726,31 +726,31 @@ export default async function ProjectDetailPage({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               {project.scope_of_work && (
                 <div className="md:col-span-2">
-                  <span className="font-medium text-gray-500">Scope of Work</span>
+                  <span className="font-medium text-gray-700">Scope of Work</span>
                   <p className="mt-1 text-gray-900 whitespace-pre-wrap">{project.scope_of_work}</p>
                 </div>
               )}
               {project.product_summary && (
                 <div>
-                  <span className="font-medium text-gray-500">Product</span>
+                  <span className="font-medium text-gray-700">Product</span>
                   <p className="mt-1 text-gray-900">{project.product_summary}</p>
                 </div>
               )}
               {project.permits_status && (
                 <div>
-                  <span className="font-medium text-gray-500">Permits</span>
+                  <span className="font-medium text-gray-700">Permits</span>
                   <p className="mt-1 text-gray-900">{project.permits_status}</p>
                 </div>
               )}
               {project.install_date && (
                 <div>
-                  <span className="font-medium text-gray-500">Install Date</span>
+                  <span className="font-medium text-gray-700">Install Date</span>
                   <p className="mt-1 text-gray-900">{new Date(project.install_date).toLocaleDateString()}</p>
                 </div>
               )}
               {project.ops_notes && (
                 <div className="md:col-span-2">
-                  <span className="font-medium text-gray-500">Ops Notes</span>
+                  <span className="font-medium text-gray-700">Ops Notes</span>
                   <p className="mt-1 text-gray-900 whitespace-pre-wrap">{project.ops_notes}</p>
                 </div>
               )}
@@ -769,7 +769,7 @@ export default async function ProjectDetailPage({
                       <span className="text-sm font-medium text-gray-900">
                         {activity.users?.full_name || 'Unknown'}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-700">
                         {new Date(activity.created_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -780,7 +780,7 @@ export default async function ProjectDetailPage({
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No activities</p>
+                <p className="text-gray-700 text-sm">No activities</p>
               )}
             </div>
           </div>
@@ -808,7 +808,7 @@ export default async function ProjectDetailPage({
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{file.file_name}</p>
-                          <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
+                          <p className="text-xs text-gray-700 capitalize">{file.tag}</p>
                         </div>
                       </div>
                       {fileUrl ? (
@@ -830,7 +830,7 @@ export default async function ProjectDetailPage({
                   )
                 })
               ) : (
-                <p className="text-gray-500 text-sm">No files</p>
+                <p className="text-gray-700 text-sm">No files</p>
               )}
             </div>
           </div>

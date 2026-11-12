@@ -210,7 +210,7 @@ export default function EmailBlastsPage() {
         )}
 
         {loading || !settings ? (
-          <div className="rounded-xl border bg-white p-8 text-center text-gray-500">Loading email blast settings...</div>
+          <div className="rounded-xl border bg-white p-8 text-center text-gray-700">Loading email blast settings...</div>
         ) : (
           <div className="space-y-6">
             {definitions.map((definition) => {
@@ -238,7 +238,7 @@ export default function EmailBlastsPage() {
                         </span>
                       </div>
                       <p className="mt-1 text-sm text-gray-600">{definition.description}</p>
-                      <p className="mt-2 text-sm text-gray-500">
+                      <p className="mt-2 text-sm text-gray-700">
                         Current recipients: {recipientCounts[definition.id] || 0}
                       </p>
                     </div>
@@ -279,7 +279,7 @@ export default function EmailBlastsPage() {
                   <div className="mt-6 grid gap-6 lg:grid-cols-2">
                     <div>
                       <h3 className="text-sm font-semibold text-gray-900">Levels</h3>
-                      <p className="mt-1 text-sm text-gray-500">Choose the roles that should always receive this email.</p>
+                      <p className="mt-1 text-sm text-gray-700">Choose the roles that should always receive this email.</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {roleOptionsForBlast.map((option) => (
                           <label
@@ -300,7 +300,7 @@ export default function EmailBlastsPage() {
 
                     <div>
                       <h3 className="text-sm font-semibold text-gray-900">Specific People</h3>
-                      <p className="mt-1 text-sm text-gray-500">Add or remove named recipients without changing role-wide coverage.</p>
+                      <p className="mt-1 text-sm text-gray-700">Add or remove named recipients without changing role-wide coverage.</p>
                       <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
                         {userOptionsForBlast.map((user) => {
                           const receives = config.user_targets.includes(user.id) || config.role_targets.includes(String(user.role || ''))
@@ -315,7 +315,7 @@ export default function EmailBlastsPage() {
                                 />
                                 <span className="min-w-0 flex-1">
                                   <span className="block font-medium text-gray-900">{user.full_name || user.email}</span>
-                                  <span className="block text-xs text-gray-500">
+                                  <span className="block text-xs text-gray-700">
                                     {user.email} {user.role ? `• ${roleOptions.find((option) => option.role === user.role)?.label || user.role}` : ''}
                                   </span>
                                 </span>

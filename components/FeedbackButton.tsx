@@ -45,6 +45,7 @@ export default function FeedbackButton() {
     <>
       <button
         onClick={() => setIsOpen(true)}
+        // contrast-ok: sits on the dark Nav header
         className="inline-flex h-11 w-11 items-center justify-center text-gray-300 hover:text-white hover:bg-gray-700 rounded-full transition-colors"
         title="Send Feedback"
       >

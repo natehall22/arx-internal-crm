@@ -44,7 +44,7 @@ export default function ProjectsView({ projects, projectsError, closerByProjectI
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <div className="mb-5">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Projects</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-700">
             Active jobs — closer is from the linked opportunity when available, otherwise project owner.
           </p>
           {projectsError && (
@@ -75,9 +75,9 @@ export default function ProjectsView({ projects, projectsError, closerByProjectI
                   {project.address_text && (
                     <p className="mt-0.5 text-sm text-gray-600 line-clamp-2">{project.address_text}</p>
                   )}
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-700">
                     <span>
-                      <span className="text-gray-400">Closer </span>
+                      <span className="text-gray-600">Closer </span>
                       <span className="font-medium text-gray-700">{closer}</span>
                     </span>
                     {project.project_type && (
@@ -88,7 +88,7 @@ export default function ProjectsView({ projects, projectsError, closerByProjectI
               )
             })
           ) : (
-            <p className="text-center text-gray-500 py-10 text-sm">No projects yet</p>
+            <p className="text-center text-gray-700 py-10 text-sm">No projects yet</p>
           )}
         </div>
 
@@ -151,7 +151,7 @@ export default function ProjectsView({ projects, projectsError, closerByProjectI
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-gray-500">
+                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-gray-700">
                     No projects yet
                   </td>
                 </tr>

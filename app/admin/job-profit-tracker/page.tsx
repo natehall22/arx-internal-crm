@@ -314,7 +314,7 @@ export default async function AdminJobProfitTrackerPage({
 
           <form className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 text-sm shadow-sm sm:grid-cols-2 lg:grid-cols-5">
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Status</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">Status</span>
               <select
                 name="status"
                 defaultValue={status}
@@ -334,7 +334,7 @@ export default async function AdminJobProfitTrackerPage({
               </select>
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">From</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">From</span>
               <input
                 type="date"
                 name="from"
@@ -343,7 +343,7 @@ export default async function AdminJobProfitTrackerPage({
               />
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">To</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">To</span>
               <input
                 type="date"
                 name="to"
@@ -352,7 +352,7 @@ export default async function AdminJobProfitTrackerPage({
               />
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Source Filter</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">Source Filter</span>
               <select
                 name="source"
                 defaultValue={sourceFilter}
@@ -363,7 +363,7 @@ export default async function AdminJobProfitTrackerPage({
               </select>
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Search</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">Search</span>
               <div className="mt-1 flex gap-2">
                 <input
                   type="search"

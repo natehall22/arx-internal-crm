@@ -49,7 +49,7 @@ export default function PayrollPeriodHoursEditor({
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-gray-500 py-6 text-center border border-dashed rounded-lg">
+      <p className="text-sm text-gray-700 py-6 text-center border border-dashed rounded-lg">
         No reps with hourly or hybrid comp plans (or hourly rate) are active in this org.
       </p>
     )
@@ -84,7 +84,7 @@ export default function PayrollPeriodHoursEditor({
                 <td className="px-3 py-2 text-gray-600">
                   {r.plan_name || '—'}
                   {r.plan_type && (
-                    <span className="block text-xs text-gray-400">{r.plan_type}</span>
+                    <span className="block text-xs text-gray-600">{r.plan_type}</span>
                   )}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-gray-700">

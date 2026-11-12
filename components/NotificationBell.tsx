@@ -89,6 +89,7 @@ export default function NotificationBell() {
           e.stopPropagation()
           setIsOpen(!isOpen)
         }}
+        // contrast-ok: sits on the dark Nav header
         className="relative inline-flex h-11 w-11 items-center justify-center text-gray-300 hover:text-white hover:bg-gray-700 rounded-full transition-colors"
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -116,7 +117,7 @@ export default function NotificationBell() {
               )}
               <Link
                 href="/notifications"
-                className="text-sm text-gray-500 hover:text-gray-700"
+                className="text-sm text-gray-700 hover:text-gray-900"
                 onClick={() => setIsOpen(false)}
               >
                 View all
@@ -126,7 +127,7 @@ export default function NotificationBell() {
 
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-gray-500">
+              <div className="px-4 py-8 text-center text-gray-700">
                 <svg className="w-12 h-12 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
@@ -168,7 +169,7 @@ export default function NotificationBell() {
                             )}
                           </div>
                         )}
-                        <p className="text-xs text-gray-400 mt-1" suppressHydrationWarning>
+                        <p className="text-xs text-gray-600 mt-1" suppressHydrationWarning>
                           {mounted ? formatTime(notification.created_at) : ''}
                         </p>
                       </div>

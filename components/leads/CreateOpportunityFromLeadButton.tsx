@@ -38,12 +38,12 @@ export default function CreateOpportunityFromLeadButton({
 
   return (
     <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/80 p-4">
-      <p className="text-xs text-gray-500 mb-3">
+      <p className="text-xs text-gray-700 mb-3">
         Use this only when an opportunity was not created automatically (for example, inspection outcome did not
         convert). If one already exists, this stays disabled.
       </p>
       {hasOpportunity && (
-        <p className="text-xs text-gray-400 mb-2">An opportunity is already linked to this lead.</p>
+        <p className="text-xs text-gray-600 mb-2">An opportunity is already linked to this lead.</p>
       )}
       <button
         type="button"

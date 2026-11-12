@@ -256,7 +256,7 @@ export default function CommissionEstimatorPage() {
 
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Commission Estimator</h1>
-          <p className="text-gray-500 mt-1">
+          <p className="text-gray-700 mt-1">
             Estimate your earnings based on your comp plan
             {compPlan && <span className="text-indigo-600 font-medium ml-1">({compPlan.name})</span>}
           </p>
@@ -285,7 +285,7 @@ export default function CommissionEstimatorPage() {
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg"
                       placeholder="e.g., 50000"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-700 mt-1">
                       Enter your base sale amount (before adders)
                     </p>
                   </div>
@@ -304,7 +304,7 @@ export default function CommissionEstimatorPage() {
                           >
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-gray-900 truncate">{adder.name}</p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-gray-700">
                                 {adder.price_type === 'percentage' 
                                   ? `${adder.unit_price}% of base` 
                                   : `$${adder.unit_price.toFixed(2)}/${adder.unit}`}
@@ -319,7 +319,7 @@ export default function CommissionEstimatorPage() {
                                     )}
                                   </>
                                 ) : (
-                                  <span className="ml-2 text-gray-400">• Non-commissionable</span>
+                                  <span className="ml-2 text-gray-600">• Non-commissionable</span>
                                 )}
                               </p>
                             </div>
@@ -359,7 +359,7 @@ export default function CommissionEstimatorPage() {
                           </div>
                           <div className="flex justify-between text-gray-600">
                             <span>Non-commissionable adders:</span>
-                            <span className="text-gray-500">+${estimate.nonCommissionableAdders.toFixed(2)}</span>
+                            <span className="text-gray-700">+${estimate.nonCommissionableAdders.toFixed(2)}</span>
                           </div>
                           <div className="flex justify-between font-medium text-gray-900 pt-2 mt-2 border-t border-gray-200">
                             <span>Total sale amount:</span>
@@ -445,7 +445,7 @@ export default function CommissionEstimatorPage() {
                       </div>
                     )}
                     {estimate.nonCommissionableAdders > 0 && (
-                      <div className="flex justify-between text-gray-400">
+                      <div className="flex justify-between text-gray-600">
                         <span>+ Non-Commissionable Adders</span>
                         <span className="font-medium">${estimate.nonCommissionableAdders.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                       </div>
@@ -459,7 +459,7 @@ export default function CommissionEstimatorPage() {
                       <span className="text-indigo-700 font-bold">${estimate.commissionableAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                     </div>
                     {estimate.nonCommissionableAdders > 0 && (
-                      <p className="text-xs text-gray-500 mt-2">
+                      <p className="text-xs text-gray-700 mt-2">
                         Non-commissionable adders (like dumpsters, permits, etc.) are excluded from commission calculations.
                       </p>
                     )}
@@ -476,7 +476,7 @@ export default function CommissionEstimatorPage() {
                     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-900">Effective Personal Rate</p>
-                        <p className="text-xs text-gray-500">Base rate</p>
+                        <p className="text-xs text-gray-700">Base rate</p>
                       </div>
                       <div className="text-2xl font-bold text-indigo-600">
                         {estimate.effectivePersonalRate.toFixed(1)}%
@@ -498,7 +498,7 @@ export default function CommissionEstimatorPage() {
                     className="p-3 text-left border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
                   >
                     <p className="font-medium text-gray-900 text-sm">Average Month</p>
-                    <p className="text-xs text-gray-500">$25k personal production</p>
+                    <p className="text-xs text-gray-700">$25k personal production</p>
                   </button>
                   <button
                     onClick={() => {
@@ -507,7 +507,7 @@ export default function CommissionEstimatorPage() {
                     className="p-3 text-left border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
                   >
                     <p className="font-medium text-gray-900 text-sm">Good Month</p>
-                    <p className="text-xs text-gray-500">$50k personal production</p>
+                    <p className="text-xs text-gray-700">$50k personal production</p>
                   </button>
                   <button
                     onClick={() => {
@@ -516,7 +516,7 @@ export default function CommissionEstimatorPage() {
                     className="p-3 text-left border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
                   >
                     <p className="font-medium text-gray-900 text-sm">Great Month</p>
-                    <p className="text-xs text-gray-500">$75k personal production</p>
+                    <p className="text-xs text-gray-700">$75k personal production</p>
                   </button>
                   <button
                     onClick={() => {
@@ -525,7 +525,7 @@ export default function CommissionEstimatorPage() {
                     className="p-3 text-left border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
                   >
                     <p className="font-medium text-gray-900 text-sm">Best Month</p>
-                    <p className="text-xs text-gray-500">$100k personal production</p>
+                    <p className="text-xs text-gray-700">$100k personal production</p>
                   </button>
                 </div>
               </div>

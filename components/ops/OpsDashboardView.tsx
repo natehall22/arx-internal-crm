@@ -39,7 +39,7 @@ export default function OpsDashboardView({
         <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">Operations Dashboard</h1>
-            <p className="text-gray-500 text-sm sm:text-base">
+            <p className="text-gray-700 text-sm sm:text-base">
               Today&apos;s installs, materials, crews, and job movement ·{' '}
               {today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
@@ -82,7 +82,7 @@ export default function OpsDashboardView({
           <div className="flex flex-col gap-1 mb-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Job Pipeline</h2>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-              <span className="text-gray-500">{totalActive} active jobs</span>
+              <span className="text-gray-700">{totalActive} active jobs</span>
               {urgentJobs > 0 && (
                 <span className="text-red-600 font-medium">🔴 {urgentJobs} urgent</span>
               )}
@@ -126,10 +126,10 @@ export default function OpsDashboardView({
           <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Today&apos;s Schedule</h2>
-              <span className="text-sm text-gray-500">{todaysJobsList.length} jobs</span>
+              <span className="text-sm text-gray-700">{todaysJobsList.length} jobs</span>
             </div>
             {todaysJobsList.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-gray-700">
                 <p>No jobs scheduled for today</p>
               </div>
             ) : (
@@ -148,7 +148,7 @@ export default function OpsDashboardView({
                         </div>
                         <p className="text-sm text-gray-600 truncate">{job.address_text}</p>
                         {job.customer?.name && (
-                          <p className="text-xs text-gray-500 mt-1">{job.customer.name}</p>
+                          <p className="text-xs text-gray-700 mt-1">{job.customer.name}</p>
                         )}
                       </div>
                       <div className="max-w-[45%] shrink-0 text-right">
@@ -199,7 +199,7 @@ export default function OpsDashboardView({
                 </Link>
               </div>
               {!crews || crews.length === 0 ? (
-                <p className="text-gray-500 text-sm">No crews set up yet</p>
+                <p className="text-gray-700 text-sm">No crews set up yet</p>
               ) : (
                 <div className="space-y-2">
                   {crews.map((crew: any) => (
@@ -211,7 +211,7 @@ export default function OpsDashboardView({
                         />
                         <span className="text-sm font-medium text-gray-900">{crew.name}</span>
                       </div>
-                      <span className="text-xs text-gray-500 capitalize">{crew.crew_type}</span>
+                      <span className="text-xs text-gray-700 capitalize">{crew.crew_type}</span>
                     </div>
                   ))}
                 </div>
@@ -222,10 +222,10 @@ export default function OpsDashboardView({
             <div className="bg-white rounded-xl shadow-sm border p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">Materials Needed</h2>
-                <span className="text-sm text-gray-500">{materialsNeeded?.length || 0}</span>
+                <span className="text-sm text-gray-700">{materialsNeeded?.length || 0}</span>
               </div>
               {!materialsNeeded || materialsNeeded.length === 0 ? (
-                <p className="text-gray-500 text-sm">All materials on track</p>
+                <p className="text-gray-700 text-sm">All materials on track</p>
               ) : (
                 <div className="space-y-2">
                   {materialsNeeded.map((job: any) => {
@@ -239,7 +239,7 @@ export default function OpsDashboardView({
                             {job.materials_status === 'not_ordered' ? 'Not Ordered' : 'Ordered'}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 truncate">{job.address_text}</p>
+                        <p className="text-xs text-gray-700 truncate">{job.address_text}</p>
                       </>
                     )
                     return canJobBoard ? (
@@ -273,7 +273,7 @@ export default function OpsDashboardView({
               </Link>
             </div>
             {upcomingJobsList.length === 0 ? (
-              <p className="text-gray-500 text-sm">No upcoming jobs scheduled</p>
+              <p className="text-gray-700 text-sm">No upcoming jobs scheduled</p>
             ) : (
               <div className="space-y-2">
                 {upcomingJobsList.map((job: any) => {
@@ -281,7 +281,7 @@ export default function OpsDashboardView({
                     <>
                       <div className="flex items-center gap-3">
                         <div className="text-center min-w-[50px]">
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-gray-700">
                             {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/New_York' })}
                           </p>
                           <p className="text-lg font-bold text-gray-900">
@@ -290,7 +290,7 @@ export default function OpsDashboardView({
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-900">#{job.job_number}</p>
-                          <p className="text-xs text-gray-500 truncate max-w-[200px]">{job.address_text}</p>
+                          <p className="text-xs text-gray-700 truncate max-w-[200px]">{job.address_text}</p>
                         </div>
                       </div>
                       {job.assigned_crew && (
@@ -326,7 +326,7 @@ export default function OpsDashboardView({
           <div className="bg-white rounded-xl shadow-sm border p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Updates</h2>
             {!recentNotes || recentNotes.length === 0 ? (
-              <p className="text-gray-500 text-sm">No recent updates</p>
+              <p className="text-gray-700 text-sm">No recent updates</p>
             ) : (
               <div className="space-y-3">
                 {recentNotes.map((note: any) => {
@@ -347,7 +347,7 @@ export default function OpsDashboardView({
                             #{job?.job_number}
                           </span>
                         )}
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-600">
                           {new Date(note.created_at).toLocaleDateString('en-US', { 
                             month: 'short', 
                             day: 'numeric',
@@ -359,7 +359,7 @@ export default function OpsDashboardView({
                       </div>
                       <p className="text-sm text-gray-700 line-clamp-2">{note.note}</p>
                       {user?.full_name && (
-                        <p className="text-xs text-gray-500 mt-1">— {user.full_name}</p>
+                        <p className="text-xs text-gray-700 mt-1">— {user.full_name}</p>
                       )}
                     </div>
                   )

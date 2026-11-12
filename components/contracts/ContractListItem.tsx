@@ -77,7 +77,7 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
              contract.status === 'pending_customer' ? 'Awaiting Customer' :
              contract.status === 'voided' ? 'Voided' : contract.status}
           </span>
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-gray-700">
             {label} created {new Date(contract.created_at).toLocaleDateString()}
           </span>
           {contract.customer_signed_at && (

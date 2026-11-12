@@ -326,7 +326,7 @@ export default function OpportunitiesPage() {
         <div className="flex justify-between items-center mb-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Opportunities</h1>
-            <p className="text-gray-500 mt-1 text-sm">
+            <p className="text-gray-700 mt-1 text-sm">
               {activeView === 'inside_sales' ? (
                 <>
                   {filteredInsideSalesItems.length} below · {insideSalesCounts.readyToCall} ready for calls · waiting
@@ -376,7 +376,7 @@ export default function OpportunitiesPage() {
         <div className={`bg-white shadow rounded-lg p-4 mb-4 sm:mb-6 ${showFilters ? 'block' : 'hidden'} md:block ${activeView === 'inside_sales' ? '' : '!hidden'}`}>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
             <div className="sm:col-span-2 lg:col-span-1">
-              <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Search</label>
               <input
                 type="text"
                 placeholder={activeView === 'inside_sales' ? 'Name, phone, address...' : 'Name, address...'}
@@ -386,7 +386,7 @@ export default function OpportunitiesPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
               <select
                 value={filters.status}
                 onChange={(e) => setFilter('status', e.target.value)}
@@ -405,7 +405,7 @@ export default function OpportunitiesPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
                 {activeView === 'inside_sales' ? 'Queue Type' : 'Inspection Result'}
               </label>
               <select
@@ -445,7 +445,7 @@ export default function OpportunitiesPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Project Type</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Project Type</label>
               <select
                 value={filters.project_type}
                 onChange={(e) => setFilter('project_type', e.target.value)}
@@ -486,7 +486,7 @@ export default function OpportunitiesPage() {
         <div className="bg-white shadow rounded-lg overflow-hidden">
           {activeView === 'inside_sales' ? (
             insideSalesLoading ? (
-              <div className="p-8 text-center text-gray-500">Loading inside sales queue...</div>
+              <div className="p-8 text-center text-gray-700">Loading inside sales queue...</div>
             ) : filteredInsideSalesItems.length > 0 ? (
               <div className="p-4 sm:p-6 space-y-4">
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -496,7 +496,7 @@ export default function OpportunitiesPage() {
                     <p className="mt-1 text-xs text-emerald-800">Sorted with ready leads first</p>
                   </div>
                   <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                    <p className="text-sm font-medium text-gray-500">Total in queue</p>
+                    <p className="text-sm font-medium text-gray-700">Total in queue</p>
                     <p className="mt-2 text-3xl font-bold text-gray-900">{insideSalesCounts.total}</p>
                   </div>
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
@@ -582,7 +582,7 @@ export default function OpportunitiesPage() {
                               )}
                             </p>
                           )}
-                          <p className="mt-1 text-xs font-medium text-gray-500">
+                          <p className="mt-1 text-xs font-medium text-gray-700">
                             {[
                               typeof item.attemptCount === 'number'
                                 ? item.attemptCount === 0
@@ -597,7 +597,7 @@ export default function OpportunitiesPage() {
                         </div>
                         <div className="grid gap-3 text-sm sm:grid-cols-2 lg:min-w-[320px]">
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Phone</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Phone</p>
                             <p className="mt-1 font-medium text-gray-900">
                               {item.customerPhone && phoneDigits ? (
                                 <a
@@ -612,15 +612,15 @@ export default function OpportunitiesPage() {
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Assigned</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Assigned</p>
                             <p className="mt-1 font-medium text-gray-900">{item.assignedToName || 'Unassigned'}</p>
                           </div>
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Closer</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Closer</p>
                             <p className="mt-1 font-medium text-gray-900">{item.closerName || '—'}</p>
                           </div>
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
                               When to call
                             </p>
                             {typeof item.overdueDays === 'number' && item.overdueDays > 0 ? (
@@ -672,7 +672,7 @@ export default function OpportunitiesPage() {
                         </div>
                         <Link
                           href={`/opportunities/${item.id}${insideSalesDetailQueryString ? `?${insideSalesDetailQueryString}` : ''}`}
-                          className="inline-flex shrink-0 items-center self-start rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+                          className="inline-flex shrink-0 items-center self-start rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-800"
                         >
                           Full record →
                         </Link>
@@ -682,7 +682,7 @@ export default function OpportunitiesPage() {
                 })}
               </div>
             ) : (
-              <div className="p-8 text-center text-gray-500">
+              <div className="p-8 text-center text-gray-700">
                 {hasActiveFilters ? 'No inside sales follow-ups match your filters.' : 'No active inside sales follow-ups.'}
               </div>
             )

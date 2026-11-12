@@ -332,13 +332,13 @@ export default function InspectionStatusCard({
                 <p className="text-sm font-medium text-gray-900">
                   {scheduledTime.toLocaleDateString('en-US', { timeZone: displayTz })}
                 </p>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-700">
                   {scheduledTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: displayTz })}
                 </p>
               </div>
             </div>
             {appointment.setter && (
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="mt-2 text-xs text-gray-700">
                 Set by: {appointment.setter.full_name || 'Unknown'}
               </p>
             )}
@@ -375,7 +375,7 @@ export default function InspectionStatusCard({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-900">{option.label}</p>
-                    <p className="text-sm text-gray-500">{option.description}</p>
+                    <p className="text-sm text-gray-700">{option.description}</p>
                   </div>
                   {selectedOutcome === option.id && (
                     <svg className="w-6 h-6 text-indigo-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -606,7 +606,7 @@ export default function InspectionStatusCard({
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Feedback for Setter
-                      <span className="text-gray-400 font-normal ml-1">
+                      <span className="text-gray-600 font-normal ml-1">
                         ({appointment.setter.full_name} will see this)
                       </span>
                     </label>
@@ -670,7 +670,7 @@ export default function InspectionStatusCard({
               ? 'Continue to Reschedule'
               : 'Submit Status Update'}
           </button>
-          <p className="mt-2 text-center text-xs text-gray-500">
+          <p className="mt-2 text-center text-xs text-gray-700">
             This information will be saved to the customer&apos;s file
           </p>
         </div>

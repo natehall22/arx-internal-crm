@@ -50,7 +50,7 @@ export default function SubJobsClient({ jobs, companyName }: SubJobsClientProps)
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-gray-900">{companyName}</h1>
-              <p className="text-sm text-gray-500">{t('subContractorPortal')}</p>
+              <p className="text-sm text-gray-700">{t('subContractorPortal')}</p>
             </div>
             <div className="flex items-center gap-4">
               <LanguageToggle />
@@ -78,7 +78,7 @@ export default function SubJobsClient({ jobs, companyName }: SubJobsClientProps)
             </Link>
             <Link
               href="/subs/work-orders"
-              className="py-3 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-2 border-transparent"
+              className="py-3 text-sm font-medium text-gray-700 hover:text-gray-900 border-b-2 border-transparent"
             >
               {t('workOrders')}
             </Link>
@@ -91,15 +91,15 @@ export default function SubJobsClient({ jobs, companyName }: SubJobsClientProps)
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow-sm border p-4 text-center">
             <p className="text-2xl font-bold text-purple-600">{upcomingJobs.length}</p>
-            <p className="text-sm text-gray-500">{t('upcoming')}</p>
+            <p className="text-sm text-gray-700">{t('upcoming')}</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm border p-4 text-center">
             <p className="text-2xl font-bold text-indigo-600">{inProgressJobs.length}</p>
-            <p className="text-sm text-gray-500">{t('inProgress')}</p>
+            <p className="text-sm text-gray-700">{t('inProgress')}</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm border p-4 text-center">
             <p className="text-2xl font-bold text-green-600">{completedJobs.length}</p>
-            <p className="text-sm text-gray-500">{t('completed')}</p>
+            <p className="text-sm text-gray-700">{t('completed')}</p>
           </div>
         </div>
 
@@ -124,7 +124,7 @@ export default function SubJobsClient({ jobs, companyName }: SubJobsClientProps)
         <div className="space-y-3">
           {filteredJobs.length === 0 ? (
             <div className="bg-white rounded-lg shadow-sm border p-8 text-center">
-              <p className="text-gray-500">{t('noJobs')}</p>
+              <p className="text-gray-700">{t('noJobs')}</p>
             </div>
           ) : (
             filteredJobs.map(job => {
@@ -166,16 +166,16 @@ export default function SubJobsClient({ jobs, companyName }: SubJobsClientProps)
                         })}
                       </span>
                       {job.scheduled_time_start && (
-                        <span className="text-gray-500">{job.scheduled_time_start}</span>
+                        <span className="text-gray-700">{job.scheduled_time_start}</span>
                       )}
                       {job.estimated_duration_hours && (
-                        <span className="text-gray-500">{job.estimated_duration_hours}h</span>
+                        <span className="text-gray-700">{job.estimated_duration_hours}h</span>
                       )}
                     </div>
                   )}
 
                   {job.product_summary && (
-                    <p className="text-xs text-gray-500 mt-2 truncate">{job.product_summary}</p>
+                    <p className="text-xs text-gray-700 mt-2 truncate">{job.product_summary}</p>
                   )}
                 </Link>
               )

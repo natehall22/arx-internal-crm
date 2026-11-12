@@ -163,12 +163,12 @@ export default function AdminFinancingProgramsPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lender</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">APR %</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Term (mo)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dealer fee %</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Active</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Lender</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">APR %</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Term (mo)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Dealer fee %</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Active</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -193,7 +193,7 @@ export default function AdminFinancingProgramsPage() {
               ))}
               {programs.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={6} className="px-4 py-12 text-center text-gray-700">
                     No programs yet. Add one to appear in the proposal builder.
                   </td>
                 </tr>
@@ -248,7 +248,7 @@ export default function AdminFinancingProgramsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, dealer_fee_percent: e.target.value }))}
                   className="w-full border rounded-lg px-3 py-2"
                 />
-                <p className="text-xs text-gray-500 mt-1">Internal only — not shown on customer or rep proposal views.</p>
+                <p className="text-xs text-gray-700 mt-1">Internal only — not shown on customer or rep proposal views.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Sort order</label>

@@ -108,7 +108,7 @@ export default function InspectionResultReadOnlyCard({
     return (
       <div className="bg-white shadow rounded-lg p-6 mb-6">
         <h2 className="text-xl font-bold text-gray-900 mb-2">Close visit debrief</h2>
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p className="text-sm text-gray-600">Loading…</p>
       </div>
     )
   }
@@ -149,7 +149,7 @@ export default function InspectionResultReadOnlyCard({
           >
             {OUTCOME_LABELS[existing.outcome] ?? existing.outcome}
           </span>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-600">
             Submitted {new Date(existing.submitted_at).toLocaleString()}
           </span>
         </div>
@@ -170,7 +170,7 @@ export default function InspectionResultReadOnlyCard({
                       {p.url ? (
                         <img src={p.url} alt={p.filename} className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-500 p-1 text-center">
+                        <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-700 p-1 text-center">
                           Preview unavailable
                         </div>
                       )}
@@ -202,14 +202,14 @@ export default function InspectionResultReadOnlyCard({
           </>
         )}
 
-        <div className="flex items-center gap-4 text-xs text-gray-500">
+        <div className="flex items-center gap-4 text-xs text-gray-700">
           {existing.close_appointment_id && (
             <span className="text-green-600 font-medium">✓ Close appointment scheduled</span>
           )}
           {existing.briefing_email_sent_at ? (
             <span className="text-green-600 font-medium">✓ Briefing email sent</span>
           ) : (
-            <span className="text-gray-400">Briefing email not sent</span>
+            <span className="text-gray-600">Briefing email not sent</span>
           )}
         </div>
       </div>

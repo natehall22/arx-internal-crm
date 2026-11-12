@@ -412,7 +412,7 @@ export default function LeadFormWithReferral({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="text-sm font-medium text-gray-500">Homeowner Name</label>
+          <label className="text-sm font-medium text-gray-700">Homeowner Name</label>
           <input
             value={form.homeowner_name}
             onChange={(e) => setForm(prev => ({ ...prev, homeowner_name: e.target.value }))}
@@ -421,7 +421,7 @@ export default function LeadFormWithReferral({
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Phone</label>
+          <label className="text-sm font-medium text-gray-700">Phone</label>
           <input
             value={form.phone}
             onChange={(e) => setForm(prev => ({ ...prev, phone: e.target.value }))}
@@ -430,7 +430,7 @@ export default function LeadFormWithReferral({
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Email</label>
+          <label className="text-sm font-medium text-gray-700">Email</label>
           <input
             type="email"
             value={form.email}
@@ -440,7 +440,7 @@ export default function LeadFormWithReferral({
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Address</label>
+          <label className="text-sm font-medium text-gray-700">Address</label>
           <input
             value={form.address_text}
             onChange={(e) => setForm(prev => ({ ...prev, address_text: e.target.value }))}
@@ -449,7 +449,7 @@ export default function LeadFormWithReferral({
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Source</label>
+          <label className="text-sm font-medium text-gray-700">Source</label>
           <select
             value={source}
             onChange={(e) => setSource(e.target.value)}
@@ -464,7 +464,7 @@ export default function LeadFormWithReferral({
           </select>
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Status</label>
+          <label className="text-sm font-medium text-gray-700">Status</label>
           <select
             value={form.status}
             onChange={(e) => setForm(prev => ({ ...prev, status: e.target.value }))}
@@ -496,18 +496,18 @@ export default function LeadFormWithReferral({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-gray-900">{selectedReferrer.name}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-700">
                     {selectedReferrer.type === 'customer' ? 'Customer' : 'Previous Lead'}
                     {selectedReferrer.phone && ` • ${formatPhone(selectedReferrer.phone)}`}
                   </p>
                   {selectedReferrer.address && (
-                    <p className="text-sm text-gray-500">{selectedReferrer.address}</p>
+                    <p className="text-sm text-gray-700">{selectedReferrer.address}</p>
                   )}
                 </div>
                 <button
                   type="button"
                   onClick={clearReferrer}
-                  className="text-gray-400 hover:text-red-500"
+                  className="text-gray-600 hover:text-red-500"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -519,7 +519,7 @@ export default function LeadFormWithReferral({
               <div className="mt-3 pt-3 border-t">
                 <label className="text-sm font-medium text-gray-700">Referral Bonus Amount</label>
                 <div className="mt-1 relative w-32">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                   <input
                     type="number"
                     value={bonusAmount}
@@ -565,11 +565,11 @@ export default function LeadFormWithReferral({
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium text-gray-900">{result.name}</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-sm text-gray-700">
                             {result.phone ? formatPhone(result.phone) : result.email || 'No contact info'}
                           </p>
                           {result.address && (
-                            <p className="text-xs text-gray-400">{result.address}</p>
+                            <p className="text-xs text-gray-600">{result.address}</p>
                           )}
                         </div>
                         <span className={`px-2 py-0.5 text-xs rounded ${
@@ -592,7 +592,7 @@ export default function LeadFormWithReferral({
               )}
 
               {referralSearch.length < 2 && referralSearch.length > 0 && (
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-sm text-gray-700">
                   Type at least 2 characters to search...
                 </p>
               )}
@@ -603,7 +603,7 @@ export default function LeadFormWithReferral({
 
       {/* Notes */}
       <div>
-        <label className="text-sm font-medium text-gray-500">Notes</label>
+        <label className="text-sm font-medium text-gray-700">Notes</label>
         <textarea
           value={form.notes}
           onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value }))}

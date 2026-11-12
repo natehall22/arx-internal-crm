@@ -60,7 +60,7 @@ export default function ProjectFileUpload({ projectId }: ProjectFileUploadProps)
       </select>
       <label className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded cursor-pointer ${
         uploading 
-          ? 'bg-gray-100 text-gray-400 cursor-wait' 
+          ? 'bg-gray-100 text-gray-600 cursor-wait' 
           : 'bg-indigo-600 text-white hover:bg-indigo-700'
       }`}>
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

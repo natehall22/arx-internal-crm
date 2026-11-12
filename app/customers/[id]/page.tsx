@@ -193,7 +193,7 @@ export default async function CustomerDetailPage({
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Customer File</h1>
-              <p className="text-sm text-gray-500">Use the tabs to review this account.</p>
+              <p className="text-sm text-gray-700">Use the tabs to review this account.</p>
             </div>
           </div>
         </div>
@@ -207,7 +207,7 @@ export default async function CustomerDetailPage({
                 className={`pb-3 text-sm font-medium ${
                   activeTab === tab.id
                     ? 'border-b-2 border-indigo-600 text-indigo-600'
-                    : 'text-gray-500 hover:text-gray-700'
+                    : 'text-gray-700 hover:text-gray-900'
                 }`}
               >
                 {tab.label}
@@ -223,7 +223,7 @@ export default async function CustomerDetailPage({
             {leads &&
               leads.some((l: { source?: string | null }) => isDoorKnockSource(l.source)) && (
                 <div className="bg-white shadow rounded-lg p-6 border border-gray-100">
-                  <h2 className="text-sm font-medium text-gray-500 mb-2">Door knock → customer</h2>
+                  <h2 className="text-sm font-medium text-gray-700 mb-2">Door knock → customer</h2>
                   <p className="text-sm text-gray-700 mb-3">
                     This account traces back to canvassing. Open the lead for full canvass notes, disposition, and
                     setter.
@@ -247,19 +247,19 @@ export default async function CustomerDetailPage({
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white shadow rounded-lg p-6">
-                <h2 className="text-sm font-medium text-gray-500">Projects</h2>
+                <h2 className="text-sm font-medium text-gray-700">Projects</h2>
                 <p className="mt-2 text-2xl font-semibold text-gray-900">
                   {projects?.length || 0}
                 </p>
               </div>
               <div className="bg-white shadow rounded-lg p-6">
-                <h2 className="text-sm font-medium text-gray-500">Opportunities</h2>
+                <h2 className="text-sm font-medium text-gray-700">Opportunities</h2>
                 <p className="mt-2 text-2xl font-semibold text-gray-900">
                   {opportunities?.length || 0}
                 </p>
               </div>
               <div className="bg-white shadow rounded-lg p-6">
-                <h2 className="text-sm font-medium text-gray-500">Files</h2>
+                <h2 className="text-sm font-medium text-gray-700">Files</h2>
                 <p className="mt-2 text-2xl font-semibold text-gray-900">{files?.length || 0}</p>
               </div>
             </div>
@@ -276,11 +276,11 @@ export default async function CustomerDetailPage({
                       <h2 className="text-lg font-semibold text-gray-900">
                         {lead.homeowner_name || 'Lead'}
                       </h2>
-                      <p className="text-sm text-gray-500 capitalize">
+                      <p className="text-sm text-gray-700 capitalize">
                         {lead.status.replace('_', ' ')}
                       </p>
                       {(formatLeadSource(lead.source) || lead.canvass_disposition) && (
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-700 mt-1">
                           {formatLeadSource(lead.source) && (
                             <span>Source: {formatLeadSource(lead.source)}</span>
                           )}
@@ -305,7 +305,7 @@ export default async function CustomerDetailPage({
                 </div>
               ))
             ) : (
-              <div className="bg-white shadow rounded-lg p-6 text-sm text-gray-500">
+              <div className="bg-white shadow rounded-lg p-6 text-sm text-gray-700">
                 No leads found for this customer.
               </div>
             )}
@@ -325,7 +325,7 @@ export default async function CustomerDetailPage({
                       <h2 className="text-lg font-semibold text-gray-900">
                         {opportunity.project_type}
                       </h2>
-                      <p className="text-sm text-gray-500 capitalize">
+                      <p className="text-sm text-gray-700 capitalize">
                         {opportunity.status.replace('_', ' ')}
                       </p>
                     </div>
@@ -342,7 +342,7 @@ export default async function CustomerDetailPage({
                 </div>
               ))
             ) : (
-              <div className="bg-white shadow rounded-lg p-6 text-sm text-gray-500">
+              <div className="bg-white shadow rounded-lg p-6 text-sm text-gray-700">
                 No opportunities found for this customer.
               </div>
             )}
@@ -362,7 +362,7 @@ export default async function CustomerDetailPage({
                       <h2 className="text-lg font-semibold text-gray-900">
                         {project.project_type}
                       </h2>
-                      <p className="text-sm text-gray-500 capitalize">
+                      <p className="text-sm text-gray-700 capitalize">
                         {resolveProjectDisplayStatus(project)}
                       </p>
                     </div>
@@ -377,7 +377,7 @@ export default async function CustomerDetailPage({
                 </div>
               ))
             ) : (
-              <div className="bg-white shadow rounded-lg p-6 text-sm text-gray-500">
+              <div className="bg-white shadow rounded-lg p-6 text-sm text-gray-700">
                 No projects found for this customer.
               </div>
             )}
@@ -407,7 +407,7 @@ export default async function CustomerDetailPage({
               </Link>
             </div>
             <div className="bg-white shadow rounded-lg p-6">
-              <p className="text-gray-500 text-sm">
+              <p className="text-gray-700 text-sm">
                 Work orders for this customer will appear here. Create a go-back, repair, or service work order using the button above.
               </p>
             </div>
@@ -422,7 +422,7 @@ export default async function CustomerDetailPage({
                   <div key={file.id} className="flex items-center justify-between p-2 border rounded">
                     <div className="min-w-0">
                       <p className="text-sm text-gray-900 truncate">{file.file_name}</p>
-                      <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
+                      <p className="text-xs text-gray-700 capitalize">{file.tag}</p>
                     </div>
                     {filesObjectHref(file.storage_path) ? (
                       <a
@@ -439,7 +439,7 @@ export default async function CustomerDetailPage({
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No files found for this customer.</p>
+                <p className="text-gray-700 text-sm">No files found for this customer.</p>
               )}
             </div>
           </div>
@@ -455,7 +455,7 @@ export default async function CustomerDetailPage({
                       <span className="text-sm font-medium text-gray-900">
                         {activity.users?.full_name || 'Unknown'}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-700">
                         {new Date(activity.created_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -466,7 +466,7 @@ export default async function CustomerDetailPage({
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No activity yet.</p>
+                <p className="text-gray-700 text-sm">No activity yet.</p>
               )}
             </div>
           </div>

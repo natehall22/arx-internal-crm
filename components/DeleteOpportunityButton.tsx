@@ -62,7 +62,7 @@ export default function DeleteOpportunityButton({ opportunityId, customerName }:
               </div>
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Delete Opportunity</h3>
-                <p className="text-sm text-gray-500">This action cannot be undone</p>
+                <p className="text-sm text-gray-700">This action cannot be undone</p>
               </div>
             </div>
 

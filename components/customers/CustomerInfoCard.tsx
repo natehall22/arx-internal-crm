@@ -159,7 +159,7 @@ export default function CustomerInfoCard({ customer }: CustomerInfoCardProps) {
               {customer.email}
             </a>
           ) : (
-            <span className="text-gray-400">No email</span>
+            <span className="text-gray-600">No email</span>
           )}
         </div>
         <div>
@@ -167,12 +167,12 @@ export default function CustomerInfoCard({ customer }: CustomerInfoCardProps) {
           {customer.phone ? (
             <PhoneLink value={customer.phone} className="inline-flex min-h-tap items-center text-indigo-600 hover:text-indigo-800" />
           ) : (
-            <span className="text-gray-400">No phone</span>
+            <span className="text-gray-600">No phone</span>
           )}
         </div>
         <div className="md:col-span-2">
           <span className="font-medium">Address:</span>{' '}
-          {customer.address_text || <span className="text-gray-400">No address</span>}
+          {customer.address_text || <span className="text-gray-600">No address</span>}
         </div>
       </div>
     </div>

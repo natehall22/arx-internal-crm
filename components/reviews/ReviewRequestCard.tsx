@@ -137,7 +137,7 @@ export default function ReviewRequestCard({ jobId, variant = 'full', onSent }: P
   if (loading) {
     return (
       <div className={wrap}>
-        <p className="text-sm text-gray-500">Loading review request…</p>
+        <p className="text-sm text-gray-700">Loading review request…</p>
       </div>
     )
   }
@@ -174,11 +174,11 @@ export default function ReviewRequestCard({ jobId, variant = 'full', onSent }: P
             </svg>
             Review requested{sentAt ? ` ${formatSentDate(sentAt)}` : ''}
           </span>
-          {sentByName && <span className="text-gray-500">by {sentByName}</span>}
+          {sentByName && <span className="text-gray-700">by {sentByName}</span>}
           <button
             type="button"
             onClick={() => setShowActions(true)}
-            className="text-gray-500 underline underline-offset-2 hover:text-gray-700"
+            className="text-gray-700 underline underline-offset-2 hover:text-gray-900"
           >
             Send again
           </button>
@@ -220,7 +220,7 @@ export default function ReviewRequestCard({ jobId, variant = 'full', onSent }: P
             )}
           </div>
 
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-2 text-xs text-gray-700">
             Tap <span className="font-medium text-gray-700">Text review request</span> to send from your phone, or use{' '}
             <span className="font-medium text-gray-700">Copy</span> to send from Google Voice.
           </p>
@@ -229,7 +229,7 @@ export default function ReviewRequestCard({ jobId, variant = 'full', onSent }: P
             <button
               type="button"
               onClick={() => setShowPreview((s) => !s)}
-              className="text-xs text-gray-500 underline underline-offset-2 hover:text-gray-700"
+              className="text-xs text-gray-700 underline underline-offset-2 hover:text-gray-900"
             >
               {showPreview ? 'Hide message' : 'Preview message'}
             </button>

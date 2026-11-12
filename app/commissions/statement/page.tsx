@@ -23,7 +23,7 @@ export default function CommissionStatementIndexPage() {
   }, [router])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-500">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-700">
       Loading pay statement…
     </div>
   )

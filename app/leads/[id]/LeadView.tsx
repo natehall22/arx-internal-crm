@@ -775,7 +775,7 @@ export default async function LeadView({
           <form action={updateLeadInfo}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-500">Homeowner Name</label>
+                <label className="text-sm font-medium text-gray-700">Homeowner Name</label>
                 <input
                   type="text"
                   name="homeowner_name"
@@ -785,7 +785,7 @@ export default async function LeadView({
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Phone</label>
+                <label className="text-sm font-medium text-gray-700">Phone</label>
                 <input
                   type="tel"
                   name="phone"
@@ -795,7 +795,7 @@ export default async function LeadView({
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Email</label>
+                <label className="text-sm font-medium text-gray-700">Email</label>
                 <input
                   type="email"
                   name="email"
@@ -805,7 +805,7 @@ export default async function LeadView({
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Address</label>
+                <label className="text-sm font-medium text-gray-700">Address</label>
                 <input
                   type="text"
                   name="address_text"
@@ -815,7 +815,7 @@ export default async function LeadView({
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="text-sm font-medium text-gray-500">Notes</label>
+                <label className="text-sm font-medium text-gray-700">Notes</label>
                 <textarea
                   name="notes"
                   defaultValue={lead.notes || ''}
@@ -839,26 +839,26 @@ export default async function LeadView({
           <div className="mt-6 pt-6 border-t border-gray-200">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <span className="text-gray-500">Status:</span>
+                <span className="text-gray-700">Status:</span>
                 <span className="ml-2 text-gray-900 capitalize">{lead.status.replace('_', ' ')}</span>
               </div>
               <div>
-                <span className="text-gray-500">Setter:</span>
+                <span className="text-gray-700">Setter:</span>
                 <span className="ml-2 text-gray-900">{leadOwnerLabel(lead)}</span>
               </div>
               <div>
-                <span className="text-gray-500">Closer:</span>
+                <span className="text-gray-700">Closer:</span>
                 <span className="ml-2 text-gray-900">{closerName || 'Unassigned'}</span>
               </div>
               <div>
-                <span className="text-gray-500">Canvass disposition:</span>
+                <span className="text-gray-700">Canvass disposition:</span>
                 <span className="ml-2 text-gray-900 capitalize">
                   {lead.canvass_disposition?.replace('_', ' ') || 'Not set'}
                 </span>
               </div>
               {effectiveInspection?.inspection_outcome && (
                 <div>
-                  <span className="text-gray-500">Inspection outcome:</span>
+                  <span className="text-gray-700">Inspection outcome:</span>
                   <span className="ml-2 text-gray-900">
                     {effectiveInspectionOutcomeConfig?.label ||
                       effectiveInspection.inspection_outcome.replace(/_/g, ' ')}
@@ -867,7 +867,7 @@ export default async function LeadView({
               )}
               {lead.inspection_scheduled_for && (
                 <div className="col-span-2">
-                  <span className="text-gray-500">Inspection:</span>
+                  <span className="text-gray-700">Inspection:</span>
                   <span className="ml-2 text-gray-900">
                     {formatEasternDateTime(lead.inspection_scheduled_for)}
                   </span>
@@ -878,7 +878,7 @@ export default async function LeadView({
 
           {lead.lat && lead.lng && (
             <div className="mt-4 pt-4 border-t border-gray-200">
-              <h3 className="text-sm font-medium text-gray-500 mb-2">Location</h3>
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Location</h3>
               <LocationMap 
                 lat={lead.lat} 
                 lng={lead.lng} 
@@ -919,7 +919,7 @@ export default async function LeadView({
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div>
-                <label className="text-sm font-medium text-gray-500">Source</label>
+                <label className="text-sm font-medium text-gray-700">Source</label>
                 {/* Baseline for reconcileStaleFormField — see effectiveSource. */}
                 <input type="hidden" name="source_baseline" value={lead.source ?? ''} />
                 <select
@@ -936,7 +936,7 @@ export default async function LeadView({
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Canvass disposition</label>
+                <label className="text-sm font-medium text-gray-700">Canvass disposition</label>
                 <select
                   name="canvass_disposition"
                   defaultValue={lead.canvass_disposition || ''}
@@ -951,7 +951,7 @@ export default async function LeadView({
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Status</label>
+                <label className="text-sm font-medium text-gray-700">Status</label>
                 <select
                   name="status"
                   defaultValue={lead.status}
@@ -975,8 +975,8 @@ export default async function LeadView({
               </div>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
                 <div>
-                  <label className="text-sm font-medium text-gray-500">
-                    Setter {!canEditLeadAttribution && <span className="text-gray-400 font-normal">(ask a manager to change)</span>}
+                  <label className="text-sm font-medium text-gray-700">
+                    Setter {!canEditLeadAttribution && <span className="text-gray-600 font-normal">(ask a manager to change)</span>}
                   </label>
                   {/* Baseline for the stale-form guard in updateLead — see effectiveSetterId. */}
                   <input type="hidden" name="owner_user_id_baseline" value={lead.owner_user_id || ''} />
@@ -993,12 +993,12 @@ export default async function LeadView({
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-700">
                     Door-knock / canvass attribution.
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-500">Closer</label>
+                  <label className="text-sm font-medium text-gray-700">Closer</label>
                   {/* Baseline for reconcileStaleFormField — see effectiveCloserId. */}
                   <input type="hidden" name="closer_user_id_baseline" value={lead.closer_user_id || ''} />
                   <select
@@ -1014,12 +1014,12 @@ export default async function LeadView({
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-700">
                     Synced to payroll as opportunity owner.
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-500">Inspection scheduled for (ET)</label>
+                  <label className="text-sm font-medium text-gray-700">Inspection scheduled for (ET)</label>
                   <input
                     name="inspection_scheduled_for"
                     type="datetime-local"
@@ -1028,7 +1028,7 @@ export default async function LeadView({
                     className="mt-2 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
                   />
                   {!canEditLeadAttribution && (
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-gray-700">
                       Use the slot picker above, or ask a manager for manual edits.
                     </p>
                   )}
@@ -1037,7 +1037,7 @@ export default async function LeadView({
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-500">Canvass notes</label>
+              <label className="text-sm font-medium text-gray-700">Canvass notes</label>
               <textarea
                 name="canvass_notes"
                 defaultValue={lead.canvass_notes || ''}
@@ -1102,7 +1102,7 @@ export default async function LeadView({
                        inspectionUpdates[0].outcome === 'no_problems_found' ? 'No Problems Found' :
                        inspectionUpdates[0].outcome?.replace('_', ' ')}
                     </span>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-700">
                       {formatEasternDateTime(inspectionUpdates[0].created_at)}
                     </span>
                   </div>
@@ -1126,7 +1126,7 @@ export default async function LeadView({
                 {/* History if more than one update */}
                 {inspectionUpdates.length > 1 && (
                   <details className="mt-4">
-                    <summary className="text-sm font-medium text-gray-500 cursor-pointer hover:text-gray-700">
+                    <summary className="text-sm font-medium text-gray-700 cursor-pointer hover:text-gray-900">
                       View history ({inspectionUpdates.length - 1} previous update{inspectionUpdates.length > 2 ? 's' : ''})
                     </summary>
                     <div className="mt-3 space-y-3">
@@ -1142,7 +1142,7 @@ export default async function LeadView({
                             }`}>
                               {update.outcome?.replace('_', ' ')}
                             </span>
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-gray-700">
                               {formatEasternDateTime(update.created_at)}
                             </span>
                           </div>
@@ -1210,7 +1210,7 @@ export default async function LeadView({
                       <span className="text-sm font-medium text-gray-900">
                         {activity.users?.full_name || 'Unknown'}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-700">
                         {formatEasternDate(activity.created_at)}
                       </span>
                     </div>
@@ -1221,7 +1221,7 @@ export default async function LeadView({
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No activities</p>
+                <p className="text-gray-700 text-sm">No activities</p>
               )}
             </div>
           </div>
@@ -1233,11 +1233,11 @@ export default async function LeadView({
                 files.map((file: any) => (
                   <div key={file.id} className="flex items-center justify-between p-2 border rounded">
                     <span className="text-sm text-gray-900">{file.file_name}</span>
-                    <span className="text-xs text-gray-500 capitalize">{file.tag}</span>
+                    <span className="text-xs text-gray-700 capitalize">{file.tag}</span>
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No files</p>
+                <p className="text-gray-700 text-sm">No files</p>
               )}
             </div>
           </div>

@@ -374,7 +374,7 @@ export default function SubContractorsPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">{subsHeading}</h1>
-            <p className="text-gray-500 mt-1">Manage your sub-contractor network</p>
+            <p className="text-gray-700 mt-1">Manage your sub-contractor network</p>
           </div>
           <button
             onClick={() => openModal()}
@@ -391,19 +391,19 @@ export default function SubContractorsPage() {
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-gray-900">{subs.length}</div>
-            <div className="text-sm text-gray-500">Total Subs</div>
+            <div className="text-sm text-gray-700">Total Subs</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-green-600">
               {subs.filter(s => s.active).length}
             </div>
-            <div className="text-sm text-gray-500">Active</div>
+            <div className="text-sm text-gray-700">Active</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-gray-600">
               {subs.filter(s => !s.active).length}
             </div>
-            <div className="text-sm text-gray-500">Inactive</div>
+            <div className="text-sm text-gray-700">Inactive</div>
           </div>
         </div>
 
@@ -416,7 +416,7 @@ export default function SubContractorsPage() {
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No sub-contractors yet</h3>
-            <p className="text-gray-500 mb-4">Add your first sub-contractor to get started</p>
+            <p className="text-gray-700 mb-4">Add your first sub-contractor to get started</p>
             <button
               onClick={() => openModal()}
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"

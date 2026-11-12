@@ -80,14 +80,14 @@ export default function AppointmentFeedbackPrompt() {
             <div className="flex-1 min-w-0">
               <h4 className="font-semibold text-gray-900">Feedback overdue</h4>
               <p className="text-sm text-gray-600 truncate">{appointment.leads?.homeowner_name || 'Customer'}</p>
-              <p className="text-xs text-gray-500">{formatWhen(appointment.scheduled_for)}</p>
+              <p className="text-xs text-gray-700">{formatWhen(appointment.scheduled_for)}</p>
             </div>
           </div>
           <p className="text-sm text-gray-700 mb-4">
             This appointment has been snoozed {prompt.snooze_count}x. It can&apos;t be put off any longer —
             submit the outcome to continue.
             {escalated.length > 1 && (
-              <span className="block mt-1 text-xs text-gray-500">{escalated.length} appointments need this.</span>
+              <span className="block mt-1 text-xs text-gray-700">{escalated.length} appointments need this.</span>
             )}
           </p>
           <button
@@ -140,7 +140,7 @@ export default function AppointmentFeedbackPrompt() {
                   <p className="font-medium text-gray-900 text-sm truncate">
                     {appointment.leads?.homeowner_name || 'Customer'}
                   </p>
-                  <p className="text-xs text-gray-500">{formatWhen(appointment.scheduled_for)}</p>
+                  <p className="text-xs text-gray-700">{formatWhen(appointment.scheduled_for)}</p>
                   {nearEscalation && (
                     <p className="text-xs text-red-600 mt-0.5">Last snooze before this locks in</p>
                   )}
@@ -154,7 +154,7 @@ export default function AppointmentFeedbackPrompt() {
                 <button
                   onClick={() => dismissPrompt(prompt.id)}
                   disabled={dismissing === prompt.id}
-                  className="px-2 py-1.5 text-gray-500 hover:bg-gray-100 rounded-lg text-xs whitespace-nowrap"
+                  className="px-2 py-1.5 text-gray-700 hover:bg-gray-100 rounded-lg text-xs whitespace-nowrap"
                 >
                   {dismissing === prompt.id ? '...' : 'Later'}
                 </button>

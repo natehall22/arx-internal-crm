@@ -79,16 +79,16 @@ export default function CommissionsTeamPage() {
           )}
 
           {loading ? (
-            <p className="mt-6 text-sm text-gray-500">Loading…</p>
+            <p className="mt-6 text-sm text-gray-700">Loading…</p>
           ) : members.length === 0 ? (
-            <p className="mt-6 text-sm text-gray-500">No active direct reports found.</p>
+            <p className="mt-6 text-sm text-gray-700">No active direct reports found.</p>
           ) : (
             <ul className="mt-6 divide-y border rounded-lg">
               {members.map((m) => (
                 <li key={m.id} className="flex items-center justify-between px-4 py-3">
                   <div>
                     <p className="font-medium text-gray-900">{m.full_name || m.id}</p>
-                    <p className="text-xs text-gray-500">{m.role}</p>
+                    <p className="text-xs text-gray-700">{m.role}</p>
                   </div>
                   {selectedPeriod ? (
                     <Link
@@ -98,7 +98,7 @@ export default function CommissionsTeamPage() {
                       View statement →
                     </Link>
                   ) : (
-                    <span className="text-xs text-gray-400">No periods</span>
+                    <span className="text-xs text-gray-600">No periods</span>
                   )}
                 </li>
               ))}

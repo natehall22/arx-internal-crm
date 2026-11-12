@@ -265,13 +265,13 @@ export default function PayrollPeriodsPage() {
               <tbody className="divide-y">
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
+                    <td colSpan={5} className="px-3 py-6 text-center text-gray-700">
                       Loading…
                     </td>
                   </tr>
                 ) : periods.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
+                    <td colSpan={5} className="px-3 py-6 text-center text-gray-700">
                       No periods yet.
                     </td>
                   </tr>

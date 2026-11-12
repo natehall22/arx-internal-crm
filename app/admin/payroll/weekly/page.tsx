@@ -91,7 +91,7 @@ export default function WeeklyPayrollWorksheetPage() {
             payroll lines. Lock, snapshots, chargebacks, and overrides use the tables added in migration 121.
           </p>
 
-          {loading && <p className="mt-4 text-sm text-gray-500">Loading…</p>}
+          {loading && <p className="mt-4 text-sm text-gray-700">Loading…</p>}
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
           {!loading && !error && Object.keys(summary).length > 0 && (
@@ -134,7 +134,7 @@ export default function WeeklyPayrollWorksheetPage() {
                           {r.customerName?.trim() ? (
                             r.customerName
                           ) : (
-                            <span className="text-gray-400">—</span>
+                            <span className="text-gray-600">—</span>
                           )}
                         </div>
                       </td>
@@ -158,7 +158,7 @@ export default function WeeklyPayrollWorksheetPage() {
           )}
 
           {!loading && !error && rows.length === 0 && (
-            <p className="mt-6 text-sm text-gray-500">No production jobs found for this org.</p>
+            <p className="mt-6 text-sm text-gray-700">No production jobs found for this org.</p>
           )}
         </div>
       </div>

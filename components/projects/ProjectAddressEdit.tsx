@@ -21,7 +21,7 @@ export default function ProjectAddressEdit({
 
   return (
     <div className="relative mt-1">
-      <p className="text-xs text-gray-500 mb-2">
+      <p className="text-xs text-gray-700 mb-2">
         Job site address on this project. It may have been copied from the proposal when the project was
         created — it does not auto-update when you link a customer.
       </p>

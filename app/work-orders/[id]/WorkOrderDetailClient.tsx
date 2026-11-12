@@ -65,7 +65,7 @@ const statusColors: Record<string, string> = {
 }
 
 const priorityLabels: Record<string, { label: string; color: string }> = {
-  low: { label: 'Low', color: 'text-gray-500' },
+  low: { label: 'Low', color: 'text-gray-700' },
   normal: { label: 'Normal', color: 'text-blue-500' },
   high: { label: 'High', color: 'text-orange-500' },
   urgent: { label: 'Urgent', color: 'text-red-500' },
@@ -184,7 +184,7 @@ export default function WorkOrderDetailClient({
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="text-sm font-mono text-gray-500">{workOrder.work_order_number}</span>
+                    <span className="text-sm font-mono text-gray-700">{workOrder.work_order_number}</span>
                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[workOrder.status]}`}>
                       {workOrder.status.replace('_', ' ')}
                     </span>
@@ -193,7 +193,7 @@ export default function WorkOrderDetailClient({
                     </span>
                   </div>
                   <h1 className="text-2xl font-bold text-gray-900">{workOrder.title}</h1>
-                  <p className="text-gray-500 mt-1">
+                  <p className="text-gray-700 mt-1">
                     {typeLabels[workOrder.work_order_type] || workOrder.work_order_type}
                   </p>
                 </div>
@@ -332,7 +332,7 @@ export default function WorkOrderDetailClient({
 
               <div className="space-y-4">
                 {comments.length === 0 ? (
-                  <p className="text-gray-500 text-sm">No comments yet</p>
+                  <p className="text-gray-700 text-sm">No comments yet</p>
                 ) : (
                   comments.map((comment) => (
                     <div
@@ -349,7 +349,7 @@ export default function WorkOrderDetailClient({
                               Internal
                             </span>
                           )}
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-gray-700">
                             {new Date(comment.created_at).toLocaleString()}
                           </span>
                         </div>
@@ -367,7 +367,7 @@ export default function WorkOrderDetailClient({
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Location</h2>
               {workOrder.customers && (
                 <div className="mb-3">
-                  <div className="text-sm text-gray-500">Customer</div>
+                  <div className="text-sm text-gray-700">Customer</div>
                   <Link
                     href={`/customers/${workOrder.customers.id}`}
                     className="font-medium text-indigo-600 hover:text-indigo-800"
@@ -381,7 +381,7 @@ export default function WorkOrderDetailClient({
               )}
               {workOrder.address && (
                 <div className="mb-3">
-                  <div className="text-sm text-gray-500">Address</div>
+                  <div className="text-sm text-gray-700">Address</div>
                   <div className="text-gray-900">
                     {workOrder.address}<br />
                     {workOrder.city}, {workOrder.state} {workOrder.zip}
@@ -390,7 +390,7 @@ export default function WorkOrderDetailClient({
               )}
               {workOrder.projects && (
                 <div>
-                  <div className="text-sm text-gray-500">Related Project</div>
+                  <div className="text-sm text-gray-700">Related Project</div>
                   <Link
                     href={`/projects/${workOrder.projects.id}`}
                     className="text-indigo-600 hover:text-indigo-800 text-sm"
@@ -412,7 +412,7 @@ export default function WorkOrderDetailClient({
                   </div>
                   <div>
                     <div className="font-medium text-gray-900">{workOrder.assigned_user.full_name}</div>
-                    <div className="text-sm text-gray-500">In-House</div>
+                    <div className="text-sm text-gray-700">In-House</div>
                   </div>
                 </div>
               ) : workOrder.assigned_sub ? (
@@ -422,14 +422,14 @@ export default function WorkOrderDetailClient({
                   </div>
                   <div>
                     <div className="font-medium text-gray-900">{workOrder.assigned_sub.company_name}</div>
-                    <div className="text-sm text-gray-500">Sub-Contractor</div>
+                    <div className="text-sm text-gray-700">Sub-Contractor</div>
                     {workOrder.assigned_sub.phone && (
-                      <div className="text-sm text-gray-500"><PhoneLink value={workOrder.assigned_sub.phone} /></div>
+                      <div className="text-sm text-gray-700"><PhoneLink value={workOrder.assigned_sub.phone} /></div>
                     )}
                   </div>
                 </div>
               ) : (
-                <p className="text-gray-500">Unassigned</p>
+                <p className="text-gray-700">Unassigned</p>
               )}
             </div>
 
@@ -447,13 +447,13 @@ export default function WorkOrderDetailClient({
                     })}
                   </div>
                   {workOrder.estimated_hours && (
-                    <div className="text-sm text-gray-500 mt-1">
+                    <div className="text-sm text-gray-700 mt-1">
                       Est. {workOrder.estimated_hours} hours
                     </div>
                   )}
                 </div>
               ) : (
-                <p className="text-gray-500">Not scheduled</p>
+                <p className="text-gray-700">Not scheduled</p>
               )}
             </div>
 
@@ -473,7 +473,7 @@ export default function WorkOrderDetailClient({
                         ) : null}
                         <span className="capitalize font-medium">{entry.new_status.replace('_', ' ')}</span>
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-700">
                         {new Date(entry.created_at).toLocaleString()}
                       </div>
                     </div>
@@ -483,7 +483,7 @@ export default function WorkOrderDetailClient({
                   <div className="w-2 h-2 bg-green-500 rounded-full mt-2" />
                   <div>
                     <div className="text-sm text-gray-900">Created</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-gray-700">
                       {new Date(workOrder.created_at).toLocaleString()}
                       {workOrder.created_by_user && ` by ${workOrder.created_by_user.full_name}`}
                     </div>

@@ -274,7 +274,7 @@ export default function LinkCreateCustomerModal({
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Link / Create Customer</h2>
-            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+            <button onClick={handleClose} className="text-gray-600 hover:text-gray-900">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -332,7 +332,7 @@ export default function LinkCreateCustomerModal({
               </div>
 
               {isSearching && (
-                <div className="text-center py-4 text-gray-500">Searching...</div>
+                <div className="text-center py-4 text-gray-700">Searching...</div>
               )}
 
               {!isSearching && searchResults.length > 0 && (
@@ -347,11 +347,11 @@ export default function LinkCreateCustomerModal({
                     >
                       <div>
                         <p className="font-medium text-gray-900">{customer.name}</p>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-gray-700">
                           {[customer.email, customer.phone ? formatPhone(customer.phone) : null].filter(Boolean).join(' • ')}
                         </p>
                         {customer.address_text && (
-                          <p className="text-sm text-gray-400">{customer.address_text}</p>
+                          <p className="text-sm text-gray-600">{customer.address_text}</p>
                         )}
                       </div>
                       <button
@@ -367,7 +367,7 @@ export default function LinkCreateCustomerModal({
               )}
 
               {!isSearching && searchQuery.length >= 2 && searchResults.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-gray-700">
                   <p>No customers found matching "{searchQuery}"</p>
                   <button
                     onClick={() => setStep('create_from_source')}
@@ -379,7 +379,7 @@ export default function LinkCreateCustomerModal({
               )}
 
               {!isSearching && searchQuery.length < 2 && (
-                <div className="text-center py-8 text-gray-400 text-sm">
+                <div className="text-center py-8 text-gray-600 text-sm">
                   Enter at least 2 characters to search
                 </div>
               )}
@@ -429,9 +429,9 @@ export default function LinkCreateCustomerModal({
 
               {/* Source records list */}
               {isLoadingSources ? (
-                <div className="text-center py-4 text-gray-500">Loading...</div>
+                <div className="text-center py-4 text-gray-700">Loading...</div>
               ) : currentSources.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-gray-700">
                   <p>
                     {sourceType === 'opportunity' && showAllSources
                       ? `No ${sourceType}s found`
@@ -458,11 +458,11 @@ export default function LinkCreateCustomerModal({
                       {source.customer_name && (
                         <p className="text-sm text-gray-600">Contact: {source.customer_name}</p>
                       )}
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-700">
                         {[source.customer_email, source.customer_phone ? formatPhone(source.customer_phone) : null].filter(Boolean).join(' • ')}
                       </p>
                       {source.customer_address && (
-                        <p className="text-sm text-gray-400">{source.customer_address}</p>
+                        <p className="text-sm text-gray-600">{source.customer_address}</p>
                       )}
                     </div>
                   ))}
@@ -474,10 +474,10 @@ export default function LinkCreateCustomerModal({
                 <div className="mt-4 p-4 bg-gray-50 rounded-md border border-gray-200">
                   <p className="text-sm font-medium text-gray-700 mb-2">Customer will be created with:</p>
                   <div className="space-y-1 text-sm">
-                    <p><span className="text-gray-500">Name:</span> {selectedSource.customer_name || '—'}</p>
-                    <p><span className="text-gray-500">Email:</span> {selectedSource.customer_email || '—'}</p>
-                    <p><span className="text-gray-500">Phone:</span> <PhoneLink value={selectedSource.customer_phone} /></p>
-                    <p><span className="text-gray-500">Address:</span> {selectedSource.customer_address || '—'}</p>
+                    <p><span className="text-gray-700">Name:</span> {selectedSource.customer_name || '—'}</p>
+                    <p><span className="text-gray-700">Email:</span> {selectedSource.customer_email || '—'}</p>
+                    <p><span className="text-gray-700">Phone:</span> <PhoneLink value={selectedSource.customer_phone} /></p>
+                    <p><span className="text-gray-700">Address:</span> {selectedSource.customer_address || '—'}</p>
                   </div>
                 </div>
               )}

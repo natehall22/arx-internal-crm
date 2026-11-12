@@ -220,7 +220,7 @@ function Types() {
       <ul className="divide-y divide-gray-100">
         {types.map((t) => (
           <li key={t.id} className="flex items-center justify-between gap-2 py-2 text-sm text-[#2c2c2a]">
-            <span className={t.is_active ? 'font-medium' : 'text-gray-500 line-through'}>{t.name}</span>
+            <span className={t.is_active ? 'font-medium' : 'text-gray-700 line-through'}>{t.name}</span>
             <span className="flex items-center gap-2">
               <label className="text-xs text-gray-700">Opens after</label>
               <input

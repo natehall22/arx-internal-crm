@@ -303,7 +303,7 @@ export default function TrialSignupPage() {
                 )}
               </button>
 
-              <p className="text-xs text-gray-500 text-center mt-4">
+              <p className="text-xs text-gray-700 text-center mt-4">
                 By submitting this form, you agree to our{' '}
                 <Link href="/terms" className="text-indigo-600 hover:underline">Terms of Service</Link>
                 {' '}and{' '}

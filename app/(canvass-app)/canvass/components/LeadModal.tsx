@@ -321,7 +321,7 @@ export default function LeadModal({
           </h2>
           <button
             onClick={onClose}
-            className="p-2 -mr-2 text-gray-400 hover:text-gray-600"
+            className="p-2 -mr-2 text-gray-600 hover:text-gray-900"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -533,7 +533,7 @@ export default function LeadModal({
                     {loadingSlots ? (
                       <div className="flex h-full items-center justify-center py-4">
                         <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                        <span className="ml-2 text-sm text-gray-500">Loading available times...</span>
+                        <span className="ml-2 text-sm text-gray-700">Loading available times...</span>
                       </div>
                     ) : slotsError ? (
                       <div className="py-4 px-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -567,12 +567,12 @@ export default function LeadModal({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-500 text-center py-4">
+                      <p className="text-sm text-gray-700 text-center py-4">
                         No available time slots. Tap Refresh above to try again.
                       </p>
                     )}
                     </div>
-                    <p className="mt-2 text-xs text-gray-500">
+                    <p className="mt-2 text-xs text-gray-700">
                       Buffer times are editable in <strong>Settings → Calendar</strong> (personal) or
                       <strong> Admin → Teams → Closer Queue</strong> (team round-robin).
                     </p>
@@ -674,7 +674,7 @@ export default function LeadModal({
                 <button
                   type="button"
                   onClick={handlePhotoClick}
-                  className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400 hover:border-gray-400 hover:text-gray-500 relative"
+                  className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-600 hover:border-gray-400 hover:text-gray-700 relative"
                 >
                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />

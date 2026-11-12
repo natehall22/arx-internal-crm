@@ -131,7 +131,7 @@ export default function OperationsSnapshotCard({
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-sm font-semibold text-[#2c2c2a]">Project review (latest)</h3>
                 {stored.submittedAt && (
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-700">
                     Submitted{' '}
                     {new Date(stored.submittedAt).toLocaleString(undefined, {
                       dateStyle: 'medium',
@@ -152,7 +152,7 @@ export default function OperationsSnapshotCard({
                     key === 'openItems'
                   return (
                     <div key={key} className={fullWidth ? 'md:col-span-2' : ''}>
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">
                         {PROJECT_REVIEW_FIELD_LABELS[key]}
                       </span>
                       <p className="mt-1 text-sm text-[#2c2c2a] whitespace-pre-wrap break-words">{text}</p>
@@ -165,26 +165,26 @@ export default function OperationsSnapshotCard({
 
           {!structured && project.scope_of_work?.trim() && (
             <div className="md:col-span-2">
-              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Scope of Work</span>
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">Scope of Work</span>
               <p className="mt-1 text-sm text-[#2c2c2a] whitespace-pre-wrap break-words">{project.scope_of_work}</p>
             </div>
           )}
           {!structured && project.product_summary?.trim() && (
             <div>
-              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Product</span>
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">Product</span>
               <p className="mt-1 text-sm text-[#2c2c2a] break-words">{project.product_summary}</p>
             </div>
           )}
 
           {project.permits_status?.trim() && (
             <div>
-              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Permits (project)</span>
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">Permits (project)</span>
               <p className="mt-1 text-sm text-[#2c2c2a]">{project.permits_status}</p>
             </div>
           )}
           {project.install_date && (
             <div>
-              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Install Date (project)</span>
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">Install Date (project)</span>
               <p className="mt-1 text-sm text-[#2c2c2a]">
                 {new Date(project.install_date).toLocaleDateString()}
               </p>
@@ -193,7 +193,7 @@ export default function OperationsSnapshotCard({
 
           {opsNotesForDisplay && (
             <div className="md:col-span-2">
-              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">
                 {structured ? 'Earlier ops notes' : 'Ops notes (full history)'}
               </span>
               <p className="mt-1 text-sm text-[#2c2c2a] whitespace-pre-wrap break-words">{opsNotesForDisplay}</p>

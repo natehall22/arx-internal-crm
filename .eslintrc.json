@@ -23,10 +23,34 @@
       {
         "selector": "TemplateElement[value.raw=/(^|[\\s:])text-(xs|\\[(8|9|10|11|12|13)px\\])(\\s|$)/]",
         "message": "Text is never smaller than 14px: use text-sm (or text-ui-sm) or larger."
+      },
+      {
+        "selector": "Literal[value=/^(?![\\s\\S]*(cursor-not-allowed|pointer-events-none|bg-black|bg-(gray|slate|zinc|neutral|stone)-[5-9]00|bg-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-[5-9]00|(^|\\s)(w|h|size)-[0-9]+ (w|h|size)-[0-9]+))[\\s\\S]*?(^|\\s)(?![^\\s]*(disabled|dark:|\\[))(?:[a-z0-9-]+:)*!?(text|placeholder)-(gray|slate|zinc|neutral|stone)-(300|400)(\\/[0-9]+)?(\\s|$)/]",
+        "message": "Light-gray text is unreadable in sun: use text-gray-600 (secondary) or text-gray-700, text-gray-500 only for placeholders. On a dark surface this is fine: node scripts/contrast-sweep.mjs lists dark files; for text on a photo/map add a contrast-ok comment."
+      },
+      {
+        "selector": "TemplateElement[value.raw=/^(?![\\s\\S]*(cursor-not-allowed|pointer-events-none|bg-black|bg-(gray|slate|zinc|neutral|stone)-[5-9]00|bg-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-[5-9]00|(^|\\s)(w|h|size)-[0-9]+ (w|h|size)-[0-9]+))[\\s\\S]*?(^|\\s)(?![^\\s]*(disabled|dark:|\\[))(?:[a-z0-9-]+:)*!?(text|placeholder)-(gray|slate|zinc|neutral|stone)-(300|400)(\\/[0-9]+)?(\\s|$)/]",
+        "message": "Light-gray text is unreadable in sun: use text-gray-600 (secondary) or text-gray-700, text-gray-500 only for placeholders. On a dark surface this is fine: node scripts/contrast-sweep.mjs lists dark files; for text on a photo/map add a contrast-ok comment."
       }
     ]
   },
   "overrides": [
+    {
+      "files": ["scripts/contrast-sweep.mjs", "app/admin/sisu/accountability/AccountabilityClient.tsx", "app/admin/sisu/bonus-approval/BonusApprovalClient.tsx", "app/admin/sisu/incentives/AdminIncentivesClient.tsx", "app/admin/sisu/setter-ramp/SetterRampClient.tsx", "app/sisu/IncentivesClient.tsx", "app/tools/roof-measure/page.tsx", "components/RoofFineTuneEditor.tsx", "components/inspection/close-visit-shared.tsx", "components/Nav.tsx"],
+      "rules": {
+        "no-restricted-syntax": [
+          "warn",
+          {
+            "selector": "Literal[value=/(^|[\\s:])text-(xs|\\[(8|9|10|11|12|13)px\\])(\\s|$)/]",
+            "message": "Text is never smaller than 14px: use text-sm (or text-ui-sm) or larger."
+          },
+          {
+            "selector": "TemplateElement[value.raw=/(^|[\\s:])text-(xs|\\[(8|9|10|11|12|13)px\\])(\\s|$)/]",
+            "message": "Text is never smaller than 14px: use text-sm (or text-ui-sm) or larger."
+          }
+        ]
+      }
+    },
     {
       "files": ["app/(canvass-app)/**/*", "lib/__tests__/**/*", "e2e/**/*"],
       "rules": { "no-restricted-globals": "off", "no-restricted-properties": "off", "no-restricted-syntax": "off" }

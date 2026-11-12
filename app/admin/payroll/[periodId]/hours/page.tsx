@@ -162,7 +162,7 @@ export default function PayrollPeriodHoursPage() {
 
           <div className="mt-6">
             {loading ? (
-              <p className="text-sm text-gray-500 text-center py-8">Loading…</p>
+              <p className="text-sm text-gray-700 text-center py-8">Loading…</p>
             ) : (
               <PayrollPeriodHoursEditor
                 rows={rows}
