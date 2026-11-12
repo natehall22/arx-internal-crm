@@ -21,7 +21,7 @@ const office = { id: 'u-office', isOwner: false }
 function world(extra: Record<string, Row[]> = {}) {
   return createFakeDb(
     {
-      orgs: [{ id: ORG, name: 'Acme', timezone: 'America/Chicago', settings: {} }],
+      orgs: [{ id: ORG, name: 'Acme', timezone: 'America/Chicago', settings: { features: { quickbooks: true } } }],
       production_jobs: [{ id: 'job1', org_id: ORG, job_number: '26-1', customer_id: 'c1', address_text: '1 Oak', sale_amount: 100, status: 'sold', billing_mode: 'fixed' }],
       job_invoices: [{ id: 'inv1', org_id: ORG, job_id: 'job1', status: 'paid', total_cents: 10000, tax_cents: 0 }],
       job_payments: [
