@@ -59,9 +59,13 @@ export function customerNameCandidates(c: Pick<CrmCustomer, 'name' | 'addressTex
   return Array.from(new Set([base, street ? clip(`${base} - ${street}`, 100) : `${base} (${c.id.slice(0, 4)})`, clip(`${base} (Customer)`, 100)]))
 }
 
-export function buildCustomerBody(c: CrmCustomer, displayName: string): Record<string, unknown> {
+/** The reference a retry uses to recognise the customer an unanswered attempt created (QuickBooks Notes; the CRM's id, never a name). */
+export const customerNoteMarker = (orgId: string, customerId: string) => `CRM:${orgId}:${customerId}`
+
+export function buildCustomerBody(c: CrmCustomer, displayName: string, noteMarker: string): Record<string, unknown> {
   return {
     DisplayName: displayName,
+    Notes: noteMarker,
     ...(c.email ? { PrimaryEmailAddr: { Address: clip(c.email, 100) } } : {}),
     ...(c.phone ? { PrimaryPhone: { FreeFormNumber: clip(c.phone, 21) } } : {}),
     ...(c.addressText ? { BillAddr: { Line1: clip(c.addressText, 500) } } : {}),

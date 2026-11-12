@@ -59,6 +59,14 @@ describe('QuickBooks outbox: who can enqueue', () => {
     ])
   })
 
+  it('the raw enqueue is called only by the helper family and the sweep (it checks the company switch and a skipped line)', () => {
+    expect(callersOf('enqueueIntegrationEvent')).toEqual(['lib/quickbooks/sweep.ts'])
+    const lib = read('lib/integrations.ts')
+    const fn = lib.slice(lib.indexOf('export async function enqueueIntegrationEvent'), lib.indexOf('export async function enqueueCustomerUpserted'))
+    expect(fn).toMatch(/loadOrgFeatures/)
+    expect(fn).toMatch(/skipped_by/)
+  })
+
   it('the unused worker stubs stay gone and the helpers never throw into a money write', () => {
     const lib = read('lib/integrations.ts')
     expect(lib).not.toMatch(/getPendingOutboxEvents|markEventCompleted|markEventFailed/)

@@ -15,6 +15,30 @@ import { centsOf } from './builders'
 import type { QbSettings } from './mapping'
 
 const LIMIT = 100
+const PAGE = 300
+const MAX_PAGES = 20
+
+/** Walk a table in id order (keyset, never "the oldest 300") until `LIMIT` unheard records are found or the table runs out. */
+async function unheardRows<T extends { id: string }>(
+  admin: SupabaseClient,
+  orgId: string,
+  table: string,
+  qbType: string[],
+  read: (after: string | null) => PromiseLike<{ data: unknown }>
+): Promise<T[]> {
+  const found: T[] = []
+  let after: string | null = null
+  for (let page = 0; page < MAX_PAGES && found.length < LIMIT; page++) {
+    const { data } = await read(after)
+    const rows = (data ?? []) as T[]
+    if (rows.length === 0) break
+    const missing = await unheard(admin, orgId, table, rows.map((r) => r.id), qbType)
+    found.push(...rows.filter((r) => missing.has(r.id)))
+    after = rows[rows.length - 1].id
+    if (rows.length < PAGE) break
+  }
+  return found.slice(0, LIMIT)
+}
 
 async function unheard(admin: SupabaseClient, orgId: string, table: string, ids: string[], qbType: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set()
@@ -35,42 +59,44 @@ export async function sweepUnheard(admin: SupabaseClient, orgId: string, setting
   if (!start) return out
   const db = orgDb(admin, orgId)
 
+  const gt = <Q extends { gt: (c: string, v: string) => Q }>(q: Q, after: string | null): Q => (after ? q.gt('id', after) : q)
+
   // Job sale invoices (one per job)
   if (settings.invoiceMode === 'per_job') {
-    const { data } = await db.from('production_jobs').select('id, sale_amount').gt('sale_amount', 0).gte('sale_date', start).neq('status', 'cancelled').order('sale_date', { ascending: true }).limit(LIMIT * 3)
-    const jobs = (data ?? []) as Array<{ id: string; sale_amount: number }>
-    const missing = await unheard(admin, orgId, 'production_jobs', jobs.map((j) => j.id), ['Invoice'])
-    for (const j of jobs.filter((x) => missing.has(x.id)).slice(0, LIMIT)) {
+    const jobs = await unheardRows<{ id: string; sale_amount: number }>(admin, orgId, 'production_jobs', ['Invoice'], (after) =>
+      gt(db.from('production_jobs').select('id, sale_amount').gt('sale_amount', 0).gte('sale_date', start).neq('status', 'cancelled'), after).order('id', { ascending: true }).limit(PAGE)
+    )
+    for (const j of jobs) {
       if (!opts.dryRun) await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'invoice.upserted', entityTable: 'production_jobs', entityId: j.id, payload: {}, version: centsOf(j.sale_amount) })
       out.invoices++
     }
   }
   // CRM invoices (every-invoice mode, time & materials jobs, no-job service invoices): issued, not draft, not void.
   {
-    const { data } = await db.from('job_invoices').select('id, status, issued_at').in('status', ['sent', 'partially_paid', 'paid']).gte('issued_at', start).order('issued_at', { ascending: true }).limit(LIMIT * 3)
-    const rows = (data ?? []) as Array<{ id: string }>
-    const missing = await unheard(admin, orgId, 'job_invoices', rows.map((r) => r.id), ['Invoice'])
-    for (const r of rows.filter((x) => missing.has(x.id)).slice(0, LIMIT)) {
+    const rows = await unheardRows<{ id: string }>(admin, orgId, 'job_invoices', ['Invoice'], (after) =>
+      gt(db.from('job_invoices').select('id').in('status', ['sent', 'partially_paid', 'paid']).gte('issued_at', start), after).order('id', { ascending: true }).limit(PAGE)
+    )
+    for (const r of rows) {
       if (!opts.dryRun) await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'invoice.upserted', entityTable: 'job_invoices', entityId: r.id, payload: {}, version: 1 })
       out.invoices++
     }
   }
   // Payments with no job (customer invoices). Job payments queue themselves in the same SQL transaction as the payment.
   {
-    const { data } = await db.from('job_payments').select('id, amount_cents').is('job_id', null).gte('paid_at', start).order('paid_at', { ascending: true }).limit(LIMIT * 3)
-    const rows = (data ?? []) as Array<{ id: string; amount_cents: number }>
-    const missing = await unheard(admin, orgId, 'job_payments', rows.map((r) => r.id), ['Payment', 'RefundReceipt'])
-    for (const r of rows.filter((x) => missing.has(x.id)).slice(0, LIMIT)) {
+    const rows = await unheardRows<{ id: string; amount_cents: number }>(admin, orgId, 'job_payments', ['Payment', 'RefundReceipt'], (after) =>
+      gt(db.from('job_payments').select('id, amount_cents').is('job_id', null).gte('paid_at', start), after).order('id', { ascending: true }).limit(PAGE)
+    )
+    for (const r of rows) {
       if (!opts.dryRun) await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: Number(r.amount_cents) < 0 ? 'payment.refunded' : 'payment.recorded', entityTable: 'job_payments', entityId: r.id, payload: {}, version: 1 })
       out.payments++
     }
   }
   // Approved vendor bills
   if (settings.bills.enabled) {
-    const { data } = await db.from('purchase_order_bills').select('id').eq('status', 'active').gte('bill_date', start).order('bill_date', { ascending: true }).limit(LIMIT * 3)
-    const rows = (data ?? []) as Array<{ id: string }>
-    const missing = await unheard(admin, orgId, 'purchase_order_bills', rows.map((r) => r.id), ['Bill', 'VendorCredit'])
-    for (const r of rows.filter((x) => missing.has(x.id)).slice(0, LIMIT)) {
+    const rows = await unheardRows<{ id: string }>(admin, orgId, 'purchase_order_bills', ['Bill', 'VendorCredit'], (after) =>
+      gt(db.from('purchase_order_bills').select('id').eq('status', 'active').gte('bill_date', start), after).order('id', { ascending: true }).limit(PAGE)
+    )
+    for (const r of rows) {
       if (!opts.dryRun) await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'bill.recorded', entityTable: 'purchase_order_bills', entityId: r.id, payload: {}, version: 1 })
       out.bills++
     }

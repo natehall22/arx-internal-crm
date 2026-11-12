@@ -13,7 +13,7 @@
 --
 -- Down (manual): alter table qb_links drop column fingerprint, drop column sent_total_cents;
 --   alter table integration_outbox drop column next_attempt_at, drop column locked_until, drop column error_code,
---     drop column error_kind, drop column qb_type, drop column qb_id, drop column sent_at;
+--     drop column error_kind, drop column qb_type, drop column qb_id, drop column sent_at, drop column skipped_by, drop column skipped_at, drop column skip_reason;
 begin;
 set local lock_timeout = '5s';
 
@@ -24,16 +24,23 @@ alter table public.integration_outbox
   add column if not exists error_kind text null,
   add column if not exists qb_type text null,
   add column if not exists qb_id text null,
-  add column if not exists sent_at timestamptz null;
+  add column if not exists sent_at timestamptz null,
+  -- who closed a stuck line with Skip, when, and why (a skipped line is never silently re-opened by a repeat event)
+  add column if not exists skipped_by uuid null,
+  add column if not exists skipped_at timestamptz null,
+  add column if not exists skip_reason text null;
 
 do $$ begin
   alter table public.integration_outbox add constraint integration_outbox_error_kind_check check (error_kind is null or error_kind in ('retrying', 'needs_you'));
 exception when duplicate_object then null; end $$;
 
--- What the worker polls: one company's due rows, oldest first.
-create index if not exists integration_outbox_due_idx
-  on public.integration_outbox (org_id, provider, status, next_attempt_at, created_at)
-  where status in ('pending', 'failed', 'processing');
+-- What the worker polls: one company's due rows, oldest first (the claim filters due rows in SQL).
+create index if not exists integration_outbox_qb_pending_idx
+  on public.integration_outbox (org_id, next_attempt_at, created_at)
+  where provider = 'quickbooks' and status = 'pending';
+create index if not exists integration_outbox_qb_processing_idx
+  on public.integration_outbox (org_id, locked_until, created_at)
+  where provider = 'quickbooks' and status = 'processing';
 -- What the owner's Needs-you card reads.
 create index if not exists integration_outbox_needs_you_idx
   on public.integration_outbox (org_id, provider, created_at)

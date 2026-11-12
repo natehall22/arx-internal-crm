@@ -33,6 +33,7 @@ import {
   samePerson,
   subCustomerName,
   vendorNameCandidates,
+  customerNoteMarker,
   type PaymentApplication,
   type QbRefKind,
 } from './builders'
@@ -121,15 +122,17 @@ export async function ensureCustomer(ctx: HandlerCtx, customerId: string): Promi
   for (const name of customerNameCandidates(c)) {
     const found = (await findByName(ctx, 'Customer', name)).find((r) => !r.Job)
     if (found) {
-      // Same name is only "the same person" when email / phone / street agree; otherwise this name belongs to someone else.
+      // Our own reference in Notes = the customer an earlier, unanswered attempt created: adopt it first. Otherwise the same name is only
+      // "the same person" when the CRM's identity rule (email / phone / name + address) agrees; else this name belongs to someone else.
       const holder = found.Id ? await ctx.links.holder('Customer', String(found.Id)) : null
-      if (samePerson(c, found) && !holder) {
+      const ours = typeof found.Notes === 'string' && found.Notes.includes(customerNoteMarker(ctx.orgId, customerId))
+      if ((ours || samePerson(c, found)) && !holder) {
         await adopt(ctx, 'customers', customerId, 'Customer', found)
         return String(found.Id)
       }
       continue
     }
-    const made = await ctx.client.create<QbObject>('Customer', buildCustomerBody(c, name), requestIdFor(ctx.orgId, `cust:${customerId}`, { name, e: c.email, p: c.phone, a: c.addressText }))
+    const made = await ctx.client.create<QbObject>('Customer', buildCustomerBody(c, name, customerNoteMarker(ctx.orgId, customerId)), requestIdFor(ctx.orgId, `cust:${customerId}`, { name, e: c.email, p: c.phone, a: c.addressText }))
     if (!made.ok && made.kind === 'duplicate_name') continue
     const obj = must(made)
     await adopt(ctx, 'customers', customerId, 'Customer', obj)
@@ -175,23 +178,34 @@ async function customerRefFor(ctx: HandlerCtx, t: { jobId: string | null; custom
 
 async function ensureVendor(ctx: HandlerCtx, vendorId: string): Promise<string> {
   const link = await ctx.links.get('vendors', vendorId, 'Vendor')
-  if (link) return link.qb_id
+  const is1099 = ctx.settings.vendors1099.includes(vendorId)
+  if (link) {
+    // The 1099 flag is the one vendor fact that can change after the first send (the owner ticks it later): keep QuickBooks in step.
+    if ((link.fingerprint === '1099:true') !== is1099) {
+      const cur = must(await ctx.client.read<QbObject>('Vendor', link.qb_id))
+      const r = await ctx.client.update<QbObject>('Vendor', { Id: String(cur.Id), SyncToken: String(cur.SyncToken ?? '0'), sparse: true, Vendor1099: is1099 }, requestIdFor(ctx.orgId, `vendor-upd:${vendorId}:${cur.SyncToken}`, { is1099 }))
+      if (!r.ok && r.kind === 'stale') return link.qb_id // re-read next time; the vendor itself is fine
+      const obj = must(r)
+      await ctx.links.put({ crmTable: 'vendors', crmId: vendorId, qbType: 'Vendor', qbId: link.qb_id, syncToken: obj.SyncToken ?? null, fingerprint: `1099:${is1099}` })
+    }
+    return link.qb_id
+  }
   const v = await loadVendor(ctx.admin, ctx.orgId, vendorId)
   if (!v) return needsYou('not_found', 'This vendor is no longer in the CRM.')
-  const is1099 = ctx.settings.vendors1099.includes(vendorId)
   for (const name of vendorNameCandidates(v)) {
     const found = (await findByName(ctx, 'Vendor', name))[0]
     if (found) {
       // A vendor with the very same name is the same business far more often than not; a person can still fix a wrong match in QuickBooks.
       const holder = found.Id ? await ctx.links.holder('Vendor', String(found.Id)) : null
       if (holder) continue
-      await adopt(ctx, 'vendors', vendorId, 'Vendor', found)
+      await adopt(ctx, 'vendors', vendorId, 'Vendor', found, { fingerprint: `1099:${is1099 && found.Vendor1099 === true}` })
+      if (is1099 && found.Vendor1099 !== true) return ensureVendor(ctx, vendorId) // flag the adopted vendor too
       return String(found.Id)
     }
     const made = await ctx.client.create<QbObject>('Vendor', buildVendorBody(v, name, is1099), requestIdFor(ctx.orgId, `vendor:${vendorId}`, { name, is1099 }))
     if (!made.ok && made.kind === 'duplicate_name') continue
     const obj = must(made)
-    await adopt(ctx, 'vendors', vendorId, 'Vendor', obj)
+    await adopt(ctx, 'vendors', vendorId, 'Vendor', obj, { fingerprint: `1099:${is1099}` })
     return String(obj.Id)
   }
   return needsYou('6240', `QuickBooks already has a customer or employee named “${v.name}”. Rename one of them in QuickBooks, then press Retry.`)

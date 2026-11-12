@@ -48,17 +48,16 @@ const iso = (ms: number) => new Date(ms).toISOString()
 /** Rows this company's worker may take now, oldest first, each claimed with a lease. */
 export async function claimDue(admin: SupabaseClient, orgId: string, now: number, limit: number): Promise<Array<OutboxRow & { lease: string }>> {
   const db = orgDb(admin, orgId)
-  const { data, error } = await db
-    .from('integration_outbox')
-    .select(OUTBOX_COLS)
-    .eq('provider', 'quickbooks')
-    .in('status', ['pending', 'processing'])
-    .order('created_at', { ascending: true })
-    .limit(Math.max(limit * 4, 50))
-  if (error) throw new Error(`outbox read failed: ${error.message}`)
-  const due = ((data ?? []) as OutboxRow[]).filter((r) =>
-    r.status === 'pending' ? !r.next_attempt_at || Date.parse(r.next_attempt_at) <= now : !!r.locked_until && Date.parse(r.locked_until) <= now
-  )
+  // Due rows are picked in SQL (partial indexes integration_outbox_qb_pending_idx / _processing_idx): a long back-off queue never hides what is due.
+  const at = iso(now)
+  const wide = Math.max(limit * 2, 25)
+  const [pending, expired] = await Promise.all([
+    db.from('integration_outbox').select(OUTBOX_COLS).eq('provider', 'quickbooks').eq('status', 'pending').or(`next_attempt_at.is.null,next_attempt_at.lte.${at}`).order('created_at', { ascending: true }).limit(wide),
+    db.from('integration_outbox').select(OUTBOX_COLS).eq('provider', 'quickbooks').eq('status', 'processing').lte('locked_until', at).order('created_at', { ascending: true }).limit(wide),
+  ])
+  if (pending.error) throw new Error(`outbox read failed: ${pending.error.message}`)
+  if (expired.error) throw new Error(`outbox read failed: ${expired.error.message}`)
+  const due = [...((pending.data ?? []) as OutboxRow[]), ...((expired.data ?? []) as OutboxRow[])].sort((x, y) => String(x.created_at ?? '').localeCompare(String(y.created_at ?? '')))
   const out: Array<OutboxRow & { lease: string }> = []
   for (const row of due) {
     if (out.length >= limit) break
@@ -139,14 +138,29 @@ export async function retryRow(admin: SupabaseClient, orgId: string, id: string,
 }
 
 /** Owner pressed Skip ("handled in QuickBooks" / "never send this"): the row is closed and never sent. */
-export async function skipRow(admin: SupabaseClient, orgId: string, id: string, now = Date.now()): Promise<boolean> {
-  const { data, error } = await orgDb(admin, orgId)
+export async function skipRow(admin: SupabaseClient, orgId: string, id: string, who: { by: string; reason?: string | null }, now = Date.now()): Promise<boolean> {
+  const db = orgDb(admin, orgId)
+  const why = (who.reason ?? '').trim().slice(0, 300) || null
+  const mark = { skipped_by: who.by, skipped_at: iso(now), skip_reason: why, updated_at: iso(now) }
+  // A line that never went: closed as skipped (who, when, why kept).
+  const closed = await db
     .from('integration_outbox')
-    .update({ status: 'skipped', error_kind: null, last_error: 'Skipped by an owner', error_code: 'skipped_by_owner', processed_at: iso(now), locked_until: null, updated_at: iso(now) })
+    .update({ ...mark, status: 'skipped', error_kind: null, last_error: 'Skipped by an owner', error_code: 'skipped_by_owner', processed_at: iso(now), locked_until: null })
     .eq('id', id)
     .eq('provider', 'quickbooks')
-    .or('status.eq.failed,error_kind.eq.needs_you')
+    .eq('status', 'failed')
     .select('id')
-  if (error) throw new Error(`outbox skip failed: ${error.message}`)
-  return !!data && data.length === 1
+  if (closed.error) throw new Error(`outbox skip failed: ${closed.error.message}`)
+  if ((closed.data ?? []).length === 1) return true
+  // A line that WAS sent but carries a warning: acknowledged, never relabelled as skipped (it is in QuickBooks).
+  const acked = await db
+    .from('integration_outbox')
+    .update({ ...mark, error_kind: null })
+    .eq('id', id)
+    .eq('provider', 'quickbooks')
+    .eq('status', 'completed')
+    .eq('error_kind', 'needs_you')
+    .select('id')
+  if (acked.error) throw new Error(`outbox skip failed: ${acked.error.message}`)
+  return (acked.data ?? []).length === 1
 }

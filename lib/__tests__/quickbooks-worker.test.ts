@@ -32,7 +32,7 @@ const qbSettings = (over: Record<string, unknown> = {}) => ({
   confirmedBy: 'u-owner',
   ...over,
 })
-const orgRow = (id: string, qb: Record<string, unknown> = {}) => ({ id, timezone: TZ, settings: { salesTax: taxSettings, quickbooks: qbSettings(qb) } })
+const orgRow = (id: string, qb: Record<string, unknown> = {}) => ({ id, timezone: TZ, settings: { features: { quickbooks: true }, salesTax: taxSettings, quickbooks: qbSettings(qb) } })
 
 function seed(org: string, p: { n?: number; saleDate?: string; sale?: number } = {}) {
   const n = p.n ?? 1
@@ -309,7 +309,7 @@ describe('rate limits, throttling, lost logins', () => {
     const r = await w.run(A)
     expect(r).toMatchObject({ stopped: 'throttled', claimed: 1, retried: 1 })
     const [first, second] = w.outbox()
-    expect(first).toMatchObject({ status: 'pending', error_kind: 'retrying', error_code: 'throttled' })
+    expect(first).toMatchObject({ status: 'pending', attempt_count: 0 }) // a throttle never counts toward the tries
     expect(Date.parse(first.next_attempt_at)).toBeGreaterThan(NOW)
     expect(second).toMatchObject({ status: 'pending', attempt_count: 0 })
     w.companies[A].alwaysFail = null
@@ -331,7 +331,7 @@ describe('rate limits, throttling, lost logins', () => {
     w.companies[A].alwaysFail = null
     expect(await retryRow(w.fake.client as never, A, row.id, w.now())).toBe(true)
     expect((await w.run(A)).done).toBe(1)
-    expect(await skipRow(w.fake.client as never, A, row.id)).toBe(false) // finished rows cannot be skipped
+    expect(await skipRow(w.fake.client as never, A, row.id, { by: 'u-owner' })).toBe(false) // finished rows cannot be skipped
   })
 
   it('a duplicate-name clash that is not the same person is a Needs-you line, never a guess', async () => {
@@ -636,5 +636,83 @@ describe('refunds, voids, bills, service invoices', () => {
     const w = makeWorld([{ id: A, qb: { bills: { enabled: false, expenseAccountId: null, classId: null } } }], { purchase_order_bills: [{ id: 'b-1', org_id: A, vendor_id: 'v-1', bill_date: '2026-11-09', amount: 10, status: 'active' }] })
     await w.enqueue(A, 'bill.recorded', 'purchase_order_bills', 'b-1')
     expect((await w.run(A)).skipped).toBe(1)
+  })
+})
+
+describe('review fixes: enqueue rules, Skip, claim, 1099, customer marker, sweep paging', () => {
+  it('a company with the QuickBooks switch off gets no outbox rows; switched on it does', async () => {
+    const w = makeWorld([{ id: A }, { id: B }])
+    ;(w.fake.tables.orgs as any[]).find((o) => o.id === B).settings.features = { quickbooks: false }
+    await w.enqueue(A, 'customer.upserted', 'customers', 'x')
+    await w.enqueue(B, 'customer.upserted', 'customers', 'y')
+    expect(w.outbox().map((o) => o.org_id)).toEqual([A])
+  })
+
+  it('Skip records who/when/why; a repeat of the same event never reopens a skipped line; a sent-with-warning line is acknowledged, not relabelled', async () => {
+    const w = makeWorld([{ id: A }])
+    const { cid } = w.seeds[0].ids
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', 'nope', 5)
+    await w.run(A)
+    const row = w.outbox()[0]
+    expect(row).toMatchObject({ status: 'failed', error_kind: 'needs_you' })
+    expect(await skipRow(w.fake.client as never, A, row.id, { by: 'u-owner', reason: 'Handled in QuickBooks' }, w.now())).toBe(true)
+    expect(w.outbox()[0]).toMatchObject({ status: 'skipped', skipped_by: 'u-owner', skip_reason: 'Handled in QuickBooks' })
+    expect(w.outbox()[0].skipped_at).toBeTruthy()
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', 'nope', 5)
+    expect(w.outbox()[0].status).toBe('skipped')
+    // sent but flagged
+    w.outbox().push({ id: 'warn', org_id: A, provider: 'quickbooks', event_type: 'invoice.upserted', entity_table: 'production_jobs', entity_id: cid, idempotency_key: 'k-warn', status: 'completed', error_kind: 'needs_you', error_code: 'total_differs', last_error: 'x', qb_id: '9' })
+    expect(await skipRow(w.fake.client as never, A, 'warn', { by: 'u-owner' })).toBe(true)
+    expect(w.outbox().find((o) => o.id === 'warn')).toMatchObject({ status: 'completed', error_kind: null, skipped_by: 'u-owner' })
+  })
+
+  it('a due row is found even behind many rows that are backing off', async () => {
+    const w = makeWorld([{ id: A }])
+    for (let i = 0; i < 120; i++) w.outbox().push({ id: `late-${i}`, org_id: A, provider: 'quickbooks', event_type: 'customer.upserted', entity_table: 'customers', entity_id: `c${i}`, idempotency_key: `k${i}`, status: 'pending', attempt_count: 1, next_attempt_at: iso(NOW + 3600_000), created_at: '2026-11-01T00:00:00Z' })
+    w.outbox().push({ id: 'due', org_id: A, provider: 'quickbooks', event_type: 'customer.upserted', entity_table: 'customers', entity_id: 'cdue', idempotency_key: 'kdue', status: 'pending', attempt_count: 0, next_attempt_at: null, created_at: '2026-11-11T00:00:00Z' })
+    const rows = await claimDue(w.fake.client as never, A, NOW, 5)
+    expect(rows.map((r) => r.id)).toEqual(['due'])
+  })
+
+  it('the 1099 flag is synced when an owner ticks it AFTER the vendor was sent', async () => {
+    const s = seed(A)
+    const w = makeWorld([{ id: A, s, qb: { vendors1099: [] } }], {
+      vendors: [{ id: 'v-1', org_id: A, name: 'Acme Roofing Supply', email: 'ap@acme.test', phone: '7045550100' }],
+      supplier_orders: [{ id: 'po-1', org_id: A, po_number: 'PO-26-0007' }],
+      purchase_order_bills: [
+        { id: 'b-1', org_id: A, supplier_order_id: 'po-1', vendor_id: 'v-1', job_id: s.ids.jid, bill_number: 'INV-1', bill_date: '2026-11-09', amount: 10, is_credit: false, cost_type: 'material', status: 'active' },
+        { id: 'b-2', org_id: A, supplier_order_id: 'po-1', vendor_id: 'v-1', job_id: s.ids.jid, bill_number: 'INV-2', bill_date: '2026-11-10', amount: 20, is_credit: false, cost_type: 'material', status: 'active' },
+      ],
+    })
+    await w.enqueue(A, 'bill.recorded', 'purchase_order_bills', 'b-1')
+    await w.run(A)
+    expect(w.companies[A].all('Vendor')[0].Vendor1099).not.toBe(true)
+    ;((w.fake.tables.orgs as any[])[0].settings.quickbooks as any).vendors1099 = ['v-1']
+    await w.enqueue(A, 'bill.recorded', 'purchase_order_bills', 'b-2')
+    await w.run(A)
+    expect(w.companies[A].all('Vendor')).toHaveLength(1)
+    expect(w.companies[A].all('Vendor')[0].Vendor1099).toBe(true)
+  })
+
+  it('a customer an earlier attempt created (our id in Notes) is adopted even if the CRM details have since changed', async () => {
+    const w = makeWorld([{ id: A }])
+    const { cid } = w.seeds[0].ids
+    const made = await w.companies[A].client().create('Customer', { DisplayName: 'Pat Homeowner', Notes: `CRM:${A}:${cid}`, PrimaryEmailAddr: { Address: 'old@example.com' } }, 'rid-n')
+    expect(made.ok).toBe(true)
+    await w.enqueue(A, 'customer.upserted', 'customers', cid)
+    await w.run(A)
+    expect(w.companies[A].all('Customer')).toHaveLength(1)
+    expect(w.links().find((l) => l.crm_id === cid)?.qb_id).toBe(String((made as any).value.Id))
+  })
+
+  it('the sweep finds an unheard record even when 300+ older records were already heard (keyset, not the oldest page)', async () => {
+    const jobs: Array<Record<string, unknown>> = []
+    const s = seed(A)
+    for (let i = 0; i < 320; i++) jobs.push({ id: `j-${String(i).padStart(4, '0')}`, org_id: A, customer_id: s.ids.cid, job_number: `26-9${i}`, status: 'sold', sale_amount: 1000, sale_date: '2026-11-05' })
+    const w = makeWorld([{ id: A, s }], { })
+    ;(w.fake.tables.production_jobs as any[]).splice(0, 1, ...jobs)
+    for (let i = 0; i < 319; i++) (w.fake.tables.qb_links as any[]).push({ id: `l${i}`, org_id: A, crm_table: 'production_jobs', crm_id: jobs[i].id, qb_type: 'Invoice', qb_id: `q${i}` })
+    const r = await sweepUnheard(w.fake.client as never, A, readQbSettings(w.org(A).settings), { dryRun: true })
+    expect(r.invoices).toBe(1)
   })
 })

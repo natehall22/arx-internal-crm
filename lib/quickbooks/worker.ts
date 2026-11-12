@@ -113,6 +113,11 @@ async function apply(admin: SupabaseClient, orgId: string, fin: { row: { id: str
       return markNeedsYou(admin, orgId, fin, { code: o.code, message: o.message })
     case 'retry':
       report.retried++
+      // A throttle says nothing about this record: wait, and do not count it toward the tries before "Needs you".
+      if (o.code === 'throttled') {
+        await release(admin, orgId, fin, o.delayMs ?? 60_000)
+        return true
+      }
       return markRetry(admin, orgId, fin, row, { code: o.code, message: o.message, delayMs: o.delayMs })
     case 'stop':
       // The login needs a person; the event itself is fine. Give it back untouched and try again after reconnecting.
