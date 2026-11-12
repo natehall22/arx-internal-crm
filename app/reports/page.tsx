@@ -25,13 +25,16 @@ const KPIS: { label: string; money?: boolean; spec: Omit<ReportSpec, 'date'> }[]
   { label: 'Doors knocked', spec: { dataset: 'canvass_doors', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
   { label: 'New leads', spec: { dataset: 'leads', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
 ]
-const TILES = ['sales-by-closer', 'sold-rate-by-closer', 'doors-by-rep', 'appointments-by-type', 'leads-by-source', 'sales-by-month']
+const TILES = ['revenue-by-month', 'sales-by-closer', 'sold-rate-by-closer', 'doors-by-rep', 'appointments-by-type', 'leads-by-source', 'sales-by-month']
 
 async function run(spec: ReportSpec): Promise<ReportResult | null> {
   const r = await fetch('/api/reports/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spec }) })
   if (!r.ok) return null
   return (await r.json()).result
 }
+
+const usd = (v: unknown) => Number(v).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const plain = (label: string) => label.replace(/^Total /, '')
 
 function Tile({ template, preset }: { template: ReportTemplate; preset: DatePreset }) {
   const [result, setResult] = useState<ReportResult | null | undefined>(undefined)
@@ -40,26 +43,45 @@ function Tile({ template, preset }: { template: ReportTemplate; preset: DatePres
     void run({ ...template.spec, date: { preset } }).then(setResult)
   }, [template, preset])
   const rows = (result?.rows ?? []).slice(0, 6)
-  const max = Math.max(1, ...rows.map((r) => Number(r.value) || 0))
+  // Extra totals beside the main one (billed AND collected, jobs / service): the first is a second bar on the same scale,
+  // the rest are a line of numbers under it. Captions come from the result's own column labels.
+  const extras = (result?.columns ?? []).filter((c) => c.key.startsWith('sum_'))
+  const extra = extras[0] ?? null
+  const rest = extras.slice(1)
+  const max = Math.max(1, ...rows.flatMap((r) => [Number(r.value) || 0, extra ? Number(r[extra.key]) || 0 : 0]))
   const money = result?.columns[1]?.type === 'money'
   return (
     <Link href="/reports/explore" style={{ ...card, display: 'block', textDecoration: 'none' }}>
       <strong>{template.title}</strong>
+      {extra && result && <p style={{ margin: '2px 0 0', fontSize: 14 }}>{plain(result.columns[1].label)} (top bar) and {plain(extra.label)} (bottom bar)</p>}
       {result === undefined && <p>Loading…</p>}
       {result === null && <p>Not available for your role.</p>}
       {result && rows.length === 0 && <p>No data for this period.</p>}
       {rows.map((r) => (
-        <div key={String(r.group)} style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 8, margin: '6px 0' }}>
-          <div>
-            <div style={{ fontSize: 13 }}>{String(r.group)}</div>
-            <div style={{ background: '#e6e4dc', height: 8, borderRadius: 3 }}>
-              <div style={{ background: '#5f5e5a', height: 8, borderRadius: 3, width: `${Math.max(2, ((Number(r.value) || 0) / max) * 100)}%` }} />
+        <div key={String(r.group)} style={{ margin: '8px 0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 14 }}>{String(r.group)}</div>
+              <div style={{ background: '#e6e4dc', height: 8, borderRadius: 3 }}>
+                <div style={{ background: '#5f5e5a', height: 8, borderRadius: 3, width: `${Math.max(2, ((Number(r.value) || 0) / max) * 100)}%` }} />
+              </div>
+              {extra && (
+                <div style={{ background: '#e6e4dc', height: 8, borderRadius: 3, marginTop: 3 }}>
+                  <div style={{ background: '#2b0a3d', height: 8, borderRadius: 3, width: `${Math.max(2, ((Number(r[extra.key]) || 0) / max) * 100)}%` }} />
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 14 }}>
+              {money ? usd(r.value) : Number(r.value).toLocaleString()}
+              {template.spec.metric.kind === 'rate' ? '%' : ''}
+              {extra && <div>{usd(r[extra.key])}</div>}
             </div>
           </div>
-          <div style={{ textAlign: 'right', fontSize: 13 }}>
-            {money ? Number(r.value).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : Number(r.value).toLocaleString()}
-            {template.spec.metric.kind === 'rate' ? '%' : ''}
-          </div>
+          {rest.length > 0 && (
+            <div style={{ fontSize: 14, marginTop: 2 }}>
+              {rest.map((c) => `${plain(c.label)} ${usd(r[c.key])}`).join(' · ')}
+            </div>
+          )}
         </div>
       ))}
     </Link>

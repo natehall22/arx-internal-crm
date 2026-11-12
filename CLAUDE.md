@@ -366,6 +366,14 @@ date in the company zone) / `findOrCreateWeek` (`lib/payroll-periods.ts`) are th
 fixes and the time clock; `findPeriodForCutoff` deleted. `periodIsEditable` lives in `lib/payroll-periods.ts`. (32, recount) "migration not applied" checks: +1
 (`isTimeTrackingNotReadyError`, built on `lib/supabase/errors.ts`).
 
+## Gross revenue report (2026-11-13) — dataset `revenue`, view `rpt_revenue`
+Migration `202611230010_rpt_revenue.sql` (NOT applied; after 202611220010; DB test `supabase/tests/run-revenue-report.sh`, also run by `lib/__tests__/revenue-report.test.ts` when `ALLOW_SCHEMA_RESET=1` + `PGHOST` are set). Templates **Revenue by month** (billed + collected, jobs and service split out) and **Revenue by service**; both `reports:financials` only (dataset `financeOnly`). Lawn / exterior-cleaning starter lists include them; the Reports home shows the month tile.
+- **ONE definition of the numbers = the SQL view.** One row per revenue event; columns `billed` / `collected` (+ jobs / service splits). **No dollar is counted twice:** a JOB is billed once by its contract (`sale_amount` on `sale_date`, cancelled = 0); its own deposit / final invoices bill the same dollars and add nothing, except the sales tax an issued invoice adds on top (own `Sales tax` row) — and a job billed by its invoices — time & materials (`billing_mode`) OR no contract price (`sale_amount` null / 0, not cancelled) — bills its issued invoices (amount before tax + its own `Sales tax` row). The migration also REPLACES `rpt_jobs` (same columns, same order; only `balance_due` changes: a no-price job now owes its issued invoices instead of 0 — ARX has 0 such jobs of 45, verified read-only 2026-11-13). Same rule in both views (parity-tested). `lib/job-collection.ts` (TS) is not changed and still treats a no-price job as owing nothing — align it when decided. Fallback dates (no sale date / no issue date) use the company's day (`arx_private.org_date`). SERVICE = issued invoices with NO job (`job_id IS NULL`, same rule as `rpt_invoices`), line by line + tax; draft and void bill nothing. COLLECTED = the one `job_payments` ledger (pending excluded, refunds = negative rows in the month they happened); `invoice_payments` is never read.
+- Not collected here: `paid_outside_cents` (paid before a Jobber import — no date exists). Billed includes sales tax (like `sale_amount` and payments do); it shows as its own `Sales tax` service line. Revenue by service groups by plan-template name (else plan name, else "Hourly (time & materials)" / "One-off / other"); invoice lines carry NO price-book item id today. Existing views / templates / ARX numbers are untouched.
+- Engine: `ReportSpec.alsoSum` (sum metrics only) totals more columns beside the main one; result columns `sum_<column>`; checked by `checkAccess` / `specTouchesFinancials` like the main column.
+- **Known Redundancy (42): two "collected by month" answers.** `payments-by-month` (`rpt_payments`) counts pending payments; `Revenue by month` / `rpt_revenue.collected` excludes them (the `rpt_jobs.collected` / paid-in-full rule). Same month can differ by the pending amount. Move `payments-by-month` onto `rpt_revenue` (or retire it) when ARX agrees.
+- **Known Redundancy (41):** the job-billed rule is written in `rpt_jobs.balance_due` AND `rpt_revenue` (SQL can't share a lateral between views); `revenue-report.test.ts` fails if they drift. Give `rpt_jobs` a `billed` column when it is next replaced, and read it from `rpt_revenue`.
+
 ## Customer portal (2026-11-12)
 Switch `customerPortal` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape + home_builder profiles ON; ARX unchanged). Migration
 `202611120060_customer_portal.sql` (NOT applied; after 202611100040 + 202611120020). Lives only on a company's own address
@@ -635,8 +643,7 @@ ONE invoice system: `job_invoices` (+ items, `invoice_payments`, `job_payments`)
   `job_invoices_void_guard`; the payment writer locks the invoice row). Since 202611120020 the guard counts the NET paid
   (refunds are negative applications), so a fully refunded invoice can be voided. Refunds come only from Stripe today.
 - **Reports:** `rpt_payments` (redefined in 0060, LEFT JOIN) includes payments without a job under their own company (no
-  job number); job payment rows unchanged. Follow-up: an `rpt_invoices` view (billed service revenue by month/customer)
-  — no invoice dataset exists in the catalog today (`lib/reporting/catalog.ts`).
+  job number); job payment rows unchanged. `rpt_invoices` (migration 202611140010) is the service-invoice dataset; revenue by month is `rpt_revenue` (see "Gross revenue report").
 - **Not built:** auto-invoice when a crew marks a visit done (the office bills from Ready to bill, one tap per visit or a
   batch); yearly-plan billing; the `unpaid-invoices` Today card; QuickBooks for these invoices (the outbox design is per
   job). Hours billing: see "Hourly billing (time & materials)".

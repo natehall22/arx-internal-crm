@@ -21,6 +21,7 @@ import {
   taxRatesByIds,
   type SalesTaxSettings,
 } from '@/lib/sales-tax'
+import { lineNameWithOption, perUnitLabel, readPriceOptions, resolveLinePrice, unitLabel as getUnitLabel, unitNeedsQuantity, type PriceOption } from '@/lib/price-list'
 
 interface PricebookItem {
   id: string
@@ -35,6 +36,11 @@ interface PricebookItem {
   price_type?: 'fixed' | 'percentage' | null
   image_url?: string | null
   is_taxable?: boolean | null
+  pricebook_id?: string | null
+  /** Size options (lib/price-list.ts): the rep taps one and its price is used. */
+  price_options?: PriceOption[] | null
+  /** Conditions in plain words ("only when more than one load"), copied onto the quote line. */
+  description?: string | null
 }
 
 interface RoofingType {
@@ -83,6 +89,10 @@ interface LineItem {
   /** Quote approval: the customer may tick this line on their quote link. Counts in the stored total only when optional_default_on. */
   is_optional?: boolean
   optional_default_on?: boolean
+  /** The size option tapped when this line was added (sent to the server, which stamps the stored name and price). */
+  price_option_key?: string | null
+  price_option_name?: string | null
+  price_option_price?: number | null
 }
 
 interface ProposalForm {
@@ -182,6 +192,10 @@ export default function ProposalBuilderPage() {
   const [taxRateIds, setTaxRateIds] = useState<string[] | null>(null)
   const [customerTaxExempt, setCustomerTaxExempt] = useState(false)
   const [pricebookItems, setPricebookItems] = useState<PricebookItem[]>([])
+  /** The company's price lists and the one this quote uses (a dropdown only when there is more than one). */
+  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; is_default: boolean }>>([])
+  const [priceListId, setPriceListId] = useState<string | null>(null)
+  const [quantityModalOption, setQuantityModalOption] = useState<string | null>(null)
   const [adders, setAdders] = useState<PricebookItem[]>([])
   const [selectedAdderCategory, setSelectedAdderCategory] = useState<string>('all')
   const [showAddItem, setShowAddItem] = useState(false)
@@ -264,6 +278,8 @@ export default function ProposalBuilderPage() {
       setTaxRateIds(initialTax.ids)
       setPricebookItems(data.pricebookItems || [])
       setAdders(data.adders || [])
+      setPriceLists(data.priceLists || [])
+      setPriceListId(data.priceListId ?? null)
       setTemplates(data.templates || [])
       setRoofingTypes(data.roofingTypes || [])
       setFinancingProgramsList(data.financingPrograms || [])
@@ -414,6 +430,9 @@ export default function ProposalBuilderPage() {
           taxable: typeof row.taxable === 'boolean' ? row.taxable : null,
           is_optional: row.is_optional === true,
           optional_default_on: row.optional_default_on === true,
+          price_option_key: typeof row.price_option_key === 'string' ? row.price_option_key : null,
+          price_option_name: typeof row.price_option_name === 'string' ? row.price_option_name : null,
+          price_option_price: row.price_option_price == null ? null : Number(row.price_option_price),
         }))
         setLineItems(mapped)
         setStep(4)
@@ -627,53 +646,6 @@ export default function ProposalBuilderPage() {
     return 1
   }
 
-  /** "per visit", not "per visits": the singular for the service units, else the usual label. */
-  const perUnitLabel = (unit: string): string => {
-    const u = unitLower(unit)
-    if (u === 'visit' || u === 'month' || u === 'hour') return u
-    return getUnitLabel(unit)
-  }
-
-  const getUnitLabel = (unit: string): string => {
-    const u = unitLower(unit)
-    switch (u) {
-      case 'per_sqft':
-        return 'sq ft'
-      case 'square':
-      case 'sq':
-      case 'squares':
-        return 'squares'
-      case 'sqft':
-      case 'sq ft':
-      case 'sf':
-        return 'sq ft'
-      case 'lf':
-        return 'linear ft'
-      case 'each':
-        return 'each'
-      case 'job':
-        return 'job'
-      case 'hour':
-        return 'hours'
-      case 'visit':
-        return 'visits'
-      case 'month':
-        return 'months'
-      case 'watt':
-        return 'watts'
-      case 'bundle':
-        return 'bundles'
-      case 'roll':
-        return 'rolls'
-      case 'sheet':
-        return 'sheets'
-      case 'percent':
-        return '% of total'
-      default:
-        return unit || 'units'
-    }
-  }
-
   const autoPopulateLineItems = (items: PricebookItem[], squares: number) => {
     // Find main roofing product (usually priced per square)
     const roofingItems = items.filter(item => 
@@ -733,42 +705,41 @@ export default function ProposalBuilderPage() {
   }
 
   // Check if an item needs quantity input (for "each", "sheet", "bundle", "linear foot", per-sq-ft type items)
-  const needsQuantityInput = (unit: string): boolean => {
-    const u = unitLower(unit)
-    return [
-      'each',
-      'sheet',
-      'sheets',
-      'bundle',
-      'bundles',
-      'roll',
-      'rolls',
-      'piece',
-      'pieces',
-      'unit',
-      'units',
-      'lf',
-      'linear foot',
-      'linear feet',
-      'per_sqft',
-      // service units (industry profiles: lawn, cleaning, builders) — the rep enters how many
-      'visit',
-      'visits',
-      'month',
-      'months',
-      'hour',
-      'hours',
-    ].includes(u)
-  }
+  const needsQuantityInput = unitNeedsQuantity
 
   /** Set the modal quantity from a button/stepper. */
   const setQuantityModalNumber = (value: number) => {
     setQuantityModalRaw(formatNumericDraft(value))
   }
 
+  /** The rep picked another price list: reload only the items on offer. Lines already on the quote keep their prices. */
+  const switchPriceList = async (id: string) => {
+    if (!id || id === priceListId) return
+    try {
+      const params = new URLSearchParams({ items_for_list: id })
+      if (effectiveOpportunityId) params.set('opportunity_id', effectiveOpportunityId)
+      const response = await fetch(`/api/proposals/builder?${params.toString()}`)
+      if (!response.ok) throw new Error('load failed')
+      const data = await response.json()
+      setPricebookItems(data.pricebookItems || [])
+      setAdders(data.adders || [])
+      setPriceListId(data.priceListId ?? id)
+      if (lineItems.length > 0) toast('Lines already on this quote keep their prices.')
+    } catch {
+      toast.error('Could not switch price list. Try again.')
+    }
+  }
+
+  /** The unit price a new line starts at: the item's own price, or the tapped size option's (lib/price-list.ts). */
+  const priceForItem = (item: PricebookItem, optionKey?: string | null): number => {
+    const r = resolveLinePrice({ item, optionKey: optionKey ?? null, manualPrice: readPriceOptions(item.price_options).length && !optionKey ? item.unit_price : null })
+    return r.ok ? r.line.unitPrice : Number(item.unit_price) || 0
+  }
+
   const addLineItem = (item: PricebookItem, quantity?: number) => {
-    // If this is an "each" type item and no quantity provided, show the quantity modal
-    if (needsQuantityInput(item.unit) && !quantity) {
+    // An item with size options always asks (which size, and how many); so does an "each" type item with no quantity.
+    if ((needsQuantityInput(item.unit) || readPriceOptions(item.price_options).length > 0) && !quantity) {
+      setQuantityModalOption(null)
       setQuantityModalItem(item)
       setQuantityModalNumber(isPerSqftUnit(item.unit) ? 100 : 1)
       return
@@ -782,16 +753,17 @@ export default function ProposalBuilderPage() {
     }
     
     const isPercentage = item.price_type === 'percentage' || item.unit === 'percent'
+    const unitPrice = priceForItem(item)
     const newItem: LineItem = {
       id: crypto.randomUUID(),
       pricebook_item_id: item.id,
       category: item.category,
       name: item.name,
-      description: '',
+      description: item.description ?? '',
       unit: item.unit,
       quantity: isPercentage ? 1 : calculatedQuantity,
-      unit_price: item.unit_price,
-      line_total: isPercentage ? 0 : item.unit_price * calculatedQuantity, // Percentage items calculated later
+      unit_price: unitPrice,
+      line_total: isPercentage ? 0 : unitPrice * calculatedQuantity, // Percentage items calculated later
       is_adder: item.is_adder,
       show_to_customer: item.show_to_customer ?? false,
       price_type: item.price_type,
@@ -810,16 +782,25 @@ export default function ProposalBuilderPage() {
     const base = parseDraftFloat(quantityModalRaw, { fallback: min }) ?? min
     const qty = isPerSqft ? Math.max(min, base) : Math.max(min, Math.round(base))
 
+    // Size options: one must be tapped; the line keeps its name and price.
+    const priced = resolveLinePrice({ item: quantityModalItem, optionKey: quantityModalOption })
+    if (!priced.ok) {
+      toast.error('Tap a size first')
+      return
+    }
     const newItem: LineItem = {
       id: crypto.randomUUID(),
       pricebook_item_id: quantityModalItem.id,
       category: quantityModalItem.category,
-      name: quantityModalItem.name,
-      description: '',
+      name: lineNameWithOption(quantityModalItem.name, priced.line.optionName),
+      description: quantityModalItem.description ?? '',
       unit: quantityModalItem.unit,
       quantity: qty,
-      unit_price: quantityModalItem.unit_price,
-      line_total: quantityModalItem.unit_price * qty,
+      unit_price: priced.line.unitPrice,
+      line_total: priced.line.unitPrice * qty,
+      price_option_key: priced.line.optionKey,
+      price_option_name: priced.line.optionName,
+      price_option_price: priced.line.optionPrice,
       is_adder: quantityModalItem.is_adder,
       show_to_customer: quantityModalItem.show_to_customer ?? false,
       price_type: quantityModalItem.price_type,
@@ -827,6 +808,7 @@ export default function ProposalBuilderPage() {
     }
     setLineItems(prev => [...prev, newItem])
     setQuantityModalItem(null)
+    setQuantityModalOption(null)
     setQuantityModalNumber(1)
     setShowAddItem(false)
   }
@@ -980,6 +962,8 @@ export default function ProposalBuilderPage() {
         sold_squares: totalSquaresWithWaste > 0 ? Number(totalSquaresWithWaste.toFixed(2)) : null,
         recommended_order_squares: recommendedOrderSquares > 0 ? recommendedOrderSquares : null,
         accent_color: form.accent_color,
+        // Only a company with several price lists records which one this quote used.
+        ...(priceLists.length > 1 && priceListId ? { pricebook_id: priceListId } : {}),
       }
 
       const lineItemsData = lineItems.map((item, idx) => ({
@@ -996,6 +980,7 @@ export default function ProposalBuilderPage() {
         price_type: item.price_type ?? null, // read by the server's tax/total check, not stored
         ...(appliedTaxRates ? { taxable: item.taxable ?? null } : {}),
         ...(item.is_optional ? { is_optional: true, optional_default_on: item.optional_default_on === true } : {}),
+        ...(item.price_option_key ? { price_option_key: item.price_option_key } : {}),
       }))
 
       const response = await fetch('/api/proposals/builder', {
@@ -1109,6 +1094,12 @@ export default function ProposalBuilderPage() {
       </div>
     )
   }
+
+  // The item in the quantity box: its size options (if any) and the price the box shows right now.
+  const modalOptions = quantityModalItem ? readPriceOptions(quantityModalItem.price_options) : []
+  const modalPrice = quantityModalItem
+    ? (modalOptions.find((o) => o.key === quantityModalOption)?.price ?? (modalOptions.length ? 0 : Number(quantityModalItem.unit_price) || 0))
+    : 0
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -1272,6 +1263,23 @@ export default function ProposalBuilderPage() {
                   placeholder="Roofing Proposal"
                 />
               </div>
+
+              {priceLists.length > 1 && (
+                <div className="md:col-span-2">
+                  <label htmlFor="quote-price-list" className="block text-sm font-medium text-gray-700 mb-2">Price list</label>
+                  <select
+                    id="quote-price-list"
+                    value={priceListId ?? ''}
+                    onChange={(e) => void switchPriceList(e.target.value)}
+                    className="w-full min-h-[48px] px-4 py-3 border border-gray-300 rounded-xl text-base"
+                  >
+                    {priceLists.map((l) => (
+                      <option key={l.id} value={l.id}>{l.name}{l.is_default ? ' (standard)' : ''}</option>
+                    ))}
+                  </select>
+                  <p className="text-sm text-gray-500 mt-1">Prices come from this list. You can still change any line’s price.</p>
+                </div>
+              )}
             </div>
 
             <div className="mt-8 flex justify-end">
@@ -2012,6 +2020,11 @@ export default function ProposalBuilderPage() {
                               Qty required
                             </span>
                           )}
+                          {readPriceOptions(adder.price_options).length > 0 && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
+                              {readPriceOptions(adder.price_options).length} sizes
+                            </span>
+                          )}
                           {isPercent && (
                             <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
                               % based
@@ -2028,7 +2041,7 @@ export default function ProposalBuilderPage() {
                           </>
                         ) : (
                           <>
-                            <p className="font-bold text-indigo-600">${(adder.unit_price || 0).toLocaleString()}</p>
+                            <p className="font-bold text-indigo-600">{readPriceOptions(adder.price_options).length > 0 ? 'from ' : ''}${(adder.unit_price || 0).toLocaleString()}</p>
                             <p className="text-xs text-gray-400">per {perUnitLabel(adder.unit)}</p>
                           </>
                         )}
@@ -2507,7 +2520,7 @@ export default function ProposalBuilderPage() {
                           <p className="text-sm text-gray-500">{item.category}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-indigo-600">${(item.unit_price || 0).toLocaleString()}</p>
+                          <p className="font-bold text-indigo-600">{readPriceOptions(item.price_options).length > 0 ? 'from ' : ''}${(item.unit_price || 0).toLocaleString()}</p>
                           <p className="text-xs text-gray-400">per {perUnitLabel(item.unit)}</p>
                         </div>
                       </button>
@@ -2551,10 +2564,33 @@ export default function ProposalBuilderPage() {
                       <p className="text-sm text-gray-500">{quantityModalItem.category}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-bold text-indigo-600">${(quantityModalItem.unit_price || 0).toLocaleString()}</p>
+                      <p className="font-bold text-indigo-600">{modalOptions.length > 0 && !quantityModalOption ? 'Pick a size' : `$${modalPrice.toLocaleString()}`}</p>
                       <p className="text-xs text-gray-400">per {perUnitLabel(quantityModalItem.unit)}</p>
                     </div>
                   </div>
+
+                  {modalOptions.length > 0 && (
+                    <div className="mb-4" role="radiogroup" aria-label="Size">
+                      <p className="block text-sm font-medium text-gray-700 mb-2">Size</p>
+                      <div className="flex flex-col gap-2">
+                        {modalOptions.map((o) => (
+                          <button
+                            key={o.key}
+                            type="button"
+                            role="radio"
+                            aria-checked={quantityModalOption === o.key}
+                            onClick={() => setQuantityModalOption(o.key)}
+                            className={`flex min-h-[48px] items-center justify-between rounded-xl border-2 px-4 text-left text-base font-medium ${
+                              quantityModalOption === o.key ? 'border-indigo-600 bg-indigo-50 text-gray-900' : 'border-gray-200 text-gray-900 hover:border-indigo-300'
+                            }`}
+                          >
+                            <span>{o.label}</span>
+                            <span className="font-bold text-indigo-600">${o.price.toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     {isPerSqftUnit(quantityModalItem.unit)
@@ -2652,17 +2688,17 @@ export default function ProposalBuilderPage() {
                   <div className="flex justify-between items-center">
                     <span className="text-gray-700">Line Total</span>
                     <span className="text-2xl font-bold text-indigo-600">
-                      ${(quantityModalItem.unit_price * quantityModalValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      ${(modalPrice * quantityModalValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    {quantityModalValue} × ${quantityModalItem.unit_price.toLocaleString()} per {perUnitLabel(quantityModalItem.unit)}
+                    {quantityModalValue} × ${modalPrice.toLocaleString()} per {perUnitLabel(quantityModalItem.unit)}
                   </p>
                 </div>
               </div>
               <div className="p-6 border-t flex justify-end gap-3">
                 <button
-                  onClick={() => { setQuantityModalItem(null); setQuantityModalNumber(1); }}
+                  onClick={() => { setQuantityModalItem(null); setQuantityModalOption(null); setQuantityModalNumber(1); }}
                   className="px-4 py-2 border border-gray-300 rounded-xl hover:bg-gray-50"
                 >
                   Cancel

@@ -16,6 +16,7 @@
 import type { ScheduleTemplate } from '@/lib/job-schedule'
 import type { OrgFeature } from '@/lib/org-features'
 import type { OrgTradeSeed } from '@/lib/org-trades-admin'
+import { PRICE_SHEET_UNITS, PROFILE_ONLY_UNITS, SERVICE_UNIT_MIGRATION } from '@/lib/price-list'
 
 export const INDUSTRY_PROFILE_IDS = ['roofing', 'lawn_landscape', 'exterior_cleaning', 'home_builder'] as const
 export type IndustryProfileId = (typeof INDUSTRY_PROFILE_IDS)[number]
@@ -134,17 +135,18 @@ const BASE_UNITS: readonly PricebookUnit[] = [
   { value: 'sqft', label: 'Sq ft (from roof — auto)' },
   { value: 'job', label: 'Per Job' },
 ]
-/** Units that need migration 202611100090 (DB enum `unit`): saving one before it is applied fails with a clear error. */
-export const PROFILE_ONLY_UNITS: readonly string[] = ['visit', 'month', 'hour']
+/** Units that need a migration (DB enum `unit`) are defined once in lib/price-list.ts; re-exported for the profile tests. */
+export { PROFILE_ONLY_UNITS, PRICE_SHEET_UNITS }
 
 /**
  * Pure: a pricebook_items save error caused by a service unit the database doesn't have yet (migration 202611100090 not
  * applied) → a message an owner can act on; anything else → null (the caller reports its usual error).
  */
 export function serviceUnitNotReadyMessage(error: { code?: string; message?: string } | null | undefined, unit: unknown): string | null {
-  if (!error || typeof unit !== 'string' || !PROFILE_ONLY_UNITS.includes(unit)) return null
+  const migration = typeof unit === 'string' ? SERVICE_UNIT_MIGRATION[unit] : undefined
+  if (!error || !migration) return null
   const enumError = error.code === '22P02' || /invalid input value for enum/i.test(error.message ?? '')
-  return enumError ? `Pricing “per ${unit}” needs a database update (migration 202611100090) that hasn’t been applied yet. Use “Each” for now, or ask your administrator to apply it.` : null
+  return enumError ? `Pricing “per ${unit}” needs a database update (migration ${migration}) that hasn’t been applied yet. Use “Each” for now, or ask your administrator to apply it.` : null
 }
 
 const NO_TODAY: TodayProfile = { order: [], hidden: [], texts: {}, planned: [] }
@@ -184,6 +186,8 @@ const SERVICE_REPORTS = [
   'appointments-by-type',
   'referrals-by-partner',
   'payments-by-month',
+  'revenue-by-month',
+  'revenue-by-service',
   'ar-aging',
   'jobs-by-status',
   'profit-by-job',
@@ -247,6 +251,12 @@ const lawnLandscape: IndustryProfile = {
     units: [
       { value: 'visit', label: 'Per visit' },
       { value: 'month', label: 'Per month' },
+      { value: 'lot', label: 'Per lot' },
+      { value: 'home', label: 'Per home' },
+      { value: 'package', label: 'Per package' },
+      { value: 'pallet', label: 'Per pallet' },
+      { value: 'load', label: 'Per load' },
+      { value: 'service', label: 'Per service' },
       { value: 'per_sqft', label: 'Per sq ft' },
       { value: 'hour', label: 'Per hour' },
       { value: 'each', label: 'Each' },
@@ -291,6 +301,8 @@ const exteriorCleaning: IndustryProfile = {
       { value: 'per_sqft', label: 'Per sq ft' },
       { value: 'lf', label: 'Linear Foot' },
       { value: 'each', label: 'Each' },
+      { value: 'home', label: 'Per home' },
+      { value: 'service', label: 'Per service' },
       { value: 'visit', label: 'Per visit' },
       { value: 'hour', label: 'Per hour' },
       { value: 'job', label: 'Per job' },

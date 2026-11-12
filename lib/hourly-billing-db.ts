@@ -43,6 +43,7 @@ import { chunks, loadAddresses, loadBilled, loadCustomers, type BillingCustomer 
 import { addDaysYmd, planPriceOn, SERVICE_STEP, SERVICE_VISIT_TYPE, ymdInZone } from '@/lib/service-plans'
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 import { orgDb } from '@/lib/supabase/org-db'
+import { resolveLinePrice } from '@/lib/price-list'
 import { TIME_ENTRY_COLUMNS, entryFromRow, localTimeToInstant, type TimeEntry } from '@/lib/time-tracking'
 import type { JobInvoice } from '@/lib/types/invoices'
 
@@ -73,6 +74,12 @@ export async function loadHourlyOrgFacts(admin: SupabaseClient, orgId: string): 
 
 export type PriceItem = { id: string; name: string; unit: string; unitPrice: number; taxable: boolean; active: boolean; isLabor: boolean }
 
+/** A rate item's price, through the one price rule. */
+function resolveItemRate(unitPrice: unknown): number {
+  const priced = resolveLinePrice({ item: { unit_price: Number(unitPrice ?? 0) || 0 } })
+  return priced.ok ? priced.line.unitPrice : 0
+}
+
 export async function loadPriceItems(admin: SupabaseClient, orgId: string): Promise<Map<string, PriceItem>> {
   const out = new Map<string, PriceItem>()
   const { data, error } = await orgDb(admin, orgId).from('pricebook_items').select('id, name, unit, unit_price, is_taxable, active, is_labor').limit(3000)
@@ -82,7 +89,9 @@ export async function loadPriceItems(admin: SupabaseClient, orgId: string): Prom
       id: String(r.id),
       name: String(r.name ?? 'Item'),
       unit: String(r.unit ?? ''),
-      unitPrice: Number(r.unit_price ?? 0) || 0,
+      // The one price rule (lib/price-list.ts). Rate items carry no size options; the column is not read here, so this
+      // works before migration 202611220030. Same number as before: unit_price is numeric(10,2).
+      unitPrice: resolveItemRate(r.unit_price),
       taxable: r.is_taxable !== false,
       active: r.active !== false,
       isLabor: r.is_labor === true,

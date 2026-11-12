@@ -19,6 +19,8 @@ export type ReportSpec = {
   metric: ReportMetric
   date: { preset: DatePreset; start?: string | null; end?: string | null }
   filters: ReportFilter[]
+  /** Summary + 'sum' only: more money / number columns totalled beside the main one for the same groups (e.g. billed AND collected per month). */
+  alsoSum?: string[]
   sortDesc?: boolean
   /** Rows mode: column to sort by. */
   sortBy?: string | null
@@ -52,6 +54,16 @@ export function parseSpec(input: unknown): { ok: true; spec: ReportSpec } | { ok
     metric = { kind: 'rate', column: col.key }
   } else metric = { kind: 'count' }
 
+  // Extra totals beside a 'sum' metric: only real money / number columns, never the main one, never twice.
+  const alsoSum: string[] = []
+  if (metric.kind === 'sum' && Array.isArray(b.alsoSum)) {
+    for (const k of b.alsoSum.slice(0, 8)) {
+      const col = columnOf(ds, String(k))
+      if (!col || (col.type !== 'money' && col.type !== 'number')) return { ok: false, error: 'That column cannot be added up' }
+      if (col.key !== metric.column && !alsoSum.includes(col.key)) alsoSum.push(col.key)
+    }
+  }
+
   const filters: ReportFilter[] = []
   for (const f of Array.isArray(b.filters) ? b.filters.slice(0, 12) : []) {
     const col = columnOf(ds, String(f?.column))
@@ -77,6 +89,7 @@ export function parseSpec(input: unknown): { ok: true; spec: ReportSpec } | { ok
     ok: true,
     spec: {
       dataset: b.dataset, mode, groupBy, metric, filters,
+      ...(alsoSum.length ? { alsoSum } : {}),
       date: { preset, start: iso(b.date?.start), end: iso(b.date?.end) },
       sortDesc: b.sortDesc !== false,
       sortBy: typeof b.sortBy === 'string' && columnOf(ds, b.sortBy) ? b.sortBy : null,

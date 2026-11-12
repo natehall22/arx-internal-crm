@@ -6,10 +6,12 @@ import {
   BASE_TERMS,
   INDUSTRY_PROFILE_IDS,
   INDUSTRY_PROFILES,
+  PRICE_SHEET_UNITS,
   PROFILE_ONLY_UNITS,
   TERM_KEYS,
   TERM_LABELS,
 } from '@/lib/industry-profiles'
+import { unitNeedsQuantity } from '@/lib/price-list'
 import { DEFAULT_ORG_FEATURES, ORG_FEATURE_KEYS, resolveOrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, clientOrgProfile, coerceClientOrgProfile, defaultOrgProfile, resolveOrgProfile, t } from '@/lib/org-profile'
 import { planProfileSwitch, profileTradeSeeds } from '@/lib/org-profile-server'
@@ -150,7 +152,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
   })
 
   it('price book: per visit / month / sq ft / hour / each; starter reports only', () => {
-    expect(lawn.pricebook.units.map((u) => u.value)).toEqual(['visit', 'month', 'per_sqft', 'hour', 'each', 'job'])
+    expect(lawn.pricebook.units.map((u) => u.value)).toEqual(['visit', 'month', 'lot', 'home', 'package', 'pallet', 'load', 'service', 'per_sqft', 'hour', 'each', 'job'])
     expect(lawn.starterReports).not.toContain('doors-by-rep')
     expect(lawn.starterReports).toContain('ar-aging')
   })
@@ -272,7 +274,7 @@ describe('definitions stay wired to real things (parity)', () => {
     // Reports: every starter key is a template.
     for (const k of p.starterReports ?? []) expect([k, REPORT_TEMPLATES.some((r) => r.key === k)]).toEqual([k, true])
     // Units: in the prod enum (2026-11-10) or added by migration 202611100090.
-    const enumValues = ['square', 'each', 'lf', 'sheet', 'job', 'percent', 'per_sqft', 'sqft', ...PROFILE_ONLY_UNITS]
+    const enumValues = ['square', 'each', 'lf', 'sheet', 'job', 'percent', 'per_sqft', 'sqft', ...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS]
     for (const u of p.pricebook.units) expect([u.value, enumValues.includes(u.value)]).toEqual([u.value, true])
     expect(p.pricebook.units.some((u) => u.value === 'each')).toBe(true) // the add-on form's default
     expect(p.pricebook.adderCategories).toContain('Other') // the add-on form's default category
@@ -363,8 +365,9 @@ describe('review fixes', () => {
 
   it('proposal builder: visit / month / hour ask for a quantity and read "per visit"', () => {
     const b = read('app/proposals/builder/page.tsx')
-    const needs = b.slice(b.indexOf('const needsQuantityInput'), b.indexOf('const needsQuantityInput') + 800)
-    for (const u of ["'visit'", "'month'", "'hour'"]) expect(needs).toContain(u)
+    // one unit list (lib/price-list.ts): the builder asks for a quantity for every service unit
+    expect(b).toContain('const needsQuantityInput = unitNeedsQuantity')
+    for (const u of ['visit', 'month', 'hour']) expect([u, unitNeedsQuantity(u)]).toEqual([u, true])
     expect(b).not.toMatch(/per \{getUnitLabel\(/)
   })
 

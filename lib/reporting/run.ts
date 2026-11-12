@@ -101,6 +101,7 @@ export function checkAccess(ctx: ReportContext, ds: Dataset, spec: ReportSpec): 
   const used = [
     spec.groupBy && !spec.groupBy.startsWith('@') ? spec.groupBy : null,
     'column' in spec.metric ? spec.metric.column : null,
+    ...(spec.alsoSum ?? []),
     spec.sortBy ?? null,
     ...spec.filters.map((f) => f.column),
   ].filter(Boolean) as string[]
@@ -141,6 +142,8 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
   if (ds.ownerColumn) wanted.add(ds.ownerColumn)
   if (spec.groupBy && !spec.groupBy.startsWith('@')) wanted.add(spec.groupBy)
   if ('column' in spec.metric) wanted.add(spec.metric.column)
+  const alsoSum = spec.mode === 'summary' && spec.metric.kind === 'sum' ? spec.alsoSum ?? [] : []
+  for (const k of alsoSum) wanted.add(k)
   for (const f of spec.filters) wanted.add(f.column)
   if (spec.mode === 'rows') for (const c of visibleColumns(ctx, ds)) wanted.add(c.key)
   if (spec.sortBy) wanted.add(spec.sortBy)
@@ -196,11 +199,12 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
     }
   }
 
-  const groups = new Map<string, { n: number; sum: number; yes: number }>()
+  const groups = new Map<string, { n: number; sum: number; yes: number; extra: number[] }>()
   for (const r of all) {
     const k = groupKey(r, ds, spec.groupBy)
-    const g = groups.get(k) ?? { n: 0, sum: 0, yes: 0 }
+    const g = groups.get(k) ?? { n: 0, sum: 0, yes: 0, extra: alsoSum.map(() => 0) }
     g.n += 1
+    alsoSum.forEach((col, i) => { g.extra[i] += Number(r[col]) || 0 })
     if (spec.metric.kind === 'sum' || spec.metric.kind === 'avg') g.sum += Number(r[spec.metric.column]) || 0
     if (spec.metric.kind === 'rate' && r[spec.metric.column] === true) g.yes += 1
     groups.set(k, g)
@@ -216,19 +220,24 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
     : g.n ? (g.yes / g.n) * 100 : 0
   const round = (n: number) => Math.round(n * 100) / 100
   const isTime = spec.groupBy === '@month' || spec.groupBy === '@week'
-  let rows = Array.from(groups.entries()).map(([group, g]) => ({ group, value: round(valueOf(g)), rows: g.n }))
-  rows.sort(isTime ? (a, b) => a.group.localeCompare(b.group) : (a, b) => (spec.sortDesc === false ? a.value - b.value : b.value - a.value))
+  let rows = Array.from(groups.entries()).map(([group, g]) => ({
+    group, value: round(valueOf(g)),
+    ...Object.fromEntries(alsoSum.map((col, i) => [`sum_${col}`, round(g.extra[i])])),
+    rows: g.n,
+  })) as Array<Record<string, string | number>>
+  rows.sort(isTime ? (a, b) => String(a.group).localeCompare(String(b.group)) : (a, b) => (spec.sortDesc === false ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value)))
   const limit = Math.min(spec.limit ?? MAX_ROWS_RETURNED, MAX_ROWS_RETURNED)
   const groupCol = spec.groupBy && !isTime ? columnOf(ds, spec.groupBy)?.label ?? 'Group' : spec.groupBy === '@week' ? 'Week of' : spec.groupBy === '@month' ? 'Month' : 'All'
   const total = spec.metric.kind === 'count' ? all.length
-    : spec.metric.kind === 'sum' ? rows.reduce((s, r) => s + r.value, 0)
+    : spec.metric.kind === 'sum' ? rows.reduce((s, r) => s + Number(r.value), 0)
     : null
   rows = rows.slice(0, limit)
   return {
     columns: [
       { key: 'group', label: groupCol, type: 'text' },
       { key: 'value', label: metricLabel, type: spec.metric.kind === 'rate' ? 'number' : spec.metric.kind === 'count' ? 'number' : (columnOf(ds, (spec.metric as { column: string }).column)?.type ?? 'number') },
-      { key: 'rows', label: 'Rows', type: 'number' },
+      ...alsoSum.map((col) => ({ key: `sum_${col}`, label: `Total ${columnOf(ds, col)!.label}`, type: columnOf(ds, col)!.type })),
+      { key: 'rows', label: 'Rows', type: 'number' as const },
     ],
     rows, matched: groups.size, scanned: all.length, truncated,
     summary: total === null ? null : { label: metricLabel, value: round(total) },

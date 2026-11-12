@@ -101,6 +101,7 @@ import OrgProfileCard from '@/components/admin/OrgProfileCard'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
+import PriceListCard from '@/components/customer/PriceListCard'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
@@ -439,6 +440,19 @@ export default function Harness({ params }: { params: { screen: string } }) {
               ],
               defaultRateIds: ['state', 'county'],
             }}
+          />
+        </div>
+      )
+    case 'price-list':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <PriceListCard
+            customerId="00000000-0000-0000-0000-000000000001"
+            lists={[
+              { id: '00000000-0000-0000-0000-0000000000a1', name: 'Homeowner', is_default: true },
+              { id: '00000000-0000-0000-0000-0000000000a2', name: 'Builder', is_default: false },
+            ]}
+            initialListId="00000000-0000-0000-0000-0000000000a2"
           />
         </div>
       )
