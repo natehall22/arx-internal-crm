@@ -36,7 +36,7 @@
   },
   "overrides": [
     {
-      "files": ["scripts/contrast-sweep.mjs", "app/admin/sisu/accountability/AccountabilityClient.tsx", "app/admin/sisu/bonus-approval/BonusApprovalClient.tsx", "app/admin/sisu/incentives/AdminIncentivesClient.tsx", "app/admin/sisu/setter-ramp/SetterRampClient.tsx", "app/sisu/IncentivesClient.tsx", "app/tools/roof-measure/page.tsx", "components/RoofFineTuneEditor.tsx", "components/inspection/close-visit-shared.tsx", "app/(canvass-app)/canvass/components/CanvassNav.tsx", "components/Nav.tsx"],
+      "files": ["scripts/contrast-sweep.mjs", "app/admin/sisu/accountability/AccountabilityClient.tsx", "app/admin/sisu/bonus-approval/BonusApprovalClient.tsx", "app/admin/sisu/incentives/AdminIncentivesClient.tsx", "app/admin/sisu/setter-ramp/SetterRampClient.tsx", "app/sisu/IncentivesClient.tsx", "app/tools/roof-measure/page.tsx", "components/RoofFineTuneEditor.tsx", "components/inspection/close-visit-shared.tsx", "components/Nav.tsx"],
       "rules": {
         "no-restricted-syntax": [
           "warn",

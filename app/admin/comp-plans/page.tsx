@@ -1047,7 +1047,7 @@ export default function CompPlansPage() {
             className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
               activeTab === 'plans'
                 ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-700 hover:text-gray-700'
+                : 'border-transparent text-gray-700 hover:text-gray-900'
             }`}
           >
             Comp Plans ({compPlans.length})
@@ -1057,7 +1057,7 @@ export default function CompPlansPage() {
             className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
               activeTab === 'assignments'
                 ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-700 hover:text-gray-700'
+                : 'border-transparent text-gray-700 hover:text-gray-900'
             }`}
           >
             User Assignments ({userAssignments.length})
@@ -1067,7 +1067,7 @@ export default function CompPlansPage() {
             className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
               activeTab === 'overrides'
                 ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-700 hover:text-gray-700'
+                : 'border-transparent text-gray-700 hover:text-gray-900'
             }`}
           >
             Per-Job Overrides

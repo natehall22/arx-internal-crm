@@ -166,7 +166,7 @@ export default function AIJobPacketModal({
       <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl border border-gray-200">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">✨ AI Crew Briefing</h3>
-          <button onClick={onClose} className="text-sm text-gray-700 hover:text-gray-700">
+          <button onClick={onClose} className="text-sm text-gray-700 hover:text-gray-900">
             Close
           </button>
         </div>

@@ -535,7 +535,7 @@ export default function ExteriorMeasureClient({
                       <button
                         type="button"
                         onClick={() => activeSide.id && toggleDetail(activeSide.id)}
-                        className="mt-3 text-xs text-gray-600 underline underline-offset-2 hover:text-gray-600"
+                        className="mt-3 text-xs text-gray-600 underline underline-offset-2 hover:text-gray-900"
                       >
                         I'll type the numbers in myself
                       </button>

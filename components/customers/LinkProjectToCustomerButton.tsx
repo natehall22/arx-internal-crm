@@ -134,7 +134,7 @@ export default function LinkProjectToCustomerButton({ customerId, customerName }
                 type="button"
                 onClick={() => setOpen(false)}
                 disabled={submitting}
-                className="text-gray-600 hover:text-gray-600 disabled:opacity-50"
+                className="text-gray-600 hover:text-gray-900 disabled:opacity-50"
                 aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

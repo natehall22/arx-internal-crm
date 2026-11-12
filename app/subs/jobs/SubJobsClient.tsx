@@ -78,7 +78,7 @@ export default function SubJobsClient({ jobs, companyName }: SubJobsClientProps)
             </Link>
             <Link
               href="/subs/work-orders"
-              className="py-3 text-sm font-medium text-gray-700 hover:text-gray-700 border-b-2 border-transparent"
+              className="py-3 text-sm font-medium text-gray-700 hover:text-gray-900 border-b-2 border-transparent"
             >
               {t('workOrders')}
             </Link>

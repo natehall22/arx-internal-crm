@@ -416,7 +416,7 @@ export default function CampaignsPage() {
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'campaigns'
                   ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-700 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-700 hover:text-gray-900 hover:border-gray-300'
               }`}
             >
               Campaigns ({campaigns.length})
@@ -426,7 +426,7 @@ export default function CampaignsPage() {
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'sources'
                   ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-700 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-700 hover:text-gray-900 hover:border-gray-300'
               }`}
             >
               Lead Sources ({leadSources.length})
@@ -682,7 +682,7 @@ export default function CampaignsPage() {
                 </h2>
                 <button
                   onClick={() => setShowCampaignModal(false)}
-                  className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -857,7 +857,7 @@ export default function CampaignsPage() {
                 </h2>
                 <button
                   onClick={() => setShowSourceModal(false)}
-                  className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

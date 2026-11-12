@@ -180,7 +180,7 @@ export default function CloseScheduleModal({
       <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
         <div className="px-4 py-3 border-b flex items-center justify-between bg-gray-50">
           <h2 className="font-semibold text-lg text-gray-900">{modalTitle}</h2>
-          <button type="button" onClick={onClose} className="p-2 -mr-2 text-gray-600 hover:text-gray-600">
+          <button type="button" onClick={onClose} className="p-2 -mr-2 text-gray-600 hover:text-gray-900">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>

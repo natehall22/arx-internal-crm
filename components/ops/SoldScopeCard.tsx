@@ -503,7 +503,7 @@ export default function SoldScopeCard({
                   )}
                   <button
                     onClick={() => setShowLinkDropdown(false)}
-                    className="mt-2 text-xs text-gray-700 hover:text-gray-700"
+                    className="mt-2 text-xs text-gray-700 hover:text-gray-900"
                   >
                     Cancel
                   </button>

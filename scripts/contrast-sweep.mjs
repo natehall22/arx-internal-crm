@@ -37,14 +37,14 @@ const args = new Set(process.argv.slice(2))
 const CHECK = args.has('--check')
 const REPORT = args.has('--report')
 const VERBOSE = args.has('--verbose')
+const FIX_UNCERTAIN = args.has('--fix-uncertain') // one-off: treat 'no surface found' matches as light (after a human reviewed them)
 
 const ROOTS = /^(app|components|hooks)\//
 const EXT = /\.(tsx|ts|jsx|js)$/
 const EXCLUDED_PATH = [
   [/pdf/i, 'PDF generator (golden hashes, handled separately)'],
-  [/^app\/\(canvass-app\)\//, 'canvass app (map overlays handled separately)'],
-  [/^components\/canvass\//i, 'canvass map components (handled separately)'],
-  [/(^|\/)(Nav|BottomNav|BottomTabBar|MobileTabBar|TabBar)\.tsx$/, 'Nav shell / bottom tab bar (dark)'],
+  [/^app\/\(canvass-app\)\/canvass\/components\/CanvassMap\.tsx$/, 'canvass map (text on satellite imagery, handled separately)'],
+  [/^components\/Nav\.tsx$/, 'Nav shell (dark sidebar / header / bottom bar)'],
   [/(^|\/)__tests__\/|\.(test|spec)\.[a-z]+$/, 'test'],
 ]
 
@@ -421,6 +421,7 @@ for (const file of listFiles()) {
     tally[d.reason]++
     if (d.reason === 'uncertain') uncertainFiles.set(file, (uncertainFiles.get(file) ?? 0) + 1)
     if (VERBOSE && d.reason !== 'fix') verbose.push(`${file}:${d.line} ${d.reason} ${d.from}`)
+    if (d.reason === 'uncertain' && FIX_UNCERTAIN && /^(text|placeholder)-/.test(d.from.split(':').pop())) d.reason = 'fix' // class tokens only, never hex data colors
     if (d.reason === 'fix') { edits.push(d); if (VERBOSE) verbose.push(`${file}:${d.line} fix ${d.from} -> ${d.to}`) }
   }
   if (edits.length) {
@@ -428,6 +429,8 @@ for (const file of listFiles()) {
     if (!CHECK && !REPORT) {
       let out = src
       for (const e of edits.sort((a, b) => b.pos - a.pos)) out = out.slice(0, e.pos) + e.to + out.slice(e.pos + e.len)
+      // A fixed base colour can now equal its own hover colour (text-gray-500 hover:text-gray-700 became 700/700): keep the hover visible.
+      out = out.replace(/(?<![\w-])text-(gray|slate|zinc|neutral|stone)-(600|700)([^"'`\n]*?)(?<![\w-])hover:text-\1-\2(?![\w\/-])/g, 'text-$1-$2$3hover:text-$1-900')
       writeFileSync(file, out)
     }
   }
@@ -467,7 +470,7 @@ if (CHECK) {
   // Keep the lint guard's exemption list (dark-themed files) in step with what this run found.
   const rc = '.eslintrc.json'
   const txt = readFileSync(rc, 'utf8')
-  const list = ['scripts/contrast-sweep.mjs', ...skippedFiles.dark.map(([f]) => f), ...skippedFiles.path.filter(([f]) => /Nav|TabBar/.test(f)).map(([f]) => f)]
+  const list = ['scripts/contrast-sweep.mjs', ...skippedFiles.dark.map(([f]) => f), ...skippedFiles.path.filter(([f]) => f === 'components/Nav.tsx').map(([f]) => f)]
   const next = txt.replace(/("files": \[)"scripts\/contrast-sweep\.mjs"[^\]]*(\])/, `$1${list.map((f) => JSON.stringify(f)).join(', ')}$2`)
   if (next !== txt) { writeFileSync(rc, next); console.log(`contrast-sweep: updated the dark-file exemptions in ${rc} (${list.length - 1} files)`) }
 }

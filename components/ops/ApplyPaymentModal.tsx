@@ -152,7 +152,7 @@ export default function ApplyPaymentModal({
           <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
           <button
             onClick={onClose}
-            className="text-gray-600 hover:text-gray-600"
+            className="text-gray-600 hover:text-gray-900"
           >
             ✕
           </button>

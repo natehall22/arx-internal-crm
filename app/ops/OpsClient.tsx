@@ -54,11 +54,11 @@ const priorityConfig: Record<string, { icon: string; color: string }> = {
   normal: { icon: '', color: 'text-gray-600' },
 }
 
-const materialsConfig: Record<string, { label: string; color: string }> = {
-  not_ordered: { label: 'Not Ordered', color: 'text-gray-500' },
-  ordered: { label: 'Ordered', color: 'text-blue-600' },
-  partial: { label: 'Partially Delivered', color: 'text-amber-600' },
-  received: { label: 'Fully Delivered', color: 'text-green-600' },
+const materialsConfig: Record<string, { label: string }> = {
+  not_ordered: { label: 'Not Ordered' },
+  ordered: { label: 'Ordered' },
+  partial: { label: 'Partially Delivered' },
+  received: { label: 'Fully Delivered' },
 }
 
 const LIST_VIEWS: TableView[] = [

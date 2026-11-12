@@ -152,7 +152,7 @@ export default function AdminSettingsPage() {
     { id: 'renter', label: 'Renter', category: 'Unqualified', counts_as_contact: true, color: '#eab308', active: true, sort_order: 2 },
     { id: 'go_back', label: 'Go Back', category: 'Contact', counts_as_contact: true, color: '#3b82f6', active: true, sort_order: 3 },
     { id: 'hot_lead', label: 'Hot Lead', category: 'Contact', counts_as_contact: true, color: '#22c55e', active: true, sort_order: 4 },
-    { id: 'not_interested', label: 'Not Interested', category: 'Closed', counts_as_contact: true, color: '#6b7280', active: true, sort_order: 5 },
+    { id: 'not_interested', label: 'Not Interested', category: 'Closed', counts_as_contact: true, color: '#6b7280', active: true, sort_order: 5 }, // contrast-ok: swatch color data, not text
   ])
   const [editingDisposition, setEditingDisposition] = useState<DispositionType | null>(null)
   const [showAddDisposition, setShowAddDisposition] = useState(false)
@@ -189,12 +189,12 @@ export default function AdminSettingsPage() {
   
   // Work Order Workflow Stages state
   const [workOrderStages, setWorkOrderStages] = useState<WorkOrderWorkflowStage[]>([
-    { id: 'pending', name: 'Pending', color: '#6b7280', sort_order: 0, is_default: true },
+    { id: 'pending', name: 'Pending', color: '#6b7280', sort_order: 0, is_default: true }, // contrast-ok: swatch color data, not text
     { id: 'scheduled', name: 'Scheduled', color: '#3b82f6', sort_order: 1, notify_customer: true },
     { id: 'in_progress', name: 'In Progress', color: '#f59e0b', sort_order: 2 },
     { id: 'on_hold', name: 'On Hold', color: '#ef4444', sort_order: 3 },
     { id: 'completed', name: 'Completed', color: '#22c55e', sort_order: 4, is_complete_stage: true, notify_customer: true },
-    { id: 'cancelled', name: 'Cancelled', color: '#9ca3af', sort_order: 5 },
+    { id: 'cancelled', name: 'Cancelled', color: '#9ca3af', sort_order: 5 }, // contrast-ok: swatch color data, not text
   ])
   const [editingWorkOrderStage, setEditingWorkOrderStage] = useState<WorkOrderWorkflowStage | null>(null)
   const [showAddWorkOrderStage, setShowAddWorkOrderStage] = useState(false)
@@ -1089,7 +1089,7 @@ export default function AdminSettingsPage() {
                                 a.id === apt.id ? { ...a, active: !a.active } : a
                               ))
                             }}
-                            className="text-gray-700 hover:text-gray-700 text-sm"
+                            className="text-gray-700 hover:text-gray-900 text-sm"
                           >
                             {apt.active ? 'Disable' : 'Enable'}
                           </button>
@@ -1619,7 +1619,7 @@ export default function AdminSettingsPage() {
                                 d.id === dispo.id ? { ...d, active: !d.active } : d
                               ))
                             }}
-                            className="text-gray-700 hover:text-gray-700 text-sm"
+                            className="text-gray-700 hover:text-gray-900 text-sm"
                           >
                             {dispo.active ? 'Disable' : 'Enable'}
                           </button>
@@ -1928,7 +1928,7 @@ export default function AdminSettingsPage() {
                                 o.id === outcome.id ? { ...o, active: !o.active } : o
                               ))
                             }}
-                            className="text-gray-700 hover:text-gray-700 text-sm"
+                            className="text-gray-700 hover:text-gray-900 text-sm"
                           >
                             {outcome.active ? 'Disable' : 'Enable'}
                           </button>
@@ -2331,7 +2331,7 @@ export default function AdminSettingsPage() {
                                 o.id === outcome.id ? { ...o, active: !o.active } : o
                               ))
                             }}
-                            className="text-gray-700 hover:text-gray-700 text-sm"
+                            className="text-gray-700 hover:text-gray-900 text-sm"
                           >
                             {outcome.active ? 'Disable' : 'Enable'}
                           </button>
@@ -3174,7 +3174,7 @@ export default function AdminSettingsPage() {
                     <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                       <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }} />
                       <span className="font-medium text-gray-900 flex-1">{stage.name}</span>
-                      <button className="text-gray-600 hover:text-gray-600">
+                      <button className="text-gray-600 hover:text-gray-900">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                         </svg>
@@ -3224,7 +3224,7 @@ export default function AdminSettingsPage() {
                               }
                             }}
                             disabled={index === 0}
-                            className="text-gray-600 hover:text-gray-600 disabled:opacity-30"
+                            className="text-gray-600 hover:text-gray-900 disabled:opacity-30"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -3244,7 +3244,7 @@ export default function AdminSettingsPage() {
                               }
                             }}
                             disabled={index === workOrderStages.length - 1}
-                            className="text-gray-600 hover:text-gray-600 disabled:opacity-30"
+                            className="text-gray-600 hover:text-gray-900 disabled:opacity-30"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

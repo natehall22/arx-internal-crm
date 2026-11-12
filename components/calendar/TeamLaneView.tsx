@@ -341,7 +341,7 @@ export default function TeamLaneView({
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-x-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-96 text-gray-500">Loading team calendar...</div>
+          <div className="flex items-center justify-center h-96 text-gray-700">Loading team calendar...</div>
         ) : (
           <div className="flex min-w-full">
             <div className="flex-shrink-0 border-r bg-white" style={{ width: TIME_COL_WIDTH }}>
@@ -512,7 +512,7 @@ export default function TeamLaneView({
             })}
 
             {!loading && closers.length === 0 && appointments.length === 0 && (
-              <div className="flex items-center justify-center flex-1 min-h-[320px] text-sm text-gray-500">
+              <div className="flex items-center justify-center flex-1 min-h-[320px] text-sm text-gray-700">
                 No members found for this scope.
               </div>
             )}

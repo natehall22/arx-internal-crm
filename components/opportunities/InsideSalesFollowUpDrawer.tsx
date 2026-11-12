@@ -441,7 +441,7 @@ export default function InsideSalesFollowUpDrawer({
                                   ? 'Mark unresponsive'
                                   : 'Mark lost'}
                         </p>
-                        <button type="button" onClick={resetForm} className="text-sm text-gray-700 hover:text-gray-700">
+                        <button type="button" onClick={resetForm} className="text-sm text-gray-700 hover:text-gray-900">
                           Cancel
                         </button>
                       </div>

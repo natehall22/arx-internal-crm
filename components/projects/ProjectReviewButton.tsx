@@ -108,7 +108,7 @@ export default function ProjectReviewButton({ projectId, jobId, initialReview }:
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="text-gray-600 hover:text-gray-600 p-1"
+                className="text-gray-600 hover:text-gray-900 p-1"
                 aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -218,7 +218,7 @@ function Field({
   return (
     <div>
       <label className="block font-medium text-gray-900">{label}</label>
-      <p className="text-xs text-gray-500 mb-1">{hint}</p>
+      <p className="text-xs text-gray-700 mb-1">{hint}</p>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}

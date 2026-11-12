@@ -104,7 +104,7 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
           <nav className="flex gap-6">
             <Link
               href="/subs/jobs"
-              className="py-3 text-sm font-medium text-gray-700 hover:text-gray-700 border-b-2 border-transparent"
+              className="py-3 text-sm font-medium text-gray-700 hover:text-gray-900 border-b-2 border-transparent"
             >
               {t('jobs')}
             </Link>

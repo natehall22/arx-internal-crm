@@ -416,7 +416,7 @@ export default function AdminProposalsPage() {
               className={`px-6 py-3 font-medium text-sm border-b-2 -mb-px ${
                 activeTab === tab.id
                   ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-700 hover:text-gray-700'
+                  : 'border-transparent text-gray-700 hover:text-gray-900'
               }`}
             >
               {tab.label}

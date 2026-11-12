@@ -956,7 +956,7 @@ export default function DashboardClient({
             style={{ width: `${percentage}%` }}
           />
         </div>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-gray-700 mt-1">
           {percentage.toFixed(0)}% of weekly goal
         </p>
       </div>
@@ -1025,7 +1025,7 @@ export default function DashboardClient({
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
               Welcome back, {profile.full_name?.split(' ')[0] || 'there'}!
             </h1>
-            <p className="text-gray-500 text-sm sm:text-base mt-1">
+            <p className="text-gray-700 text-sm sm:text-base mt-1">
               {isDashboardPersonalKpiOrgWide(profile.role)
                 ? `Organization-wide performance overview for ${timeFrameLabel[timeFrame]}`
                 : `Here's your performance overview for ${timeFrameLabel[timeFrame]}`}
@@ -1063,7 +1063,7 @@ export default function DashboardClient({
                   aria-label="Custom range start date"
                   className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-900 focus:ring-2 focus:ring-indigo-500"
                 />
-                <span className="text-gray-400 text-sm">to</span>
+                <span className="text-gray-600 text-sm">to</span>
                 <input
                   type="date"
                   value={customEndDate}

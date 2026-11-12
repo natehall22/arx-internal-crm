@@ -184,25 +184,25 @@ export default function CanvassStatsPage() {
         {/* Main Stats */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white rounded-xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Total Pins</p>
+            <p className="text-sm text-gray-700">Total Pins</p>
             <p className="text-3xl font-bold text-gray-900">
               {selectedPeriod === 'today' ? todayStats?.total_pins || 0 : weeklyStats?.total_pins || 0}
             </p>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Hot Leads</p>
+            <p className="text-sm text-gray-700">Hot Leads</p>
             <p className="text-3xl font-bold text-red-600">
               {selectedPeriod === 'today' ? todayStats?.hot_leads || 0 : weeklyStats?.hot_leads || 0}
             </p>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Conversion Rate</p>
+            <p className="text-sm text-gray-700">Conversion Rate</p>
             <p className="text-3xl font-bold text-green-600">
               {weeklyStats?.conversion_rate || 0}%
             </p>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Avg/Day</p>
+            <p className="text-sm text-gray-700">Avg/Day</p>
             <p className="text-3xl font-bold text-indigo-600">
               {weeklyStats?.avg_per_day || 0}
             </p>
@@ -264,13 +264,13 @@ export default function CanvassStatsPage() {
                     <p className="font-medium text-gray-900">
                       {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-700">
                       {day.hot_leads} hot leads
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="text-xl font-bold text-gray-900">{day.total_pins}</p>
-                    <p className="text-xs text-gray-500">pins</p>
+                    <p className="text-xs text-gray-700">pins</p>
                   </div>
                 </div>
               ))}
@@ -284,8 +284,8 @@ export default function CanvassStatsPage() {
             <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
-            <p className="text-gray-500">No canvassing data yet</p>
-            <p className="text-sm text-gray-400 mt-1">Start dropping pins to see your stats</p>
+            <p className="text-gray-700">No canvassing data yet</p>
+            <p className="text-sm text-gray-600 mt-1">Start dropping pins to see your stats</p>
             <Link
               href="/canvass"
               className="inline-block mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium"
@@ -301,7 +301,7 @@ export default function CanvassStatsPage() {
         <div className="flex items-stretch gap-1 max-w-lg mx-auto">
           <Link
             href="/canvass"
-            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-500 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
+            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-700 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -311,7 +311,7 @@ export default function CanvassStatsPage() {
           {incentivesOn && (
           <Link
             href="/sisu"
-            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-500 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
+            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-700 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
           >
             {/* Sisu cut-S mark (see public/brand/sisu-mark.svg) */}
             <svg className="w-6 h-6" viewBox="0 0 64 64" fill="none" aria-hidden="true">
@@ -330,7 +330,7 @@ export default function CanvassStatsPage() {
           )}
           <Link
             href="/canvass/settings"
-            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-500 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
+            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-700 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />

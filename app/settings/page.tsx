@@ -275,7 +275,7 @@ export default function SettingsPage() {
               className={`min-h-[44px] px-4 py-3 font-medium text-sm border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
                 activeTab === tab.id
                   ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-700 hover:text-gray-700'
+                  : 'border-transparent text-gray-700 hover:text-gray-900'
               }`}
             >
               <span>{tab.icon}</span>
@@ -397,7 +397,7 @@ export default function SettingsPage() {
                     </div>
                     <button 
                       onClick={() => setCalendarMessage(null)}
-                      className="text-gray-700 hover:text-gray-700"
+                      className="text-gray-700 hover:text-gray-900"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

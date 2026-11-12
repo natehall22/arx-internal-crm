@@ -434,7 +434,7 @@ export default function InsideSalesPage() {
   }
 
   function renderPhone(phone: string | null, large = false) {
-    if (!phone) return <span className="text-gray-400 text-sm">No phone</span>
+    if (!phone) return <span className="text-gray-600 text-sm">No phone</span>
     return (
       <button
         type="button"
@@ -552,7 +552,7 @@ export default function InsideSalesPage() {
           {item.story}{' '}
           <span className="font-semibold text-gray-900">→ {item.objective}</span>
         </p>
-        <p className="mt-1 text-xs font-medium text-gray-500">{factLine(item)}</p>
+        <p className="mt-1 text-xs font-medium text-gray-700">{factLine(item)}</p>
         {chips.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {chips.map((chip) => (
@@ -608,7 +608,7 @@ export default function InsideSalesPage() {
           </p>
         )}
         {item.lastAttemptSummary && (
-          <p className="mt-1 text-xs text-gray-500 truncate">Last: {item.lastAttemptSummary}</p>
+          <p className="mt-1 text-xs text-gray-700 truncate">Last: {item.lastAttemptSummary}</p>
         )}
       </>
     )
@@ -658,7 +658,7 @@ export default function InsideSalesPage() {
         </button>
         <Link
           href={`/opportunities/${item.id}`}
-          className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-500 hover:bg-gray-50"
+          className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
           Full record →
         </Link>

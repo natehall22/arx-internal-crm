@@ -100,7 +100,7 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
           <h3 className="text-lg font-bold text-gray-900">Add Payment</h3>
           <button
             onClick={onClose}
-            className="text-gray-600 hover:text-gray-600"
+            className="text-gray-600 hover:text-gray-900"
           >
             ✕
           </button>

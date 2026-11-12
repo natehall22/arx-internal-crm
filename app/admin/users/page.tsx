@@ -597,7 +597,7 @@ export default function UsersPage() {
                         </div>
                         <button
                           onClick={() => handleEdit(topManager)}
-                          className="ml-auto p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                          className="ml-auto p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -623,7 +623,7 @@ export default function UsersPage() {
                                   <span className="text-xs text-gray-600">{report.team?.name || ''}</span>
                                   <button
                                     onClick={() => handleEdit(report)}
-                                    className="p-1.5 text-gray-600 hover:text-gray-600 rounded hover:bg-gray-200"
+                                    className="p-1.5 text-gray-600 hover:text-gray-900 rounded hover:bg-gray-200"
                                   >
                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -645,7 +645,7 @@ export default function UsersPage() {
                                         </div>
                                         <button
                                           onClick={() => handleEdit(sub)}
-                                          className="p-1 text-gray-600 hover:text-gray-600"
+                                          className="p-1 text-gray-600 hover:text-gray-900"
                                         >
                                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -746,7 +746,7 @@ export default function UsersPage() {
                   <div className="flex items-center justify-end gap-1 pt-2 border-t">
                     <button
                       onClick={() => handleEdit(user)}
-                      className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                       title="Edit"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -868,7 +868,7 @@ export default function UsersPage() {
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => handleEdit(user)}
-                            className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                            className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                             title="Edit"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -933,7 +933,7 @@ export default function UsersPage() {
                   </h2>
                   <button
                     onClick={() => setShowCreateModal(false)}
-                    className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                    className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1350,7 +1350,7 @@ export default function UsersPage() {
                     setEditingUser(null)
                     setUserPermissions([])
                   }}
-                  className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

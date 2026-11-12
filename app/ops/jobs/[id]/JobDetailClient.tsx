@@ -2151,7 +2151,7 @@ export default function JobDetailClient({
                 className={`flex-none min-w-[5.75rem] min-h-[44px] px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
                   mobileTab === tab.key
                     ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50'
-                    : 'border-transparent text-gray-700 hover:text-gray-700'
+                    : 'border-transparent text-gray-700 hover:text-gray-900'
                 }`}
               >
                 {tab.label}

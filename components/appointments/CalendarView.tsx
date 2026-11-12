@@ -859,28 +859,28 @@ export default function CalendarView() {
               <span className="font-semibold text-gray-900">{summaryAppointmentCount}</span>{' '}
               appointment{summaryAppointmentCount === 1 ? '' : 's'}
             </span>
-            <span className="flex items-center gap-1 text-xs text-gray-500">
+            <span className="flex items-center gap-1 text-xs text-gray-700">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500" /> Inspection
             </span>
-            <span className="flex items-center gap-1 text-xs text-gray-500">
+            <span className="flex items-center gap-1 text-xs text-gray-700">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" /> Close
             </span>
-            <span className="flex items-center gap-1 text-xs text-gray-500">
+            <span className="flex items-center gap-1 text-xs text-gray-700">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400" /> Follow-up
             </span>
-            <span className="flex items-center gap-1 text-xs text-gray-500">
+            <span className="flex items-center gap-1 text-xs text-gray-700">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-green-600" /> Completed
             </span>
-            <span className="flex items-center gap-1 text-xs text-gray-500">
+            <span className="flex items-center gap-1 text-xs text-gray-700">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" /> Cancelled
             </span>
-            <span className="flex items-center gap-1 text-xs text-gray-500">
+            <span className="flex items-center gap-1 text-xs text-gray-700">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500" /> No-show
             </span>
           </div>
         )}
         {!loading && currentUser && (
-          <p className="mb-2 text-sm text-gray-500">
+          <p className="mb-2 text-sm text-gray-700">
             {viewMode === 'day'
               ? 'Eastern time · scrolls to first event or 6 AM.'
               : viewMode === 'month'

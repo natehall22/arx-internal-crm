@@ -103,7 +103,7 @@ export default function FeedbackModal({ isOpen, onClose, userName, userEmail }: 
           <h2 className="text-lg font-semibold text-gray-900">Send Feedback</h2>
           <button
             onClick={onClose}
-            className="text-gray-600 hover:text-gray-600"
+            className="text-gray-600 hover:text-gray-900"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -118,7 +118,7 @@ export default function FeedbackModal({ isOpen, onClose, userName, userEmail }: 
             className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'bug'
                 ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-700 hover:text-gray-700'
+                : 'border-transparent text-gray-700 hover:text-gray-900'
             }`}
           >
             🐛 Report a Bug
@@ -128,7 +128,7 @@ export default function FeedbackModal({ isOpen, onClose, userName, userEmail }: 
             className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'feature'
                 ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-700 hover:text-gray-700'
+                : 'border-transparent text-gray-700 hover:text-gray-900'
             }`}
           >
             💡 Request a Feature

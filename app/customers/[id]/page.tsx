@@ -207,7 +207,7 @@ export default async function CustomerDetailPage({
                 className={`pb-3 text-sm font-medium ${
                   activeTab === tab.id
                     ? 'border-b-2 border-indigo-600 text-indigo-600'
-                    : 'text-gray-700 hover:text-gray-700'
+                    : 'text-gray-700 hover:text-gray-900'
                 }`}
               >
                 {tab.label}

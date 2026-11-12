@@ -734,7 +734,7 @@ export default function CanvassPage() {
           <div className="h-full overflow-y-auto p-4 pb-24">
             <div className="space-y-3">
               {displayPins.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
+                <div className="text-center py-12 text-gray-700">
                   <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   </svg>
@@ -775,11 +775,11 @@ export default function CanvassPage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-gray-500 mt-0.5">
+                          <p className="text-sm text-gray-700 mt-0.5">
                             {addressText || `${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`}
                           </p>
                           {phone && (
-                            <p className="text-sm text-gray-500">{formatPhone(phone)}</p>
+                            <p className="text-sm text-gray-700">{formatPhone(phone)}</p>
                           )}
                         </div>
                         <span className={`px-2 py-1 text-xs rounded-full font-medium ${

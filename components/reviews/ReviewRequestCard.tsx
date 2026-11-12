@@ -178,7 +178,7 @@ export default function ReviewRequestCard({ jobId, variant = 'full', onSent }: P
           <button
             type="button"
             onClick={() => setShowActions(true)}
-            className="text-gray-700 underline underline-offset-2 hover:text-gray-700"
+            className="text-gray-700 underline underline-offset-2 hover:text-gray-900"
           >
             Send again
           </button>
@@ -229,7 +229,7 @@ export default function ReviewRequestCard({ jobId, variant = 'full', onSent }: P
             <button
               type="button"
               onClick={() => setShowPreview((s) => !s)}
-              className="text-xs text-gray-700 underline underline-offset-2 hover:text-gray-700"
+              className="text-xs text-gray-700 underline underline-offset-2 hover:text-gray-900"
             >
               {showPreview ? 'Hide message' : 'Preview message'}
             </button>

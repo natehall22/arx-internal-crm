@@ -1126,7 +1126,7 @@ export default async function LeadView({
                 {/* History if more than one update */}
                 {inspectionUpdates.length > 1 && (
                   <details className="mt-4">
-                    <summary className="text-sm font-medium text-gray-700 cursor-pointer hover:text-gray-700">
+                    <summary className="text-sm font-medium text-gray-700 cursor-pointer hover:text-gray-900">
                       View history ({inspectionUpdates.length - 1} previous update{inspectionUpdates.length > 2 ? 's' : ''})
                     </summary>
                     <div className="mt-3 space-y-3">

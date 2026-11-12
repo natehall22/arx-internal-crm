@@ -208,7 +208,7 @@ export default function RegionsPage() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => openEditModal(region)}
-                      className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                       title="Edit"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
