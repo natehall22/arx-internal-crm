@@ -6,6 +6,8 @@ import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { loadBuilderMeasurement } from '@/lib/proposal-builder-measurement'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
+import { itemsForList } from '@/lib/price-list'
+import { ownListIdOrNull, resolveQuotePriceList, stampLineOptions } from '@/lib/price-list-server'
 import { canSeeFinancials } from '@/lib/financials-access'
 import { roundMoney } from '@/lib/money'
 import { readSalesTaxSettings } from '@/lib/sales-tax'
@@ -231,14 +233,29 @@ export async function GET(request: NextRequest) {
 
     const effectiveOpportunityId = opportunityIdParam || proposalOpportunityId
 
+    // Which price list: the quote's own, else the customer's, else the default (lib/price-list.ts). A company with one
+    // list (ARX) is offered every item, exactly as before.
+    const listOverride = searchParams.get('items_for_list')
+    const savedListId = existingProposal ? ((existingProposal.proposal as { pricebook_id?: string | null }).pricebook_id ?? null) : null
+    const customerRow = await (async () => {
+      if (!effectiveOpportunityId) return null
+      const { data: o } = await adminClient.from('opportunities').select('customer_id').eq('id', effectiveOpportunityId).eq('org_id', profile.org_id).maybeSingle()
+      return (o as { customer_id?: string | null } | null)?.customer_id ?? null
+    })()
+    const priceList = await resolveQuotePriceList(adminClient, profile.org_id, {
+      quoteListId: listOverride || savedListId,
+      customerId: customerRow,
+    })
+
     // Load pricebook items
-    const { data: items } = await adminClient
+    const { data: itemsAll } = await adminClient
       .from('pricebook_items')
       .select('*')
       .eq('org_id', profile.org_id)
       .eq('active', true)
       .order('category')
       .order('name')
+    const items = itemsForList((itemsAll ?? []) as Array<{ pricebook_id?: string | null }>, priceList.lists.length, priceList.id)
 
     // Filter based on visibility
     const costsOk = await canSeeFinancials(adminClient, { id: user.id, role: profile.role, custom_role_id: profile.custom_role_id })
@@ -249,6 +266,15 @@ export async function GET(request: NextRequest) {
       if (item.visibility === 'admin_only' && profile.role === 'admin') return true
       return false
     })
+
+    // The rep switched the quote's price list: only the items change (the rest of the page keeps what was typed).
+    if (listOverride) {
+      return NextResponse.json({
+        pricebookItems: visibleItems.filter((i: any) => !i.is_adder),
+        adders: visibleItems.filter((i: any) => i.is_adder),
+        priceListId: priceList.id,
+      })
+    }
 
     // Load templates
     const { data: templates } = await adminClient
@@ -380,6 +406,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       pricebookItems,
+      // Price lists: shown as a dropdown only when the company keeps more than one.
+      priceLists: priceList.lists,
+      priceListId: priceList.id,
       adders: visibleItems.filter((i: any) => i.is_adder),
       templates: templates || [],
       roofingTypes: roofingTypes || [],
@@ -425,6 +454,8 @@ function proposalLineItemRow(item: any, index: number, orgId: string, proposalId
     sort_order: index,
     ...(typeof item.taxable === 'boolean' ? { taxable: item.taxable } : {}),
     // Quote approval flags: written only when set, so a roofing save sends and stores exactly what it did before.
+    // Size option the rep tapped (stamped from the price book by stampLineOptions, never taken from the browser).
+    ...(typeof item.price_option_name === 'string' && item.price_option_name ? { price_option_key: typeof item.price_option_key === 'string' ? item.price_option_key : null, price_option_name: item.price_option_name, price_option_price: roundMoney(Number(item.price_option_price) || 0) } : {}),
     ...(item.is_optional === true ? { is_optional: true, optional_default_on: item.optional_default_on === true } : {}),
   }
 }
@@ -519,6 +550,11 @@ export async function POST(request: NextRequest) {
       accent_color: proposal.accent_color || '#4f46e5',
     }
 
+    // Price list this quote was built from (only when the browser sent one that is this company's own).
+    const quoteListId = await ownListIdOrNull(adminClient, profile.org_id, proposal.pricebook_id)
+    if (quoteListId) cleanProposal.pricebook_id = quoteListId
+    const savedLines = Array.isArray(lineItems) ? await stampLineOptions(adminClient, profile.org_id, lineItems as Record<string, unknown>[]) : lineItems
+
     // Company sales-tax rates: the server recomputes the money fields (lib/sales-tax-server.ts). Legacy quotes: unchanged.
     const taxFields = await proposalSalesTaxFields(adminClient, profile.org_id, cleanProposal.opportunity_id ? { ...proposal, opportunity_id: cleanProposal.opportunity_id } : proposal, Array.isArray(lineItems) ? (lineItems as Record<string, unknown>[]) : [])
     if (taxFields) Object.assign(cleanProposal, taxFields)
@@ -552,8 +588,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Create line items (required for a coherent proposal — rollback on failure)
-    if (lineItems && lineItems.length > 0) {
-      const lineItemsToInsert = lineItems.map((item: any, index: number) => proposalLineItemRow(item, index, profile.org_id, newProposal.id))
+    if (savedLines && savedLines.length > 0) {
+      const lineItemsToInsert = savedLines.map((item: any, index: number) => proposalLineItemRow(item, index, profile.org_id, newProposal.id))
 
       const { error: lineItemsError } = await adminClient
         .from('proposal_line_items')
@@ -692,6 +728,11 @@ export async function PUT(request: NextRequest) {
       updated_at: new Date().toISOString(),
     }
 
+    // Price list this quote was built from (only when the browser sent one that is this company's own).
+    const quoteListId = await ownListIdOrNull(adminClient, profile.org_id, proposal.pricebook_id)
+    if (quoteListId) cleanProposal.pricebook_id = quoteListId
+    const savedLines = Array.isArray(lineItems) ? await stampLineOptions(adminClient, profile.org_id, lineItems as Record<string, unknown>[]) : lineItems
+
     // Company sales-tax rates: the server recomputes the money fields (lib/sales-tax-server.ts). Legacy quotes: unchanged.
     const taxFields = await proposalSalesTaxFields(adminClient, profile.org_id, cleanProposal.opportunity_id ? { ...proposal, opportunity_id: cleanProposal.opportunity_id } : proposal, Array.isArray(lineItems) ? (lineItems as Record<string, unknown>[]) : [])
     if (taxFields) Object.assign(cleanProposal, taxFields)
@@ -741,8 +782,8 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: `Failed to clear line items: ${delErr.message}` }, { status: 400 })
     }
 
-    if (lineItems && lineItems.length > 0) {
-      const lineItemsToInsert = lineItems.map((item: any, index: number) => proposalLineItemRow(item, index, profile.org_id, proposal_id))
+    if (savedLines && savedLines.length > 0) {
+      const lineItemsToInsert = savedLines.map((item: any, index: number) => proposalLineItemRow(item, index, profile.org_id, proposal_id))
 
       const { error: lineItemsError } = await adminClient.from('proposal_line_items').insert(lineItemsToInsert)
 

@@ -6,6 +6,7 @@ import {
   BASE_TERMS,
   INDUSTRY_PROFILE_IDS,
   INDUSTRY_PROFILES,
+  PRICE_SHEET_UNITS,
   PROFILE_ONLY_UNITS,
   TERM_KEYS,
   TERM_LABELS,
@@ -25,7 +26,7 @@ import { profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { parseCompanySeedInput } from '@/lib/company-seed'
 
 const read = (f: string) => readFileSync(path.join(process.cwd(), f), 'utf8')
-const lawnSettings = { profile: { id: 'lawn_landscape', version: 3 } }
+const lawnSettings = { profile: { id: 'lawn_landscape', version: 4 } }
 
 const flags = { isOpsOnly: false, canSeeOpsDashboard: true, canSeeJobBoard: true, canSeeInsideSales: true, projectsBarred: false, salesDocBarred: false, customerRecords: true, reports: true, isPayrollAdmin: true, earnsPay: true, payWeek: true }
 const owner = (extra: Partial<NavContext> = {}): NavContext => ({ permsReady: true, role: 'owner', fullAccess: true, permissionNames: new Set(), flags, ...extra })
@@ -103,7 +104,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
 
   it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing + customer messages on', () => {
     expect(lawn.id).toBe('lawn_landscape')
-    expect(lawn.storedVersion).toBe(3)
+    expect(lawn.storedVersion).toBe(4)
     for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval'])
   })
 
@@ -150,7 +151,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
   })
 
   it('price book: per visit / month / sq ft / hour / each; starter reports only', () => {
-    expect(lawn.pricebook.units.map((u) => u.value)).toEqual(['visit', 'month', 'per_sqft', 'hour', 'each', 'job'])
+    expect(lawn.pricebook.units.map((u) => u.value)).toEqual(['visit', 'month', 'lot', 'home', 'package', 'pallet', 'load', 'service', 'per_sqft', 'hour', 'each', 'job'])
     expect(lawn.starterReports).not.toContain('doors-by-rep')
     expect(lawn.starterReports).toContain('ar-aging')
   })
@@ -272,7 +273,7 @@ describe('definitions stay wired to real things (parity)', () => {
     // Reports: every starter key is a template.
     for (const k of p.starterReports ?? []) expect([k, REPORT_TEMPLATES.some((r) => r.key === k)]).toEqual([k, true])
     // Units: in the prod enum (2026-11-10) or added by migration 202611100090.
-    const enumValues = ['square', 'each', 'lf', 'sheet', 'job', 'percent', 'per_sqft', 'sqft', ...PROFILE_ONLY_UNITS]
+    const enumValues = ['square', 'each', 'lf', 'sheet', 'job', 'percent', 'per_sqft', 'sqft', ...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS]
     for (const u of p.pricebook.units) expect([u.value, enumValues.includes(u.value)]).toEqual([u.value, true])
     expect(p.pricebook.units.some((u) => u.value === 'each')).toBe(true) // the add-on form's default
     expect(p.pricebook.adderCategories).toContain('Other') // the add-on form's default category

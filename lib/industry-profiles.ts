@@ -133,15 +133,22 @@ const BASE_UNITS: readonly PricebookUnit[] = [
 ]
 /** Units that need migration 202611100090 (DB enum `unit`): saving one before it is applied fails with a clear error. */
 export const PROFILE_ONLY_UNITS: readonly string[] = ['visit', 'month', 'hour']
+/** Price-sheet units (migration 202611220030, NOT applied): a builder / service price list prices per package, pallet, lot, home, load, service. */
+export const PRICE_SHEET_UNITS: readonly string[] = ['package', 'pallet', 'lot', 'home', 'load', 'service']
+const SERVICE_UNIT_MIGRATION: Record<string, string> = {
+  ...Object.fromEntries(PROFILE_ONLY_UNITS.map((u) => [u, '202611100090'])),
+  ...Object.fromEntries(PRICE_SHEET_UNITS.map((u) => [u, '202611220030'])),
+}
 
 /**
  * Pure: a pricebook_items save error caused by a service unit the database doesn't have yet (migration 202611100090 not
  * applied) → a message an owner can act on; anything else → null (the caller reports its usual error).
  */
 export function serviceUnitNotReadyMessage(error: { code?: string; message?: string } | null | undefined, unit: unknown): string | null {
-  if (!error || typeof unit !== 'string' || !PROFILE_ONLY_UNITS.includes(unit)) return null
+  const migration = typeof unit === 'string' ? SERVICE_UNIT_MIGRATION[unit] : undefined
+  if (!error || !migration) return null
   const enumError = error.code === '22P02' || /invalid input value for enum/i.test(error.message ?? '')
-  return enumError ? `Pricing “per ${unit}” needs a database update (migration 202611100090) that hasn’t been applied yet. Use “Each” for now, or ask your administrator to apply it.` : null
+  return enumError ? `Pricing “per ${unit}” needs a database update (migration ${migration}) that hasn’t been applied yet. Use “Each” for now, or ask your administrator to apply it.` : null
 }
 
 const NO_TODAY: TodayProfile = { order: [], hidden: [], texts: {}, planned: [] }
@@ -195,7 +202,7 @@ const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
-  version: 3,
+  version: 4,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
   features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, ...ROOF_ONLY_OFF },
@@ -243,6 +250,12 @@ const lawnLandscape: IndustryProfile = {
     units: [
       { value: 'visit', label: 'Per visit' },
       { value: 'month', label: 'Per month' },
+      { value: 'lot', label: 'Per lot' },
+      { value: 'home', label: 'Per home' },
+      { value: 'package', label: 'Per package' },
+      { value: 'pallet', label: 'Per pallet' },
+      { value: 'load', label: 'Per load' },
+      { value: 'service', label: 'Per service' },
       { value: 'per_sqft', label: 'Per sq ft' },
       { value: 'hour', label: 'Per hour' },
       { value: 'each', label: 'Each' },
@@ -254,7 +267,7 @@ const lawnLandscape: IndustryProfile = {
 
 const exteriorCleaning: IndustryProfile = {
   id: 'exterior_cleaning',
-  version: 2,
+  version: 3,
   label: 'Exterior cleaning',
   description: 'Pressure washing, soft washing, window and gutter cleaning — one-off and repeat.',
   // Door knocking stays on: many cleaning companies sell door to door.
@@ -287,6 +300,8 @@ const exteriorCleaning: IndustryProfile = {
       { value: 'per_sqft', label: 'Per sq ft' },
       { value: 'lf', label: 'Linear Foot' },
       { value: 'each', label: 'Each' },
+      { value: 'home', label: 'Per home' },
+      { value: 'service', label: 'Per service' },
       { value: 'visit', label: 'Per visit' },
       { value: 'hour', label: 'Per hour' },
       { value: 'job', label: 'Per job' },

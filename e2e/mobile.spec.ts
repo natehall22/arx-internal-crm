@@ -598,6 +598,7 @@ const SCREENS: Screen[] = [
     await p.route('**/api/admin/quote-approval', (route) => route.fulfill(json({ settings: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0, linkDays: 30, terms: 'Work is scheduled within two weeks.' } })))
   } },
   { name: 'invoice-online', path: '/dev-harness/invoice-online', ready: 'text=Copy pay link' },
+  { name: 'price-list', path: '/dev-harness/price-list', ready: 'text=for this customer use' },
   { name: 'tax-exemption', path: '/dev-harness/tax-exemption', ready: 'text=Tax exempt (no sales tax' },
   { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',
     states: [{ name: 'editing-brand', run: async (p) => { await p.getByLabel('Website').fill('example.test/roofing'); await p.waitForTimeout(200) } }] },

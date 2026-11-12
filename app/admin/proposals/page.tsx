@@ -8,6 +8,7 @@ import { getManagerSpoRoleSummary } from '@/lib/manager-commission-roles'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { readPriceOptions, type PriceOption } from '@/lib/price-list'
 
 interface PricebookItem {
   id: string
@@ -25,6 +26,9 @@ interface PricebookItem {
   manager_spo_enabled?: boolean
   manager_spo_percent?: number | null
   active: boolean
+  pricebook_id?: string | null
+  price_options?: PriceOption[] | null
+  description?: string | null
 }
 
 interface ProposalTemplate {
@@ -80,6 +84,10 @@ function emptyAdderForm() {
     show_to_customer: false,  // Default: adders hidden from customer proposal
     // Sales tax default for lines added from this item (lib/sales-tax.ts)
     is_taxable: true,
+    // Size options (e.g. Small lot $45): typed rows; empty = the one price above
+    price_options: [] as Array<{ key?: string; label: string; price: string }>,
+    // Conditions in plain words, shown on the quote line
+    description: '',
   }
 }
 
@@ -93,6 +101,10 @@ export default function AdminProposalsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('pricing')
   const [pricebookItems, setPricebookItems] = useState<PricebookItem[]>([])
   const [templates, setTemplates] = useState<ProposalTemplate[]>([])
+  /** Price lists (e.g. Standard, Builder). Items belong to one; the page shows the chosen list's items. */
+  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; is_default: boolean }>>([])
+  const [listId, setListId] = useState<string | null>(null)
+  const [newListName, setNewListName] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   
   // Modal states
@@ -141,6 +153,9 @@ export default function AdminProposalsPage() {
       const data = await response.json()
       setPricebookItems(data.pricebookItems || [])
       setTemplates(data.templates || [])
+      const lists: Array<{ id: string; name: string; is_default: boolean }> = data.priceLists || []
+      setPriceLists(lists)
+      setListId((cur) => (cur && lists.some((l) => l.id === cur) ? cur : (lists.find((l) => l.is_default) ?? lists[0])?.id ?? null))
       setLoading(false)
     } catch (err) {
       console.error('Error loading data:', err)
@@ -217,7 +232,8 @@ export default function AdminProposalsPage() {
       }
     }
     
-    if (finalUnitPrice <= 0) {
+    const optionRows = adderForm.price_options.filter((o) => o.label.trim() || o.price.trim())
+    if (optionRows.length === 0 && finalUnitPrice <= 0) {
       toast.error('Please enter a price directly, or set material/labor costs')
       return
     }
@@ -228,6 +244,8 @@ export default function AdminProposalsPage() {
       const dataToSave = {
         ...adderForm,
         unit_price: finalUnitPrice.toString(),
+        price_options: optionRows.map((o) => ({ ...(o.key ? { key: o.key } : {}), label: o.label.trim(), price: o.price })),
+        pricebook_id: listId,
         id: editingAdder?.id, // Include ID if editing
       }
       console.log('Data to save:', dataToSave)
@@ -340,6 +358,8 @@ export default function AdminProposalsPage() {
       manager_spo_percent: adder.manager_spo_percent != null ? String(adder.manager_spo_percent) : '',
       show_to_customer: (adder as any).show_to_customer ?? false,
       is_taxable: (adder as any).is_taxable !== false,
+      price_options: readPriceOptions(adder.price_options).map((o) => ({ key: o.key, label: o.label, price: String(o.price) })),
+      description: adder.description ?? '',
     })
     setShowAddAdder(true)
   }
@@ -385,6 +405,29 @@ export default function AdminProposalsPage() {
     )
   }
 
+  // One list = every item (as before); several lists = the chosen list's items.
+  const listItems = priceLists.length > 1 ? pricebookItems.filter((i) => i.pricebook_id === listId) : pricebookItems
+
+  const addPriceList = async () => {
+    const name = (newListName ?? '').trim()
+    if (!name) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/pricing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'pricebook', name }) })
+      const out = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(out.error || 'Could not add the price list')
+      } else {
+        setNewListName(null)
+        setListId(out.pricebook?.id ?? null)
+        await loadData()
+      }
+    } catch {
+      toast.error('Could not add the price list')
+    }
+    setSaving(false)
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -402,6 +445,41 @@ export default function AdminProposalsPage() {
             <p className="text-gray-500 mt-1">Manage pricing visibility, adders, and templates</p>
           </div>
         </div>
+
+        {/* Price list: one dropdown (+ add). Shown once a company has, or wants, more than one. */}
+        {activeTab !== 'templates' && (
+          <div className="mb-6 flex flex-wrap items-end gap-3">
+            {priceLists.length > 1 && (
+              <div>
+                <label htmlFor="price-list" className="block text-sm font-medium text-gray-900 mb-1">Price list</label>
+                <select
+                  id="price-list"
+                  value={listId ?? ''}
+                  onChange={(e) => setListId(e.target.value)}
+                  className="min-h-[44px] px-4 border border-gray-300 rounded-lg text-base text-gray-900"
+                >
+                  {priceLists.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}{l.is_default ? ' (standard)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {newListName === null ? (
+              <button type="button" onClick={() => setNewListName('')} className="min-h-[44px] px-4 border border-gray-300 rounded-lg text-sm font-medium text-gray-900 hover:bg-gray-50">
+                + New price list
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label htmlFor="new-price-list" className="block text-sm font-medium text-gray-900 mb-1">Name (e.g. Builder)</label>
+                  <input id="new-price-list" autoFocus value={newListName} onChange={(e) => setNewListName(e.target.value)} maxLength={60} className="min-h-[44px] px-4 border border-gray-300 rounded-lg text-base" />
+                </div>
+                <button type="button" disabled={saving || !newListName.trim()} onClick={() => void addPriceList()} className="min-h-[44px] px-4 bg-indigo-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">Add</button>
+                <button type="button" onClick={() => setNewListName(null)} className="min-h-[44px] px-4 text-sm text-gray-900">Cancel</button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b">
@@ -444,7 +522,7 @@ export default function AdminProposalsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {pricebookItems.filter(i => i.active).map((item) => (
+                {listItems.filter(i => i.active).map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
                     <td className="px-6 py-4 text-gray-500">{item.category}</td>
@@ -520,7 +598,7 @@ export default function AdminProposalsPage() {
                 </p>
               </div>
               
-              {pricebookItems.filter(i => i.is_adder && i.active).length === 0 ? (
+              {listItems.filter(i => i.is_adder && i.active).length === 0 ? (
                 <div className="p-12 text-center">
                   <p className="text-gray-500 mb-4">No adders configured yet</p>
                   <button
@@ -536,7 +614,7 @@ export default function AdminProposalsPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
-                  {pricebookItems.filter(i => i.is_adder && i.active).map((item) => (
+                  {listItems.filter(i => i.is_adder && i.active).map((item) => (
                     <div key={item.id} className="border rounded-xl p-4 hover:border-indigo-200">
                       <div className="flex items-start justify-between">
                         <div>
@@ -569,10 +647,15 @@ export default function AdminProposalsPage() {
                           {item.unit_price}% <span className="text-sm font-normal text-gray-400">of total</span>
                         </p>
                       ) : (
-                        <p className="text-lg font-bold text-indigo-600 mt-2">
-                          ${(item.unit_price || 0).toFixed(2)}{' '}
-                          <span className="text-sm font-normal text-gray-400">per {unitLabelForDisplay(item.unit)}</span>
-                        </p>
+                        <>
+                          <p className="text-lg font-bold text-indigo-600 mt-2">
+                            {readPriceOptions(item.price_options).length > 0 ? 'from ' : ''}${(item.unit_price || 0).toFixed(2)}{' '}
+                            <span className="text-sm font-normal text-gray-400">per {unitLabelForDisplay(item.unit)}</span>
+                          </p>
+                          {readPriceOptions(item.price_options).length > 0 && (
+                            <p className="text-sm text-gray-900">{readPriceOptions(item.price_options).map((o) => `${o.label} $${o.price}`).join(' · ')}</p>
+                          )}
+                        </>
                       )}
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {item.price_type === 'percentage' && (
@@ -777,6 +860,63 @@ export default function AdminProposalsPage() {
                           Reps enter square feet on the proposal; it is not tied to roof squares.
                         </p>
                       )}
+                    </div>
+
+                    {/* Size options: optional named prices; the rep taps one on the quote */}
+                    <div className="p-4 border border-gray-200 rounded-lg">
+                      <p className="text-sm font-medium text-gray-900">Sizes (optional)</p>
+                      <p className="text-xs text-gray-600 mb-3">For items priced by size, e.g. Small lot $45, Large lot $80. The rep taps one on the quote.</p>
+                      {adderForm.price_options.map((o, idx) => (
+                        <div key={o.key ?? `new-${idx}`} className="flex items-center gap-2 mb-2">
+                          <input
+                            aria-label="Size name"
+                            value={o.label}
+                            maxLength={60}
+                            placeholder="Small lot"
+                            onChange={(e) => setAdderForm((prev) => ({ ...prev, price_options: prev.price_options.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x)) }))}
+                            className="min-h-[44px] flex-1 min-w-0 px-3 border border-gray-300 rounded-lg text-base"
+                          />
+                          <input
+                            aria-label="Size price"
+                            inputMode="decimal"
+                            value={o.price}
+                            placeholder="45"
+                            onChange={(e) => setAdderForm((prev) => ({ ...prev, price_options: prev.price_options.map((x, i) => (i === idx ? { ...x, price: e.target.value } : x)) }))}
+                            className="min-h-[44px] w-24 px-3 border border-gray-300 rounded-lg text-base"
+                          />
+                          <button
+                            type="button"
+                            aria-label="Remove size"
+                            onClick={() => setAdderForm((prev) => ({ ...prev, price_options: prev.price_options.filter((_, i) => i !== idx) }))}
+                            className="min-h-[44px] min-w-[44px] text-red-600 text-xl"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setAdderForm((prev) => ({ ...prev, price_options: [...prev.price_options, { label: '', price: '' }] }))}
+                        className="min-h-[44px] px-4 border border-gray-300 rounded-lg text-sm font-medium text-gray-900 hover:bg-gray-50"
+                      >
+                        + Add a size
+                      </button>
+                      {adderForm.price_options.length > 0 && (
+                        <p className="text-xs text-gray-600 mt-2">With sizes, the selling price below is ignored; the lowest size shows as “from”.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label htmlFor="adder-description" className="block text-sm font-medium text-gray-900 mb-1">Notes on the quote (optional)</label>
+                      <textarea
+                        id="adder-description"
+                        rows={2}
+                        maxLength={500}
+                        value={adderForm.description}
+                        onChange={(e) => setAdderForm((prev) => ({ ...prev, description: e.target.value }))}
+                        placeholder="e.g. Only charged when more than one load is needed"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                      />
                     </div>
 
                     {/* Cost Inputs */}

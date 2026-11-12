@@ -1,0 +1,40 @@
+{
+  "_about": "Precision Maintenance — Builder Service Program price sheet. Load with: npm run import:price-list -- data/precision-builder-pricing.json --org=<org id> [--apply]. Dry run unless --apply. Needs migration 202611220030 applied first.",
+  "priceList": { "name": "Builder" },
+  "quoteTerms": "Pricing reflects the services and quantities listed. Additional services or materials outside the standard scope will be quoted separately.",
+  "items": [
+    { "name": "Standard plant package", "unit": "package", "price": 550, "category": "Landscaping", "description": "14 three-gallon plants, 20 one-gallon plants, 14 bales of pine straw." },
+    { "name": "Small plant package", "unit": "package", "price": 425, "category": "Landscaping", "description": "Includes installation." },
+    { "name": "Sod installation", "unit": "pallet", "price": 220, "category": "Landscaping" },
+    {
+      "name": "Standard yard mowing",
+      "unit": "lot",
+      "category": "Lawn care",
+      "description": "Price depends on lot size.",
+      "options": [
+        { "label": "Small lot (size TBD)", "price": 45, "placeholder": true },
+        { "label": "Large lot (size TBD)", "price": 80, "placeholder": true }
+      ]
+    },
+    {
+      "name": "Soft wash",
+      "unit": "home",
+      "category": "Soft wash / pressure washing",
+      "description": "Price depends on home square footage.",
+      "options": [
+        { "label": "Smaller home (size TBD)", "price": 225, "placeholder": true },
+        { "label": "Larger home (size TBD)", "price": 400, "placeholder": true }
+      ]
+    },
+    { "name": "Tractor rough grade", "unit": "hour", "price": 250, "category": "Tractor / land work" },
+    { "name": "Tractor final grade", "unit": "hour", "price": 300, "category": "Tractor / land work" },
+    { "name": "Haul outs", "unit": "load", "price": 50, "category": "Clean-up" },
+    { "name": "Grading fill", "unit": "load", "price": 50, "category": "Tractor / land work", "description": "Only charged when more than one load is required." },
+    { "name": "Exterior cleaning", "unit": "service", "price": 75, "category": "Soft wash / pressure washing" }
+  ],
+  "_openQuestions": [
+    "Mowing: where are the lot-size cutoffs between $45 and $80? Is there a middle size? (only the two end prices are known)",
+    "Soft wash: where are the home-size cutoffs between $225 and $400? (under 2,000 sq ft / over 3,500 sq ft was an example, not confirmed)",
+    "Which items are taxable in FL? (loaded with the default: taxable)"
+  ]
+}

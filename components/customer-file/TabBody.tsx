@@ -18,6 +18,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 import { HEALTH_RESULT_STYLE } from '@/lib/health-result'
 import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
+import PriceListCard from '@/components/customer/PriceListCard'
+import { loadCustomerPriceListId, loadPriceLists } from '@/lib/price-list-server'
 import { loadCustomerTaxExemption, loadOrgSalesTax } from '@/lib/sales-tax-server'
 import { orgDb } from '@/lib/supabase/org-db'
 import PortalAccessCard from '@/components/customer-file/PortalAccessCard'
@@ -60,6 +62,14 @@ async function loadTaxExemptionCard(orgId: string, customerId: string) {
   return { initial, documents }
 }
 
+/** Price list card: billing staff, and only once the company keeps more than one list (nothing to choose otherwise). */
+async function loadPriceListCard(orgId: string, customerId: string) {
+  const admin = createServiceClient()
+  const lists = await loadPriceLists(admin, orgId)
+  if (lists.length < 2) return null
+  return { lists, listId: (await loadCustomerPriceListId(admin, orgId, customerId)) ?? '' }
+}
+
 /** One tab's content. Each tab is its own route, so only the active one runs its queries. */
 export default async function TabBody({ customerId, dealId, tab, jobTab = null }: { customerId: string; dealId: string; tab: string; jobTab?: string | null }) {
   if (!isFileTab(tab)) notFound()
@@ -99,7 +109,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
   const { job, deal, customer } = ctx
   // Checkups are job-side: only people with the job board see them (field roles never do).
   const admin = createServiceClient()
-  const [checkups, extras, taxExemption, messages, texting] = await Promise.all([
+  const [checkups, extras, taxExemption, priceList, messages, texting] = await Promise.all([
     ctx.viewer.jobBoard || ctx.viewer.ownerLike
       ? loadCheckups(admin, ctx.viewer.orgId, { customerId: customer.id }).catch(() => null)
       : Promise.resolve(null),
@@ -107,6 +117,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
     loadCustomerExtras(admin, ctx.viewer, customer.id).catch(() => null),
     // Sales tax exemption: billing staff, and only once the company has set up sales tax (lib/sales-tax.ts).
     ctx.canViewJobBilling ? loadTaxExemptionCard(ctx.viewer.orgId, customer.id).catch(() => null) : Promise.resolve(null),
+    ctx.canViewJobBilling ? loadPriceListCard(ctx.viewer.orgId, customer.id).catch(() => null) : Promise.resolve(null),
     loadCustomerMessagesCard(ctx.viewer, customer.id).catch(() => null),
     loadTextingCard(ctx.viewer, customer.id).catch(() => null),
   ])
@@ -152,6 +163,8 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
       {messages && <CustomerMessagesCard customerId={customer.id} initial={messages.state} canEdit={messages.canEdit} />}
 
       {texting && <TextingCard state={texting} />}
+
+      {priceList && <PriceListCard proposalWord={ctx.proposalWord} customerId={customer.id} lists={priceList.lists} initialListId={priceList.listId} />}
 
       {taxExemption && <TaxExemptionCard proposalWord={ctx.proposalWord} customerId={customer.id} initial={taxExemption.initial} documents={taxExemption.documents} />}
 
