@@ -524,8 +524,12 @@ export default function LeadModal({
                         </button>
                       )}
                     </div>
+                    {/* One fixed-height box for every state (loading, error, empty, slots), so the contact fields below never
+                        jump when slots arrive late (the empty-result retry lands ~1s after the modal opens; a jump then put the
+                        rep's tap on First Name when they meant Phone). */}
+                    <div className="h-48 overflow-y-auto">
                     {loadingSlots ? (
-                      <div className="flex items-center justify-center py-4">
+                      <div className="flex h-full items-center justify-center py-4">
                         <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
                         <span className="ml-2 text-sm text-gray-500">Loading available times...</span>
                       </div>
@@ -541,7 +545,7 @@ export default function LeadModal({
                         </button>
                       </div>
                     ) : timeSlots.length > 0 ? (
-                      <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                      <div className="grid grid-cols-3 gap-2">
                         {timeSlots.map(slot => (
                           <button
                             key={slot.time}
@@ -565,6 +569,7 @@ export default function LeadModal({
                         No available time slots. Tap Refresh above to try again.
                       </p>
                     )}
+                    </div>
                     <p className="mt-2 text-xs text-gray-500">
                       Buffer times are editable in <strong>Settings → Calendar</strong> (personal) or
                       <strong> Admin → Teams → Closer Queue</strong> (team round-robin).
