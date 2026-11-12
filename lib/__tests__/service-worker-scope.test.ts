@@ -6,6 +6,7 @@ import {
   LEGACY_SW_CACHES,
   cleanupLegacyServiceWorkers,
   isLegacyRegistration,
+  applyWaitingUpdate,
   registerCanvassServiceWorker,
 } from '@/lib/service-worker-scope'
 
@@ -27,6 +28,7 @@ function mockSW(regs: ServiceWorkerRegistration[], registerImpl?: jest.Mock) {
     getRegistrations: jest.fn().mockResolvedValue(regs),
     register: registerImpl ?? jest.fn(),
     controller: null as unknown,
+    addEventListener: jest.fn(),
   }
   Object.defineProperty(navigator, 'serviceWorker', { value: sw, configurable: true })
   return sw
@@ -68,19 +70,28 @@ describe('cleanupLegacyServiceWorkers', () => {
     expect(deleted.sort()).toEqual([...LEGACY_SW_CACHES].sort())
     expect(deleted).not.toContain('canvass-v3')
   })
+  it('leaves the old worker alone until the /canvass worker is active', async () => {
+    const oldRoot = reg('/sw.js'.replace('/sw.js', '/'), '/sw.js')
+    mockSW([oldRoot, reg('/canvass', null, { installing: worker('/canvass-sw.js') })])
+    expect(await cleanupLegacyServiceWorkers()).toBe(0)
+    mockSW([oldRoot])
+    expect(await cleanupLegacyServiceWorkers()).toBe(0)
+    expect(oldRoot.unregister).not.toHaveBeenCalled()
+    expect(deleted).toEqual([])
+  })
   it('never throws when the browser rejects', async () => {
     const sw = mockSW([])
     sw.getRegistrations.mockRejectedValue(new Error('denied'))
     await expect(cleanupLegacyServiceWorkers()).resolves.toBe(0)
     const bad = reg('/', '/sw.js', { unregister: jest.fn().mockRejectedValue(new Error('x')) })
-    mockSW([bad])
+    mockSW([bad, reg('/canvass', '/canvass-sw.js')])
     await expect(cleanupLegacyServiceWorkers()).resolves.toBe(0)
   })
   it('does not touch IndexedDB or localStorage', async () => {
     const del = jest.fn()
     Object.defineProperty(global, 'indexedDB', { configurable: true, value: { deleteDatabase: del, open: del } })
     localStorage.setItem('canvass-offline-store', '{"state":{"pendingLeads":[{"id":1}]}}')
-    mockSW([reg('/', '/sw.js')])
+    mockSW([reg('/', '/sw.js'), reg('/canvass', '/canvass-sw.js')])
     await cleanupLegacyServiceWorkers()
     expect(del).not.toHaveBeenCalled()
     expect(localStorage.getItem('canvass-offline-store')).toContain('pendingLeads')
@@ -88,24 +99,48 @@ describe('cleanupLegacyServiceWorkers', () => {
 })
 
 describe('registerCanvassServiceWorker', () => {
-  it('cleans up first, then registers at /canvass', async () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0))
+
+  it('registers at /canvass FIRST and retires the old worker only after the new one activates', async () => {
     const order: string[] = []
     const old = reg('/', '/sw.js', { unregister: jest.fn(async () => { order.push('unregister'); return true }) })
-    const fresh = reg('/canvass', null)
+    let onState: (() => void) | undefined
+    const installing = { scriptURL: 'https://crm.test/canvass-sw.js', state: 'installing', postMessage: jest.fn(), addEventListener: jest.fn((_: string, cb: () => void) => { onState = cb }) }
+    const fresh = reg('/canvass', null, { installing })
     const register = jest.fn(async () => { order.push('register'); return fresh })
-    mockSW([old], register)
+    const sw = mockSW([old], register)
     await registerCanvassServiceWorker()
-    expect(order).toEqual(['unregister', 'register'])
     expect(register).toHaveBeenCalledWith(CANVASS_SW_URL, { scope: CANVASS_SW_SCOPE })
+    await flush()
+    expect(order).toEqual(['register']) // not active yet: old worker untouched
+    installing.state = 'activated'
+    ;(fresh as unknown as { active: unknown }).active = installing
+    sw.getRegistrations.mockResolvedValue([old, fresh])
+    onState!()
+    await flush(); await flush()
+    expect(order).toEqual(['register', 'unregister'])
   })
-  it('asks a waiting worker to take over', async () => {
+  it('a failed install leaves the old worker in place', async () => {
+    const old = reg('/', '/sw.js')
+    let onState: (() => void) | undefined
+    const installing = { scriptURL: 'https://crm.test/canvass-sw.js', state: 'installing', postMessage: jest.fn(), addEventListener: jest.fn((_: string, cb: () => void) => { onState = cb }) }
+    mockSW([old], jest.fn().mockResolvedValue(reg('/canvass', null, { installing })))
+    await registerCanvassServiceWorker()
+    installing.state = 'redundant'
+    onState!()
+    await flush()
+    expect(old.unregister).not.toHaveBeenCalled()
+  })
+  it('never posts SKIP_WAITING by itself (updates are applied by a tap)', async () => {
     const waiting = worker('/canvass-sw.js')
     mockSW([], jest.fn().mockResolvedValue(reg('/canvass', '/canvass-sw.js', { waiting })))
     await registerCanvassServiceWorker()
+    await flush()
+    expect(waiting.postMessage).not.toHaveBeenCalled()
+    applyWaitingUpdate(reg('/canvass', null, { waiting }))
     expect(waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
   })
   it('returns null without service worker support', async () => {
-    Object.defineProperty(navigator, 'serviceWorker', { value: undefined, configurable: true })
     delete (navigator as unknown as Record<string, unknown>).serviceWorker
     expect(await registerCanvassServiceWorker()).toBeNull()
   })

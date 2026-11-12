@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 interface Position {
   lat: number
@@ -18,6 +18,13 @@ interface GeolocationState {
   watching: boolean
 }
 
+/** A fix too old or too rough to drop a pin on (a pin at the wrong house is worse than a short wait). */
+export const MAX_FIX_AGE_MS = 30_000
+export const MAX_FIX_ACCURACY_M = 50
+export function isUsableFix(pos: { accuracy: number; timestamp: number } | null, now = Date.now()): boolean {
+  return !!pos && now - pos.timestamp <= MAX_FIX_AGE_MS && pos.accuracy <= MAX_FIX_ACCURACY_M
+}
+
 export function useGeolocation(options?: PositionOptions) {
   const [state, setState] = useState<GeolocationState>({
     position: null,
@@ -26,7 +33,7 @@ export function useGeolocation(options?: PositionOptions) {
     watching: false,
   })
 
-  const [watchId, setWatchId] = useState<number | null>(null)
+  const watchIdRef = useRef<number | null>(null)
 
   const defaultOptions: PositionOptions = {
     enableHighAccuracy: true,
@@ -93,26 +100,27 @@ export function useGeolocation(options?: PositionOptions) {
     // Get initial position
     navigator.geolocation.getCurrentPosition(handleSuccess, handleError, defaultOptions)
 
-    // Start watching
-    const id = navigator.geolocation.watchPosition(handleSuccess, handleError, defaultOptions)
-    setWatchId(id)
+    // Start watching (one watch at a time: clear the previous one first)
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
+    watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, defaultOptions)
   }, [handleSuccess, handleError])
 
   const stopWatching = useCallback(() => {
-    if (watchId !== null) {
-      navigator.geolocation.clearWatch(watchId)
-      setWatchId(null)
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current)
+      watchIdRef.current = null
       setState((prev) => ({ ...prev, watching: false }))
     }
-  }, [watchId])
+  }, [])
 
   useEffect(() => {
     // Auto-start watching on mount
     requestPermission()
 
     return () => {
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId)
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+        watchIdRef.current = null
       }
     }
   }, [])

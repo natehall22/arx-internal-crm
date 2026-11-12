@@ -17,6 +17,7 @@ let pushed = 0 // history entries we have added and not yet removed
 let suppress = 0 // popstate events caused by our own history.go()
 let scheduled = false
 let listening = false
+let safetyTimer: number | null = null
 
 function reconcile() {
   scheduled = false
@@ -30,7 +31,9 @@ function reconcile() {
     const extra = pushed - stack.length
     pushed = stack.length
     suppress++
-    window.setTimeout(() => {
+    if (safetyTimer !== null) window.clearTimeout(safetyTimer) // each new wait restarts the safety timer
+    safetyTimer = window.setTimeout(() => {
+      safetyTimer = null
       suppress = 0 // safety: if the pop never fired (user navigated away), do not swallow a real Back
     }, 1000)
     window.history.go(-extra)
@@ -46,6 +49,10 @@ function schedule() {
 function onPopState() {
   if (suppress > 0) {
     suppress--
+    if (suppress === 0 && safetyTimer !== null) {
+      window.clearTimeout(safetyTimer)
+      safetyTimer = null
+    }
     return
   }
   if (stack.length === 0) {

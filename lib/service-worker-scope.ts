@@ -35,12 +35,22 @@ export function isLegacyRegistration(reg: ServiceWorkerRegistration): boolean {
   return scripts.some((p) => p !== null && LEGACY_SCRIPT_PATHS.includes(p))
 }
 
-/** Unregister the old `/`-scope registrations and delete the deleted worker's caches. Never throws. Returns how many were removed. */
+/** A registration at exactly the canvass scope that is running (not just installing). */
+function isActiveCanvassRegistration(reg: ServiceWorkerRegistration): boolean {
+  return pathOf(reg.scope) === CANVASS_SW_SCOPE && !!reg.active && pathOf(reg.active.scriptURL) === CANVASS_SW_URL
+}
+
+/**
+ * Unregister the old `/`-scope registrations and delete the deleted worker's caches. Never throws. Returns how many were removed.
+ * Does nothing until the new `/canvass` worker is ACTIVE: a phone whose install failed (weak signal) keeps what it had
+ * and retries on the next page load, so it is never left with no worker at all.
+ */
 export async function cleanupLegacyServiceWorkers(): Promise<number> {
   let removed = 0
   try {
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations()
+      if (!regs.some(isActiveCanvassRegistration)) return 0
       for (const reg of regs) {
         if (!isLegacyRegistration(reg)) continue
         try {
@@ -49,9 +59,11 @@ export async function cleanupLegacyServiceWorkers(): Promise<number> {
           // try again on the next page load
         }
       }
+    } else {
+      return 0
     }
   } catch {
-    // getRegistrations can reject in private modes; nothing to clean
+    return 0 // getRegistrations can reject in private modes; nothing to clean
   }
   try {
     if (typeof caches !== 'undefined') {
@@ -63,20 +75,49 @@ export async function cleanupLegacyServiceWorkers(): Promise<number> {
   return removed
 }
 
-/** Canvass page: retire the old `/` registration, then register the scoped worker and apply updates without a page reload. */
+/** Resolves when the registration has an active worker; rejects if its install fails (then nothing legacy is touched). */
+function whenActive(registration: ServiceWorkerRegistration): Promise<void> {
+  if (registration.active) return Promise.resolve()
+  const worker = registration.installing ?? registration.waiting
+  if (!worker) return Promise.reject(new Error('no worker'))
+  return new Promise((resolve, reject) => {
+    worker.addEventListener('statechange', () => {
+      if (worker.state === 'activated') resolve()
+      else if (worker.state === 'redundant') reject(new Error('install failed'))
+    })
+    if (worker.state === 'activated') resolve()
+  })
+}
+
+/** True when a new worker is installed and waiting behind the running one. Never applied automatically (see applyWaitingUpdate). */
+export function hasWaitingUpdate(registration: ServiceWorkerRegistration | null): boolean {
+  return !!registration?.waiting && !!navigator.serviceWorker?.controller
+}
+
+/** Called only from the "New version" tap. The page reloads once, on the resulting controller change. */
+export function applyWaitingUpdate(registration: ServiceWorkerRegistration | null): void {
+  if (!registration?.waiting) {
+    window.location.reload()
+    return
+  }
+  let reloaded = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloaded) return
+    reloaded = true
+    window.location.reload()
+  })
+  registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+}
+
+/**
+ * Canvass page: register the scoped worker FIRST, retire the old `/` registration only once the new one is active.
+ * An update is never forced onto a running page (a half-typed lead would be lost); the page asks the rep to tap.
+ */
 export async function registerCanvassServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null
-  await cleanupLegacyServiceWorkers()
   const registration = await navigator.serviceWorker.register(CANVASS_SW_URL, { scope: CANVASS_SW_SCOPE })
-
-  const activateWaiting = () => registration.waiting?.postMessage({ type: 'SKIP_WAITING' })
-  registration.addEventListener('updatefound', () => {
-    const worker = registration.installing
-    if (!worker) return
-    worker.addEventListener('statechange', () => {
-      if (worker.state === 'installed' && navigator.serviceWorker.controller) activateWaiting()
-    })
-  })
-  activateWaiting()
+  whenActive(registration)
+    .then(() => cleanupLegacyServiceWorkers())
+    .catch(() => {})
   return registration
 }
