@@ -355,6 +355,19 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'told', run: async (p) => { await p.getByRole('button', { name: 'On my way' }).first().click(); await p.waitForSelector('text=Customer told you’re on the way') } },
     ] },
+  { name: 'new-lead-form', path: '/dev-harness/new-lead', ready: 'text=Service requested',
+    mock: async (p) => {
+      await p.route('**/api/leads/scheduling-resources**', (route) => route.fulfill(json({ closers: [], inspectionTypes: [] })))
+      await p.route('**/api/leads', (route) => route.fulfill(json({ id: 'l1' })))
+    } },
+  { name: 'lead-routing-settings', path: '/dev-harness/lead-routing-settings', ready: 'text=Who gets new leads',
+    mock: async (p) => {
+      await p.route('**/api/admin/lead-routing', (route) => route.fulfill(json({ ok: true })))
+    },
+    states: [
+      { name: 'rotate', run: async (p) => { await p.getByRole('radio', { name: /Take turns/ }).first().click(); await p.waitForSelector('text=Who takes turns') } },
+      { name: 'dirty', run: async (p) => { await p.getByRole('switch').click(); await p.waitForSelector('text=Save changes') } },
+    ] },
   { name: 'customer-messages-settings', path: '/dev-harness/customer-messages-settings', ready: 'text=Visit reminder',
     mock: async (p) => {
       await p.route('**/api/admin/customer-messages', (route) => route.fulfill(json({ ok: true })))

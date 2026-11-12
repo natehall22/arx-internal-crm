@@ -40,7 +40,7 @@ describe('roofing profile = the app as it was (the original company is unchanged
     expect(roof.storedVersion).toBeNull()
     expect(roof.features).toEqual(DEFAULT_ORG_FEATURES)
     expect(roof.terms).toEqual(BASE_TERMS)
-    expect(BASE_TERMS).toEqual({ job: 'Job', jobs: 'Jobs', jobBoard: 'Job Board', productionBoard: 'Production Board', inspection: 'Inspection', proposal: 'Proposal', install: 'Install', installed: 'Installed', subs: 'Subcontractors' })
+    expect(BASE_TERMS).toEqual({ job: 'Job', jobs: 'Jobs', jobBoard: 'Job Board', productionBoard: 'Production Board', inspection: 'Inspection', proposal: 'Proposal', install: 'Install', installed: 'Installed', subs: 'Subcontractors', leadName: 'Homeowner Name' })
     // An explicit roofing profile is the same thing.
     expect(resolveOrgProfile({ profile: { id: 'roofing', version: 1 } }).terms).toEqual(BASE_TERMS)
   })
@@ -190,7 +190,7 @@ describe('company settings override the profile', () => {
     expect(res.error).toMatch(/path \[profile\]/)
     expect(rpc).not.toHaveBeenCalled()
     expect(mergeSettingsAt({ a: 1 }, ['profile'], { id: 'lawn_landscape', version: 1 })).toEqual({ a: 1, profile: { id: 'lawn_landscape', version: 1 } })
-    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, (signing: _signing, )?\.\.\.rest/)
+    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, (signing: _signing, )?(leadIntake: _leadIntake, )?\.\.\.rest/)
   })
 })
 
@@ -254,7 +254,7 @@ describe('switching profile', () => {
 })
 
 describe('definitions stay wired to real things (parity)', () => {
-  const todaySrc = read('lib/today.ts')
+  const todaySrc = read('lib/today.ts') + read('lib/leads-waiting.ts')
   const knownQueueIds = new Set(Array.from(todaySrc.matchAll(/(?:id: |Queue\()'([a-z-]+)'/g)).map((m) => m[1]))
 
   it.each(INDUSTRY_PROFILE_IDS)('%s', (id) => {

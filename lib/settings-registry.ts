@@ -34,6 +34,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Financing programs', description: 'Lenders, APR, term and the dealer fee', href: '/admin/financing-programs', access: 'leadership' },
       { title: 'Appointment scheduling', description: 'Round-robin and appointment settings', href: '/admin/scheduling', access: 'leadership', keywords: 'calendar google' },
       { title: 'Campaigns & lead sources', description: 'Marketing campaigns and inbound lead webhooks', href: '/admin/campaigns', access: 'leadership' },
+      { title: 'Lead routing', description: 'Who gets new website leads (one person, take turns, or by service) and reminders for leads nobody has contacted', href: '/admin/lead-routing', access: 'superuser', keywords: 'assign round robin turns website form inquiry owner overdue follow up untouched' },
       { title: 'Work areas', description: 'Draw canvass areas and assign reps or teams', href: '/canvass?areas=1', access: 'workAreas', keywords: 'territories', feature: 'canvassing' },
       { title: 'Print Kit', description: 'Door-drop kit, appointment cards and print tools', href: '/admin/print-kit', access: 'leadership' },
       { title: 'Door drops', description: 'Door-drop campaigns', href: '/admin/door-drop', access: 'leadership' },

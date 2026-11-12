@@ -67,6 +67,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('quoteApproval' in set || remove.includes('quoteApproval'))) return { error: 'quoteApproval is saved at path [quoteApproval]' }
   // Signing choices (consent step, reminders, copies) are only ever written at path ['signing'] (owners, /api/admin/signing).
   if (path.length === 0 && ('signing' in set || remove.includes('signing'))) return { error: 'signing is saved at path [signing]' }
+  // Lead intake (routing mode, people, services, reminder hours) is only ever written at path ['leadIntake'] (/api/admin/lead-routing).
+  if (path.length === 0 && ('leadIntake' in set || remove.includes('leadIntake'))) return { error: 'leadIntake is saved at path [leadIntake]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

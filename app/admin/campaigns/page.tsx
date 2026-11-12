@@ -1,6 +1,8 @@
 'use client'
 
 import { clientLinkBase } from '@/lib/app-url'
+import WebsiteFormBox from '@/components/admin/WebsiteFormBox'
+import { readServiceOptions } from '@/lib/lead-intake'
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -40,6 +42,9 @@ type LeadSource = {
   webhook_enabled: boolean
   default_campaign_id: string | null
   auto_assign_user_id: string | null
+  service_options?: string[] | null
+  public_form?: boolean | null
+  form_daily_cap?: number | null
   is_active: boolean
   total_leads_received: number
   last_lead_at: string | null
@@ -109,6 +114,7 @@ export default function CampaignsPage() {
     source_type: 'website',
     default_campaign_id: '',
     auto_assign_user_id: '',
+    services: '',
   })
   
   const [saving, setSaving] = useState(false)
@@ -279,6 +285,7 @@ export default function CampaignsPage() {
         source_type: source.source_type,
         default_campaign_id: source.default_campaign_id || '',
         auto_assign_user_id: source.auto_assign_user_id || '',
+        services: readServiceOptions(source.service_options).join('\n'),
       })
     } else {
       setEditingSource(null)
@@ -287,6 +294,7 @@ export default function CampaignsPage() {
         source_type: 'website',
         default_campaign_id: '',
         auto_assign_user_id: '',
+        services: '',
       })
     }
     setError(null)
@@ -308,6 +316,8 @@ export default function CampaignsPage() {
       source_type: sourceForm.source_type,
       default_campaign_id: sourceForm.default_campaign_id || null,
       auto_assign_user_id: sourceForm.auto_assign_user_id || null,
+      // Only sent when there is something to save or clear, so saving a source never touches a column that may not exist yet.
+      ...(sourceForm.services.trim() || readServiceOptions(editingSource?.service_options).length ? { service_options: sourceForm.services } : {}),
     }
 
     const response = await fetch('/api/lead-sources', {
@@ -648,6 +658,8 @@ export default function CampaignsPage() {
                       </div>
                     </div>
 
+                    <WebsiteFormBox source={source} services={readServiceOptions(source.service_options)} onChanged={() => void loadData()} />
+
                     {/* Configuration summary */}
                     <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
@@ -927,6 +939,19 @@ export default function CampaignsPage() {
                     </div>
 
                   </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <label className="block text-sm font-medium text-gray-900 mb-1" htmlFor="source-services">Services for the website form (one per line)</label>
+                  <textarea
+                    id="source-services"
+                    rows={4}
+                    value={sourceForm.services}
+                    onChange={(e) => setSourceForm({ ...sourceForm, services: e.target.value })}
+                    placeholder={'Weekly lawn care\nPressure washing'}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-base"
+                  />
+                  <p className="mt-1 text-sm text-gray-700">These become the Service list on the form. Leave empty for a form without one.</p>
                 </div>
               </div>
 

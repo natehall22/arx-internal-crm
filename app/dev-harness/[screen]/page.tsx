@@ -131,6 +131,8 @@ import CustomerMessagesSettings from '@/components/admin/CustomerMessagesSetting
 import TextingSettings from '@/components/admin/TextingSettings'
 import { TextCustomerDialog } from '@/components/customer/TextCustomer'
 import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
+import LeadRoutingSettings from '@/components/admin/LeadRoutingSettings'
+import LeadFormWithReferral from '@/components/LeadFormWithReferral'
 import { MESSAGE_KINDS, describeMessages, quietHoursPhrase, readCustomerMessageSettings, sampleMessages } from '@/lib/customer-messages'
 
 const HARNESS_MESSAGE_SETTINGS = readCustomerMessageSettings({ visitReminder: true, visitWindow: 'between 8 AM and 5 PM', visitDone: true, invoiceReminder: true })
@@ -626,6 +628,33 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <HoursToBill />
     case 'job-hourly':
       return <div className="mx-auto max-w-md p-4"><JobHourlyCard jobId="dddddddd-0000-4000-8000-000000000001" /></div>
+    case 'new-lead':
+      return (
+        <div className="mx-auto max-w-3xl p-4">
+          <LeadFormWithReferral
+            orgId="o1"
+            userId="p1"
+            nameLabel="Customer / company name"
+            serviceChoices={['Weekly lawn care', 'Pressure washing']}
+            ownerChoices={[{ id: 'p1', name: 'Jordan Rivera' }, { id: 'p2', name: 'Sam Okafor-Whitfield' }]}
+          />
+        </div>
+      )
+    case 'lead-routing-settings':
+      return (
+        <div className="mx-auto max-w-3xl p-4">
+          <LeadRoutingSettings
+            initial={{
+              routing: { mode: 'service', userIds: [], rules: [{ service: 'Weekly lawn care', userIds: ['p1'] }, { service: 'Pressure washing', userIds: ['p1', 'p2'] }] },
+              reminder: { enabled: true, hours: 24 },
+              leadOwnerId: null,
+              people: [{ id: 'p1', name: 'Jordan Rivera' }, { id: 'p2', name: 'Sam Okafor-Whitfield' }],
+              sources: [{ id: 's1', name: 'Website Contact Form', routing: null, autoAssignUserId: null, services: ['Weekly lawn care', 'Pressure washing'] }],
+              services: ['Weekly lawn care', 'Pressure washing'],
+            }}
+          />
+        </div>
+      )
     case 'customer-messages-settings':
       return <div className="mx-auto max-w-3xl p-4"><CustomerMessagesSettings initial={HARNESS_MESSAGES_VIEW} /></div>
     case 'texting-settings':

@@ -32,6 +32,7 @@ import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { loadAiChangesQueue, loadCloserQueues, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadUnpaidInvoicesQueue, todayKindFor, unpaidInvoicesFailedQueue, type TodayKind } from '@/lib/today'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
+import { leadsWaitingFailedQueue, loadLeadsWaitingQueue } from '@/lib/leads-waiting'
 
 const TITLE: Record<TodayKind, string> = {
   closer: 'Today',
@@ -77,6 +78,8 @@ export default async function TodayPage() {
   // Online payments: a lost dispute on a job already collected / paid in payroll — payroll admins review commission.
   const reversalsOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.onlinePayments
   const reversals = reversalsOn ? await loadPaymentReversalsQueue(admin, profile.org_id).catch((e) => { console.error('today: payment reversals failed', e); return null }) : null
+  // Leads nobody has contacted: owners see them in the owner list (loadOwnerExceptions); everyone else but field roles sees their own.
+  const myLeadsWaiting = kind === 'closer' || kind === 'ops' ? await loadLeadsWaitingQueue(admin, profile.org_id, new Date(), { ownerUserId: profile.id }).catch((e) => { console.error('today: leads waiting failed', e); return leadsWaitingFailedQueue() }) : null
   const [visitQueues, closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
     visitsOn ? loadServiceVisitQueues(admin, profile.org_id).catch((e) => { console.error('today: visits failed', e); return [] }) : Promise.resolve([]),
     kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: true }) : Promise.resolve([]),
@@ -102,7 +105,7 @@ export default async function TodayPage() {
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
   // AI changes waiting for THIS person's Approve (the switch must be on; a failed read just hides the card).
   const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
-  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
+  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...(myLeadsWaiting && (myLeadsWaiting.count > 0 || myLeadsWaiting.empty.includes('couldn’t load')) ? [myLeadsWaiting] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
 
   return (
     <div className="min-h-screen bg-surface-subtle">

@@ -52,7 +52,7 @@ beforeEach(() => {
 describe('applyIndustryProfile', () => {
   it('trades (add-only) first, then the profile key last; feature switches untouched by default', async () => {
     const { plan } = await applyIndustryProfile({} as never, 'org-1', 'u1', 'lawn_landscape')
-    expect(calls).toEqual(['trades +5 on0 off0', 'merge ["profile"] set={"id":"lawn_landscape","version":3} remove=0'])
+    expect(calls).toEqual(['trades +5 on0 off0', 'merge ["profile"] set={"id":"lawn_landscape","version":4} remove=0'])
     expect(plan.to.id).toBe('lawn_landscape')
   })
 
@@ -60,13 +60,13 @@ describe('applyIndustryProfile', () => {
     storedSettings = { features: { canvassing: true } }
     await applyIndustryProfile({} as never, 'org-1', 'u1', 'lawn_landscape', { resetFeatures: true })
     // Every switch key is removed (one per feature in lib/org-features.ts).
-    expect(calls.slice(1)).toEqual([`merge ["features"] set={} remove=${ORG_FEATURE_KEYS.length}`, 'merge ["profile"] set={"id":"lawn_landscape","version":3} remove=0'])
+    expect(calls.slice(1)).toEqual([`merge ["features"] set={} remove=${ORG_FEATURE_KEYS.length}`, 'merge ["profile"] set={"id":"lawn_landscape","version":4} remove=0'])
   })
 
   it('trades table missing: trades skipped, profile still recorded', async () => {
     trades = null
     await applyIndustryProfile({} as never, 'org-1', 'u1', 'exterior_cleaning')
-    expect(calls).toEqual(['merge ["profile"] set={"id":"exterior_cleaning","version":2} remove=0'])
+    expect(calls).toEqual(['merge ["profile"] set={"id":"exterior_cleaning","version":3} remove=0'])
   })
 
   it('a failed profile write throws (the old profile keeps showing; re-run is safe)', async () => {
@@ -104,6 +104,6 @@ describe('/api/admin/industry-profile', () => {
     expect(calls).toEqual([])
     const res = await post({ profile: 'lawn_landscape' })
     expect(res.status).toBe(200)
-    expect(calls.at(-1)).toBe('merge ["profile"] set={"id":"lawn_landscape","version":3} remove=0')
+    expect(calls.at(-1)).toBe('merge ["profile"] set={"id":"lawn_landscape","version":4} remove=0')
   })
 })
