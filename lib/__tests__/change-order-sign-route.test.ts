@@ -11,7 +11,7 @@ jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     from: (t: string) => (db.client as any).from(t),
     rpc: (n: string, a: Record<string, unknown>) => (db.client as any).rpc(n, a),
-    storage: { from: () => ({ upload: async (p: string) => { uploads.push(p); return { error: null } } }) },
+    storage: { from: () => ({ upload: async (p: string) => { if (!p.includes('/signing/')) uploads.push(p); return { error: null } }, download: async () => ({ data: new Blob(['%PDF-fake']), error: null }) }) },
   }),
 }))
 jest.mock('@/lib/contracts/generateChangeOrderPdf', () => ({ generateChangeOrderPdf: jest.fn(async () => Buffer.from('%PDF')) }))

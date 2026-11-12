@@ -1,5 +1,6 @@
 'use client'
 
+import SigningStatus from '@/components/signing/SigningStatus'
 import { clientLinkBase } from '@/lib/app-url'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -135,10 +136,8 @@ export default function ChangeOrdersSection({
       ) : (
         <div className="space-y-3">
           {changeOrders.map((co) => (
-            <div
-              key={co.id}
-              className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50"
-            >
+            <div key={co.id} className="border border-gray-200 rounded-lg">
+            <div className="flex items-center justify-between p-4 hover:bg-gray-50">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
                   <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -219,6 +218,8 @@ export default function ChangeOrdersSection({
                   Awaiting customer signature — the PDF will be available after signing.
                 </span>
               )}
+            </div>
+            {co.status === 'pending_customer' && <div className="px-4 pb-4"><SigningStatus kind="change-order" id={co.id} /></div>}
             </div>
           ))}
         </div>

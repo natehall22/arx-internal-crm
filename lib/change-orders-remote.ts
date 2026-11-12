@@ -5,14 +5,13 @@
  * (signed PDF, sale amount + commission base sync). Nothing here changes the job's money: an unsigned change order is not
  * binding, so the sync stays in the signing route.
  */
-import nodemailer from 'nodemailer'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgAppUrl } from '@/lib/company-links'
-import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildChangeOrderReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { newSigningTokenColumns } from '@/lib/signing-tokens'
+import { getSigningProvider } from '@/lib/signing/provider'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export type RemoteChangeOrderInput = {
@@ -84,7 +83,7 @@ export async function createRemoteChangeOrder(admin: SupabaseClient, input: Remo
       is_commissionable: input.isCommissionable,
       created_by: input.createdBy,
     })
-    .select('id')
+    .select('*')
     .single()
 
   if (insertError || !changeOrder) {
@@ -103,28 +102,29 @@ export async function createRemoteChangeOrder(admin: SupabaseClient, input: Remo
 
   const signingUrl = `${appUrl}/change-orders/sign/${signingToken}`
   let emailed = false
-  if (input.customerEmail) {
-    try {
-      const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT || 587),
-        secure: false,
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      })
-      const email = buildChangeOrderReadyEmail({
-        brand: documentBrand,
-        coNumber: input.coNumber,
-        customerName: input.customerName,
-        signingUrl,
-        projectAddress: input.projectAddress,
-        updatedTotal: input.updatedTotal,
-        repName: input.repName,
-      })
-      await transporter.sendMail({ from: getCrmEmailFrom(), to: input.customerEmail, subject: email.subject, text: email.text, html: email.html })
-      emailed = true
-    } catch (emailError) {
-      console.error('[Change Order] Failed to send signing email:', emailError)
-    }
+  // Sent through the signing engine (an envelope + a 'sent' event, the same email as always). A change order is always carried natively.
+  try {
+    const email = input.customerEmail
+      ? buildChangeOrderReadyEmail({
+          brand: documentBrand,
+          coNumber: input.coNumber,
+          customerName: input.customerName,
+          signingUrl,
+          projectAddress: input.projectAddress,
+          updatedTotal: input.updatedTotal,
+          repName: input.repName,
+        })
+      : null
+    const provider = await getSigningProvider(admin, input.orgId, 'change-order')
+    const sent = await provider.send(admin, {
+      kind: 'change-order',
+      row: changeOrder as Record<string, any>,
+      actor: { userId: input.createdBy, name: input.repName },
+      deliver: email && input.customerEmail ? { to: input.customerEmail, subject: email.subject, text: email.text, html: email.html } : null,
+    })
+    emailed = sent.ok && sent.emailed
+  } catch (error) {
+    console.error('[Change Order] Failed to send signing email:', error)
   }
 
   await db.from('activities').insert({

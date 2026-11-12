@@ -4,6 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
+import { completeEnvelope } from '@/lib/signing/complete'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { getDocumentBrand } from '@/lib/org-brand'
@@ -218,6 +219,15 @@ export async function POST(request: NextRequest) {
         console.error('[Change Order] Error syncing job financials:', result.error)
       } else if (result?.status === 'skipped') {
         console.warn('[Change Order] Job sale amount not updated:', result.totals.reason)
+      }
+    }
+
+    // Signed in person on the rep's device: the engine records it the same way (events, SHA-256, certificate). Never blocks the CO.
+    if (pdfUrl) {
+      try {
+        await completeEnvelope(createServiceClient(), { kind: 'change-order', docId: changeOrder.id, orgId: profile.org_id, inPerson: true })
+      } catch (engineError) {
+        console.error('[Change Order] signing engine completion failed:', engineError)
       }
     }
 

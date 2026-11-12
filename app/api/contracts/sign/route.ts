@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { customerSignedDocLinkForPage, customerSignedDocUrl } from '@/lib/files/files-object'
-import nodemailer from 'nodemailer'
-import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildContractSignedEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
@@ -14,6 +12,10 @@ import { reinstateCancelledJob } from '@/lib/job-cancellation'
 import { applyContractSignedStatuses } from '@/lib/job-status-events'
 import { depositRequiredFraction } from '@/lib/job-pipeline'
 import { ensureContractPdf } from '@/lib/contracts/finalize-pdf'
+import { completeEnvelope, loadSignedAttachments } from '@/lib/signing/complete'
+import { consentCheck } from '@/lib/signing/consent'
+import { sendSigningEmail } from '@/lib/signing/mail'
+import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { findBySigningToken } from '@/lib/signing-tokens'
 import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
 import {
@@ -118,38 +120,6 @@ async function getProposalSoldRoofSquares(
 
   return resolveProposalSoldRoofSquares(proposal, lineItems || [])
 }
-
-async function sendEmail(
-  to: string,
-  subject: string,
-  text: string,
-  html: string
-): Promise<boolean> {
-  try {
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    })
-
-    await transporter.sendMail({
-      from: getCrmEmailFrom(),
-      to,
-      subject,
-      text,
-      html,
-    })
-    return true
-  } catch (error) {
-    console.error('Email send error:', error)
-    return false
-  }
-}
-
 
 /** The steps that follow a saved signature, each recorded in `signing_steps` when done so a retry runs only what is missing. */
 async function finishSignedContract(
@@ -339,6 +309,16 @@ async function finishSignedContract(
     const pdfGenerationError: string | null = pdfResult.error
     if (pdfResult.error) console.error('[Contract Sign] PDF not stored (signature kept, PDF pending):', pdfResult.error)
     if (pdfResult.path || isQuoteApproval) await mark('pdf')
+
+    // The signing engine's completion (lib/signing/complete.ts): events, SHA-256 of the signed PDF, certificate, filing on the
+    // customer, copies — idempotent, so a retry only fills what is missing. A quote approval has its own record (no roofing PDF).
+    if (isQuoteApproval) {
+      await mark('engine')
+    } else if (!(await isDone('engine')) && done('pdf')) {
+      const engine = await completeEnvelope(supabase, { kind: 'contract', docId: contract.id, orgId: contract.org_id })
+      if (engine.ok) await mark('engine')
+      else console.error('[Contract Sign] signing engine completion not finished (retried on the next call):', engine.reason, engine.ok ? '' : engine.error ?? '')
+    }
 
     let projectId = null
     let projectCreateError: string | null = null
@@ -913,7 +893,9 @@ async function finishSignedContract(
         projectCost: contract.project_cost,
         customerPdfUrl,
       })
-      emailSent = await sendEmail(contract.customer_email, email.subject, email.text, email.html)
+      // The certificate rides on the customer's copy only when the company turned `emails.signedCopy` on (same subject and body).
+      const attachments = await loadSignedAttachments(supabase, { kind: 'contract', docId: contract.id, orgId: contract.org_id })
+      emailSent = await sendSigningEmail({ to: contract.customer_email, subject: email.subject, text: email.text, html: email.html, attachments })
       
       console.log('[Contract Sign] Email sent:', emailSent)
       if (emailSent) await mark('customer_email')
@@ -922,7 +904,7 @@ async function finishSignedContract(
     }
 
     // Everything done → finished for good; anything missing is retried by the next call on this link (see CLAUDE.md).
-    const required = ['void_older', 'pdf', 'project', 'signed_note', 'customer_email', ...(isContingency ? [] : ['sale_notice'])]
+    const required = ['void_older', 'pdf', 'engine', 'project', 'signed_note', 'customer_email', ...(isContingency ? [] : ['sale_notice'])]
     if (required.every((k) => done(k))) {
       await supabase
         .from('order_form_contracts')
@@ -1052,6 +1034,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please sign the agreement' }, { status: 400 })
     }
 
+    // The e-sign consent step, when the company turned it on: the server refuses a signature without it, whatever the page sent.
+    const signingSettings = await loadSigningSettings(supabase, contract.org_id)
+    const consent = consentCheck(signingSettings.consentStep && !isQuoteApproval, body?.consent)
+    if (!consent.ok) {
+      return NextResponse.json({ error: consent.error, code: consent.code }, { status: 400 })
+    }
+
     const initialsChangeOrders = cleanInitials(initialsChangeOrdersInput)
     const initialsPropertyCondition = cleanInitials(initialsPropertyConditionInput)
     const initialsLandscaping = cleanInitials(initialsLandscapingInput)
@@ -1085,6 +1074,8 @@ export async function POST(request: NextRequest) {
         customer_initials_property_condition: initialsPropertyCondition,
         customer_initials_landscaping: initialsLandscaping,
         customer_initials_insurance: initialsInsurance,
+        // Written only when the company's consent step is on (so nothing new is written for a company that has it off).
+        ...(consent.version ? { consent_version: consent.version, consent_at: customerSignedAt } : {}),
         status: 'completed',
         signing_finalize_lease_at: customerSignedAt,
       })

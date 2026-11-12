@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
+import ConsentBlock from '@/components/signing/ConsentBlock'
+import DeclineBox from '@/components/signing/DeclineBox'
+import { useSigningBeacon } from '@/components/signing/useSigningBeacon'
 import { CHANGE_ORDER_AGREEMENT } from '@/lib/contracts/terms'
+import type { ConsentDisclosure } from '@/lib/signing/consent'
 
 interface ChangeOrder {
   co_number: string
@@ -14,9 +18,15 @@ interface ChangeOrder {
 interface CustomerSigningFormProps {
   changeOrder: ChangeOrder
   token: string
+  consent?: ConsentDisclosure | null
+  declineEnabled?: boolean
+  companyName?: string
 }
 
-export default function CustomerSigningForm({ changeOrder, token }: CustomerSigningFormProps) {
+export default function CustomerSigningForm({ changeOrder, token, consent = null, declineEnabled = false, companyName = 'the company' }: CustomerSigningFormProps) {
+  useSigningBeacon('change-order', token)
+  const [consentAccepted, setConsentAccepted] = useState(false)
+  const [declined, setDeclined] = useState(false)
   const [printName, setPrintName] = useState(changeOrder.customer_print_name || '')
   const [signature, setSignature] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -37,6 +47,11 @@ export default function CustomerSigningForm({ changeOrder, token }: CustomerSign
       return
     }
 
+    if (consent && !consentAccepted) {
+      setError('Please agree to sign electronically before you sign.')
+      return
+    }
+
     setSubmitting(true)
     try {
       const response = await fetch('/api/change-orders/sign', {
@@ -46,6 +61,7 @@ export default function CustomerSigningForm({ changeOrder, token }: CustomerSign
           token,
           printName: printName.trim(),
           signature,
+          ...(consent ? { consent: { accepted: true, version: consent.version } } : {}),
         }),
       })
 
@@ -61,6 +77,17 @@ export default function CustomerSigningForm({ changeOrder, token }: CustomerSign
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (declined) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center text-[#2c2c2a]">
+          <h1 className="text-xl font-bold mb-2">Thank you for letting us know</h1>
+          <p className="text-base">We have told {companyName}. Nothing was signed.</p>
+        </div>
+      </div>
+    )
   }
 
   if (success) {
@@ -122,6 +149,8 @@ export default function CustomerSigningForm({ changeOrder, token }: CustomerSign
           <SignaturePad onChange={setSignature} value={signature} width={500} height={150} />
         </div>
 
+        {consent && <ConsentBlock disclosure={consent} checked={consentAccepted} onChange={setConsentAccepted} />}
+
         <button
           type="submit"
           disabled={submitting}
@@ -129,6 +158,7 @@ export default function CustomerSigningForm({ changeOrder, token }: CustomerSign
         >
           {submitting ? 'Submitting...' : 'Sign Change Order'}
         </button>
+        {declineEnabled && <DeclineBox kind="change-order" token={token} companyName={companyName} onDeclined={() => setDeclined(true)} />}
       </form>
     </div>
   )

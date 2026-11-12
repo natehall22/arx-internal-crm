@@ -40,9 +40,10 @@ jest.mock('@/lib/supabase/service', () => ({
       from: () => ({
         upload: async (path: string) => {
           if (uploadFails) return { error: { message: 'bucket down' } }
-          uploads.push(path)
+          if (!path.includes('/signing/')) uploads.push(path)
           return { error: null }
         },
+        download: async () => ({ data: new Blob(['%PDF-fake']), error: null }),
       }),
     },
   }),
@@ -255,7 +256,7 @@ describe('recovery: ONE path finishes a signed contract whose request died', () 
 
   it('runs only the steps still missing', async () => {
     const at = '2026-11-10T00:00:01.000Z'
-    seed(signedRow({ pdf_url: 'org/org-a/x.pdf', pdf_storage_path: 'org/org-a/x.pdf', signing_steps: { void_older: at, pdf: at, project: at, signed_note: at, sale_notice: at } }))
+    seed(signedRow({ pdf_url: 'org/org-a/x.pdf', pdf_storage_path: 'org/org-a/x.pdf', signing_steps: { void_older: at, pdf: at, engine: at, project: at, signed_note: at, sale_notice: at } }))
     await post(good())
     expect(uploads).toHaveLength(0)
     expect(generate).not.toHaveBeenCalled()
