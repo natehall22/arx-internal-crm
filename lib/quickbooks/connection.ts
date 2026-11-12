@@ -330,3 +330,9 @@ export async function loadQuickBooksNeedsYouQueue(admin: SupabaseClient, orgId: 
   }
   return null
 }
+
+/** QuickBooks said the login/company can no longer be used (not merely an expired token): a person must reconnect. */
+export async function flagQuickBooksNeedsReconnect(admin: SupabaseClient, orgId: string, reason: string): Promise<void> {
+  const row = await loadConnection(admin, orgId)
+  if (row && row.status === 'connected') await markNeedsReconnect(admin, orgId, reason, row.refresh_version)
+}

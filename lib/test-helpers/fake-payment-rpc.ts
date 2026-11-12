@@ -26,7 +26,8 @@ export const FAKE_PAYMENT_RPC = {
     const event = String(a.p_event_type ?? 'payment.recorded')
     const key = `${a.p_org}:job_payments:${pay.id}:${event}:v1`
     const outbox = (t.integration_outbox ??= [])
-    if (!outbox.some((o) => o.idempotency_key === key)) outbox.push({ id: `ob-${++n}`, org_id: a.p_org, provider: 'quickbooks', event_type: event, entity_table: 'job_payments', entity_id: pay.id, idempotency_key: key, status: 'pending' })
+    const qbOn = ((t.orgs ?? []).find((o) => o.id === a.p_org)?.settings as { features?: { quickbooks?: boolean } } | undefined)?.features?.quickbooks === true // mirrors the SQL: no outbox row while the switch is off
+    if (qbOn && !outbox.some((o) => o.idempotency_key === key)) outbox.push({ id: `ob-${++n}`, org_id: a.p_org, provider: 'quickbooks', event_type: event, entity_table: 'job_payments', entity_id: pay.id, idempotency_key: key, status: 'pending' })
     return { payment: { ...pay }, duplicate }
   },
   apply_job_invoice_payment: (a: Row, t: Tables) => {

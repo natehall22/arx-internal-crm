@@ -33,7 +33,7 @@ const OUTCOME: Record<string, { text: string }> = {
  * which company), reconnect, disconnect. Connecting sends nothing to QuickBooks. lib/quickbooks/connection.ts;
  * route /api/admin/quickbooks.
  */
-export default function QuickBooksCard({ initial = null }: { initial?: View | null }) {
+export default function QuickBooksCard({ initial = null, title = 'QuickBooks' }: { initial?: View | null; title?: string }) {
   const [view, setView] = useState<View | null>(initial)
   const [busy, setBusy] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<string | null>(null)
@@ -83,7 +83,7 @@ export default function QuickBooksCard({ initial = null }: { initial?: View | nu
   return (
     <Card id="quickbooks" className="scroll-mt-4">
       <CardHeader>
-        <CardTitle>QuickBooks</CardTitle>
+        <CardTitle>{title}</CardTitle>
         {view?.environment === 'sandbox' && view.configured ? <Badge tone="warning">Test company</Badge> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
