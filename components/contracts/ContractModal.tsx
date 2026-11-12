@@ -929,7 +929,7 @@ export default function ContractModal({
                       <p className="text-sm mt-2"><span className="text-gray-700">Material:</span> {formData.roofingMaterial}</p>
                     )}
                     {formData.agreementType === 'installation' && formData.roofColor && (
-                      <p className="text-sm mt-2"><span className="text-gray-500">Color:</span> {formData.roofColor}</p>
+                      <p className="text-sm mt-2"><span className="text-gray-700">Color:</span> {formData.roofColor}</p>
                     )}
                   </div>
 

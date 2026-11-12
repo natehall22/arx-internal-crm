@@ -319,7 +319,7 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
                 )}
                 {!isContingency && !isRepair && colorToConfirm && (
                   <div>
-                    <span className="text-gray-500">Color:</span>
+                    <span className="text-gray-700">Color:</span>
                     <span className="ml-2 font-medium text-black">{colorToConfirm}</span>
                   </div>
                 )}
