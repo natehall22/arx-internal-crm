@@ -5,7 +5,6 @@
  */
 import { matchExistingCustomer, normalizeIdentityEmail, type CustomerIdentityRow } from '@/lib/customers'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type QbRecord = Record<string, any>
 
 const tenDigits = (v: unknown): string | null => {

@@ -48,7 +48,7 @@ export async function enqueueIntegrationEvent(
     // wake up a backlog of old events; the sweep finds what matters from the start date).
     if (!(await loadOrgFeatures(supabase, orgId)).quickbooks) return null
     // A line an owner closed with Skip stays closed when the same event is raised again (new facts use a new version, hence a new key).
-    const { data: prior } = await supabase.from('integration_outbox').select('id, status, skipped_by').eq('idempotency_key', idempotencyKey).maybeSingle()
+    const { data: prior } = await supabase.from('integration_outbox').select('id, status, skipped_by').eq('org_id', orgId).eq('idempotency_key', idempotencyKey).maybeSingle()
     const p = prior as { id: string; status: string; skipped_by: string | null } | null
     if (p && p.status === 'skipped' && p.skipped_by) return p.id
   }
