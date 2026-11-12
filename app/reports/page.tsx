@@ -25,7 +25,7 @@ const KPIS: { label: string; money?: boolean; spec: Omit<ReportSpec, 'date'> }[]
   { label: 'Doors knocked', spec: { dataset: 'canvass_doors', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
   { label: 'New leads', spec: { dataset: 'leads', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
 ]
-const TILES = ['sales-by-closer', 'sold-rate-by-closer', 'doors-by-rep', 'appointments-by-type', 'leads-by-source', 'sales-by-month']
+const TILES = ['revenue-by-month', 'sales-by-closer', 'sold-rate-by-closer', 'doors-by-rep', 'appointments-by-type', 'leads-by-source', 'sales-by-month']
 
 async function run(spec: ReportSpec): Promise<ReportResult | null> {
   const r = await fetch('/api/reports/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spec }) })
@@ -40,11 +40,14 @@ function Tile({ template, preset }: { template: ReportTemplate; preset: DatePres
     void run({ ...template.spec, date: { preset } }).then(setResult)
   }, [template, preset])
   const rows = (result?.rows ?? []).slice(0, 6)
-  const max = Math.max(1, ...rows.map((r) => Number(r.value) || 0))
+  // Billed AND collected: the first extra total is a second bar and number on the same scale.
+  const extra = result?.columns.find((c) => c.key.startsWith('sum_')) ?? null
+  const max = Math.max(1, ...rows.flatMap((r) => [Number(r.value) || 0, extra ? Number(r[extra.key]) || 0 : 0]))
   const money = result?.columns[1]?.type === 'money'
   return (
     <Link href="/reports/explore" style={{ ...card, display: 'block', textDecoration: 'none' }}>
       <strong>{template.title}</strong>
+      {extra && <p style={{ margin: '2px 0 0', fontSize: 14 }}>Billed (top bar) and collected (bottom bar)</p>}
       {result === undefined && <p>Loading…</p>}
       {result === null && <p>Not available for your role.</p>}
       {result && rows.length === 0 && <p>No data for this period.</p>}
@@ -55,10 +58,16 @@ function Tile({ template, preset }: { template: ReportTemplate; preset: DatePres
             <div style={{ background: '#e6e4dc', height: 8, borderRadius: 3 }}>
               <div style={{ background: '#5f5e5a', height: 8, borderRadius: 3, width: `${Math.max(2, ((Number(r.value) || 0) / max) * 100)}%` }} />
             </div>
+            {extra && (
+              <div style={{ background: '#e6e4dc', height: 8, borderRadius: 3, marginTop: 3 }}>
+                <div style={{ background: '#2b0a3d', height: 8, borderRadius: 3, width: `${Math.max(2, ((Number(r[extra.key]) || 0) / max) * 100)}%` }} />
+              </div>
+            )}
           </div>
           <div style={{ textAlign: 'right', fontSize: 13 }}>
             {money ? Number(r.value).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : Number(r.value).toLocaleString()}
             {template.spec.metric.kind === 'rate' ? '%' : ''}
+            {extra && <div>{Number(r[extra.key]).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</div>}
           </div>
         </div>
       ))}

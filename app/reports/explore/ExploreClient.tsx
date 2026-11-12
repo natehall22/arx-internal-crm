@@ -83,7 +83,7 @@ export default function ExploreClient() {
     const filters = isTime
       ? spec.filters
       : [...spec.filters, { column: spec.groupBy, op: 'eq' as const, value: group === '(none)' ? '' : group === 'Yes' ? 'true' : group === 'No' ? 'false' : group }]
-    void run({ ...spec, mode: 'rows', filters, groupBy: null, sortBy: null, limit: 200 })
+    void run({ ...spec, mode: 'rows', filters, groupBy: null, sortBy: null, alsoSum: undefined, limit: 200 })
   }
 
   const download = async () => {
@@ -115,7 +115,9 @@ export default function ExploreClient() {
     if (l.ok) setSaved((await l.json()).reports)
   }
 
-  const max = Math.max(1, ...(result?.rows ?? []).map((r) => Number(r.value) || 0))
+  // A second total beside the main one (billed AND collected): drawn as a second bar, both on one scale.
+  const extra = result?.columns.find((c) => c.key.startsWith('sum_')) ?? null
+  const max = Math.max(1, ...(result?.rows ?? []).flatMap((r) => [Number(r.value) || 0, extra ? Number(r[extra.key]) || 0 : 0]))
   const isSummary = spec?.mode === 'summary'
   const groups = Array.from(new Set((meta?.templates ?? []).map((t) => t.group)))
 
@@ -178,10 +180,10 @@ export default function ExploreClient() {
                   <select className={ctl} value={spec.mode === 'rows' ? 'rows' : spec.metric.kind === 'count' ? 'count' : `${spec.metric.kind}:${'column' in spec.metric ? spec.metric.column : ''}`}
                     onChange={(e) => {
                       const v = e.target.value
-                      if (v === 'rows') return update({ mode: 'rows', groupBy: null })
-                      if (v === 'count') return update({ mode: 'summary', metric: { kind: 'count' } })
+                      if (v === 'rows') return update({ mode: 'rows', groupBy: null, alsoSum: undefined })
+                      if (v === 'count') return update({ mode: 'summary', metric: { kind: 'count' }, alsoSum: undefined })
                       const [kind, column] = v.split(':')
-                      update({ mode: 'summary', metric: { kind: kind as 'sum' | 'avg' | 'rate', column } as ReportSpec['metric'] })
+                      update({ mode: 'summary', metric: { kind: kind as 'sum' | 'avg' | 'rate', column } as ReportSpec['metric'], alsoSum: undefined })
                     }}>
                     <option value="count">How many</option>
                     {ds.columns.filter((c) => c.type === 'money' || c.type === 'number').map((c) => <option key={c.key} value={`sum:${c.key}`}>Total {c.label}</option>)}
@@ -215,6 +217,15 @@ export default function ExploreClient() {
                           <span className="col-span-2 h-2.5 rounded bg-[#e6e4dc]">
                             <span className="block h-2.5 rounded bg-[#5f5e5a]" style={{ width: `${Math.max(1, ((Number(r.value) || 0) / max) * 100)}%` }} />
                           </span>
+                          {extra && (
+                            <>
+                              <span className="text-sm text-[#2c2c2a]">{extra.label}</span>
+                              <span className="text-sm font-semibold tabular-nums">{fmt(r[extra.key], extra.type)}</span>
+                              <span className="col-span-2 h-2.5 rounded bg-[#e6e4dc]">
+                                <span className="block h-2.5 rounded bg-[#2b0a3d]" style={{ width: `${Math.max(1, ((Number(r[extra.key]) || 0) / max) * 100)}%` }} />
+                              </span>
+                            </>
+                          )}
                         </button>
                       ))}
                     </div>
