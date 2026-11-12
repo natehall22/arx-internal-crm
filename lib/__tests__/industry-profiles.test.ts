@@ -11,6 +11,7 @@ import {
   TERM_KEYS,
   TERM_LABELS,
 } from '@/lib/industry-profiles'
+import { unitNeedsQuantity } from '@/lib/price-list'
 import { DEFAULT_ORG_FEATURES, ORG_FEATURE_KEYS, resolveOrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, clientOrgProfile, coerceClientOrgProfile, defaultOrgProfile, resolveOrgProfile, t } from '@/lib/org-profile'
 import { planProfileSwitch, profileTradeSeeds } from '@/lib/org-profile-server'
@@ -364,8 +365,9 @@ describe('review fixes', () => {
 
   it('proposal builder: visit / month / hour ask for a quantity and read "per visit"', () => {
     const b = read('app/proposals/builder/page.tsx')
-    const needs = b.slice(b.indexOf('const needsQuantityInput'), b.indexOf('const needsQuantityInput') + 800)
-    for (const u of ["'visit'", "'month'", "'hour'"]) expect(needs).toContain(u)
+    // one unit list (lib/price-list.ts): the builder asks for a quantity for every service unit
+    expect(b).toContain('const needsQuantityInput = unitNeedsQuantity')
+    for (const u of ['visit', 'month', 'hour']) expect([u, unitNeedsQuantity(u)]).toEqual([u, true])
     expect(b).not.toMatch(/per \{getUnitLabel\(/)
   })
 

@@ -47,11 +47,11 @@ export async function ownListIdOrNull(admin: SupabaseClient, orgId: string, id: 
 /** Quote lines about to be saved: the stored option name/price come from the price book, never from the browser. */
 export async function stampLineOptions<T extends Record<string, unknown>>(admin: SupabaseClient, orgId: string, lines: readonly T[]) {
   const ids = Array.from(new Set(lines.filter((l) => typeof l.price_option_key === 'string' && typeof l.pricebook_item_id === 'string').map((l) => l.pricebook_item_id as string)))
-  const byId = new Map<string, { price_options?: unknown }>()
+  const byId = new Map<string, { name?: string | null; price_options?: unknown }>()
   if (ids.length) {
-    const { data, error } = await orgDb(admin, orgId).from('pricebook_items').select('id, price_options').in('id', ids)
+    const { data, error } = await orgDb(admin, orgId).from('pricebook_items').select('id, name, price_options').in('id', ids)
     if (error && !isMissingColumn(error, 'price_options')) throw new Error(`price list: read options: ${error.message}`)
-    for (const r of (data ?? []) as Array<{ id: string; price_options?: unknown }>) byId.set(r.id, r)
+    for (const r of (data ?? []) as Array<{ id: string; name?: string | null; price_options?: unknown }>) byId.set(r.id, r)
   }
   return stampPriceOptions(lines, byId)
 }

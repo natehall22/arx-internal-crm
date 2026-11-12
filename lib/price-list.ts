@@ -115,7 +115,7 @@ export function resolvePriceList(input: {
 }
 
 /**
- * Pure: which items a quote may offer. One list (every company today, ARX included) = every item, exactly as before.
+ * Pure: which items a quote may offer. One list (every company today, roofing included) = every item, exactly as before.
  * Several lists = only the chosen list's items.
  */
 export function itemsForList<T extends { pricebook_id?: string | null }>(items: readonly T[], listCount: number, listId: string | null): T[] {
@@ -187,11 +187,12 @@ type LineWithOption = Record<string, unknown> & { pricebook_item_id?: unknown; p
 /**
  * Pure: make the stored option fields on a save come from the price book, not from the browser. A line that names an
  * item and one of its options gets that option's name and list price; anything else (no item, item gone, option gone)
- * gets none. The typed unit price is left alone — overriding a price is allowed, as it always was.
+ * gets none, and the line's name is rebuilt as `item name (option)` from the price book. The typed unit price is left
+ * alone — overriding a price is allowed, as it always was.
  */
 export function stampPriceOptions<T extends LineWithOption>(
   lines: readonly T[],
-  itemsById: ReadonlyMap<string, { price_options?: unknown }>
+  itemsById: ReadonlyMap<string, { name?: string | null; price_options?: unknown }>
 ): Array<T & { price_option_key?: string; price_option_name?: string; price_option_price?: number }> {
   return lines.map((l) => {
     const { price_option_key: key, ...rest } = l
@@ -199,7 +200,10 @@ export function stampPriceOptions<T extends LineWithOption>(
     const item = itemId ? itemsById.get(itemId) : undefined
     const option = item && typeof key === 'string' ? readPriceOptions(item.price_options).find((o) => o.key === key) : undefined
     const { price_option_name: _n, price_option_price: _p, ...clean } = rest as Record<string, unknown>
-    return (option ? { ...clean, price_option_key: option.key, price_option_name: option.label, price_option_price: option.price } : clean) as T & {
+    // The size on the line's name is the server's: item name + the stamped option, whatever name the browser sent. The typed
+    // unit price is left alone (an override of the option's list price is allowed; price_option_price keeps the list price).
+    const named = option && item?.name ? { name: lineNameWithOption(item.name, option.label) } : {}
+    return (option ? { ...clean, ...named, price_option_key: option.key, price_option_name: option.label, price_option_price: option.price } : clean) as T & {
       price_option_key?: string
       price_option_name?: string
       price_option_price?: number
@@ -208,22 +212,35 @@ export function stampPriceOptions<T extends LineWithOption>(
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Unit words
+// Units: THE one list and the one set of words (the builder, the add-on editor, the importer and the profiles read these)
 // ---------------------------------------------------------------------------------------------------------------------
+
+/** Service units from migration 202611100090. */
+export const PROFILE_ONLY_UNITS: readonly string[] = ['visit', 'month', 'hour']
+/** Price-sheet units from migration 202611220030 (NOT applied until the office's migration run). */
+export const PRICE_SHEET_UNITS: readonly string[] = ['package', 'pallet', 'lot', 'home', 'load', 'service']
+/** Every unit a fixed-price item may be saved in, besides the roofing-only ones the roofing profile lists itself. */
+export const IMPORTABLE_UNITS: readonly string[] = ['each', 'job', 'lf', 'per_sqft', ...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS]
+/** Which migration adds a service unit (for the "needs a database update" message). */
+export const SERVICE_UNIT_MIGRATION: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(PROFILE_ONLY_UNITS.map((u) => [u, '202611100090'])),
+  ...Object.fromEntries(PRICE_SHEET_UNITS.map((u) => [u, '202611220030'])),
+}
 
 const unitKey = (u?: string | null) => (u || '').trim().toLowerCase()
 
-/** The service units: shown singular after "per" ("per pallet"), plural after a quantity ("3 pallets"). */
-const SERVICE_UNIT_PLURAL: Record<string, string> = {
-  visit: 'visits',
-  month: 'months',
-  hour: 'hours',
-  package: 'packages',
-  pallet: 'pallets',
-  lot: 'lots',
-  home: 'homes',
-  load: 'loads',
-  service: 'services',
+/** Service units: singular after "per" ("per pallet"), plural after a quantity ("3 pallets"). Derived from the two lists above. */
+const SERVICE_UNIT_PLURAL: Record<string, string> = Object.fromEntries([...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS].map((u) => [u, `${u}s`]))
+
+/** Units where the rep types how many (the builder opens its quantity box). Roofing's own list is kept exactly. */
+const QUANTITY_UNITS = new Set<string>([
+  'each', 'sheet', 'sheets', 'bundle', 'bundles', 'roll', 'rolls', 'piece', 'pieces', 'unit', 'units', 'lf', 'linear foot', 'linear feet', 'per_sqft',
+  'hours',
+  ...PROFILE_ONLY_UNITS, 'visits', 'months',
+  ...PRICE_SHEET_UNITS,
+])
+export function unitNeedsQuantity(unit?: string | null): boolean {
+  return QUANTITY_UNITS.has(unitKey(unit))
 }
 
 /**
@@ -268,4 +285,16 @@ export function unitLabel(unit: string): string {
 export function perUnitLabel(unit: string): string {
   const u = unitKey(unit)
   return SERVICE_UNIT_PLURAL[u] ? u : unitLabel(unit)
+}
+
+/** The unit as the add-on editor's tables and labels show it (stored value may be `per_sqft`, etc.). */
+export function unitLabelForDisplay(unit: string): string {
+  switch (unit) {
+    case 'per_sqft':
+      return 'sq ft'
+    case 'sqft':
+      return 'sq ft (roof auto)'
+    default:
+      return unit
+  }
 }

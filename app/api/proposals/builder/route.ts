@@ -234,7 +234,7 @@ export async function GET(request: NextRequest) {
     const effectiveOpportunityId = opportunityIdParam || proposalOpportunityId
 
     // Which price list: the quote's own, else the customer's, else the default (lib/price-list.ts). A company with one
-    // list (ARX) is offered every item, exactly as before.
+    // list (roofing) is offered every item, exactly as before.
     const listOverride = searchParams.get('items_for_list')
     const savedListId = existingProposal ? ((existingProposal.proposal as { pricebook_id?: string | null }).pricebook_id ?? null) : null
     const customerRow = await (async () => {

@@ -14,6 +14,8 @@
 -- 4. A quote line keeps the option that was chosen and that option's list price at the time (unit_price may differ when the
 --    rep typed a different price, as today).
 
+SET LOCAL lock_timeout = '5s';
+
 ALTER TYPE unit ADD VALUE IF NOT EXISTS 'package';
 ALTER TYPE unit ADD VALUE IF NOT EXISTS 'pallet';
 ALTER TYPE unit ADD VALUE IF NOT EXISTS 'lot';

@@ -1,5 +1,5 @@
 {
-  "_about": "Precision Maintenance — Builder Service Program price sheet. Load with: npm run import:price-list -- data/precision-builder-pricing.json --org=<org id> [--apply]. Dry run unless --apply. Needs migration 202611220030 applied first.",
+  "_about": "Precision Maintenance — Builder Service Program price sheet. Load with: npm run import:price-list -- data/precision-builder-pricing.json --org=<org id> --company-name=\"<exact name>\" [--apply]. Dry run unless --apply. Needs migration 202611220030 applied first.",
   "priceList": { "name": "Builder" },
   "quoteTerms": "Pricing reflects the services and quantities listed. Additional services or materials outside the standard scope will be quoted separately.",
   "items": [

@@ -8,7 +8,8 @@ import { getManagerSpoRoleSummary } from '@/lib/manager-commission-roles'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
-import { readPriceOptions, type PriceOption } from '@/lib/price-list'
+import { readPriceOptions, unitLabelForDisplay, type PriceOption } from '@/lib/price-list'
+import { canEditPriceLists, PRICE_LIST_NAME_MAX } from '@/lib/price-list-access'
 
 interface PricebookItem {
   id: string
@@ -41,18 +42,6 @@ interface ProposalTemplate {
 }
 
 type Tab = 'pricing' | 'adders' | 'templates'
-
-/** Human-readable unit for labels and tables (stored value may be `per_sqft`, etc.) */
-function unitLabelForDisplay(unit: string): string {
-  switch (unit) {
-    case 'per_sqft':
-      return 'sq ft'
-    case 'sqft':
-      return 'sq ft (roof auto)'
-    default:
-      return unit
-  }
-}
 
 const visibilityOptions = [
   { value: 'admin_only', label: 'Admin Only', description: 'Only admins can see pricing' },
@@ -105,6 +94,7 @@ export default function AdminProposalsPage() {
   const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; is_default: boolean }>>([])
   const [listId, setListId] = useState<string | null>(null)
   const [newListName, setNewListName] = useState<string | null>(null)
+  const [myRole, setMyRole] = useState<string>('')
   const [saving, setSaving] = useState(false)
   
   // Modal states
@@ -153,6 +143,7 @@ export default function AdminProposalsPage() {
       const data = await response.json()
       setPricebookItems(data.pricebookItems || [])
       setTemplates(data.templates || [])
+      setMyRole(data.role || '')
       const lists: Array<{ id: string; name: string; is_default: boolean }> = data.priceLists || []
       setPriceLists(lists)
       setListId((cur) => (cur && lists.some((l) => l.id === cur) ? cur : (lists.find((l) => l.is_default) ?? lists[0])?.id ?? null))
@@ -464,7 +455,7 @@ export default function AdminProposalsPage() {
                 </select>
               </div>
             )}
-            {newListName === null ? (
+            {!canEditPriceLists(myRole) ? null : newListName === null ? (
               <button type="button" onClick={() => setNewListName('')} className="min-h-[44px] px-4 border border-gray-300 rounded-lg text-sm font-medium text-gray-900 hover:bg-gray-50">
                 + New price list
               </button>
@@ -472,7 +463,7 @@ export default function AdminProposalsPage() {
               <div className="flex flex-wrap items-end gap-2">
                 <div>
                   <label htmlFor="new-price-list" className="block text-sm font-medium text-gray-900 mb-1">Name (e.g. Builder)</label>
-                  <input id="new-price-list" autoFocus value={newListName} onChange={(e) => setNewListName(e.target.value)} maxLength={60} className="min-h-[44px] px-4 border border-gray-300 rounded-lg text-base" />
+                  <input id="new-price-list" autoFocus value={newListName} onChange={(e) => setNewListName(e.target.value)} maxLength={PRICE_LIST_NAME_MAX} className="min-h-[44px] px-4 border border-gray-300 rounded-lg text-base" />
                 </div>
                 <button type="button" disabled={saving || !newListName.trim()} onClick={() => void addPriceList()} className="min-h-[44px] px-4 bg-indigo-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">Add</button>
                 <button type="button" onClick={() => setNewListName(null)} className="min-h-[44px] px-4 text-sm text-gray-900">Cancel</button>

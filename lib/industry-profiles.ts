@@ -16,6 +16,7 @@
 import type { ScheduleTemplate } from '@/lib/job-schedule'
 import type { OrgFeature } from '@/lib/org-features'
 import type { OrgTradeSeed } from '@/lib/org-trades-admin'
+import { PRICE_SHEET_UNITS, PROFILE_ONLY_UNITS, SERVICE_UNIT_MIGRATION } from '@/lib/price-list'
 
 export const INDUSTRY_PROFILE_IDS = ['roofing', 'lawn_landscape', 'exterior_cleaning', 'home_builder'] as const
 export type IndustryProfileId = (typeof INDUSTRY_PROFILE_IDS)[number]
@@ -131,14 +132,8 @@ const BASE_UNITS: readonly PricebookUnit[] = [
   { value: 'sqft', label: 'Sq ft (from roof — auto)' },
   { value: 'job', label: 'Per Job' },
 ]
-/** Units that need migration 202611100090 (DB enum `unit`): saving one before it is applied fails with a clear error. */
-export const PROFILE_ONLY_UNITS: readonly string[] = ['visit', 'month', 'hour']
-/** Price-sheet units (migration 202611220030, NOT applied): a builder / service price list prices per package, pallet, lot, home, load, service. */
-export const PRICE_SHEET_UNITS: readonly string[] = ['package', 'pallet', 'lot', 'home', 'load', 'service']
-const SERVICE_UNIT_MIGRATION: Record<string, string> = {
-  ...Object.fromEntries(PROFILE_ONLY_UNITS.map((u) => [u, '202611100090'])),
-  ...Object.fromEntries(PRICE_SHEET_UNITS.map((u) => [u, '202611220030'])),
-}
+/** Units that need a migration (DB enum `unit`) are defined once in lib/price-list.ts; re-exported for the profile tests. */
+export { PROFILE_ONLY_UNITS, PRICE_SHEET_UNITS }
 
 /**
  * Pure: a pricebook_items save error caused by a service unit the database doesn't have yet (migration 202611100090 not

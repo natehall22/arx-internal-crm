@@ -5,11 +5,11 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { cleanPriceOptions, optionsFloorPrice, type PriceOption } from '@/lib/price-list'
-import { PRICE_SHEET_UNITS, PROFILE_ONLY_UNITS } from '@/lib/industry-profiles'
+import { cleanPriceOptions, IMPORTABLE_UNITS, optionsFloorPrice, type PriceOption } from '@/lib/price-list'
+import { resolveOrgProfile } from '@/lib/org-profile'
 import { orgDb } from '@/lib/supabase/org-db'
 
-const UNITS = new Set<string>(['each', 'job', 'lf', 'per_sqft', ...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS])
+const UNITS = new Set<string>(IMPORTABLE_UNITS)
 
 export type ImportItem = { name: string; unit: string; price: number; category: string; description: string | null; options: PriceOption[] | null; placeholders: number }
 export type PriceListFile = { listName: string; quoteTerms: string | null; items: ImportItem[] }
@@ -51,10 +51,32 @@ export function parsePriceListFile(raw: unknown): { ok: true; file: PriceListFil
   return { ok: true, file: { listName, quoteTerms: typeof root.quoteTerms === 'string' && root.quoteTerms.trim() ? root.quoteTerms.trim() : null, items } }
 }
 
+export class ImportRefused extends Error {}
+
+/**
+ * Pure-ish guard: is this the company the person meant? Refuses an id that is not a company, a company on the roofing
+ * profile (nothing stored = roofing — the price sheet is for service companies), and a name that does not match the
+ * `--company-name` typed by the person. Returns the company's name for the dry-run header.
+ */
+export async function checkImportTarget(admin: SupabaseClient, orgId: string, expectedName: string): Promise<string> {
+  const { data, error } = await admin.from('orgs').select('id, name, profile:settings->profile').eq('id', orgId).maybeSingle()
+  if (error) throw new Error(`read company: ${error.message}`)
+  const org = data as { id: string; name: string | null; profile?: unknown } | null
+  if (!org) throw new ImportRefused(`No company with id ${orgId}`)
+  const name = (org.name ?? '').trim()
+  if (resolveOrgProfile({ profile: org.profile }).id === 'roofing') {
+    throw new ImportRefused(`"${name}" is on the roofing profile (or has none). This price sheet is for service companies; nothing was written.`)
+  }
+  if (!expectedName.trim() || name.toLowerCase() !== expectedName.trim().toLowerCase()) {
+    throw new ImportRefused(`The company is "${name}", not "${expectedName}". Pass --company-name exactly as it is spelled; nothing was written.`)
+  }
+  return name
+}
+
 /** Create the list (and a default list when the company has none) and the items that are missing. Writes nothing unless `apply`. */
-export async function applyPriceListFile(admin: SupabaseClient, orgId: string, file: PriceListFile, apply: boolean): Promise<string[]> {
+export async function applyPriceListFile(admin: SupabaseClient, orgId: string, file: PriceListFile, apply: boolean, companyName: string): Promise<string[]> {
+  const say: string[] = [`company: ${await checkImportTarget(admin, orgId, companyName)}`]
   const db = orgDb(admin, orgId)
-  const say: string[] = []
   const { data: books, error: bErr } = await db.from('pricebooks').select('id, name, is_default')
   if (bErr) throw new Error(`read price lists: ${bErr.message}`)
   const lists = (books ?? []) as Array<{ id: string; name: string; is_default: boolean }>

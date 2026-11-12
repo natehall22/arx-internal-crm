@@ -21,7 +21,7 @@ import {
   taxRatesByIds,
   type SalesTaxSettings,
 } from '@/lib/sales-tax'
-import { lineNameWithOption, perUnitLabel, readPriceOptions, resolveLinePrice, unitLabel as getUnitLabel, type PriceOption } from '@/lib/price-list'
+import { lineNameWithOption, perUnitLabel, readPriceOptions, resolveLinePrice, unitLabel as getUnitLabel, unitNeedsQuantity, type PriceOption } from '@/lib/price-list'
 
 interface PricebookItem {
   id: string
@@ -705,40 +705,7 @@ export default function ProposalBuilderPage() {
   }
 
   // Check if an item needs quantity input (for "each", "sheet", "bundle", "linear foot", per-sq-ft type items)
-  const needsQuantityInput = (unit: string): boolean => {
-    const u = unitLower(unit)
-    return [
-      'each',
-      'sheet',
-      'sheets',
-      'bundle',
-      'bundles',
-      'roll',
-      'rolls',
-      'piece',
-      'pieces',
-      'unit',
-      'units',
-      'lf',
-      'linear foot',
-      'linear feet',
-      'per_sqft',
-      // service units (industry profiles: lawn, cleaning, builders) — the rep enters how many
-      'visit',
-      'visits',
-      'month',
-      'months',
-      'hour',
-      'hours',
-      // price-sheet units: the rep enters how many
-      'package',
-      'pallet',
-      'lot',
-      'home',
-      'load',
-      'service',
-    ].includes(u)
-  }
+  const needsQuantityInput = unitNeedsQuantity
 
   /** Set the modal quantity from a button/stepper. */
   const setQuantityModalNumber = (value: number) => {
@@ -2051,6 +2018,11 @@ export default function ProposalBuilderPage() {
                           {needsQuantityInput(adder.unit) && !isPercent && (
                             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
                               Qty required
+                            </span>
+                          )}
+                          {readPriceOptions(adder.price_options).length > 0 && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
+                              {readPriceOptions(adder.price_options).length} sizes
                             </span>
                           )}
                           {isPercent && (
