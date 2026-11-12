@@ -546,7 +546,7 @@ export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent'
     const segments = sms ? (out.segments ?? countSegments(rendered.sms).segments) : null
     await finish(ctx, row, {
       status: 'sent',
-      sent_at: new Date().toISOString(),
+      sent_at: ctx.now.toISOString(),
       customer_id: built.customerId,
       subject: rendered.subject.slice(0, 300),
       last_error: null,
