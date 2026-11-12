@@ -476,4 +476,54 @@ describe('Move signed documents', () => {
     expect(customerFor(item({ customerId: 'm' }), { g: '-' })).toBeNull()
     expect(customerFor(item(undefined), {})).toBeNull()
   })
+
+  describe('close-name matches are suggestions only', () => {
+    const close = { name: 'Lee Gutter Job for Bob Roof.pdf', dir: '', bytes: pdf('Gutter agreement for a nearby name') }
+    const runIt = async (w: World, run: Awaited<ReturnType<typeof openDraft>>) => {
+      await startSignedImport(w.client, ORG, run)
+      run.status = 'importing'
+      await importBatch(w.client, ORG, USER, run)
+    }
+
+    test('without a choice the document is kept for later; with a choice it is filed', async () => {
+      const w = world()
+      const run = await openDraft(w)
+      await addFiles(w, run, [close])
+      await readAndMatch(w, run)
+      const g = (await reviewGroups(w.client, ORG, run)).groups[0]
+      expect(g.match.how).toBe('close')
+      expect(g.match.candidates.map((c) => c.id)).toContain(C_BOB)
+      await runIt(w, run)
+      const doc = w.db.tables.documents.find((d) => d.sha256 === sha(close.bytes))!
+      expect(doc.customer_id ?? null).toBeNull()
+
+      const w2 = world()
+      const run2 = await openDraft(w2)
+      await addFiles(w2, run2, [close])
+      await readAndMatch(w2, run2)
+      const g2 = (await reviewGroups(w2.client, ORG, run2)).groups[0]
+      expect(await savePicks(w2.client, ORG, run2, { [g2.key]: C_BOB })).toEqual({ ok: true })
+      await runIt(w2, run2)
+      expect(w2.db.tables.documents.find((d) => d.sha256 === sha(close.bytes))!.customer_id).toBe(C_BOB)
+    })
+
+    test('undo keeps a held document that was given a customer later, and says so; waiting counts only what still waits', async () => {
+      const w = world()
+      const run = await openDraft(w)
+      await addFiles(w, run, [FILES.mystery, close])
+      await readAndMatch(w, run)
+      await runIt(w, run)
+      let done = (await loadSignedRun(w.client, ORG, run.id))!
+      expect((await signedSummary(w.client, ORG, done)).waiting).toBe(2)
+      const held = (await listHeld(w.client, ORG)).groups.find((x) => x.fileNames.includes('Zed Zero.pdf'))!
+      expect(await assignHeld(w.client, ORG, [{ customerId: C_ANN, documentIds: held.documentIds }])).toMatchObject({ ok: true })
+      expect((await signedSummary(w.client, ORG, done)).waiting).toBe(1)
+      await startSignedUndo(w.client, ORG, done)
+      done = { ...done, status: 'undoing' }
+      await undoBatch(w.client, ORG, done)
+      expect(w.db.tables.documents.find((d) => d.id === held.documentIds[0])!.deleted_at ?? null).toBeNull()
+      const after = await signedSummary(w.client, ORG, (await loadSignedRun(w.client, ORG, run.id))!)
+      expect(after.keptOnUndo).toBe(1)
+    })
+  })
 })

@@ -30,7 +30,7 @@ type Group = {
   signers: string[]
 }
 type Review = { groups: Group[]; ready: boolean; unfinished: number; unread: number; duplicates: Array<{ name: string; title: string | null }> }
-type Summary = { added: number; certificates: number; waiting: number; duplicates: number; leftOut: number; failed: Array<{ name: string; error: string }>; notPdf: Array<{ name: string; reason: string }>; notPdfCount: number }
+type Summary = { added: number; certificates: number; waiting: number; duplicates: number; leftOut: number; keptOnUndo: number; failed: Array<{ name: string; error: string }>; notPdf: Array<{ name: string; reason: string }>; notPdfCount: number }
 type Progress = { total: number; pending: number; done: number; failed: number; skipped: number; undone: number; kept: number }
 type State = { run: Run; indexFiles: Array<{ id: string; name: string; row_count: number }>; progress: Progress; review: Review | null; summary: Summary | null; provider: string }
 type Held = { key: string; title: string; documentIds: string[]; fileNames: string[]; completedOn: string | null; source: string | null; signers: string[]; match: Group['match'] }
@@ -274,7 +274,8 @@ export default function MoveSignedDocuments() {
     }
   }
 
-  const effective = (g: Group): string => picks[g.key] ?? (g.match.customerId && !g.notCompleted ? g.match.customerId : '')
+  // A close-name match is only a suggestion: until the owner chooses it, the document is kept for later.
+  const effective = (g: Group): string => picks[g.key] ?? (g.match.customerId && g.match.how !== 'close' && !g.notCompleted ? g.match.customerId : '')
 
   function changePick(key: string, value: string) {
     setPicks((p) => ({ ...p, [key]: value }))
@@ -311,7 +312,7 @@ export default function MoveSignedDocuments() {
   const review = state?.review
   const hasFiles = (state?.progress.total ?? 0) > 0
   const groups = review?.groups ?? []
-  const need = groups.filter((g) => !g.notCompleted && !effective(g) && picks[g.key] === undefined).length
+  const need = groups.filter((g) => !g.notCompleted && !effective(g) && picks[g.key] === undefined).length // no sure match and no choice yet: kept for later unless chosen
 
   return (
     <div className="space-y-4 pb-28">
@@ -380,7 +381,7 @@ export default function MoveSignedDocuments() {
             <Card>
               <CardHeader><CardTitle>2. Check who each one belongs to</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-ui-base text-ink">Customers are never created here. A document with no customer is kept in a list and can be given one later.</p>
+                <p className="text-ui-base text-ink">Customers are never created here. A document with no customer is kept in a list and can be given one later. Close-name matches are only suggestions: choose the customer to file them, otherwise they are kept for later.</p>
                 {review.duplicates.length ? <p className="text-ui-sm text-ink">{review.duplicates.length} file{review.duplicates.length === 1 ? ' is' : 's are'} already in your documents and will be skipped.</p> : null}
                 {(['Pick a customer', 'Check these', 'Matched', 'Not finished signing'] as const).map((section) => {
                   const rows = groups.filter((g) => lookWord(g) === section)
@@ -395,7 +396,7 @@ export default function MoveSignedDocuments() {
                             <p className="text-ui-sm text-ink">{g.fileNames.join(', ')}{g.completedOn ? ` · signed ${formatDate(g.completedOn)}` : ''}{g.signers.length ? ` · ${g.signers.join(', ')}` : ''}</p>
                             {g.notCompleted ? <p className="text-ui-sm text-ink">Not finished signing, so it is left out.</p> : (
                               <div className="flex flex-col gap-2 sm:flex-row">
-                                <Select aria-label={`Customer for ${g.title}`} value={picks[g.key] ?? (g.match.customerId ?? '')} onChange={(e) => (e.target.value === '__other' ? void openSearch(g) : changePick(g.key, e.target.value))}>
+                                <Select aria-label={`Customer for ${g.title}`} value={effective(g)} onChange={(e) => (e.target.value === '__other' ? void openSearch(g) : changePick(g.key, e.target.value))}>
                                   <option value="">Keep for later</option>
                                   <option value="-">Don’t add</option>
                                   {g.match.candidates.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -461,6 +462,7 @@ function Finished({ state, onUndo }: { state: State; onUndo: () => void }) {
             <li><strong>{s.failed.length}</strong> failed</li>
           </ul>
         ) : null}
+        {s && s.keptOnUndo > 0 ? <p className="text-ui-sm">{s.keptOnUndo} document{s.keptOnUndo === 1 ? ' was' : 's were'} kept when this was undone: {s.keptOnUndo === 1 ? 'it was' : 'they were'} given a customer or changed after the import, so we left {s.keptOnUndo === 1 ? 'it' : 'them'} alone.</p> : null}
         {s?.failed.length ? <ul className="list-disc pl-5 text-ui-sm">{s.failed.slice(0, 20).map((f, i) => <li key={i}>{f.name}: {f.error}</li>)}</ul> : null}
         {s?.notPdf.length ? <details><summary className="min-h-tap cursor-pointer py-2 font-semibold">{s.notPdfCount} file{s.notPdfCount === 1 ? '' : 's'} were not PDFs or not read</summary><ul className="list-disc pl-5 text-ui-sm">{s.notPdf.map((f, i) => <li key={i}>{f.name}: {f.reason}</li>)}</ul></details> : null}
         <p className="text-ui-sm">{signedOutsideLabel('other')}</p>
@@ -510,7 +512,7 @@ function HeldList({ disabled }: { disabled: boolean }) {
     }
     setSaving(false)
   }
-  const suggested = held.groups.filter((g) => g.match.customerId).map((g) => ({ customerId: g.match.customerId as string, documentIds: g.documentIds }))
+  const suggested = held.groups.filter((g) => g.match.customerId && g.match.how !== 'close').map((g) => ({ customerId: g.match.customerId as string, documentIds: g.documentIds }))
   return (
     <Card>
       <CardHeader><CardTitle>Waiting for a customer ({held.groups.length})</CardTitle></CardHeader>
@@ -523,12 +525,12 @@ function HeldList({ disabled }: { disabled: boolean }) {
               <p className="text-ui-base font-semibold text-ink">{g.title}</p>
               <p className="text-ui-sm text-ink">{g.fileNames.join(', ')}{g.completedOn ? ` · signed ${formatDate(g.completedOn)}` : ''}</p>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Select aria-label={`Customer for ${g.title}`} value={chosen[g.key] ?? g.match.customerId ?? ''} onChange={(e) => setChosen((c) => ({ ...c, [g.key]: e.target.value }))}>
+                <Select aria-label={`Customer for ${g.title}`} value={chosen[g.key] ?? (g.match.how !== 'close' ? g.match.customerId : null) ?? ''} onChange={(e) => setChosen((c) => ({ ...c, [g.key]: e.target.value }))}>
                   <option value="">Choose a customer…</option>
                   {g.match.candidates.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   {held.customers.filter((c) => !g.match.candidates.some((x) => x.id === c.id)).slice(0, 500).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </Select>
-                <Button disabled={disabled || saving || !(chosen[g.key] ?? g.match.customerId)} onClick={() => void assign([{ customerId: (chosen[g.key] ?? g.match.customerId) as string, documentIds: g.documentIds }])}>Add</Button>
+                <Button disabled={disabled || saving || !(chosen[g.key] ?? (g.match.how !== 'close' ? g.match.customerId : null))} onClick={() => void assign([{ customerId: (chosen[g.key] ?? g.match.customerId) as string, documentIds: g.documentIds }])}>Add</Button>
               </div>
             </li>
           ))}

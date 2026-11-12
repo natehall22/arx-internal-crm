@@ -6,7 +6,7 @@
  */
 import { zipSync, strToU8 } from 'fflate'
 
-import { readZip, ZipLimitError, type ZipEntry } from '@/lib/signed-import/zip'
+import { blobChunks, readZip, ZipLimitError, type ZipEntry } from '@/lib/signed-import/zip'
 import { entryKind, isZipJunk, looksLikePdf, unsafeEntryReason } from '@/lib/signed-import/files'
 
 const pdf = (text = 'x') => strToU8(`%PDF-1.4\n${text}\n%%EOF`)
@@ -149,5 +149,38 @@ describe('name rules', () => {
   })
   test('ZipLimitError is exported for callers that want to tell the limits apart', () => {
     expect(new ZipLimitError('x')).toBeInstanceOf(Error)
+  })
+})
+
+describe('high-ratio ZIP through the browser reader', () => {
+  const zeros = (mb: number) => {
+    const b = new Uint8Array(mb * 1024 * 1024)
+    b.set(strToU8('%PDF-1.4'))
+    return b
+  }
+  const asBlob = (bytes: Uint8Array) => ({ size: bytes.length, slice: (a: number, b: number) => ({ arrayBuffer: async () => bytes.slice(a, b).buffer as ArrayBuffer }) })
+
+  test('slices are at most 64 KB, so one push can inflate only a bounded amount', async () => {
+    const zip = zipSync({ 'a.pdf': zeros(64) }, { level: 9 })
+    let biggest = 0
+    for await (const c of blobChunks(asBlob(zip))) biggest = Math.max(biggest, c.length)
+    expect(biggest).toBeLessThanOrEqual(64 * 1024)
+  })
+
+  test('a ~300 MB-of-zeros entry is stopped at the work limit, reading only a sliver of the file', async () => {
+    const zip = zipSync({ 'bomb.pdf': zeros(300) }, { level: 9 })
+    expect(zip.length).toBeLessThan(2 * 1024 * 1024) // ratio > 150:1
+    let pulled = 0
+    const source = (async function* () {
+      for await (const c of blobChunks(asBlob(zip))) {
+        pulled += c.length
+        yield c
+      }
+    })()
+    const entries: ZipEntry[] = []
+    const summary = await readZip(source, (e) => void entries.push(e), { maxWorkBytes: 8 * 1024 * 1024, maxEntryBytes: 25 * 1024 * 1024 })
+    expect(entries).toHaveLength(0)
+    expect(summary.aborted).toMatch(/far more than its size/)
+    expect(pulled).toBeLessThan(zip.length) // it stopped before reading the whole file
   })
 })

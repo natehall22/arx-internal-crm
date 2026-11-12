@@ -25,14 +25,17 @@ export class ZipLimitError extends Error {}
 
 type Source = Uint8Array | AsyncIterable<Uint8Array> | Iterable<Uint8Array>
 
-/** Reads a File/Blob in slices (never the whole thing in memory). */
-export async function* blobChunks(blob: { size: number; slice: (a: number, b: number) => { arrayBuffer: () => Promise<ArrayBuffer> } }, chunk = 2 * 1024 * 1024): AsyncGenerator<Uint8Array> {
+/**
+ * Reads a File/Blob in small slices. The slice size is also the bomb bound: one push inflates synchronously, so at DEFLATE's
+ * ~1000:1 ceiling a 64 KB slice yields at most ~64 MB before the work cap can stop it (a 2 MB slice allowed ~2 GB).
+ */
+export async function* blobChunks(blob: { size: number; slice: (a: number, b: number) => { arrayBuffer: () => Promise<ArrayBuffer> } }, chunk = 64 * 1024): AsyncGenerator<Uint8Array> {
   for (let at = 0; at < blob.size; at += chunk) yield new Uint8Array(await blob.slice(at, Math.min(blob.size, at + chunk)).arrayBuffer())
 }
 
 async function* asChunks(source: Source): AsyncGenerator<Uint8Array> {
   if (source instanceof Uint8Array) {
-    for (let at = 0; at < source.length; at += 1024 * 1024) yield source.subarray(at, Math.min(source.length, at + 1024 * 1024))
+    for (let at = 0; at < source.length; at += 64 * 1024) yield source.subarray(at, Math.min(source.length, at + 64 * 1024))
     return
   }
   for await (const c of source as AsyncIterable<Uint8Array>) yield c

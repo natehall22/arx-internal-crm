@@ -28,8 +28,8 @@ Imported rows are never re-rendered; the customer documents routes have no repla
 - Column header spellings of the DocuSign / Dropbox Sign / PandaDoc CSV reports, and the layout of their certificate
   text (`lib/signed-import/envelope-index.ts`, `cert-text.ts`). Unknown columns are ignored; matching then falls back
   to file names.
-- `unpdf` declares Node >= 24; it ran on Node 22 here. `next.config.js` lists it under
-  `serverComponentsExternalPackages`. `next build` was NOT run in this worktree.
+- `unpdf` is pinned to 1.7.0: it declares no Node engine (1.8+ needs Node 22, 2.x needs 24; CI is 22, Vercel may be 20).
+  Its canvas peer dependency is optional and unused (text only). `next.config.js` lists it under `serverComponentsExternalPackages`.
 - The mobile case (`move-signed-docs` in `e2e/mobile.spec.ts`) was written but the Playwright browser is not
   installed on this machine, so it has not been run.
 - Wording shown on each imported document ("Signed in X, outside this system. Any certificate is the original tool's.")

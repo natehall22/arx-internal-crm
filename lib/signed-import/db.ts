@@ -558,12 +558,16 @@ async function existingCustomerIds(admin: SupabaseClient, orgId: string, ids: st
 // Import
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** The customer a group's files go to: the owner's pick, else the match as it stands, else nobody yet (kept for later). */
+/**
+ * The customer a group's files go to: the owner's pick, else a SURE match (email / exact name), else nobody yet (kept for
+ * later). A close-name match is only a suggestion: it is never filed without the owner choosing it.
+ */
 export function customerFor(item: Pick<ItemRow, 'payload'>, picks: Record<string, string>): string | null {
   const key = item.payload.group?.key
   if (!key) return null
   if (key in picks) return picks[key] && picks[key] !== '-' ? picks[key] : null
-  return item.payload.match?.customerId ?? null
+  const m = item.payload.match
+  return m && m.how !== 'close' ? m.customerId ?? null : null
 }
 
 export async function startSignedImport(admin: SupabaseClient, orgId: string, run: RunRow): Promise<{ ok: true } | Fail> {
@@ -677,22 +681,31 @@ export async function importBatch(admin: SupabaseClient, orgId: string, userId: 
   return { ok: true, progress, finished }
 }
 
-export type SignedSummary = { added: number; certificates: number; waiting: number; /** files that were already in the company's documents (found at the door or at import) */ duplicates: number; leftOut: number; failed: Array<{ name: string; error: string }>; notPdf: Array<{ name: string; reason: string }>; notPdfCount: number }
+export type SignedSummary = { added: number; certificates: number; waiting: number; /** files that were already in the company's documents (found at the door or at import) */ duplicates: number; leftOut: number; /** documents an undo kept because they were given a customer (or edited) after the import */ keptOnUndo: number; failed: Array<{ name: string; error: string }>; notPdf: Array<{ name: string; reason: string }>; notPdfCount: number }
 
 export async function signedSummary(admin: SupabaseClient, orgId: string, run: RunRow): Promise<SignedSummary> {
   const items = await loadItems(admin, orgId, run.id)
-  const s: SignedSummary = { added: 0, certificates: 0, waiting: 0, duplicates: 0, leftOut: 0, failed: [], notPdf: [], notPdfCount: 0 }
+  const s: SignedSummary = { added: 0, certificates: 0, waiting: 0, duplicates: 0, leftOut: 0, keptOnUndo: 0, failed: [], notPdf: [], notPdfCount: 0 }
   const picks = picksOf(run)
+  const waitingIds: string[] = []
   for (const i of items) {
     if (i.status === 'done') {
       if (i.payload.role === 'certificate') s.certificates += 1
-      else s.added += 1
-      const hasCustomer = customerFor(i, picks)
-      if (!hasCustomer && i.payload.role !== 'certificate') s.waiting += 1
+      else {
+        s.added += 1
+        if (!customerFor(i, picks) && i.target_id) waitingIds.push(i.target_id)
+      }
+    } else if (i.status === 'kept') {
+      s.keptOnUndo += 1
     } else if (i.status === 'skipped') {
       if (i.action === 'skip' && /Already in your files/.test(i.error ?? '')) s.duplicates += 1
       else s.leftOut += 1
     } else if (i.status === 'failed') s.failed.push({ name: i.payload.name, error: i.error ?? 'Could not be saved' })
+  }
+  // "Waiting" is what is waiting NOW: a held document the owner has since given a customer is no longer waiting.
+  for (let at = 0; at < waitingIds.length; at += 200) {
+    const { data } = await orgDb(admin, orgId).from('documents').select('id').in('id', waitingIds.slice(at, at + 200)).is('customer_id', null).is('deleted_at', null)
+    s.waiting += ((data ?? []) as unknown[]).length
   }
   const skipped = ((run.summary ?? {}) as unknown as Record<string, unknown>)
   s.duplicates += Object.keys((skipped.dupes && typeof skipped.dupes === 'object' ? skipped.dupes : {}) as Record<string, unknown>).length
