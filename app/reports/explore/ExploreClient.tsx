@@ -121,6 +121,31 @@ export default function ExploreClient() {
   const isSummary = spec?.mode === 'summary'
   const groups = Array.from(new Set((meta?.templates ?? []).map((t) => t.group)))
 
+  // The full table. In chart mode with split totals (billed AND collected, jobs / service) it also sits under the bars, so every number is visible.
+  const resultTable = result ? (
+        <div className="mt-2 max-h-[70vh] overflow-auto rounded border border-[#e6e4dc]">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr>
+                {result.columns.map((c, i) => (
+                  <th key={c.key} className={`sticky top-0 whitespace-nowrap border-b-2 border-[#5f5e5a] bg-white p-2 text-left ${i === 0 ? 'left-0 z-10' : ''}`}>{c.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {result.rows.map((r, i) => (
+                <tr key={i} onClick={isSummary && !drill ? () => drillInto(String(r.group)) : undefined} className={isSummary && !drill ? 'cursor-pointer' : ''}>
+                  {result.columns.map((c, ci) => (
+                    <td key={c.key} className={`border-b border-[#e6e4dc] p-2 ${ci === 0 ? 'sticky left-0 bg-white font-medium' : 'whitespace-nowrap'}`}>{fmt(r[c.key], c.type)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+  ) : null
+  const hasSplits = !!extra && (result?.columns.length ?? 0) > 4
+
   const ctl = 'block w-full min-h-[44px] rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base text-[#2c2c2a]'
   const btn = 'inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[#5f5e5a] bg-white px-4 py-2 text-sm font-semibold text-[#2c2c2a]'
 
@@ -228,28 +253,10 @@ export default function ExploreClient() {
                           )}
                         </button>
                       ))}
+                      {hasSplits && <div className="mt-3">{resultTable}</div>}
                     </div>
                   ) : (
-                    <div className="mt-2 max-h-[70vh] overflow-auto rounded border border-[#e6e4dc]">
-                      <table className="w-full border-collapse text-sm">
-                        <thead>
-                          <tr>
-                            {result.columns.map((c, i) => (
-                              <th key={c.key} className={`sticky top-0 whitespace-nowrap border-b-2 border-[#5f5e5a] bg-white p-2 text-left ${i === 0 ? 'left-0 z-10' : ''}`}>{c.label}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {result.rows.map((r, i) => (
-                            <tr key={i} onClick={isSummary && !drill ? () => drillInto(String(r.group)) : undefined} className={isSummary && !drill ? 'cursor-pointer' : ''}>
-                              {result.columns.map((c, ci) => (
-                                <td key={c.key} className={`border-b border-[#e6e4dc] p-2 ${ci === 0 ? 'sticky left-0 bg-white font-medium' : 'whitespace-nowrap'}`}>{fmt(r[c.key], c.type)}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    resultTable
                   )}
                 </>
               )}

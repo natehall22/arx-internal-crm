@@ -134,14 +134,30 @@ describe('alsoSum (more totals beside the main one)', () => {
 describe('rpt_revenue SQL: the no-double-count rule, kept in step with the views it must agree with', () => {
   const mig = read('supabase/migrations/202611230010_rpt_revenue.sql')
   const sql = mig.replace(/--.*$/gm, '')
-  const jobsView = read('supabase/migrations/202611220010_rpt_jobs_balance_due.sql').replace(/--.*$/gm, '')
+  const jobsOld = read('supabase/migrations/202611220010_rpt_jobs_balance_due.sql').replace(/--.*$/gm, '')
+  const jobsView = sql.slice(sql.indexOf('CREATE OR REPLACE VIEW rpt_jobs')) // the copy this migration installs
   const invView = read('supabase/migrations/202611140010_rpt_invoices.sql').replace(/--.*$/gm, '')
 
   it('is a security_invoker view, closed to anon / authenticated, additive (no existing view is replaced)', () => {
     expect(sql).toMatch(/create or replace view public\.rpt_revenue with \(security_invoker = true\)/)
     expect(sql).toMatch(/revoke all on public\.rpt_revenue from anon, authenticated/)
-    expect(sql.match(/create or replace view/g)).toHaveLength(1)
+    expect(sql.match(/create or replace view/gi)).toHaveLength(2) // rpt_revenue + the same-columns rpt_jobs
     expect(sql).not.toMatch(/\b(alter|drop|insert|update|delete)\b/i)
+    expect(jobsView).toMatch(/WITH \(security_invoker = true\)/)
+    expect(jobsView).toMatch(/REVOKE ALL ON rpt_jobs FROM anon, authenticated/)
+  })
+
+  it('rpt_jobs keeps the very same columns in the very same order (existing report numbers cannot move)', () => {
+    const cols = (v: string) => Array.from(v.slice(0, v.indexOf('FROM production_jobs j')).matchAll(/\bAS (\w+)/g)).map((m) => m[1])
+    const before = cols(jobsOld.slice(jobsOld.indexOf('CREATE OR REPLACE VIEW rpt_jobs')))
+    expect(before.length).toBeGreaterThan(8)
+    expect(cols(jobsView)).toEqual(before)
+  })
+
+  it('rpt_jobs differs from the old definition ONLY in balance_due (everything else is byte-for-byte the same)', () => {
+    const norm = (v: string) => v.replace(/\s+/g, ' ')
+    const strip = (v: string) => norm(v.slice(v.indexOf('CREATE OR REPLACE VIEW rpt_jobs'))).replace(/CASE WHEN j\.billing_mode = 'time_materials'.*?END\) - COALESCE\(p\.collected, 0\)/, 'BALANCE')
+    expect(strip(jobsView).replace(/REVOKE.*$/, '').trim()).toBe(strip(jobsOld).replace(/REVOKE.*$/, '').trim())
   })
 
   it('org_id is the first column and rows without a company are dropped', () => {
@@ -157,18 +173,23 @@ describe('rpt_revenue SQL: the no-double-count rule, kept in step with the views
   })
 
   it("job invoices add only tax (fixed-price, sale amount > 0) or, for time & materials, their issued total - the same rule as rpt_jobs.balance_due", () => {
-    expect(jobsView).toMatch(/j\.billing_mode = 'time_materials'\s+THEN COALESCE\(iv\.issued_total, 0\)/)
-    expect(jobsView).toMatch(/WHEN COALESCE\(j\.sale_amount, 0\) > 0 THEN COALESCE\(iv\.issued_tax, 0\)/)
+    expect(jobsView).toMatch(/j\.billing_mode = 'time_materials' OR COALESCE\(j\.sale_amount, 0\) = 0\s+THEN COALESCE\(iv\.issued_total, 0\)/)
+    expect(jobsView).toMatch(/ELSE COALESCE\(j\.sale_amount, 0\)\s+\+ COALESCE\(iv\.issued_tax, 0\)/)
     expect(jobsView).toMatch(/i\.status NOT IN \('draft', 'void'\)/)
     const tax = sql.slice(sql.indexOf("'jobtax:'"), sql.indexOf("'tm:'"))
     expect(tax).toMatch(/i\.tax_cents \/ 100\.0/)
     expect(tax).toMatch(/coalesce\(j\.sale_amount, 0\) > 0/)
     expect(tax).toMatch(/billing_mode is distinct from 'time_materials'/)
     expect(tax).toMatch(/i\.status not in \('draft', 'void'\)/)
+    // THE no-price rule, written in rpt_jobs.balance_due and in BOTH invoice-billed branches here (amount before tax + tax row)
     const tm = sql.slice(sql.indexOf("'tm:'"), sql.indexOf("'line:'"))
-    expect(tm).toMatch(/i\.total_cents \/ 100\.0/)
-    expect(tm).toMatch(/billing_mode = 'time_materials'/)
-    expect(tm).toMatch(/i\.status not in \('draft', 'void'\)/)
+    expect(tm.match(/\(j\.billing_mode = 'time_materials' or coalesce\(j\.sale_amount, 0\) = 0\)/g)).toHaveLength(2)
+    expect(tm).toMatch(/\(i\.total_cents - coalesce\(i\.tax_cents, 0\)\) \/ 100\.0/)
+    expect(tm).toMatch(/'tmtax:'/)
+    expect(tm).toMatch(/i\.tax_cents \/ 100\.0/)
+    expect(tm.match(/i\.status not in \('draft', 'void'\)/g)).toHaveLength(2)
+    // the contract branch is exactly the complement: a price, not time & materials
+    expect(sql.slice(sql.indexOf("'job:' ||"), sql.indexOf('union all'))).toMatch(/coalesce\(j\.sale_amount, 0\) > 0/)
   })
 
   it('service billing = invoices with no job, same issued rule and same customer rule as rpt_invoices, never a job invoice', () => {
@@ -185,6 +206,13 @@ describe('rpt_revenue SQL: the no-double-count rule, kept in step with the views
     expect(pay).not.toMatch(/amount_cents\s*[>]/) // no "positive only" filter: refunds net out
     expect(sql).not.toMatch(/invoice_payments/)
     expect(jobsView).toMatch(/pm\.funding_status IS DISTINCT FROM 'pending'/)
+    expect(pay).toMatch(/cu\.org_id = coalesce\(pm\.org_id, j\.org_id\)/) // the customer name is looked up inside the payment's own company
+  })
+
+  it("a missing date falls back to the company's own day, never a UTC slice", () => {
+    expect(sql).not.toMatch(/created_at::date/)
+    expect(sql).toMatch(/arx_private\.org_date\(j\.org_id, j\.created_at\)/)
+    expect(sql).toMatch(/coalesce\(nullif\(btrim\(v_tz\), ''\), 'America\/New_York'\)/)
   })
 
   it('the catalog names exactly the view columns', () => {

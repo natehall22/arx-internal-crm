@@ -12,14 +12,16 @@ END $$;
 DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;
 DROP SCHEMA IF EXISTS auth CASCADE; CREATE SCHEMA auth;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
-CREATE TABLE orgs (id uuid PRIMARY KEY, name text);
-CREATE TABLE users (id uuid PRIMARY KEY, org_id uuid REFERENCES orgs(id));
+CREATE TABLE orgs (id uuid PRIMARY KEY, name text, timezone text);
+CREATE TABLE users (id uuid PRIMARY KEY, org_id uuid REFERENCES orgs(id), full_name text);
 CREATE FUNCTION get_user_org_id(u uuid) RETURNS uuid LANGUAGE sql AS $$ SELECT org_id FROM users WHERE id = u $$;
 CREATE FUNCTION is_admin_or_manager(u uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
 CREATE TABLE customers (id uuid PRIMARY KEY, org_id uuid NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, name text);
 CREATE TABLE opportunities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, customer_id uuid REFERENCES customers(id), address_text text, lat numeric, lng numeric);
 CREATE TABLE projects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, opportunity_id uuid);
-CREATE TABLE production_jobs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_number text, sale_date date, status text NOT NULL DEFAULT 'sold', job_type text NOT NULL DEFAULT 'roofing', sale_amount numeric(12,2), billing_mode text, created_at timestamptz NOT NULL DEFAULT now(), project_id uuid, customer_id uuid, address_text text, lat numeric, lng numeric);
+CREATE TABLE production_jobs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_number text, sale_date date, status text NOT NULL DEFAULT 'sold', job_type text NOT NULL DEFAULT 'roofing', sale_amount numeric(12,2), billing_mode text, created_at timestamptz NOT NULL DEFAULT now(),
+  job_source text, completed_at timestamptz, cancelled_at timestamptz, scheduled_date date, materials_status text, permit_status text, salesperson_id uuid, dealer_fee_amount numeric(12,2), project_id uuid, customer_id uuid, address_text text, lat numeric, lng numeric);
+CREATE TABLE job_cost_lines (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), job_id uuid, amount numeric, status text DEFAULT 'active', deleted_at timestamptz, description text);
 CREATE TABLE documents (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid, customer_id uuid, deleted_at timestamptz);
 CREATE TABLE proposals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid);
 CREATE TABLE proposal_line_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), proposal_id uuid);
@@ -52,6 +54,9 @@ ALTER TABLE job_payments ADD COLUMN funding_status text; -- 121_weekly_sales_pay
 \i supabase/migrations/202611110060_customer_invoices.sql
 
 
+\i supabase/migrations/202611220010_rpt_jobs_balance_due.sql
+-- The migration REPLACES rpt_jobs: it must keep the very same columns in the very same order (CREATE OR REPLACE VIEW refuses otherwise).
+CREATE TEMP TABLE rpt_jobs_cols_before AS SELECT attnum, attname FROM pg_attribute WHERE attrelid = 'rpt_jobs'::regclass AND attnum > 0 AND NOT attisdropped;
 \i supabase/migrations/202611230010_rpt_revenue.sql
 -- Idempotent re-apply.
 \i supabase/migrations/202611230010_rpt_revenue.sql
@@ -64,8 +69,8 @@ CREATE FUNCTION bill(o uuid, c uuid, p uuid, u uuid, lines jsonb, tax int DEFAUL
     'total_cents', tax + (SELECT coalesce(sum(round(coalesce((l->>'qty')::numeric, 1) * (l->>'unit_price_cents')::int)), 0) FROM jsonb_array_elements(lines) l)))
 $$;
 
-INSERT INTO orgs VALUES ('00000000-0000-0000-0000-000000000001', 'A'), ('00000000-0000-0000-0000-000000000002', 'B');
-INSERT INTO users VALUES ('90000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001');
+INSERT INTO orgs VALUES ('00000000-0000-0000-0000-000000000001', 'A', 'America/New_York'), ('00000000-0000-0000-0000-000000000002', 'B', NULL);
+INSERT INTO users VALUES ('90000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'U');
 INSERT INTO customers VALUES ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'Pat'),
   ('20000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000002', 'Other');
 INSERT INTO org_trades VALUES ('00000000-0000-0000-0000-000000000001', 'lawn', 'Lawn care'), ('00000000-0000-0000-0000-000000000001', 'roofing', 'Roofing');
@@ -75,7 +80,7 @@ DECLARE
   o1 uuid := '00000000-0000-0000-0000-000000000001'; o2 uuid := '00000000-0000-0000-0000-000000000002';
   ca uuid := '10000000-0000-0000-0000-00000000000a'; cb uuid := '20000000-0000-0000-0000-00000000000a';
   u1 uuid := '90000000-0000-0000-0000-000000000001';
-  j1 uuid; j2 uuid; j3 uuid; jb uuid; i1 uuid; i2 uuid; i3 uuid; pa uuid; plan_id uuid; tpl uuid; v1 uuid; v2 uuid;
+  j1 uuid; j2 uuid; j3 uuid; j4 uuid; j5 uuid; jb uuid; i1 uuid; i2 uuid; i3 uuid; pa uuid; plan_id uuid; tpl uuid; v1 uuid; v2 uuid;
   r jsonb; inv1 uuid; inv2 uuid; inv3 uuid; inv4 uuid; inv5 uuid; n numeric;
   bj numeric; bs numeric; cj numeric; cs numeric;
 BEGIN
@@ -95,6 +100,12 @@ BEGIN
   INSERT INTO production_jobs (org_id, job_number, sale_date, sale_amount, billing_mode, job_type) VALUES (o1, '26-0003', '2026-03-20', 500, 'time_materials', 'mixed') RETURNING id INTO j3;
   INSERT INTO job_invoices (job_id, created_by, status, issued_at, subtotal_cents, total_cents, tax_cents) VALUES (j3, u1, 'sent', '2026-05-02', 30000, 31000, 1000);
   INSERT INTO job_invoices (job_id, created_by, status, issued_at, subtotal_cents, total_cents) VALUES (j3, u1, 'draft', '2026-05-03', 5000, 5000);
+  -- J4: fixed price job with NO contract price (sale_amount null): it bills its issued invoices ($200 + $10 tax), a draft bills nothing.
+  INSERT INTO production_jobs (org_id, job_number, customer_id, sale_date, sale_amount) VALUES (o1, '26-0004', ca, '2026-05-05', NULL) RETURNING id INTO j4;
+  INSERT INTO job_invoices (job_id, created_by, status, issued_at, subtotal_cents, total_cents, tax_cents) VALUES (j4, u1, 'sent', '2026-05-06', 20000, 21000, 1000);
+  INSERT INTO job_invoices (job_id, created_by, status, issued_at, subtotal_cents, total_cents) VALUES (j4, u1, 'draft', '2026-05-07', 7700, 7700);
+  -- J5: no sale date; created 02:30 UTC on 11 March = the evening of 10 March in the company's time zone (not 11 March).
+  INSERT INTO production_jobs (org_id, job_number, sale_date, sale_amount, created_at) VALUES (o1, '26-0005', NULL, 1000, '2026-03-11 02:30:00+00') RETURNING id INTO j5;
   -- Another company's job: must never leak into org 1.
   INSERT INTO production_jobs (org_id, job_number, sale_date, sale_amount) VALUES (o2, 'B-1', '2026-03-10', 777) RETURNING id INTO jb;
 
@@ -136,10 +147,21 @@ BEGIN
   -- ===== Assertions (org 1) =====
   -- T1 jobs billed ONCE: J1 contract 10000 (March) + 250 tax (April) + J3 T&M 310 (May); J2 cancelled 0, drafts 0.
   SELECT coalesce(sum(billed_jobs), 0) INTO bj FROM rpt_revenue WHERE org_id = o1;
-  ASSERT bj = 10560, 'T1 jobs billed ' || bj;
-  ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1 AND work_type = 'Jobs' AND event_date BETWEEN '2026-03-01' AND '2026-03-31') = 10000, 'T1 March = the contract only (deposit + final invoices add nothing)';
-  ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1 AND service = 'Sales tax' AND work_type = 'Jobs') = 250, 'T1 invoice tax on top of the contract';
-  ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1 AND service = 'Hourly (time & materials)' AND work_type = 'Jobs') = 310, 'T1 T&M job bills its issued invoices, not the estimate';
+  ASSERT bj = 11770, 'T1 jobs billed ' || bj;
+  ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1 AND work_type = 'Jobs' AND event_date BETWEEN '2026-03-01' AND '2026-03-31' AND reference = '26-0001') = 10000, 'T1 March = the contract only (deposit + final invoices add nothing)';
+  ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1 AND service = 'Sales tax' AND work_type = 'Jobs') = 270, 'T1 invoice tax: $250 on J1 (on top of its contract) + $10 on J3 (T&M) + $10 on J4, each its own row';
+  ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1 AND service = 'Hourly (time & materials)' AND work_type = 'Jobs') = 300, 'T1 T&M job bills its issued invoices (before tax), not the estimate';
+  ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1 AND service = 'Invoiced (no contract price)') = 200, 'T1b a job with no contract price bills its issued invoices (before tax), not its draft';
+  ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1 AND reference IN (SELECT invoice_number FROM job_invoices WHERE job_id = j4)) = 210, 'T1b ... and its tax as its own row (210 in all)';
+  -- T1c one rule: rpt_jobs.balance_due agrees with what rpt_revenue bills minus what it collected, job by job.
+  ASSERT (SELECT balance_due FROM rpt_jobs WHERE job_id = j1) = 250, 'T1c fixed price: contract + invoice tax - paid = 250';
+  ASSERT (SELECT balance_due FROM rpt_jobs WHERE job_id = j3) = 310, 'T1c time & materials owes its issued invoices';
+  ASSERT (SELECT balance_due FROM rpt_jobs WHERE job_id = j4) = 210, 'T1c no contract price owes its issued invoices (was 0 before this change)';
+  ASSERT (SELECT balance_due FROM rpt_jobs WHERE job_id = j2) = 0, 'T1c cancelled owes nothing';
+  ASSERT (SELECT count(*) FROM rpt_jobs_cols_before) = (SELECT count(*) FROM pg_attribute WHERE attrelid = 'rpt_jobs'::regclass AND attnum > 0 AND NOT attisdropped)
+     AND NOT EXISTS (SELECT 1 FROM rpt_jobs_cols_before b JOIN pg_attribute a ON a.attrelid = 'rpt_jobs'::regclass AND a.attnum = b.attnum WHERE a.attname <> b.attname), 'T1c rpt_jobs keeps its columns, same order';
+  -- T1d the company's own day: a job with no sale date falls on 10 March (New York evening), not 11 March (UTC).
+  ASSERT (SELECT event_date FROM rpt_revenue WHERE reference = '26-0005' AND entry = 'Billed') = '2026-03-10', 'T1d created_at fallback uses the company time zone';
   ASSERT NOT EXISTS (SELECT 1 FROM rpt_revenue WHERE reference = '26-0002' AND entry = 'Billed'), 'T1 cancelled job bills nothing';
   -- T2 service billed: invoice1 60 + invoice2 90 + 5 tax = 155; void (999) and draft (123) excluded.
   SELECT coalesce(sum(billed_service), 0) INTO bs FROM rpt_revenue WHERE org_id = o1;
