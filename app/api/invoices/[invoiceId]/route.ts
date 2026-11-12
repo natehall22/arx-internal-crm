@@ -10,7 +10,6 @@ import {
   addInvoiceItem,
   updateInvoiceItem,
   deleteInvoiceItem,
-  finalizeAndSendInvoice,
   voidInvoice,
   duplicateInvoiceAsDraft,
   recordCustomerInvoicePayment,
@@ -147,23 +146,16 @@ export async function PATCH(
 
       case 'send': {
         const { email } = body
-        // An invoice without a job (recurring service) is really emailed to the customer (lib/invoice-email.ts); a job
-        // invoice keeps its original behaviour (marked sent, nothing emailed).
-        if (!invoiceCheck.job_id) {
-          const current = await getInvoiceWithDetails(adminClient, params.invoiceId)
-          if (!current) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-          // With online payments on: a card on file is charged first (autopay) and the email carries a pay link.
-          const sent = await sendCustomerInvoiceOnline(adminClient, profile.org_id, current as JobInvoice, typeof email === 'string' ? email : null, profile.id)
-          if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: sent.status })
-          return NextResponse.json({ success: true, invoice: sent.invoice })
-        }
-        if (!email) {
-          return NextResponse.json({ error: 'email required' }, { status: 400 })
-        }
-        const invoice = await finalizeAndSendInvoice(adminClient, params.invoiceId, email)
+        // Really emailed to the customer (lib/invoice-email.ts, the company's own From), for a job invoice and a service
+        // invoice alike. With online payments on the email carries a pay link (and a card on file is charged first for an
+        // invoice without a job). Email first, status second: a failed send leaves the invoice as it was.
+        const current = await getInvoiceWithDetails(adminClient, params.invoiceId)
+        if (!current) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
+        const sent = await sendCustomerInvoiceOnline(adminClient, profile.org_id, current as JobInvoice, typeof email === 'string' ? email : null, profile.id)
+        if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: sent.status })
         // Issued now: a time & materials job's commission base counts it (drafts don't).
-        await resyncBase()
-        return NextResponse.json({ success: true, invoice })
+        if (invoiceCheck.job_id) await resyncBase()
+        return NextResponse.json({ success: true, invoice: sent.invoice })
       }
 
       case 'record_payment': {

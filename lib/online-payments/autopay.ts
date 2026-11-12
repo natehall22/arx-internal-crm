@@ -159,7 +159,7 @@ async function settle(admin: SupabaseClient, op: OnlinePayments, orgId: string, 
 }
 
 /**
- * "Send" for an invoice without a job, with online payments: autopay first (when it applies), then the email — with a
+ * "Send" for any invoice, with online payments: autopay first (invoices without a job only), then the email — with a
  * pay link while anything is still owed. Without online payments this is exactly `sendCustomerInvoice`.
  */
 export async function sendCustomerInvoiceOnline(
@@ -170,10 +170,11 @@ export async function sendCustomerInvoiceOnline(
   userId: string | null
 ): Promise<SendInvoiceResult & { autopay?: AutopayOutcome }> {
   const op = await loadOnlinePayments(admin, orgId)
-  if (!op.ready || invoice.job_id) return sendCustomerInvoice(admin, orgId, invoice, to)
+  if (!op.ready) return sendCustomerInvoice(admin, orgId, invoice, to)
   let current = invoice
   let autopay: AutopayOutcome | undefined
-  if (op.settings.autopay && invoice.status !== 'void') {
+  // A job invoice is paid by its link or recorded by the office: no card is charged on its own.
+  if (op.settings.autopay && invoice.status !== 'void' && !invoice.job_id) {
     autopay = await chargeInvoiceAutopay(admin, op, orgId, invoice.id).catch((e) => {
       console.error('sendCustomerInvoiceOnline: autopay failed to run', e)
       return { charged: false as const, reason: 'error' }

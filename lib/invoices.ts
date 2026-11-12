@@ -726,7 +726,7 @@ export async function recalculateInvoiceTotals(
  * Finalize and send an invoice.
  * Sets status to 'sent', records sent_at and email.
  * PDF generation is handled separately via the /api/invoices/[id]/pdf endpoint.
- * Email sending is not implemented here. Nothing is sent to QuickBooks (see docs/quickbooks-sync.md).
+ * This only ISSUES the invoice (status, dates, who it went to); the email itself is lib/invoice-email.ts (sendCustomerInvoice), which calls this. Nothing is sent to QuickBooks (see docs/quickbooks-sync.md).
  */
 export async function finalizeAndSendInvoice(
   supabase: SupabaseClient,
@@ -777,9 +777,6 @@ export async function finalizeAndSendInvoice(
   if (error || !updated) {
     throw new Error(`Failed to send invoice: ${error?.message || 'Unknown error'}`)
   }
-
-  // TODO: Integrate with email service to actually send the invoice
-  console.log(`[STUB] Invoice ${updated.invoice_number} sent to ${email}`)
 
   return updated as JobInvoice
 }

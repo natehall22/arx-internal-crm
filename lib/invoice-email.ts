@@ -1,9 +1,9 @@
 /**
  * Emailing an invoice to the customer, rendered from THE invoice model (lib/invoice-document.ts) — the company's own
- * name, address, phone and email (never the product's). Today only invoices without a job are emailed for real: job
- * invoices keep their original "mark sent" behaviour (finalizeAndSendInvoice), so the original company is unchanged.
- * With online payments on, `sendCustomerInvoiceOnline` (lib/online-payments/autopay.ts) charges a card on file first and
- * passes a pay link (`payUrl`) while anything is still owed.
+ * name, address, phone and email (never the product's). Every invoice — a job's or a recurring service's — is really
+ * emailed by `sendCustomerInvoice` (the office's "Send invoice" used to only mark a job invoice sent; nothing reached the
+ * customer). With online payments on, `sendCustomerInvoiceOnline` (lib/online-payments/autopay.ts) passes a pay link
+ * (`payUrl`) while anything is still owed, and charges a card on file first for invoices without a job.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -88,7 +88,7 @@ export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string
 export type SendInvoiceResult = { ok: true; invoice: JobInvoice } | { ok: false; status: 400 | 409 | 503; error: string }
 
 /**
- * Email an invoice without a job to its customer (`to` defaults to the customer's email), then mark it sent. A draft is
+ * Email an invoice (a job's or not) to its customer (`to` defaults to the customer's email), then mark it sent. A draft is
  * issued (finalizeAndSendInvoice); an invoice already sent is simply sent again. Refuses a void or $0 invoice.
  * Email first, status second: a failed send never leaves an invoice marked "sent" that nobody received.
  */
@@ -99,7 +99,6 @@ export async function sendCustomerInvoice(
   to?: string | null,
   opts: { payUrl?: string | null } = {}
 ): Promise<SendInvoiceResult> {
-  if (invoice.job_id) return { ok: false, status: 400, error: 'Job invoices are sent from the job' }
   if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
   if (!process.env.SMTP_HOST) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
   const fromHeader = getCrmEmailFrom()
@@ -120,7 +119,7 @@ export async function sendCustomerInvoice(
   if (invoice.status === 'draft') {
     return { ok: true, invoice: await finalizeAndSendInvoice(admin, invoice.id, address) }
   }
-  // org-scope-ok: invoice was found in orgId by the caller (findOrgInvoice); org_id filter added for the no-job anchor
+  // org-scope-ok: invoice was found in orgId by the caller (findOrgInvoice); job_invoices.org_id is set on every row (trigger, migration 202611100040)
   const { data, error } = await admin
     .from('job_invoices')
     .update({ sent_at: new Date().toISOString(), sent_to_email: address })
