@@ -239,14 +239,12 @@ export async function loadMorningTodayQueues(
         return { id: 'payment-reversals', title: 'Payment reversed — review', count: 0, empty: 'Reversed payments couldn’t load today.', items: [] }
       })
     : null
-  // Unpaid service invoices (servicePlans on): Everything version only (it is money owed to the company, same audience as
+  // Unpaid invoices (job and service): Everything version only (it is money owed to the company, same audience as
   // the other money cards). No amounts, no customer names in the email: invoice number + how late.
-  const unpaid = orgProfile.features.servicePlans
-    ? await loadUnpaidInvoicesQueue(supabase, orgId, now, { money: false }).catch((error) => {
-        console.error('morning update: unpaid invoices failed', error)
-        return unpaidInvoicesFailedQueue()
-      })
-    : null
+  const unpaid = await loadUnpaidInvoicesQueue(supabase, orgId, now, { money: false }).catch((error) => {
+    console.error('morning update: unpaid invoices failed', error)
+    return unpaidInvoicesFailedQueue()
+  })
   return asProfile([
     ...(reversals && (reversals.count > 0 || reversalsFailed) ? [reversals] : []),
     ...(unpaid && (unpaid.count > 0 || unpaid.empty.includes('couldn’t load')) ? [unpaid] : []),
