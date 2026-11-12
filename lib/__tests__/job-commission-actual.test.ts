@@ -70,14 +70,15 @@ describe('loadJobCommissions', () => {
     spy.mockRestore()
   })
 
-  test('commission-change fix lines (Payroll -> Fix a mistake) count in what was paid', async () => {
+  test('commission-change fix lines (Payroll -> Fix a mistake) count in what was paid (applied only)', async () => {
     const db = createFakeDb({
       ...schedule,
       payroll_payout_lines: [{ org_id: ORG, job_id: 'j1', net_amount: 1000 }],
       payroll_adjustments: [
-        { org_id: ORG, job_id: 'j1', kind: 'commission_change', amount: -250.25, status: 'approved' },
+        { org_id: ORG, job_id: 'j1', kind: 'commission_change', amount: -250.25, status: 'applied' },
+        { org_id: ORG, job_id: 'j1', kind: 'commission_change', amount: -77, status: 'pending' }, // not in an approved week yet: not paid
         { org_id: ORG, job_id: 'j1', kind: 'commission_change', amount: -999, status: 'void' },
-        { org_id: ORG, job_id: 'j1', kind: 'bonus', amount: 500, status: 'approved' },
+        { org_id: ORG, job_id: 'j1', kind: 'bonus', amount: 500, status: 'applied' },
       ],
     })
     const m = await loadJobCommissions(db.client as never, ORG, ['j1'], NOW)

@@ -46,7 +46,7 @@ export async function loadJobCommissions(admin: SupabaseClient, orgId: string, j
   for (const l of (lines ?? []) as Array<{ job_id: string; net_amount: number | string | null }>) {
     paid.set(l.job_id, (paid.get(l.job_id) ?? 0) + toCents(l.net_amount))
   }
-  const { data: changes } = await admin.from('payroll_adjustments').select('job_id, amount').eq('org_id', orgId).eq('kind', 'commission_change').neq('status', 'void').in('job_id', jobIds)
+  const { data: changes } = await admin.from('payroll_adjustments').select('job_id, amount').eq('org_id', orgId).eq('kind', 'commission_change').eq('status', 'applied').in('job_id', jobIds)
   for (const c of (changes ?? []) as Array<{ job_id: string; amount: number | string | null }>) {
     if (paid.has(c.job_id)) paid.set(c.job_id, (paid.get(c.job_id) ?? 0) + toCents(c.amount))
   }

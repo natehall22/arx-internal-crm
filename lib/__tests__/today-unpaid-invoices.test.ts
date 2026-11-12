@@ -71,6 +71,19 @@ describe('job invoices on jobs already paid in full (the prod shape)', () => {
     expect(q.items.map((i) => i.ref)).toEqual(['Job 26-0002 · Invoice INV-26-2'])
     expect(q.count).toBe(1)
   })
+
+  it('a job invoice is never owed more than its job still owes (prod: $11,409 shown, $133.17 owed)', async () => {
+    const d = createFakeDb({
+      production_jobs: [{ id: 'jc', org_id: ORG, customer_id: 'c1', job_number: '26-0012', sale_amount: 11409, status: 'complete' }],
+      customers: [{ id: 'c1', org_id: ORG, name: 'Pat Lee', email: null }],
+      job_invoices: [inv('1', { job_id: 'jc', total_cents: 1140900 })], // sent for the whole sale, payments never applied to it
+      invoice_payments: [],
+      job_payments: [{ id: 'a', job_id: 'jc', amount_cents: 1127583, payment_type: 'final', method: 'check', paid_at: '2026-11-01' }],
+    })
+    const q = await loadUnpaidInvoicesQueue(d.client as never, ORG, NOW, { money: true })
+    expect(q.items).toHaveLength(1)
+    expect(q.items[0].note).toContain('$133.17 owed')
+  })
 })
 
 describe('loadUnpaidInvoicesQueue', () => {

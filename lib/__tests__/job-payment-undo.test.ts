@@ -84,6 +84,16 @@ describe('undoJobPayment', () => {
     expect((db.tables.production_jobs as Row[])[0].status).toBe('collected')
   })
 
+  test('a retry after a crash (reversal saved, job still collected) still moves the job back to complete', async () => {
+    const db = world()
+    ;(db.tables.production_jobs as Row[])[0].status = 'collected'
+    await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p1', reason: 'x', actor: owner })
+    ;(db.tables.production_jobs as Row[])[0].status = 'collected' // the status step never ran
+    const again = await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p1', reason: 'x', actor: owner })
+    expect(again).toMatchObject({ ok: true, alreadyUndone: true })
+    expect((db.tables.production_jobs as Row[])[0].status).toBe('complete')
+  })
+
   test('a double tap writes nothing new', async () => {
     const db = world()
     await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p1', reason: 'x', actor: office })

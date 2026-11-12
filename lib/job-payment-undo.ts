@@ -85,8 +85,9 @@ export async function undoJobPayment(admin: SupabaseClient, input: UndoJobPaymen
     if (applied > 0) await applyRefundToInvoice(admin, input.orgId, invoiceId, result.payment.id, applied)
   }
 
-  // The job is no longer paid in full: it goes back from collected to complete (so it shows as owing again). A repeat does nothing.
-  if (!result.duplicate) {
+  // The job is no longer paid in full: it goes back from collected to complete (so it shows as owing again). Runs on a repeat
+  // too (a crash after the reversal was saved must still finish this); a job already back, or still paid in full, is left alone.
+  {
     const { data: after } = await admin.from('production_jobs').select('status, project_id').eq('id', input.jobId).eq('org_id', input.orgId).maybeSingle()
     const j = after as { status?: string; project_id?: string | null } | null
     if (j?.status === 'collected' && !(await jobsPaidInFull(admin, input.orgId, [input.jobId])).has(input.jobId)) {
