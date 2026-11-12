@@ -4,6 +4,9 @@ import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
+import { completeEnvelope } from '@/lib/signing/complete'
+import { consentCheck } from '@/lib/signing/consent'
+import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { getDocumentBrand } from '@/lib/org-brand'
@@ -40,6 +43,7 @@ export async function POST(request: NextRequest) {
       projectAddress,
       signingMode,
       isCommissionable,
+      consent: consentInput,
     } = body
 
     const commissionable = isCommissionable !== false
@@ -93,6 +97,11 @@ export async function POST(request: NextRequest) {
       if (!remote.ok) return NextResponse.json({ error: remote.error }, { status: remote.status })
       return NextResponse.json({ success: true, changeOrderId: remote.changeOrderId, pdfUrl: null, signingUrl: remote.signingUrl })
     }
+
+    // The e-sign notice, when the company's consent step is on: the customer agrees on the rep's device before signing, and the
+    // server refuses an in-person signature without it (the same rule as the customer's own link).
+    const consent = consentCheck((await loadSigningSettings(createServiceClient(), profile.org_id)).consentStep, consentInput)
+    if (!consent.ok) return NextResponse.json({ error: consent.error, code: consent.code }, { status: 400 })
 
     const signedAt = new Date().toISOString()
     // Company identity for the PDF letterhead and the customer email.
@@ -170,6 +179,7 @@ export async function POST(request: NextRequest) {
         status: 'completed',
         customer_email: customerEmail || null,
         customer_signed_at: signedAt,
+        ...(consent.version ? { consent_version: consent.version, consent_at: signedAt } : {}),
         pdf_url: pdfUrl,
         pdf_storage_path: pdfStoragePath,
         original_contract_id: originalContractId || null,
@@ -218,6 +228,15 @@ export async function POST(request: NextRequest) {
         console.error('[Change Order] Error syncing job financials:', result.error)
       } else if (result?.status === 'skipped') {
         console.warn('[Change Order] Job sale amount not updated:', result.totals.reason)
+      }
+    }
+
+    // Signed in person on the rep's device: the engine records it the same way (events, SHA-256, certificate). Never blocks the CO.
+    if (pdfUrl) {
+      try {
+        await completeEnvelope(createServiceClient(), { kind: 'change-order', docId: changeOrder.id, orgId: profile.org_id, inPerson: true })
+      } catch (engineError) {
+        console.error('[Change Order] signing engine completion failed:', engineError)
       }
     }
 

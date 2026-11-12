@@ -268,7 +268,7 @@ const exteriorCleaning: IndustryProfile = {
   terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
-    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment'],
+    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],
     texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
@@ -351,7 +351,7 @@ const homeBuilder: IndustryProfile = {
   terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
   today: {
-    order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment'],
+    order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],
     texts: {
       'Nothing waiting on a customer.': 'No bids waiting on a customer.',

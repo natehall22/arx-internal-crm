@@ -4,6 +4,7 @@ import { filesObjectHref } from '@/lib/files/files-object'
 import { createServiceClient } from '@/lib/supabase/service'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { completeEnvelope } from '@/lib/signing/complete'
 
 export const dynamic = 'force-dynamic'
 
@@ -96,6 +97,11 @@ export async function POST(
 
     if (updErr) {
       return NextResponse.json({ error: updErr.message }, { status: 500 })
+    }
+
+    // A signed change order whose PDF came late now gets its hash and certificate (never blocks the PDF).
+    if (co.status === 'completed' && co.customer_signed_at) {
+      await completeEnvelope(service, { kind: 'change-order', docId: co.id, orgId: profile.org_id }).catch((e) => console.error('[Change Order] signing engine completion failed:', e))
     }
 
     return NextResponse.json({ success: true, pdfUrl: filesObjectHref(pdfStoragePath) })

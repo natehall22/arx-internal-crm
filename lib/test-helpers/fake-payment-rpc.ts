@@ -14,7 +14,7 @@ export const FAKE_PAYMENT_RPC = {
   record_job_payment: (a: Row, t: Tables) => {
     const job = (t.production_jobs ?? []).find((j) => j.id === a.p_job && j.org_id === a.p_org)
     if (!job) throw fail('record_job_payment: job not found', 'P0002')
-    if (!['payment.recorded', 'payment.refunded', 'payment.disputed'].includes(String(a.p_event_type ?? 'payment.recorded'))) throw fail('unknown event', '22023')
+    if (!['payment.recorded', 'payment.refunded', 'payment.disputed', 'payment.voided'].includes(String(a.p_event_type ?? 'payment.recorded'))) throw fail('unknown event', '22023')
     if (!a.p_amount_cents) throw fail('Enter an amount', '22023')
     const pays = (t.job_payments ??= [])
     let pay = a.p_idempotency_key ? pays.find((p) => p.job_id === a.p_job && p.idempotency_key === a.p_idempotency_key) : undefined
@@ -26,7 +26,8 @@ export const FAKE_PAYMENT_RPC = {
     const event = String(a.p_event_type ?? 'payment.recorded')
     const key = `${a.p_org}:job_payments:${pay.id}:${event}:v1`
     const outbox = (t.integration_outbox ??= [])
-    if (!outbox.some((o) => o.idempotency_key === key)) outbox.push({ id: `ob-${++n}`, org_id: a.p_org, provider: 'quickbooks', event_type: event, entity_table: 'job_payments', entity_id: pay.id, idempotency_key: key, status: 'pending' })
+    const qbOn = ((t.orgs ?? []).find((o) => o.id === a.p_org)?.settings as { features?: { quickbooks?: boolean } } | undefined)?.features?.quickbooks === true // mirrors the SQL: no outbox row while the switch is off
+    if (qbOn && !outbox.some((o) => o.idempotency_key === key)) outbox.push({ id: `ob-${++n}`, org_id: a.p_org, provider: 'quickbooks', event_type: event, entity_table: 'job_payments', entity_id: pay.id, idempotency_key: key, status: 'pending' })
     return { payment: { ...pay }, duplicate }
   },
   apply_job_invoice_payment: (a: Row, t: Tables) => {

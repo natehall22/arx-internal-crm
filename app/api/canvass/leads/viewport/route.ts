@@ -325,7 +325,7 @@ export async function GET(request: NextRequest) {
 
     // Exclude already-loaded IDs (for incremental loading)
     if (excludeIds.length > 0 && excludeIds.length < 1000) {
-      query = query.not('id', 'in', `(${excludeIds.join(',')})`)
+      query = query.filter('id', 'not.in', `(${excludeIds.join(',')})`)
     }
 
     // Order by recency for consistent pagination

@@ -107,6 +107,8 @@ needs entries #5–#7 (the wildcards above cover them).
   `record_customer_invoice_refund` and `job_invoices_void_guard` with copies that also count `paid_outside_cents`.
   Re-applying 0060 or 0020 after it would drop that; apply in order. DB test:
   `supabase/tests/run-jobber-import.sh`.
+- Move signed documents: `202611190010_signed_documents_import.sql` AFTER 202611120040 (Jobber import: it widens that
+  migration's `import_runs` source check and one-open-run index) and 202611110010. Additive; docs: `docs/signed-documents-import.md`.
 - Hourly billing: `202611120030_hourly_billing.sql` after 202611110060 (it writes `job_invoice_items.unit` / `work_order_id`
   and the per-hour plan basis on 202611110030's tables); also needs 202611100090 for price-book items priced "per hour".
   Then the code. DB test: `supabase/tests/run-hourly-billing.sh`.
@@ -120,7 +122,7 @@ addresses; needs 0070) and 202611100080 (Google connect on a company address) �
 202611110030, 202611110040, 202611110060, 202611110070, 202611120010, 202611120020 (online payments), 202611120030 (hourly
 billing), 202611120040 (Jobber import), 202611120050 (customer messages), 202611120060 (portal), 202611120080 (project
 tools), 202611120090 (purchase orders), 202611130010, 202611130020 (AI connector), 202611130050 (QuickBooks),
-202611130070 (quote approval), 202611140010 (rpt_invoices), 202611140070 (payroll advances / approval links), 202611150010
+202611130070 (quote approval), **202611210010 then 202611210020 (QuickBooks sync columns, then the outbox lock-down: both BEFORE the code; the second drops the org-wide outbox policies, which let any signed-in member read payment events)**, 202611140010 (rpt_invoices), 202611140070 (payroll advances / approval links), 202611150010
 (portal roofing), 202611150070 (AI connector writes), 202611160010 / 202611160020 / 202611160030 (signing safety, below),
 202611170010 (texting; after 120050 and 120060). Then the signing-safety backfill (below).
 **Phase 2 — deploy the code.**

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -110,14 +110,32 @@ const SCREENS: Screen[] = [
   } },
   { name: 'announcements-admin', path: '/dev-harness/announcements-admin', ready: 'text=Announcements',
     states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).click(); await p.waitForSelector('text=Edit announcement') } }] },
+  { name: 'job-payments-undo', path: '/dev-harness/job-payments', ready: 'text=Undo payment',
+    states: [{ name: 'undo-sheet', run: async (p) => { await p.getByRole('button', { name: 'Undo payment' }).first().click(); await p.waitForSelector('#undo-reason') } }] },
   { name: 'materials-cost-entry', path: '/dev-harness/materials-costs', ready: 'text=Total job costs',
-    states: [{ name: 'add-cost-open', run: async (p) => { await p.getByRole('button', { name: /Job Cost/i }).first().click(); await p.waitForTimeout(300) } }] },
+    states: [{ name: 'add-cost-open', run: async (p) => { await p.getByRole('button', { name: /Add a cost/i }).first().click(); await p.waitForTimeout(300) } }] },
   { name: 'contract-signing', path: '/dev-harness/contract-signing', ready: 'text=Pat Customer',
     states: [{ name: 'notice-of-cancellation-open', run: async (p) => {
       await p.getByRole('button', { name: 'Notice of Cancellation' }).click()
       await p.waitForSelector('text=I HEREBY CANCEL THIS TRANSACTION.')
     } }] },
   { name: 'change-order-signing', path: '/dev-harness/change-order-signing', ready: 'text=CO-1' },
+  { name: 'change-order-signing-consent', path: '/dev-harness/change-order-signing-consent', ready: 'text=CO-1',
+    states: [{ name: 'decline-open', run: async (p) => {
+      await p.getByRole('button', { name: /can.t sign this/i }).click()
+      await p.waitForSelector('text=why you can')
+    } }] },
+  { name: 'signer-flow', path: '/dev-harness/signer-flow', ready: 'text=Lease agreement',
+    mock: async (p) => { await p.route('**/api/signing/requests/file**', (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: Buffer.from('%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\ntrailer<</Root 1 0 R/Size 4>>\n%%EOF') })) },
+    states: [
+      { name: 'signature-sheet', run: async (p) => { await p.getByRole('button', { name: 'Start' }).click(); await p.waitForSelector('text=Your signature') } },
+    ] },
+  { name: 'signing-status', path: '/dev-harness/signing-status', ready: 'text=Not opened yet',
+    mock: async (p) => { await p.route('**/api/signing/change-order/co-1', (route) => route.fulfill(json({
+      ready: true, title: 'Change Order CO-1', status: 'sent', statusLabel: 'Sent', sentAt: '2026-11-09T12:00:00Z', firstViewedAt: null,
+      expiresAt: '2026-11-20T12:00:00Z', reminderCount: 1, remindersOn: true, customerEmail: 'pat@example.test', extendDays: 7,
+    }))) },
+    states: [{ name: 'void-open', run: async (p) => { await p.getByRole('button', { name: 'Void' }).click(); await p.waitForSelector('text=Why are you voiding this?') } }] },
   { name: 'crew-photo-capture', path: '/dev-harness/crew-capture', ready: 'text=Front of house' },
   { name: 'payroll-attribution', path: '/dev-harness/payroll-attribution', ready: 'text=Payroll attribution' },
   { name: 'ops-dashboard', path: '/dev-harness/ops-dashboard', ready: 'text=Operations Dashboard',
@@ -195,6 +213,16 @@ const SCREENS: Screen[] = [
   },
     states: [
       { name: 'file-match', run: async (p) => { await p.setInputFiles('input[type=file]', { name: 'Jane Smith - Contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') }); await p.waitForSelector('text=Add 1 file to customers') } },
+    ] },
+  { name: 'move-signed-docs', path: '/dev-harness/move-signed-docs', ready: 'text=2. Check who each one belongs to', mock: async (p) => {
+    await p.route(/\/api\/admin\/import\/signed-docs$/, (route) => route.fulfill(json({ ready: true, runs: [HARNESS_SIGNED_RUN] })))
+    await p.route(/\/api\/admin\/import\/signed-docs\/[^/]+$/, (route) => route.fulfill(json(route.request().method() === 'POST' ? { customers: [{ id: 'c1', name: 'Jane Smith' }, { id: 'c2', name: 'Wakulla HOA' }] } : HARNESS_SIGNED_STATE)))
+    // Later routes win in Playwright, so the specific one is registered last.
+    await p.route(/\/api\/admin\/import\/signed-docs\/held$/, (route) => route.fulfill(json(HARNESS_SIGNED_HELD)))
+  },
+    states: [
+      { name: 'pick-someone-else', run: async (p) => { await p.getByLabel('Customer for Wakulla HOA — Repair agreement').selectOption({ label: 'Someone else…' }); await p.waitForSelector('[role=dialog] >> text=Wakulla HOA') } },
+      { name: 'how-to-export', run: async (p) => { await p.getByText('How do I get these files out?').click(); await p.waitForSelector('text=Manage → select the completed envelopes') } },
     ] },
   { name: 'custom-fields-admin', path: '/dev-harness/custom-fields-admin', ready: 'text=Payment terms', mock: async (p) => {
     await p.route('**/api/admin/custom-fields', (route) => route.fulfill(json(HARNESS_CUSTOM_FIELDS)))
@@ -522,6 +550,42 @@ const SCREENS: Screen[] = [
   { name: 'quickbooks-settings', path: '/dev-harness/quickbooks-settings', ready: 'text=Needs to be reconnected', mock: async (p) => {
     await p.route('**/api/admin/quickbooks', (route) => route.fulfill(json({ featureOn: true, configured: true, status: 'needs_reconnect', companyName: 'Sample Lawn Care LLC', environment: 'production', reason: 'QuickBooks stopped accepting this connection. Please reconnect.', expiresSoon: false })))
     } },
+  { name: 'quickbooks-mapping', path: '/dev-harness/quickbooks-mapping', ready: 'text=What goes where in QuickBooks', mock: async (p) => {
+    const pick = (id: string, name: string) => ({ id, name })
+    await p.route('**/api/admin/quickbooks/mapping', (route) => route.fulfill(json({
+      settings: { startDate: null, invoiceMode: 'per_job', income: { defaultItemId: null, byTrade: {} }, tax: { mode: 'none', taxCodeId: null, rateMap: {} }, depositToAccountId: null, receivablesAccountId: null, bills: { enabled: true, expenseAccountId: null, classId: null }, vendors1099: [], confirmedAt: null, confirmedBy: null },
+      suggested: { income: { defaultItemId: '5', byTrade: {} }, depositToAccountId: '35' },
+      lists: { country: 'US', items: [{ ...pick('5', 'Roofing Sales'), type: 'Service' }], incomeAccounts: [], depositAccounts: [{ ...pick('35', 'Undeposited Funds'), subType: null }], receivableAccounts: [pick('84', 'Accounts Receivable')], expenseAccounts: [pick('70', 'Subcontractors')], taxCodes: [], classes: [], customTxnNumbers: null, unreadable: [] },
+      problems: [{ field: 'startDate', message: 'Pick the date QuickBooks sending starts.' }],
+      crmRates: [], vendors: [{ id: 'v1', name: 'Acme Roofing Supply' }], tradeSlugs: [], preview: { invoices: 3, payments: 2, bills: 1 }, today: '2026-11-12',
+    })))
+  } },
+  { name: 'quickbooks-backfill', path: '/dev-harness/quickbooks-backfill', ready: 'text=Match what is already in QuickBooks', mock: async (p) => {
+    await p.route('**/api/admin/quickbooks/backfill', (route) => route.fulfill(json({
+      items: [
+        { key: 'customer:c1', kind: 'customer', crmTable: 'customers', crmId: 'c1', label: 'Dana Twin', state: 'ambiguous', reason: 'More than one QuickBooks customer fits. Pick the right one.', candidates: [{ qbId: '11', label: 'Dana', detail: 'dana@example.com' }, { qbId: '12', label: 'Dana T', detail: 'dana@example.com · 9 Elm St' }], chosen: null },
+        { key: 'customer:c2', kind: 'customer', crmTable: 'customers', crmId: 'c2', label: 'Pat Homeowner', state: 'certain', reason: null, candidates: [{ qbId: '10', label: 'Pat H', detail: 'pat@example.com' }], chosen: null },
+      ],
+      counts: { alreadyLinked: 4, certain: 1, ambiguous: 1, none: 0 }, qb: { customers: 40, jobs: 12, invoices: 30 }, willSend: { invoices: 3, payments: 2, bills: 1 }, truncated: false,
+    })))
+  }, states: [{ name: 'looked', run: async (p) => { await p.getByRole('button', { name: 'Look at QuickBooks' }).click(); await p.waitForSelector('text=Need your say') } }] },
+  { name: 'quickbooks-setup', path: '/dev-harness/quickbooks-setup', ready: 'text=4. Start sending', mock: async (p) => {
+    await p.route('**/api/admin/quickbooks', (route) => route.fulfill(json({ featureOn: true, configured: true, status: 'connected', companyName: 'Sample Roofing LLC', environment: 'production', reason: null, expiresSoon: false })))
+    await p.route('**/api/admin/quickbooks/mapping', (route) => route.fulfill(json({
+      settings: { startDate: '2026-11-01', invoiceMode: 'per_job', income: { defaultItemId: '5', byTrade: {} }, tax: { mode: 'none', taxCodeId: null, rateMap: {} }, depositToAccountId: '35', receivablesAccountId: null, bills: { enabled: false, expenseAccountId: null, classId: null }, vendors1099: [], confirmedAt: null, confirmedBy: null },
+      suggested: {}, lists: { country: 'US', items: [{ id: '5', name: 'Roofing Sales', type: 'Service' }], incomeAccounts: [], depositAccounts: [{ id: '35', name: 'Undeposited Funds', subType: null }], receivableAccounts: [], expenseAccounts: [], taxCodes: [], classes: [], customTxnNumbers: null, unreadable: [] },
+      problems: [], crmRates: [], vendors: [], tradeSlugs: [], preview: null, today: '2026-11-12', backfillDone: false, connected: true,
+    })))
+  } },
+  { name: 'quickbooks-activity', path: '/dev-harness/quickbooks-activity', ready: 'text=QuickBooks activity', mock: async (p) => {
+    await p.route('**/api/admin/quickbooks/activity**', (route) => route.fulfill(json({
+      counts: { sent: 1, waiting: 0, needs_you: 1, skipped: 0, working: 0 },
+      items: [
+        { id: 'a1', state: 'needs_you', title: 'Send invoice 26-0001 for Pat Homeowner', when: '2026-11-11T15:00:00Z', message: 'QuickBooks already has someone named Pat Homeowner who does not match. Rename one of them in QuickBooks, then press Retry.', code: '6240', attempts: 1, nextAttemptAt: null, qbType: null, qbId: null, qbUrl: null, canAct: true },
+        { id: 'a2', state: 'sent', title: 'Send payment for Pat Homeowner', when: '2026-11-11T14:00:00Z', message: null, code: null, attempts: 1, nextAttemptAt: null, qbType: 'Payment', qbId: '9', qbUrl: 'https://app.qbo.intuit.com/app/recvpayment?txnId=9', canAct: false },
+      ],
+    })))
+  } },
   { name: 'quote-page', path: '/dev-harness/quote-page', ready: 'text=Optional extras — tick what you want',
     states: [{ name: 'option-ticked', run: async (p) => { await p.getByText('Driveway pressure wash').click(); await p.waitForTimeout(200) } }] },
   { name: 'quote-page-approved', path: '/dev-harness/quote-page-approved', ready: 'text=Approved — thank you!' },
@@ -545,7 +609,8 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'person-open', run: async (p) => { await p.getByRole('button', { name: /Jordan Vale/ }).click(); await p.waitForSelector('text=Change') } },
       { name: 'by-job', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.waitForSelector('text=Job 26-0141') } },
-      { name: 'fix-sheet', run: async (p) => { await p.getByRole('button', { name: 'Fix a mistake' }).click(); await p.waitForSelector('text=Amount (+ pays them') } },
+      { name: 'fix-sheet', run: async (p) => { await p.getByRole('button', { name: 'Fix a mistake' }).click(); await p.waitForSelector('text=Take money back') } },
+      { name: 'export-more-menu', run: async (p) => { await p.getByText('More', { exact: true }).click(); await p.waitForSelector('text=Download raw CSV') } },
       { name: 'approve-sheet', run: async (p) => { await p.getByRole('button', { name: /^Approve/ }).click(); await p.waitForSelector('text=Email each person their statement') } },
       { name: 'blocked-by-minimum', run: async (p) => { await p.route('**/api/admin/payroll/pay-week', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...PAY_WEEK, canApprove: false, blockedBy: { code: 'minimum_unanswered', text: 'Answer the weekly minimum for 1 person first.', count: 1 } }) })); await p.reload(); await p.waitForSelector('text=Answer the weekly minimum for 1 person first.') } },
       { name: 'change-sheet', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.getByRole('button', { name: 'Change who gets what' }).first().click(); await p.waitForSelector('text=Total 18% of the base'); await p.getByRole('button', { name: '+ Add someone' }).click() } },

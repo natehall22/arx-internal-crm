@@ -140,28 +140,6 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
   const [completedSearchQuery, setCompletedSearchQuery] = useState('')
 
 
-  const markPayrollSent = useCallback(async (jobId: string) => {
-    try {
-      const res = await fetch(`/api/ops/jobs/${jobId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payroll_sent_at: new Date().toISOString() }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        toast.error(typeof data.error === 'string' ? data.error : 'Could not update payroll status')
-        return
-      }
-      if (data.job) {
-        setJobs((prev) =>
-          prev.map((j) => (j.id === jobId ? { ...j, payroll_sent_at: data.job.payroll_sent_at } : j))
-        )
-      }
-    } catch (e) {
-      console.error(e)
-      toast.error('Could not update payroll status')
-    }
-  }, [])
 
   const loadData = useCallback(async () => {
     const response = await fetch(catchUpOn ? '/api/ops/jobs?catch_up=1' : '/api/ops/jobs')
@@ -744,29 +722,6 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                     </div>
                   </div>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-xs">
-                      {job.payroll_sent_at ? (
-                        <span className="text-gray-700">
-                          Sent to payroll{' '}
-                          <span className="text-gray-500">
-                            {new Date(job.payroll_sent_at).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                              timeZone: 'America/New_York',
-                            })}
-                          </span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => markPayrollSent(job.id)}
-                          className="font-medium text-indigo-600 hover:text-indigo-800"
-                        >
-                          Ready for payroll
-                        </button>
-                      )}
-                    </div>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:ml-auto shrink-0">
                       <Link
                         href={opsJobCompletionCertificateHref(job.id)}
@@ -794,7 +749,6 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Address</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payroll</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
@@ -816,29 +770,6 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                       <td className="px-4 py-3 text-sm text-gray-700 capitalize">{job.job_type}</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        {job.payroll_sent_at ? (
-                          <span className="text-xs text-gray-700">
-                            Sent to payroll
-                            <span className="block text-gray-500 mt-0.5">
-                              {new Date(job.payroll_sent_at).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                                timeZone: 'America/New_York',
-                              })}
-                            </span>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => markPayrollSent(job.id)}
-                            className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
-                          >
-                            Ready for payroll
-                          </button>
-                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end flex-wrap gap-x-3 gap-y-1">

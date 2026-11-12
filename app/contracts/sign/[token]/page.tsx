@@ -5,6 +5,9 @@ import { customerSignedDocPath } from '@/lib/files/files-object'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
 import { noticeOfCancellation } from '@/lib/contracts/terms'
+import { esignDisclosure } from '@/lib/signing/consent'
+import { loadSigningSettings } from '@/lib/signing/settings-server'
+import { ensureEnvelope } from '@/lib/signing/envelope'
 import CustomerSigningForm from './CustomerSigningForm'
 
 export default async function ContractSigningPage({
@@ -93,6 +96,18 @@ export default async function ContractSigningPage({
   }
 
   if (contract.status === 'voided') {
+    // A customer who declined sees that, not "voided" (the company's own words for what happened).
+    const env = contract.customer_signed_at ? null : await ensureEnvelope(supabase, 'contract', contract).catch(() => 'not_ready' as const)
+    if (env && env !== 'not_ready' && env.status === 'declined') {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
+            <h1 className="text-xl font-bold text-gray-900 mb-2">You declined to sign</h1>
+            <p className="text-gray-600">{brand.name} has been told. Please contact them if you change your mind.</p>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
@@ -117,5 +132,17 @@ export default async function ContractSigningPage({
   const { signing_token: _t, signing_token_hash: _h, signing_token_enc: _e, ...contractForPage } = contract
   void _t; void _h; void _e
 
-  return <CustomerSigningForm contract={contractForPage as never} token={params.token} brand={brand} cancellationNotice={cancellationNotice} />
+  const signing = await loadSigningSettings(supabase, contract.org_id)
+  const consent = signing.consentStep && !contract.quote_approval_id ? esignDisclosure({ name: brand.name, phone: brand.phone, email: brand.email }) : null
+
+  return (
+    <CustomerSigningForm
+      contract={contractForPage as never}
+      token={params.token}
+      brand={brand}
+      cancellationNotice={cancellationNotice}
+      consent={consent}
+      declineEnabled={signing.declineEnabled && !contract.quote_approval_id}
+    />
+  )
 }

@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { orgDb } from '@/lib/supabase/org-db'
 import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { cardLabel } from '@/lib/online-payments/cards'
+import { commissionInApprovedWeek } from '@/lib/online-payments/record'
 import type { Queue } from '@/lib/today'
 
 export type InvoiceOnlineSummary = {
@@ -83,12 +84,13 @@ export async function loadPaymentReversalsQueue(admin: SupabaseClient, orgId: st
   const jobIds = Array.from(new Set(Array.from(byId.values()).map((i) => i.job_id).filter((x): x is string => !!x)))
   const { data: jobs } = jobIds.length ? await orgDb(admin, orgId).from('production_jobs').select('id, job_number').in('id', jobIds) : { data: [] }
   const jobNo = new Map(((jobs ?? []) as Array<{ id: string; job_number: string | null }>).map((j) => [j.id, j.job_number]))
+  const undone = await undoneAfterPayoutItems(admin, orgId, since)
   return {
     id: 'payment-reversals',
     title: 'Payment reversed — review',
-    count: rows.length,
+    count: rows.length + undone.length,
     empty: 'No reversed payments.',
-    items: rows.map((r) => {
+    items: [...undone, ...rows.map((r) => {
       const inv = byId.get(r.invoice_id)
       const num = inv?.job_id ? jobNo.get(inv.job_id) : null
       return {
@@ -99,6 +101,33 @@ export async function loadPaymentReversalsQueue(admin: SupabaseClient, orgId: st
         ref: num ? `Job ${num}` : `Invoice ${inv?.invoice_number ?? ''}`.trim(),
         note: r.reversal_flag,
       }
-    }),
+    })],
   }
+}
+
+/**
+ * "Undo payment" on a job whose commission was already paid (an approved pay week): the same review line a lost dispute raises.
+ * Fixed-price jobs only — a job billed by the hour takes the commission back automatically (payroll commission changes).
+ * Read from the reversal rows (key `undo:<id>`) so nothing extra is stored.
+ */
+async function undoneAfterPayoutItems(admin: SupabaseClient, orgId: string, since: string): Promise<Queue['items']> {
+  // org-scope-ok: the company filter is .eq('production_jobs.org_id', orgId) on the !inner parent-job join
+  const { data } = await admin
+    .from('job_payments')
+    .select('id, job_id, amount_cents, created_at, idempotency_key, production_jobs!inner(org_id, job_number, billing_mode)')
+    .like('idempotency_key', 'undo:%')
+    .eq('production_jobs.org_id', orgId)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  const out: Queue['items'] = []
+  for (const r of (data ?? []) as unknown as Array<{ id: string; job_id: string; amount_cents: number; production_jobs: { org_id: string; job_number: string | null; billing_mode: string | null } | Array<{ org_id: string; job_number: string | null; billing_mode: string | null }> }>) {
+    const job = Array.isArray(r.production_jobs) ? r.production_jobs[0] : r.production_jobs
+    if (!job || job.org_id !== orgId || job.billing_mode === 'time_materials') continue
+    if (!(await commissionInApprovedWeek(admin, orgId, r.job_id))) continue
+    const note = `Payment undone ${(Math.abs(r.amount_cents) / 100).toFixed(2)} — already in an approved payroll week: check commission (Payroll → Fix a mistake)`
+    const num = job.job_number ? `Job ${job.job_number}` : 'Job'
+    out.push({ id: r.id, title: num, detail: note, href: `/ops/jobs/${r.job_id}`, ref: num, note })
+  }
+  return out
 }

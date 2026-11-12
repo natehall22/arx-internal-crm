@@ -1,3 +1,4 @@
+import { loadOrgFeatures } from './org-features'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { EnqueueEventParams } from './types/integrations'
 
@@ -42,6 +43,16 @@ export async function enqueueIntegrationEvent(
     version
   )
 
+  if (provider === 'quickbooks') {
+    // A company that has not switched QuickBooks on gets no rows at all (nothing will drain them, and a later switch-on must not
+    // wake up a backlog of old events; the sweep finds what matters from the start date).
+    if (!(await loadOrgFeatures(supabase, orgId)).quickbooks) return null
+    // A line an owner closed with Skip stays closed when the same event is raised again (new facts use a new version, hence a new key).
+    const { data: prior } = await supabase.from('integration_outbox').select('id, status, skipped_by').eq('org_id', orgId).eq('idempotency_key', idempotencyKey).maybeSingle()
+    const p = prior as { id: string; status: string; skipped_by: string | null } | null
+    if (p && p.status === 'skipped' && p.skipped_by) return p.id
+  }
+
   // Add metadata to payload
   const enrichedPayload = {
     ...payload,
@@ -67,7 +78,14 @@ export async function enqueueIntegrationEvent(
         idempotency_key: idempotencyKey,
         payload: enrichedPayload,
         status: 'pending',
-        last_error: null, // a re-enqueued row (e.g. one skipped by a data fix) must not keep its old reason
+        // A re-enqueued row (new facts, a data fix, an owner's re-send) starts clean. Clearing the lease is what makes a worker that
+        // is mid-send on the OLD facts drop its result (its finish is a compare-and-swap on the lease) so the new facts go out next.
+        last_error: null,
+        error_code: null,
+        error_kind: null,
+        attempt_count: 0,
+        next_attempt_at: null,
+        locked_until: null,
         updated_at: new Date().toISOString(),
       },
       {
@@ -115,26 +133,30 @@ export async function enqueueCustomerUpserted(
 }
 
 /**
- * Enqueue payment recorded event.
+ * Enqueue a payment event (money in by default; pass the refund / dispute type for money back out).
+ * The job payment writer's SQL (record_job_payment) queues its own row in the same transaction; this is the TypeScript twin for
+ * the paths without that transaction (the pre-migration fallback, payments on invoices without a job). The worker's sweep
+ * (lib/quickbooks/sweep.ts) catches any that still slip through.
  */
 export async function enqueuePaymentRecorded(
   supabase: SupabaseClient,
   orgId: string,
   paymentId: string,
   paymentData: {
-    job_id: string
+    job_id?: string | null
     customer_id?: string
     amount_cents: number
     paid_at: string
     payment_type: string
     method: string
     payer: string
-  }
+  },
+  eventType: 'payment.recorded' | 'payment.refunded' | 'payment.disputed' | 'payment.voided' = 'payment.recorded'
 ): Promise<void> {
   await enqueueIntegrationEvent(supabase, {
     orgId,
     provider: 'quickbooks',
-    eventType: 'payment.recorded',
+    eventType,
     entityTable: 'job_payments',
     entityId: paymentId,
     payload: {
@@ -150,4 +172,23 @@ export async function enqueuePaymentRecorded(
       },
     },
   })
+}
+
+/**
+ * Enqueue "this CRM record changed" for the worker: an invoice (the job's sale invoice, entity `production_jobs`, or a CRM invoice,
+ * entity `job_invoices`) or a vendor bill (entity `purchase_order_bills`). The worker reads the record when it sends, so
+ * `version` only decides when a NEW row is made: the same version twice is one row (re-queued), a new version is a new row.
+ * Use the record's money in cents as the version so a changed total is always a fresh event. Never throws (the caller's own
+ * work — signing, issuing, recording a bill — must not fail because of the accounting queue; the sweep catches a miss).
+ */
+export async function enqueueRecordEvent(
+  supabase: SupabaseClient,
+  orgId: string,
+  e: { eventType: 'invoice.upserted' | 'invoice.voided' | 'bill.recorded' | 'bill.voided'; table: 'production_jobs' | 'job_invoices' | 'purchase_order_bills'; id: string; version?: number }
+): Promise<void> {
+  try {
+    await enqueueIntegrationEvent(supabase, { orgId, provider: 'quickbooks', eventType: e.eventType, entityTable: e.table, entityId: e.id, payload: {}, version: e.version ?? 1 })
+  } catch (err) {
+    console.error('Failed to enqueue QuickBooks event:', e.eventType, err instanceof Error ? err.message : err)
+  }
 }

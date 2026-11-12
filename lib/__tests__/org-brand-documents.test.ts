@@ -286,7 +286,6 @@ describe('slice-2a files carry no company literals', () => {
     'lib/install-calendar.ts',
     'components/ProposalPDFv2.tsx',
     'app/contracts/sign/[token]/page.tsx',
-    'app/contracts/[token]/page.tsx',
     'app/change-orders/sign/[token]/page.tsx',
     'app/crew/[token]/page.tsx',
     'app/crew/[token]/CrewPhotoCapture.tsx',

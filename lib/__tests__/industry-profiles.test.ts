@@ -132,11 +132,13 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
     const queues = [
       { id: 'today-appointments', title: "Today's appointments" },
       { id: 'awaiting-payment', title: 'Finished, waiting on payment' },
+      { id: 'unpaid-invoices', title: 'Unpaid invoices' },
       { id: 'unsigned-proposals', title: 'Proposals waiting for a signature' },
       { id: 'mystery', title: 'Something new' },
     ]
     expect(applyTodayProfile(queues, lawn.today).map((q) => q.title)).toEqual([
       'Quotes awaiting approval',
+      'Unpaid invoices',
       'Finished, not paid yet',
       "Today's estimate visits",
       'Something new',
@@ -186,7 +188,7 @@ describe('company settings override the profile', () => {
     expect(res.error).toMatch(/path \[profile\]/)
     expect(rpc).not.toHaveBeenCalled()
     expect(mergeSettingsAt({ a: 1 }, ['profile'], { id: 'lawn_landscape', version: 1 })).toEqual({ a: 1, profile: { id: 'lawn_landscape', version: 1 } })
-    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, \.\.\.rest/)
+    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, (signing: _signing, )?\.\.\.rest/)
   })
 })
 

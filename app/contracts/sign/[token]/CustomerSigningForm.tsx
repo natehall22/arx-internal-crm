@@ -3,6 +3,10 @@
 import { useState } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
 import PhoneLink from '@/components/PhoneLink'
+import ConsentBlock from '@/components/signing/ConsentBlock'
+import DeclineBox from '@/components/signing/DeclineBox'
+import { useSigningBeacon } from '@/components/signing/useSigningBeacon'
+import type { ConsentDisclosure } from '@/lib/signing/consent'
 import type { DocumentBrand } from '@/lib/org-brand'
 import {
   CONTINGENCY_TERMS,
@@ -49,9 +53,16 @@ interface CustomerSigningFormProps {
   brand: DocumentBrand
   /** Installation Agreement Notice of Cancellation, computed server-side as if signed now (the same rule as the PDF). */
   cancellationNotice: CancellationNotice
+  /** The e-sign notice, when the company's consent step is on (null/absent = the page is exactly as it always was). */
+  consent?: ConsentDisclosure | null
+  /** Show "I can't sign this" (the company's decline switch). */
+  declineEnabled?: boolean
 }
 
-export default function CustomerSigningForm({ contract, token, brand, cancellationNotice }: CustomerSigningFormProps) {
+export default function CustomerSigningForm({ contract, token, brand, cancellationNotice, consent = null, declineEnabled = false }: CustomerSigningFormProps) {
+  useSigningBeacon('contract', token)
+  const [consentAccepted, setConsentAccepted] = useState(false)
+  const [declined, setDeclined] = useState(false)
   const isContingency = contract.agreement_type === 'contingency'
   const isRepair = contract.agreement_type === 'repair'
   const agreementLabel = isContingency
@@ -110,6 +121,11 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
       return
     }
 
+    if (consent && !consentAccepted) {
+      setError('Please agree to sign electronically before you sign.')
+      return
+    }
+
     setSubmitting(true)
 
     try {
@@ -125,6 +141,7 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
           initialsPropertyCondition: isContingency || isRepair ? null : initialsPropertyCondition,
           initialsLandscaping: isContingency || isRepair ? null : initialsLandscaping,
           initialsInsurance: (isContingency || contract.payment_method === 'insurance') ? initialsInsurance : null,
+          ...(consent ? { consent: { accepted: true, version: consent.version } } : {}),
         }),
       })
 
@@ -143,6 +160,17 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (declined) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center text-[#2c2c2a]">
+          <h1 className="text-xl font-bold mb-2">Thank you for letting us know</h1>
+          <p className="text-base">We have told {brand.name}. Nothing was signed.</p>
+        </div>
+      </div>
+    )
   }
 
   if (success) {
@@ -608,6 +636,8 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
               </div>
             </section>
 
+            {consent && <ConsentBlock disclosure={consent} checked={consentAccepted} onChange={setConsentAccepted} />}
+
             {/* Submit Button */}
             <div className="sticky bottom-0 z-10 -mx-4 border-t bg-white px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:px-0 sm:pt-6 sm:pb-0">
               <button
@@ -638,6 +668,8 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
             </div>
           </form>
         </div>
+
+        {declineEnabled && <DeclineBox kind="contract" token={token} companyName={brand.name} onDeclined={() => setDeclined(true)} />}
 
         <p className="text-center text-sm text-gray-500 mt-6">
           {brand.legalName} | {brand.website}

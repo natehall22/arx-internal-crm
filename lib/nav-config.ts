@@ -91,6 +91,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Customers',
     children: [
       { href: '/customers', label: 'Customers', show: (c) => c.permsReady && (has(c, 'customers:view', 'customers:edit') || c.flags.customerRecords) },
+      { href: '/signing', label: 'Signatures', show: (c) => c.permsReady && !c.flags.salesDocBarred && gated('contracts:send', 'contracts:view')(c) },
     ],
   },
   {
@@ -98,6 +99,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Money',
     children: [
       { href: '/my-pay', label: 'My pay', show: (c) => c.permsReady && c.flags.payWeek && c.flags.earnsPay },
+      { href: '/billing', label: 'Billing', show: gated('money:record') },
       { href: '/admin/payroll', label: 'Payroll', show: (c) => c.permsReady && c.flags.isPayrollAdmin },
       // Default-OFF switch: shown only once the features have loaded and say on (never on a missing map).
       { href: '/admin/time', label: 'Time', show: (c) => c.permsReady && c.flags.isPayrollAdmin && c.features?.timeTracking === true },

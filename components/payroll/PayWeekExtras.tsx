@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/field'
 import { toast } from '@/components/ui/toast'
 import { formatMoney } from '@/lib/format'
 import type { PayWeekAdvance } from '@/lib/payroll-pay-week'
+import { EXPORT_CHOICES, EXPORT_PROVIDER_LABEL, type ExportChoice } from '@/lib/payroll-provider-export'
 
 const API = '/api/admin/payroll/pay-week'
 const send = async (path: string, method: string, payload: unknown) => {
@@ -120,8 +121,12 @@ export function AdvancesSection({ advances, directory, canEdit, draft, onChanged
 
 type Check = { people: number; total: number; missing: Array<{ userId: string; name: string; why: string }>; adp: { coCode: string; codes: Record<string, string>; advance: { onCheck: string; offCheck: string } } }
 
-/** Downloads for an approved week: Gusto CSV, ADP CSV (asks for the file numbers / company code first), pay sheets. */
-export function ExportButtons({ periodId, canEditCodes }: { periodId: string; canEditCodes: boolean }) {
+/**
+ * The export area of the Pay this week header: ONE button for the company's payroll provider (an approved week), and a "More"
+ * menu with everything rarer — the raw CSV, the other provider's file, the advance settings and the provider choice (owners)
+ * and "How this is calculated". ADP asks for the file numbers / company code first.
+ */
+export function PayWeekExports({ periodId, draft, provider, canEditCodes, csvHref, onHelp, onProviderChanged }: { periodId: string; draft: boolean; provider: ExportChoice | null; canEditCodes: boolean; csvHref: string; onHelp: () => void; onProviderChanged: (p: ExportChoice) => void }) {
   const [open, setOpen] = React.useState(false)
   const [check, setCheck] = React.useState<Check | null>(null)
   const [ids, setIds] = React.useState<Record<string, string>>({})
@@ -129,7 +134,28 @@ export function ExportButtons({ periodId, canEditCodes }: { periodId: string; ca
   const [busy, setBusy] = React.useState(false)
   const [tax, setTax] = React.useState<{ onCheck: string; offCheck: string } | null>(null)
   const base = `${API}/export?period=${periodId}`
+  const moreRef = React.useRef<HTMLDetailsElement>(null)
+  const closeMore = () => moreRef.current?.removeAttribute('open')
+  const [pick, setPick] = React.useState(false)
+  const choose = async (p: ExportChoice) => {
+    closeMore()
+    try {
+      await send('export', 'POST', { provider: p })
+      onProviderChanged(p)
+      setPick(false)
+      toast.success(`Pay file set to ${EXPORT_PROVIDER_LABEL[p]}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+  const download = (p: ExportChoice) => {
+    closeMore()
+    if (p === 'adp') void openAdp()
+    else if (p === 'gusto') window.location.href = `${base}&format=gusto`
+    else window.location.href = csvHref
+  }
   const openTax = async () => {
+    closeMore()
     const r = await fetch(`${base}&format=gusto&check=1`, { cache: 'no-store' })
     const body = await r.json().catch(() => ({}))
     if (!r.ok) return toast.error(body?.error || 'Could not load the settings')
@@ -171,11 +197,34 @@ export function ExportButtons({ periodId, canEditCodes }: { periodId: string; ca
       setBusy(false)
     }
   }
+  const item = 'flex min-h-tap w-full items-center px-3 text-left text-ui-base text-ink hover:bg-surface-subtle'
   return (
     <>
-      <Button asChild variant="secondary" size="sm"><a href={`${base}&format=gusto`}>Gusto CSV</a></Button>
-      <Button variant="secondary" size="sm" onClick={openAdp}>ADP CSV</Button>
-      {canEditCodes ? <Button variant="secondary" size="sm" onClick={openTax}>Advance export settings</Button> : null}
+      {!draft ? (
+        <Button size="sm" onClick={() => (provider ? download(provider) : canEditCodes ? setPick(true) : download('csv'))}>
+          {provider ? `Download for ${EXPORT_PROVIDER_LABEL[provider]}` : 'Download pay file'}
+        </Button>
+      ) : null}
+      <details ref={moreRef} className="relative">
+        <summary className="inline-flex min-h-tap cursor-pointer list-none items-center rounded-ui border border-surface-line bg-surface px-3 text-ui-sm font-semibold text-ink">More</summary>
+        <div className="absolute right-0 z-20 mt-1 w-64 rounded-ui border border-surface-line bg-surface py-1 shadow-lg">
+          <a href={csvHref} className={item}>Download raw CSV</a>
+          {canEditCodes ? <button type="button" className={item} onClick={() => { closeMore(); setPick(true) }}>{provider ? 'Change payroll company' : 'Choose payroll company'}</button> : null}
+          {canEditCodes && !draft ? <button type="button" className={item} onClick={openTax}>Advance export settings</button> : null}
+          <button type="button" className={item} onClick={() => { closeMore(); onHelp() }}>How this is calculated</button>
+        </div>
+      </details>
+      <Dialog open={pick} onOpenChange={setPick}>
+        <DialogContent title="Which payroll company do you use?" description="Saved once. Pay this week then has one download button for it.">
+          <div className="flex flex-col gap-2">
+            {EXPORT_CHOICES.map((c) => (
+              <Button key={c} variant="secondary" className="min-h-tap justify-start" onClick={async () => { await choose(c); if (!draft) download(c) }}>
+                {EXPORT_PROVIDER_LABEL[c]}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={tax !== null} onOpenChange={(o) => { if (!o) setTax(null) }}>
         <DialogContent title="Advances in the provider file" description="How the file shows money taken back for an advance. Confirm with your accountant before the first live run.">
           {tax ? (

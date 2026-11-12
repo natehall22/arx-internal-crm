@@ -12,11 +12,10 @@ import {
   type SaleCreditChange,
 } from '@/lib/deal-sale-credit'
 import { isSuperAdmin } from '@/lib/super-admin'
-import { createGuardedTransport } from '@/lib/demo-org-mail'
-import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildContractReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { newSigningTokenColumns } from '@/lib/signing-tokens'
+import { getSigningProvider } from '@/lib/signing/provider'
 
 export async function POST(request: NextRequest) {
   let auth: Awaited<ReturnType<typeof requireAuthApi>>
@@ -244,7 +243,7 @@ export async function POST(request: NextRequest) {
         status: 'pending_customer',
         created_by: profile.id,
       })
-      .select('id')
+      .select('*')
       .single()
 
     if (insertError) {
@@ -257,38 +256,30 @@ export async function POST(request: NextRequest) {
 
     const signingUrl = `${appUrl}/contracts/sign/${signingToken}`
 
-    if (customerEmail) {
-      try {
-        const transporter = createGuardedTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT || 587),
-          secure: false,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        }, profile.org_id)
-
-        const email = buildContractReadyEmail({
-          brand: await getDocumentBrand(supabase, profile.org_id),
-          agreementLabel,
-          customerName,
-          signingUrl,
-          projectAddress,
-          isContingency: safeAgreementType === 'contingency',
-          projectCost: safeProjectCost,
-          repName,
-        })
-        await transporter.sendMail({
-          from: getCrmEmailFrom(),
-          to: customerEmail,
-          subject: email.subject,
-          text: email.text,
-          html: email.html,
-        })
-      } catch (emailError) {
-        console.error('Error sending contract email:', emailError)
-      }
+    // Sent through the signing engine (lib/signing/provider.ts): an envelope + a 'sent' event, and the same email as always.
+    // A contract is always carried natively. Nothing here may break the contract that was just created.
+    try {
+      const email = customerEmail
+        ? buildContractReadyEmail({
+            brand: await getDocumentBrand(supabase, profile.org_id),
+            agreementLabel,
+            customerName,
+            signingUrl,
+            projectAddress,
+            isContingency: safeAgreementType === 'contingency',
+            projectCost: safeProjectCost,
+            repName,
+          })
+        : null
+      const provider = await getSigningProvider(supabase, profile.org_id, 'contract')
+      await provider.send(supabase, {
+        kind: 'contract',
+        row: contract as Record<string, any>,
+        actor: { userId: profile.id, name: repName },
+        deliver: email ? { to: customerEmail, subject: email.subject, text: email.text, html: email.html } : null,
+      })
+    } catch (sendError) {
+      console.error('Error sending contract:', sendError)
     }
 
     if (opportunityId) {

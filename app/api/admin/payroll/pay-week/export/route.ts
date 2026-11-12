@@ -3,6 +3,7 @@
  *      Approved weeks only: the file is built from the stored lines. Returns 409 with `missing` (people without an ADP file number…)
  *      as JSON when `check=1`, so the screen can ask for them before downloading.
  * POST { coCode, codes, advance } — the ADP company code, earning codes and how advance repayments are mapped (owners; settings.payrollExport).
+ * POST { provider: 'gusto' | 'adp' | 'csv' } — which provider the company pays through: the one export button on Pay this week (owners; changes nothing else).
  */
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -54,7 +55,17 @@ export async function POST(request: NextRequest) {
   const a = await requirePayrollAdminApi()
   if ('error' in a) return a.error
   if (!isSuperAdmin(a.profile)) return NextResponse.json({ error: 'Only an owner can change the export codes.', code: 'owner_only' }, { status: 403 })
-  const b = (await request.json().catch(() => null)) as { coCode?: unknown; codes?: Record<string, unknown>; advance?: Record<string, unknown> } | null
+  const b = (await request.json().catch(() => null)) as { provider?: unknown; coCode?: unknown; codes?: Record<string, unknown>; advance?: Record<string, unknown> } | null
+  // The provider alone: saved by itself, so the ADP codes and file settings are never reset to their defaults.
+  if (b && 'provider' in b && !('coCode' in b) && !('codes' in b) && !('advance' in b)) {
+    if (b.provider !== 'gusto' && b.provider !== 'adp' && b.provider !== 'csv') return NextResponse.json({ error: 'Pick Gusto, ADP or Other (CSV)' }, { status: 400 })
+    const saved = await mergeOrgSettings(a.admin, a.profile.org_id, { provider: b.provider }, { path: [PAYROLL_EXPORT_SETTINGS_KEY] })
+    if (saved.error) {
+      console.error('pay-week export provider', saved.error)
+      return NextResponse.json({ error: 'Could not save' }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true, provider: b.provider })
+  }
   const clean = readAdpSettings({ [PAYROLL_EXPORT_SETTINGS_KEY]: { coCode: b?.coCode, codes: b?.codes, advance: b?.advance } })
   const { error } = await mergeOrgSettings(a.admin, a.profile.org_id, { coCode: clean.coCode, codes: clean.codes, advance: clean.advance }, { path: [PAYROLL_EXPORT_SETTINGS_KEY] })
   if (error) {

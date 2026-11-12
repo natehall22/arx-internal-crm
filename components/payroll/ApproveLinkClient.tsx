@@ -14,7 +14,7 @@ export default function ApproveLinkClient({ token }: { token: string }) {
   const [info, setInfo] = React.useState<Info | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
-  const [done, setDone] = React.useState<{ total: number; people: number } | null>(null)
+  const [done, setDone] = React.useState<{ total: number; people: number; emailed: { sent: number; skipped: number; failed: number } | { error: string } | null } | null>(null)
 
   const load = React.useCallback(async () => {
     const r = await fetch(`/api/payroll/approve-link?token=${encodeURIComponent(token)}`, { cache: 'no-store' })
@@ -36,13 +36,13 @@ export default function ApproveLinkClient({ token }: { token: string }) {
         if (body?.code === 'changed' || body?.code === 'changed_since_message') await load()
         return
       }
-      setDone({ total: body.total, people: body.people })
+      setDone({ total: body.total, people: body.people, emailed: body.emailed ?? null })
     } finally {
       setBusy(false)
     }
   }
 
-  if (done) return <main className="mx-auto max-w-md p-6 text-ink"><p className="text-ui-xl font-bold">Approved: {formatMoney(done.total)} to {done.people} {done.people === 1 ? 'person' : 'people'}.</p><p className="mt-2 text-ui-base">Payday statements go out from Pay this week.</p></main>
+  if (done) return <main className="mx-auto max-w-md p-6 text-ink"><p className="text-ui-xl font-bold">Approved: {formatMoney(done.total)} to {done.people} {done.people === 1 ? 'person' : 'people'}.</p><p className="mt-2 text-ui-base">{done.emailed && 'sent' in done.emailed ? `Statements emailed: ${done.emailed.sent}${done.emailed.skipped ? ` · not emailed (no address or inactive): ${done.emailed.skipped}` : ''}${done.emailed.failed ? ` · failed: ${done.emailed.failed}` : ''}.` : 'The statements could not be emailed. Open Pay this week and tap Email statements.'}</p></main>
   if (!info) return <main className="mx-auto max-w-md p-6 text-ink">{error ? <p className="text-ui-lg font-semibold">{error}</p> : <p>Loading…</p>}</main>
   const changed = info.changedSinceMessage
   return (

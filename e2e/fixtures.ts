@@ -364,8 +364,8 @@ export const HARNESS_LEADS = {
   pagination: { page: 1, limit: 50, total: 2, totalPages: 1, hasMore: false },
 }
 export const HARNESS_PROFIT_ROWS = [
-  { id: 'j1', jobNumber: '26-0041', lastName: 'Gaines', customerName: 'Ashley Gaines', address: '1423 Maple Ridge Dr, Concord NC', saleDate: '2026-10-01', saleAmount: 18400, financeCost: 0, commissionable: 18400, materials: 6100, labor: 4060, misc: 0, totalExpenses: 10160, setter: 920, closer: 1288, sales: 1104, opp: 1656, grossProfit: 5480, grossPercent: 29.78, ownerDraw: 1096, perOwner: 274, netProfit: 4384, netPercent: 23.8, notes: 'Dumpster on the street', status: 'Deposit Received', unreviewed: true },
-  { id: 'j2', jobNumber: '26-0038', lastName: 'Cox', customerName: 'Bill Cox', address: '88 Oak Ave, Kannapolis NC', saleDate: '2026-09-12', saleAmount: 16325, financeCost: 900, commissionable: 15425, materials: 5200, labor: 4060, misc: 200, totalExpenses: 9460, setter: 771, closer: 1080, sales: 925, opp: 1469, grossProfit: 2410, grossPercent: 14.8, ownerDraw: 482, perOwner: 120, netProfit: 1928, netPercent: 11.8, notes: null, status: 'Reconciled & Closed', unreviewed: false },
+  { id: 'j1', jobNumber: '26-0041', lastName: 'Gaines', customerName: 'Ashley Gaines', address: '1423 Maple Ridge Dr, Concord NC', saleDate: '2026-10-01', saleAmount: 18400, financeCost: 0, commissionBase: 18400, materials: 6100, labor: 4060, misc: 0, totalExpenses: 10160, commission: 2760, commissionNote: 'pays next week', grossProfit: 5480, grossPercent: 29.78, notes: 'Dumpster on the street', status: 'Deposit Received', unreviewed: true },
+  { id: 'j2', jobNumber: '26-0038', lastName: 'Cox', customerName: 'Bill Cox', address: '88 Oak Ave, Kannapolis NC', saleDate: '2026-09-12', saleAmount: 16325, financeCost: 900, commissionBase: 16325, materials: 5200, labor: 4060, misc: 200, totalExpenses: 9460, commission: 4100, commissionNote: 'paid', grossProfit: 2765, grossPercent: 16.94, notes: null, status: 'Reconciled & Closed', unreviewed: false },
 ]
 
 export const HARNESS_APPOINTMENTS = {
@@ -854,6 +854,31 @@ export const HARNESS_JOBBER_DONE = {
   progress: { total: 2444, pending: 0, done: 2440, failed: 4, skipped: 0, undone: 0, kept: 0 },
   needsALook: [{ id: 'i1', kind: 'invoice', label: 'Invoice #1088', status: 'failed', problems: [], error: 'Its customer wasn’t brought over', undo_note: null }],
   reviewPlans: [{ planId: 'p1', customerId: 'c1', name: 'Weekly lawn maintenance', review: ['How often was worked out from 31 visits in Jobber — check it.', 'Tax is off — turn it on if this service is taxable.'] }],
+}
+
+// Move signed documents (components/signed-import/MoveSignedDocuments.tsx): files added and read, one matched, one to pick, one not finished.
+export const HARNESS_SIGNED_RUN = { id: '66666666-2222-3333-4444-555555555555', status: 'draft', created_at: '2026-11-11T14:00:00Z' }
+const signedMatch = (customerId: string | null, how: string | null, candidates: Array<{ id: string; name: string }>) => ({ customerId, how, candidates })
+export const HARNESS_SIGNED_STATE = {
+  run: HARNESS_SIGNED_RUN,
+  indexFiles: [{ id: 'x1', name: 'envelopes-2026.csv', row_count: 212 }],
+  progress: { total: 214, pending: 214, done: 0, failed: 0, skipped: 0, undone: 0, kept: 0 },
+  provider: '',
+  summary: null,
+  review: {
+    ready: true, unfinished: 0, unread: 0, duplicates: [{ name: 'Smith roof contract.pdf', title: 'Smith roof contract' }],
+    groups: [
+      { key: 'env:ENV-12345678', title: 'Jane Smith — Roof replacement agreement', fileNames: ['Jane Smith Roof replacement agreement.pdf', 'Certificate.pdf'], certificates: 1, completedOn: '2025-06-03', provider: 'docusign', notCompleted: false, match: signedMatch('c1', 'exact', [{ id: 'c1', name: 'Jane Smith' }]), pick: null, signers: ['Jane Smith'] },
+      { key: 'env:ENV-22222222', title: 'Wakulla HOA — Repair agreement', fileNames: ['Wakulla HOA repair.pdf'], certificates: 0, completedOn: null, provider: null, notCompleted: false, match: signedMatch(null, null, []), pick: null, signers: [] },
+      { key: 'env:ENV-33333333', title: 'J. Smith — Change order', fileNames: ['J Smith change order.pdf'], certificates: 0, completedOn: '2025-07-01', provider: 'docusign', notCompleted: false, match: signedMatch('c1', 'close', [{ id: 'c1', name: 'Jane Smith' }, { id: 'c3', name: 'John Smith' }]), pick: null, signers: [] },
+      { key: 'env:ENV-44444444', title: 'Declined by signer', fileNames: ['declined.pdf'], certificates: 0, completedOn: null, provider: null, notCompleted: true, match: signedMatch(null, null, []), pick: null, signers: [] },
+    ],
+  },
+}
+export const HARNESS_SIGNED_HELD = {
+  ready: true,
+  customers: [{ id: 'c1', name: 'Jane Smith' }, { id: 'c2', name: 'Wakulla HOA' }],
+  groups: [{ key: 'held:1', title: 'Pat Jones — Roof agreement', documentIds: ['d1'], fileNames: ['Pat Jones roof.pdf'], completedOn: '2025-02-10', source: 'docusign', signers: ['Pat Jones'], match: { customerId: null, how: null, candidates: [] } }],
 }
 
 // Hours to bill (components/billing/HoursToBill.tsx): a grading job with two clocked days + a running one, a per-hour plan visit

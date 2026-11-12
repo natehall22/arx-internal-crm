@@ -5,6 +5,7 @@ import * as React from 'react'
 import { Button, Card, CardContent, CardHeader, CardTitle, FileDropZone, Field, Select, toast } from '@/components/ui'
 import { CUSTOMER_DOCUMENT_ACCEPT, CUSTOMER_DOCUMENT_CATEGORIES } from '@/lib/customer-document-categories'
 import { formatDate } from '@/lib/format'
+import { signedOutsideLabel } from '@/lib/signed-import/files'
 import { uploadCustomerDocument } from '@/lib/customer-document-upload'
 
 export type CustomerDocumentItem = {
@@ -14,6 +15,7 @@ export type CustomerDocumentItem = {
   category: string
   property_id: string | null
   shared_with_customer?: boolean
+  import_source?: string | null
   created_at: string
 }
 
@@ -113,6 +115,7 @@ export default function CustomerDocumentsCard({
                     {categoryLabel(d.category)} · {formatDate(d.created_at)}
                     {propName(d.property_id) ? ` · ${propName(d.property_id)}` : ''}
                   </p>
+                  {d.import_source ? <p className="text-ui-sm text-ink">{signedOutsideLabel(d.import_source)}</p> : null}
                 </div>
                 {portalOn && canUpload ? (
                   <label className="flex min-h-tap items-center gap-2 text-ui-sm font-semibold text-ink">

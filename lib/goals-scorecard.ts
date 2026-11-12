@@ -15,6 +15,7 @@ import {
   type ForecastResult,
   type GoalCoverage,
 } from '@/lib/goals-forecast'
+import { loadJobCommissions } from '@/lib/job-commission-actual'
 import { summarizeJobEconomics, type JobEconomicsRow } from '@/lib/goals-job-economics'
 import { loadJobCostLedger, type JobCostSummary } from '@/lib/job-cost-ledger'
 import {
@@ -84,6 +85,10 @@ export type ScorecardPayload = {
   dataQuality: {
     jobsMissingCostData: number
     jobsInMonth: number
+    /** Jobs payroll could not price yet: left out of the profit figures. */
+    jobsNotPriced: number
+    /** Payroll could not be asked at all: profit figures are not shown as if complete. */
+    commissionError: boolean
   }
   goal: OrgMonthlyGoal | null
 }
@@ -419,7 +424,18 @@ export async function buildScorecardPayload(
     for (const [jobId, entry] of Array.from(ledger.entries())) costsByJob.set(jobId, entry.summary)
   }
 
-  const economics = summarizeJobEconomics(jobs, costsByJob)
+  // Payroll's own number per job. If payroll can't run, the screen says so (commissionError) instead of showing $0 commission.
+  let commissionError = false
+  const commissionByJob: Map<string, { cents: number }> = new Map()
+  if (jobIds.length > 0) {
+    try {
+      for (const [id, c] of Array.from(await loadJobCommissions(supabase, orgId, jobIds))) commissionByJob.set(id, c)
+    } catch (e) {
+      commissionError = true
+      console.error('goals economics: commissions failed', e)
+    }
+  }
+  const economics = summarizeJobEconomics(jobs, costsByJob, commissionByJob)
 
   const leadIds = new Set<string>()
   for (const set of sets) if (set.lead_id) leadIds.add(set.lead_id)
@@ -542,6 +558,8 @@ export async function buildScorecardPayload(
     dataQuality: {
       jobsMissingCostData: economics.jobsMissingCostData,
       jobsInMonth: economics.jobsInMonth,
+      jobsNotPriced: economics.jobsMissingCommission,
+      commissionError,
     },
     goal,
   }

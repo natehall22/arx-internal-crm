@@ -26,6 +26,7 @@ import { listWaiting } from '@/lib/threads/waiting'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
 import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
 import { loadCustomerMessagesBlockedQueue } from '@/lib/customer-messages-db'
+import { loadQuickBooksStuckQueue } from '@/lib/quickbooks/activity'
 import { loadQuickBooksNeedsYouQueue } from '@/lib/quickbooks/connection'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
@@ -64,11 +65,14 @@ export default async function TodayPage() {
   const commissionWaiting = kind === 'owner' ? await loadCommissionChangesWaitingQueue(admin, profile.org_id).catch((e) => { console.error('today: commission changes failed', e); return null }) : null
   // Customer emails switched on but the company's name / email / postal address is missing: nothing goes out (owners fix it).
   const messagesBlocked = kind === 'owner' && orgProfile.features.customerMessages ? await loadCustomerMessagesBlockedQueue(admin, profile.org_id).catch((e) => { console.error('today: customer messages check failed', e); return null }) : null
-  // Unpaid service invoices (servicePlans on): people who invoice (money:record) or see financials; amounts shown to those same people.
-  const invoicesOn = (kind === 'ops' || kind === 'owner') && orgProfile.features.servicePlans && (hasFinancials(perms) || (await canBillService(admin, profile)).bill)
-  const unpaidInvoices = invoicesOn ? await loadUnpaidInvoicesQueue(admin, profile.org_id, new Date(), { money: true }).catch((e) => { console.error('today: unpaid invoices failed', e); return unpaidInvoicesFailedQueue() }) : null
+  // The one unpaid card (job and service invoices): ops / owners see it; amounts only for people who invoice (money:record) or see financials.
+  const invoicesOn = kind === 'ops' || kind === 'owner'
+  const invoiceMoney = invoicesOn && (hasFinancials(perms) || (await canBillService(admin, profile)).bill)
+  const unpaidInvoices = invoicesOn ? await loadUnpaidInvoicesQueue(admin, profile.org_id, new Date(), { money: invoiceMoney }).catch((e) => { console.error('today: unpaid invoices failed', e); return unpaidInvoicesFailedQueue() }) : null
   // QuickBooks connection needs a person (reconnect): owners only, only while the switch is on.
   const quickBooksQueue = kind === 'owner' && orgProfile.features.quickbooks ? await loadQuickBooksNeedsYouQueue(admin, profile.org_id).catch((e) => { console.error('today: quickbooks check failed', e); return null }) : null
+  // QuickBooks: records the CRM could not send without a person (Retry / Skip on Settings → QuickBooks).
+  const quickBooksStuck = kind === 'owner' && orgProfile.features.quickbooks ? await loadQuickBooksStuckQueue(admin, profile.org_id).catch((e) => { console.error('today: quickbooks stuck check failed', e); return null }) : null
   const shiftsQueue = clockOn ? await loadOpenShiftsQueue(admin, profile.org_id).catch((e) => { console.error('today: open shifts failed', e); return null }) : null
   // Online payments: a lost dispute on a job already collected / paid in payroll — payroll admins review commission.
   const reversalsOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.onlinePayments
@@ -98,7 +102,7 @@ export default async function TodayPage() {
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
   // AI changes waiting for THIS person's Approve (the switch must be on; a failed read just hides the card).
   const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
-  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
+  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
 
   return (
     <div className="min-h-screen bg-surface-subtle">

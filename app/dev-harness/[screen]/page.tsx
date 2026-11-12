@@ -13,6 +13,7 @@ import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import NeedsYouList from '@/components/ops/NeedsYouList'
 import CheckupList from '@/components/checkups/CheckupList'
 import MoveFromJobber from '@/components/jobber-import/MoveFromJobber'
+import MoveSignedDocuments from '@/components/signed-import/MoveSignedDocuments'
 import { HARNESS_CHECKUPS } from '@/e2e/fixtures'
 import { HARNESS_CREW_DAY, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
 import JobClockCard from '@/components/time/JobClockCard'
@@ -27,10 +28,13 @@ import { WHATS_NEW_SHOTS } from '@/lib/whats-new-shots'
 import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
 import PurchaseOrdersCard from '@/components/ops/PurchaseOrdersCard'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
-import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
+import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import SuppliersClient from '@/app/admin/suppliers/SuppliersClient'
 import ContractSigningForm from '@/app/contracts/sign/[token]/CustomerSigningForm'
 import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSigningForm'
+import SigningStatus from '@/components/signing/SigningStatus'
+import SignerFlow from '@/components/signing/SignerFlow'
+import { esignDisclosure } from '@/lib/signing/consent'
 import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
 import JobProjectTools from '@/components/project-tools/JobProjectTools'
 import SelectionClient from '@/components/selections/SelectionClient'
@@ -110,6 +114,10 @@ import PortalHomeView from '@/components/portal/PortalHomeView'
 import PortalSignIn from '@/components/portal/PortalSignIn'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import QuickBooksCard from '@/components/admin/QuickBooksCard'
+import QuickBooksMappingCard from '@/components/admin/QuickBooksMappingCard'
+import QuickBooksBackfillCard from '@/components/admin/QuickBooksBackfillCard'
+import QuickBooksSetup from '@/components/admin/QuickBooksSetup'
+import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import QuoteClient from '@/components/quotes/QuoteClient'
 import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
@@ -313,12 +321,13 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="p-3"><SupplierOrdersCard jobId="job-1" /></div>
     case 'purchase-orders':
       return <div className="p-3"><PurchaseOrdersCard jobId="job-1" /></div>
+    case 'job-payments':
+      return <div className="p-3"><JobPaymentsCard jobId="job-1" saleAmount={16325} /></div>
     case 'pay-banners': {
       const summary = { payments: [], collected_cents: 1632500, collected_dollars: 16325, sale_amount_cents: 1632500, sale_amount_dollars: 16325, remaining_cents: 0, remaining_dollars: 0, payment_count: 3, paid_in_full: true, paid_by_payments: true } as never
       return (
         <div className="p-3">
           <JobReadyToPayBanner status="complete" paymentSummary={summary} saleAmount={16325} canViewBilling onMarkCollected={() => undefined} onMarkJobComplete={() => undefined} />
-          <JobPayrollSentBanner jobId="job-1" status="complete" payrollSentAt={null} paymentSummary={summary} saleAmount={16325} canViewBilling onUpdated={() => undefined} />
         </div>
       )
     }
@@ -328,8 +337,28 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <EmailBlastsPage />
     case 'contract-signing':
       return <ContractSigningForm contract={HARNESS_CONTRACT as never} token="tok" brand={DEFAULT_DOCUMENT_BRAND} cancellationNotice={noticeOfCancellation('2026-11-06T15:00:00Z', DEFAULT_DOCUMENT_BRAND)} />
+    case 'signer-flow':
+      return (
+        <SignerFlow
+          token="tok" title="Lease agreement" companyName="Acme Roofing" signerName="Olive Owner" roleLabel="Owner" waitingFor={null} alreadySigned={false} completed={false} declineEnabled
+          consent={esignDisclosure({ name: 'Acme Roofing', phone: '555-0100', email: 'office@acme.test' })}
+          fields={[
+            { id: 'f1', roleKey: 'owner', kind: 'signature', page: 0, x: 0.1, y: 0.3, w: 0.4, h: 0.06, required: true, mine: true, roleLabel: 'Owner' },
+            { id: 'f2', roleKey: 'owner', kind: 'date', page: 0, x: 0.6, y: 0.3, w: 0.25, h: 0.04, required: true, mine: true, roleLabel: 'Owner' },
+            { id: 'f3', roleKey: 'tenant', kind: 'signature', page: 0, x: 0.1, y: 0.5, w: 0.4, h: 0.06, required: true, mine: false, roleLabel: 'Tenant' },
+          ]}
+        />
+      )
     case 'change-order-signing':
       return <ChangeOrderSigningForm changeOrder={{ co_number: 'CO-1', description: 'Replace 3 sheets of rotten decking at the rear slope. Add 40 LF of drip edge.', customer_print_name: 'Pat Customer', updated_total: 16825 }} token="tok" />
+    case 'change-order-signing-consent':
+      return <ChangeOrderSigningForm changeOrder={{ co_number: 'CO-1', description: 'Replace 3 sheets of rotten decking at the rear slope.', customer_print_name: 'Pat Customer', updated_total: 16825 }} token="tok" consent={esignDisclosure({ name: 'Acme Roofing', phone: '555-0100', email: 'office@acme.test' })} declineEnabled companyName="Acme Roofing" />
+    case 'signing-status':
+      return (
+        <div className="p-3">
+          <SigningStatus kind="change-order" id="co-1" />
+        </div>
+      )
     case 'crew-capture':
       return <CrewPhotoCapture token="tok" tradeLabel="Roofing" addressText="12 Elm Street, Concord NC 28025" jobNumber="26-0042" initialCounts={{ final_front: 1 }} brand={DEFAULT_DOCUMENT_BRAND} />
     case 'payroll-attribution':
@@ -550,6 +579,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'move-from-jobber':
     case 'move-from-jobber-done':
       return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Move from Jobber</h1><MoveFromJobber /></div>
+    case 'move-signed-docs':
+      return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Move signed documents</h1><MoveSignedDocuments /></div>
     case 'custom-fields-admin':
       return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Custom fields</h1><CustomFieldsClient /></div>
     case 'customer-records': {
@@ -624,6 +655,14 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <PayClient token="harness-pay-token-harness-pay-token-harness" view={{ ...HARNESS_PAY_VIEW, kind: 'save_card', state: 'save_card', invoice: null, cardOnFile: 'Visa •••• 4242' }} returned={false} />
     case 'quickbooks-settings':
       return <div className="mx-auto max-w-2xl p-4"><QuickBooksCard /></div>
+    case 'quickbooks-mapping':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksMappingCard /></div>
+    case 'quickbooks-backfill':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksBackfillCard /></div>
+    case 'quickbooks-setup':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksSetup /></div>
+    case 'quickbooks-activity':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksActivityCard /></div>
     case 'online-payments-settings':
       return <div className="mx-auto max-w-2xl p-4"><OnlinePaymentsCard /></div>
     case 'quote-page':

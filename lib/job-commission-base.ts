@@ -33,6 +33,7 @@
  * on the next open week as commission change lines (lib/payroll-commission-change.ts). Fixed-price jobs: unchanged.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { enqueueRecordEvent } from '@/lib/integrations'
 import { roundMoney } from '@/lib/money'
 import { loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 
@@ -154,14 +155,14 @@ export async function isTimeAndMaterialsJob(admin: SupabaseClient, orgId: string
   return (data as { billing_mode?: string | null } | null)?.billing_mode === 'time_materials'
 }
 
-type SaleJobRow = { id: string; project_id: string | null; linked_proposal_id?: string | null; accepted_proposal_id?: string | null }
+export type SaleJobRow = { id: string; project_id: string | null; linked_proposal_id?: string | null; accepted_proposal_id?: string | null }
 
 /** The signed facts a sale total is built from: signed sale contracts, signed change orders, the proposal's sales tax. */
-async function loadSignedSaleInputs(
+export async function loadSignedSaleInputs(
   admin: SupabaseClient,
   orgId: string,
   job: SaleJobRow
-): Promise<{ contracts: SignedContractAmount[]; changeOrders: SignedChangeOrderAmount[]; salesTax: number } | { error: unknown }> {
+): Promise<{ contracts: SignedContractAmount[]; changeOrders: SignedChangeOrderAmount[]; salesTax: number; taxProposalId: string | null } | { error: unknown }> {
   const jobId = job.id
   let opportunityId: string | null = null
   if (job.project_id) {
@@ -227,6 +228,7 @@ async function loadSignedSaleInputs(
   return {
     contracts,
     salesTax,
+    taxProposalId,
     changeOrders: (coRows || []).map((row) => ({
       id: row.id as string,
       originalAmount: row.original_amount as number | null,
@@ -337,6 +339,9 @@ export async function syncJobSaleAndCommissionBase(
       .eq('id', jobId)
       .eq('org_id', orgId)
     if (updateError) return { status: 'error', error: updateError }
+    // QuickBooks: the job's ONE sale invoice (a signed change order moves the same invoice). The sale amount in cents is the
+    // event version, so a new total is always a new event. Never blocks the sale; the worker's sweep catches a miss.
+    await enqueueRecordEvent(admin, orgId, { eventType: 'invoice.upserted', table: 'production_jobs', id: jobId, version: Math.round(totals.saleAmount * 100) })
     return { status: 'updated', totals }
   } catch (error) {
     return { status: 'error', error }

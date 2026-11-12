@@ -95,7 +95,7 @@ export default function JobSplitSheet({ periodId, jobId, onClose, onSaved }: { p
   const onJob = new Set(split?.lines.map((l) => l.userId) ?? [])
   return (
     <Dialog open={!!jobId} onOpenChange={(o) => { if (!o && !busy) onClose() }}>
-      <DialogContent title={split ? `Change job ${split.job.number}` : 'Change'} description={split ? `${split.job.address ? `${split.job.address} · ` : ''}commission base ${formatMoney(base)} · ${split.status}` : undefined}>
+      <DialogContent title={split ? `Change job ${split.job.number}` : 'Change'} description={split ? `${split.job.address ? `${split.job.address} · ` : ''}sale amount (before tax) ${formatMoney(base)} · ${split.status}` : undefined}>
         {error ? <p className="rounded-ui border border-danger p-3 text-ui-base text-ink">{error}</p> : null}
         {!split && !error ? <div className="flex flex-col gap-2"><Skeleton className="h-12" /><Skeleton className="h-12" /></div> : null}
         {split ? (

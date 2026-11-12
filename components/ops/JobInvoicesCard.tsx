@@ -231,7 +231,7 @@ export default function JobInvoicesCard({
                     onClick={() => setShowSendModal(invoice.id)}
                     className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
                   >
-                    Send Invoice
+                    Email invoice
                   </button>
                 )}
 
@@ -240,7 +240,7 @@ export default function JobInvoicesCard({
                     onClick={() => setShowApplyModal(invoice.id)}
                     className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700"
                   >
-                    Apply Payment
+                    Record payment
                   </button>
                 )}
 

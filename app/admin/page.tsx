@@ -18,8 +18,10 @@ import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles
 import { loadOrgProfile } from '@/lib/org-profile'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
+import SigningSettingsCard from '@/components/admin/SigningSettingsCard'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
-import QuickBooksCard from '@/components/admin/QuickBooksCard'
+import QuickBooksSetup from '@/components/admin/QuickBooksSetup'
+import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
@@ -78,7 +80,8 @@ export default async function SettingsPage() {
           {/* Owners, when the company uses online payments: connect its own Stripe account (lib/online-payments). */}
           {canEditFeatures && features.onlinePayments ? <OnlinePaymentsCard /> : null}
           {/* Owners, when the company uses QuickBooks: connect its own QuickBooks company (lib/quickbooks). */}
-          {canEditFeatures && features.quickbooks ? <QuickBooksCard /> : null}
+          {canEditFeatures && features.quickbooks ? <QuickBooksSetup /> : null}
+          {canEditFeatures && features.quickbooks ? <QuickBooksActivityCard /> : null}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}
@@ -87,6 +90,8 @@ export default async function SettingsPage() {
           {features.hourlyBilling && canEditFeatures ? <HourlyBillingSettingsCard /> : null}
           {/* Owners, when the company sends quote links: default deposit, link life, terms (lib/quotes/settings.ts). */}
           {features.quoteApproval && canEditFeatures ? <QuoteApprovalCard /> : null}
+          {/* Owners: the e-sign notice, decline, filing, reminders, signed-copy emails (lib/signing/settings.ts). */}
+          {canEditFeatures ? <SigningSettingsCard /> : null}
         </div>
       </main>
     </div>

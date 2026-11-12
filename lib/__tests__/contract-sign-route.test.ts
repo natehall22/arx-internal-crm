@@ -8,6 +8,7 @@ import { createFakeDb } from '@/lib/test-helpers/fake-db'
 let db: ReturnType<typeof createFakeDb>
 const uploads: string[] = []
 let uploadFails = false
+let downloadFails = false
 /** Make the next write(s) to a table fail: { table, op, when(patch/row), times }. */
 let failRules: Array<{ table: string; op: 'update' | 'insert'; when?: (v: any) => boolean; times: number }> = []
 function failing(): any {
@@ -40,9 +41,10 @@ jest.mock('@/lib/supabase/service', () => ({
       from: () => ({
         upload: async (path: string) => {
           if (uploadFails) return { error: { message: 'bucket down' } }
-          uploads.push(path)
+          if (!path.includes('/signing/')) uploads.push(path)
           return { error: null }
         },
+        download: async () => (downloadFails ? { data: null, error: { message: 'down' } } : { data: new Blob(['%PDF-fake']), error: null }),
       }),
     },
   }),
@@ -67,6 +69,7 @@ const FUTURE = '2999-01-01T00:00:00.000Z'
 
 function seed(extra: Record<string, unknown> = {}) {
   db = createFakeDb({
+    orgs: [{ id: ORG, settings: { features: { quickbooks: true } } }],
     order_form_contracts: [
       {
         id: 'c1', org_id: ORG, agreement_type: 'contingency', status: 'pending_customer', signing_token: TOKEN,
@@ -96,6 +99,7 @@ beforeEach(() => {
   failRules = []
   uploads.length = 0
   uploadFails = false
+  downloadFails = false
   generate.mockClear()
   sendMail.mockClear()
   seed()
@@ -255,7 +259,7 @@ describe('recovery: ONE path finishes a signed contract whose request died', () 
 
   it('runs only the steps still missing', async () => {
     const at = '2026-11-10T00:00:01.000Z'
-    seed(signedRow({ pdf_url: 'org/org-a/x.pdf', pdf_storage_path: 'org/org-a/x.pdf', signing_steps: { void_older: at, pdf: at, project: at, signed_note: at, sale_notice: at } }))
+    seed(signedRow({ pdf_url: 'org/org-a/x.pdf', pdf_storage_path: 'org/org-a/x.pdf', signing_steps: { void_older: at, pdf: at, engine: at, project: at, signed_note: at, sale_notice: at } }))
     await post(good())
     expect(uploads).toHaveLength(0)
     expect(generate).not.toHaveBeenCalled()
@@ -359,3 +363,29 @@ describe('quote approval contracts', () => {
   })
 })
 
+
+describe('signing engine on the contract route', () => {
+  it('a failing evidence step never holds the sale hostage: the contract still finishes', async () => {
+    downloadFails = true
+    const res = await post(good())
+    expect(res.status).toBe(200)
+    const row = db.tables.order_form_contracts[0]
+    expect(row.status).toBe('completed')
+    expect(row.signing_finalized_at).toBeTruthy()
+    expect(sendMail).toHaveBeenCalledTimes(1)
+  })
+  it('refuses a signature without consent when the company requires it', async () => {
+    ;(db.tables as any).orgs = [{ id: ORG, settings: { signing: { consentStep: true } } }]
+    const res = await post(good())
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('consent_required')
+    expect(db.tables.order_form_contracts[0].status).not.toBe('completed')
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+  it('signs with the consent version stored', async () => {
+    ;(db.tables as any).orgs = [{ id: ORG, settings: { signing: { consentStep: true } } }]
+    const res = await post(good({ consent: { accepted: true, version: 'v1-2026-11' } }))
+    expect(res.status).toBe(200)
+    expect(db.tables.order_form_contracts[0]).toMatchObject({ status: 'completed', consent_version: 'v1-2026-11' })
+  })
+})

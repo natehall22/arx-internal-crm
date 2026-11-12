@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { ensureContractPdf } from '@/lib/contracts/finalize-pdf'
+import { completeEnvelope } from '@/lib/signing/complete'
 import { filesObjectHref } from '@/lib/files/files-object'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -29,7 +30,7 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
 
     const { data: contract } = await service
       .from('order_form_contracts')
-      .select('id, status')
+      .select('id, status, quote_approval_id')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .maybeSingle()
@@ -41,6 +42,10 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     const result = await ensureContractPdf(service, contract.id, profile.org_id)
     if (!result.path) {
       return NextResponse.json({ error: result.error || 'Failed to generate PDF' }, { status: 500 })
+    }
+    // A signed agreement whose PDF came late now gets its hash and certificate (never blocks the PDF; quote approvals have none).
+    if (contract.status === 'completed' && !contract.quote_approval_id) {
+      await completeEnvelope(service, { kind: 'contract', docId: contract.id, orgId: profile.org_id }).catch((e) => console.error('[Contract Regenerate PDF] signing engine completion failed:', e))
     }
     return NextResponse.json({ success: true, pdfUrl: filesObjectHref(result.path) })
   } catch (e) {

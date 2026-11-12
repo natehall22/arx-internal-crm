@@ -79,7 +79,7 @@ export async function PATCH(
       'job_source', 'insurance_stage',
       'acv_amount', 'depreciation_amount', 'supplement_amount',
       'claim_number', 'insurance_company',
-      'payroll_sent_at',
+      // `payroll_sent_at` is history only: the "Ready for payroll" step was deleted (payroll computes eligibility itself).
     ])
     const updateData: Record<string, unknown> = {}
     for (const key of Object.keys(body)) {
@@ -109,37 +109,6 @@ export async function PATCH(
         { error: 'This job is cancelled. Signing a new agreement reinstates it.' },
         { status: 409 }
       )
-    }
-
-    if (updateData.payroll_sent_at !== undefined) {
-      const ts = updateData.payroll_sent_at
-      if (ts !== null && typeof ts === 'string') {
-        if (!['complete', 'collected'].includes(String(existingJob.status))) {
-          return NextResponse.json(
-            { error: 'Mark the job complete or collected before sending to payroll' },
-            { status: 400 }
-          )
-        }
-        const { data: payrollRow, error: payrollFetchError } = await adminClient
-          .from('production_jobs')
-          .select('payroll_sent_at')
-          .eq('id', params.id)
-          .eq('org_id', profile.org_id)
-          .maybeSingle()
-        if (payrollFetchError) {
-          console.error('payroll_sent_at column missing or unreadable:', payrollFetchError)
-          return NextResponse.json(
-            {
-              error:
-                'Payroll tracking is not available until database migration 124 is applied (production_jobs.payroll_sent_at).',
-            },
-            { status: 503 }
-          )
-        }
-        if (payrollRow?.payroll_sent_at) {
-          return NextResponse.json({ error: 'Already marked sent to payroll' }, { status: 400 })
-        }
-      }
     }
 
     // "Collected" is calculated (lib/job-collection.ts): payments within $0.05 of the sale

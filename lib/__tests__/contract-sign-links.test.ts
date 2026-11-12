@@ -14,9 +14,10 @@ jest.mock('@/lib/supabase/service', () => ({
     rpc: (n: string, a: Record<string, unknown>) => (db.client as any).rpc(n, a),
     storage: {
       from: () => ({
+        download: async () => ({ data: new Blob(['%PDF-fake']), error: null }),
         upload: async (path: string) => {
           if (uploadFails) return { error: { message: 'bucket down' } }
-          uploads.push(path)
+          if (!path.includes('/signing/')) uploads.push(path)
           return { error: null }
         },
       }),

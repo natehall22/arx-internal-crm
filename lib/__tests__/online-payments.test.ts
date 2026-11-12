@@ -140,8 +140,8 @@ function seed(extra: Partial<Record<string, Row[]>> = {}) {
   const db = createFakeDb(
     {
       orgs: [
-        { id: ORG, name: 'Acme Lawn', email: 'office@acme.test', timezone: 'America/Chicago', settings: { features: { onlinePayments: true } } },
-        { id: OTHER, name: 'Other Co', timezone: 'America/Chicago', settings: { features: { onlinePayments: true } } },
+        { id: ORG, name: 'Acme Lawn', email: 'office@acme.test', timezone: 'America/Chicago', settings: { features: { onlinePayments: true, quickbooks: true } } },
+        { id: OTHER, name: 'Other Co', timezone: 'America/Chicago', settings: { features: { onlinePayments: true } } } // QuickBooks off: no outbox rows,
       ],
       payment_accounts: [
         { id: 'pa1', org_id: ORG, account_id: ACCT, livemode: false, status: 'active', charges_enabled: true, payouts_enabled: true, details_submitted: true, disconnected_at: null, updated_at: NOW.toISOString() },

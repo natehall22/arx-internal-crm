@@ -46,10 +46,31 @@ printing, no A/P aging, no fee/deposit bookkeeping, and posts no payroll. Direct
   then create what is missing, for records dated on/after the start date.
 - **Disconnect** = revoke at Intuit, wipe tokens, keep `qb_links` (the same QuickBooks company resumes; a *different* one is refused once links exist).
 
+## Worker (PR3, built 2026-11-11, branch feat/quickbooks-sync)
+ONE worker drains `integration_outbox` (`provider='quickbooks'`): cron `/api/cron/quickbooks` every 10 min (`verifyCronSecret`, per company via
+`lib/cron-orgs.ts`; skips a company whose switch is off, that is not connected, or whose mapping is not confirmed). Code: `lib/quickbooks/*`.
+- **Events** (ONE enqueue family in `lib/integrations.ts`, key `org:table:id:event:vN`): `customer.upserted` (contract signing), `invoice.upserted/voided`
+  (job sale amount change, invoice send/void, job cancel), `payment.recorded/refunded/disputed`, `bill.recorded/voided`. A sweep enqueues anything since the
+  start date nobody queued (no-job invoices/payments, bills) as a safety net (<= 10 min).
+- **State-based:** the worker reads the CRM record at send time, never the payload; a later re-queue mid-send makes the earlier result drop (lease CAS).
+- **Every create is find-before-send:** `qb_links` -> DocNumber/name query -> scan for the marker `[crm:<kind>:<id>]` in PrivateNote -> only then create,
+  with Intuit `requestid`. A timeout therefore finds what it created. `qb_links` only maps; QuickBooks owns the books.
+- **Conflicts:** stale SyncToken (5010) re-read and retry once. If a person changed the QuickBooks invoice total, the CRM does NOT overwrite it: Needs you.
+- **Failures:** back off 1/5/15/60/240 min; after 6 tries "Needs you" in plain words with Retry / Skip (Settings -> QuickBooks activity, and Today).
+  Login failure (120) or a stopped company stops the whole company and flags reconnect. 429 stops the batch.
+- **Nothing deletes in QuickBooks.** Only a voided/cancelled CRM record voids its invoice (zeroed, kept). A CRM-voided bill goes to Needs you
+  (a person voids it in QuickBooks).
+- **Start date:** nothing dated before it posts (invoice date, payment date, bill date, customer event day in the company time zone).
+- **Money:** pre-tax lines + tax lines must equal the total to the cent or the invoice is not sent. Refunds/disputes go as a Refund Receipt at the gross amount
+  (tax not split).
+- Screens: Settings -> QuickBooks: "What goes where" (mapping) and "QuickBooks activity"; APIs `/api/admin/quickbooks/mapping|activity` (owners only).
+
 ## Mapping screen (owner, plain words)
-Only the few defaults needed to post, picked from the company's own QuickBooks list with the obvious one pre-selected:
-"Sales go to: [item/income account]", "Sales tax: [tax code]", "Receivables: [A/R account]", "Vendor bills go to: [expense account]".
-Nothing posts until each is confirmed. Class = job (QuickBooks Plus+). Stored in `orgs.settings.quickbooks`. We never create or edit accounts.
+Every choice is one of the company's OWN QuickBooks lists, pre-picked where obvious, checked server-side against those lists: start date, invoice mode
+(one per job | every invoice), sales item (per trade optional), tax (none | QuickBooks automatic | CRM tax mapped to a tax code/rates), deposit-to account,
+receivables account (only when more than one), vendor bills on/off + expense account + class (Plus) + 1099 vendors. Nothing posts until "Start sending";
+any later change un-confirms until saved again. Changing invoice mode after invoices were sent needs a new start date of today or later.
+Stored in `orgs.settings.quickbooks`. We never create or edit accounts.
 
 ## Intuit facts this relies on (checked 2026-11-11 against Intuit docs/posts and developer write-ups; items marked * not confirmed on an Intuit page we could read)
 - OAuth 2.0, authorization-code. Access token ~60 min. **A refresh returns a NEW refresh token: always store the newest, in the same
@@ -60,9 +81,9 @@ Nothing posts until each is confirmed. Class = job (QuickBooks Plus+). Stored in
 - Redirect URIs are exact and registered per app (no wildcards) → one fixed callback host, same as Google connect.
 - Accounting API: Customer (sub-customer via `Job`/`ParentRef`), Invoice, Payment, Refund Receipt/Credit Memo, Vendor
   (`Vendor1099`), Bill (BillPayment read-only), Item, Account (read-only), Class, TaxCode. Updates need the current **SyncToken**
-  (sparse updates allowed); stale token = error 5010. Send `minorversion=75`+ (older phased out Aug 2025). Queries page at 1000.
+  (sparse updates allowed); stale token = error 5010. Send `minorversion=75`+ (1-74 deprecated Aug 1 2025; blogs.intuit.com/?p=34635). Queries page at 1000.
 - Rate limits: ~500 requests/min per company, ~10 concurrent, batch ≤30 operations (batch endpoint ~120/min); 429 → back off with jitter.
-- `requestid` makes a retried create safe. (Webhooks / CDC exist but we do not use them: nothing is read back.)
+- `requestid` makes a retried create safe: max **50 characters**, a repeat returns the first response (blogs.a.intuit.com/2015/04/06/15346/). (Webhooks / CDC exist but we do not use them: nothing is read back.)
 - Sandbox and production use different keys/URLs. Production keys need Intuit's **app assessment** (questionnaire).*
 
 ## Decisions the owner / bookkeeper must make (in writing before go-live)
@@ -79,6 +100,38 @@ never change it — a changed key makes stored tokens unreadable = "needs reconn
 
 ## Build order (each a PR)
 1. **Deletes - done.** 2. **Connection (this PR)**: OAuth, encrypted tokens + rotation, `qb_links`, status card, disconnect, Needs you.
-3. Mapping screen + read-only pull of the company's items/accounts/tax codes. 4. Worker: customer, invoice (both modes), tax, payment, refund.
-5. Vendors + approved bills (+ optional paid read-back, 1099 flag). 6. Backfill (link-first). 7. Optional: "bill paid" read-back.
+3-5. **Mapping screen, worker (customer, invoice both modes, tax, payment, refund, vendors + bills, 1099): built (PR3).** 6. Backfill (link-first): next (PR4). 7. Optional: "bill paid" read-back.
 (Payroll: a provider export in the payroll branch; nothing here.)
+
+## PR3 additions: facts, unverified items, decisions
+Verified (Intuit blog posts): error codes 5010 stale SyncToken, 6240 duplicate name, 6210 duplicate doc number / closed period, 610 not found, 2500 invalid
+reference, 120 auth failure, 6190 invalid company status (blogs.a.intuit.com/2017/06/08/top-quickbooks-online-api-errors-and-how-to-handle-them/); void invoice =
+`POST invoice?operation=void` with Id+SyncToken, amounts zeroed and **PrivateNote is overwritten with "Voided"**, so the CRM marker is kept in `qb_links`
+(blogs.a.intuit.com/2016/04/06/voiding-invoice-objects). Rate limit 429 code 003001 (third-party write-ups). Sandbox host `sandbox-quickbooks.api.intuit.com`.
+developer.intuit.com is script-rendered and could not be read.
+Unverified `*` (confirm in the sandbox before go-live): payment void operation, RefundReceipt / VendorCredit shapes, Preferences `CustomTxnNumbers`, QuickBooks
+Online record URLs (a wrong link opens the home page), `\'` escaping in queries, Class query when class tracking is off, whether a sparse invoice update replaces
+Lines wholesale.
+Decisions for Nathan / bookkeeper (additions): Plus plan (classes, sub-customers) | start date | invoice mode | automatic vs manual tax | the four mapping picks |
+vendor bills and 1099 flags | refunds at gross, tax not split | customers are matched only by email/phone/street, else a suffixed name (never merged on name alone) |
+vendors adopted on exact name | each job is a sub-customer of the customer | change-order tax treated as tax-included | T&M jobs and no-job invoices send each CRM invoice
+even in per-job mode | payroll via the payroll provider, not here | cron every 10 min.
+Migration order (Phase 1, both BEFORE the code): 202611210010 (additive columns) then 202611210020 (NOT additive: drops the outbox policies that let any signed-in member of the company read/update rows; every reader and writer uses the service role). Needs 202611100040 first.
+
+## PR4 backfill + review fixes (2026-11-11)
+- **Backfill (link-first), `lib/quickbooks/backfill.ts`, `POST /api/admin/quickbooks/backfill` (owners; `action: preview | apply`):** pulls QuickBooks customers, sub-customers and invoices, matches CRM records
+  (customers by the CRM's ONE identity rule `matchExistingCustomer` via `lib/quickbooks/identity.ts`; jobs by job number under the matched customer; invoices by DocNumber, a different amount goes to the owner),
+  owner resolves ambiguous ones, `apply` writes `qb_links` only (re-planned on the server). It creates nothing in QuickBooks; unmatched records are created later by the worker from the start date on.
+  The worker's first-send customer adoption now uses the same rule (the old street-only match is gone).
+- **Undo-cancel:** the void clears the fingerprint; the restored job is sent again as a NEW invoice numbered `<number>-R` (QuickBooks cannot un-void). A queued void for a job that is no longer cancelled is dropped.
+- **Refund on a cancelled/voided sale** is not posted (it would cut income twice): Needs you, "refund the customer credit in QuickBooks". Whether Intuit can refund that credit through the API is unverified.
+- **Invoice mode** applies to new jobs; a job whose sale invoice is already in QuickBooks keeps it. Customers carry `CRM:<org>:<id>` in Notes (find-before-retry). Skip records who/when/why; a skipped line stays closed.
+- No outbox rows are written for a company with the QuickBooks switch off (TS enqueue). Still open: the SQL `record_job_payment` writes its payment row regardless of the switch.
+- Sandbox checklist before go-live: every `*` item above, plus the `-R` reissue number and a customer-credit refund.
+- **One setup page** (Settings -> QuickBooks, `components/admin/QuickBooksSetup.tsx`): 1 Connect, 2 Pick accounts, 3 Match what is already in QuickBooks, 4 Start sending. The ONE Start-sending button is disabled until step 3 is done or skipped after a warning (`backfill.doneAt` / `skipped`); the server refuses a first confirm without it when QuickBooks already has customers. Skip (activity log) needs a reason and stays in the log with who/when/why.
+- **Reissue keeps the deposit (2026-11-12):** QuickBooks leaves a paid, voided invoice's payments as an unapplied customer credit (QuickBooks community answer; Intuit's developer pages are script-rendered). When the sale is reissued as `<n>-R`, each payment the CRM already sent is re-applied to the new invoice by a Payment update (Intuit: a Payment update is a full update, so the existing lines are sent back; Line + LinkedTxn{TxnId,TxnType:Invoice}). Idempotent; a payment that cannot be moved becomes a Needs-you warning with the exact "Receive payment" steps. Unverified `*` against the sandbox: the Payment update shape.
+
+## Undo payment -> `payment.voided` (2026-11-12)
+- "Undo payment" in the CRM writes a negative job payment (key `undo:<original id>`) and enqueues **`payment.voided`** (not `payment.refunded`): the handler `paymentVoided` finds the original's `Payment` link and VOIDS it (kept, zeroed, never deleted; no Refund Receipt). Idempotent: a Payment already shown as voided is left alone; a payment never sent has nothing to void; an undone payment that is not yet sent is never created (`paymentHandler` skips it, code `undone`).
+- **UNVERIFIED against Intuit's live API:** that `operation=void` on a Payment zeroes `TotalAmt` and that the "Voided" `PrivateNote` marker appears as the fake QuickBooks company models it (it is modelled on Invoice voids). Check on the sandbox before go-live; if a Payment void behaves differently the handler's "already voided" test is the one line to adjust.
+- **Migration order:** apply `202611220020_record_job_payment_void_event.sql` AFTER `202611210030` and BEFORE the code (the SQL `record_job_payment` validates the event type; without it undo fails).

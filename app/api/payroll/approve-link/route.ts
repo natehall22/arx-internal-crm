@@ -1,20 +1,21 @@
 /**
  * The one-tap approve link (lib/payroll-approve-link.ts).
  *   GET  ?token  — the live week behind the link (total, people, warnings), for its owner only.
- *   POST { token, expectedTotal } — approve: the same approvePayWeek as the Pay screen. The link is used up only when the week is approved.
+ *   POST { token, expectedTotal } — approve: the same approvePayWeek as the Pay screen, then the same emailWeekStatements the Pay screen
+ *   runs (statements go out by default, exactly like the main Approve; a failed send never undoes the approval). The link is used up only when the week is approved.
  * Same answer for a wrong, used, expired or someone else's link (no hints).
  */
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { consumeApprovalLink, findApprovalLink } from '@/lib/payroll-approve-link'
-import { approvePayWeek } from '@/lib/payroll-approve'
+import { approvePayWeek, emailWeekStatements, type EmailSummary } from '@/lib/payroll-approve'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { loadPayWeek } from '@/lib/payroll-pay-week'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 120
 const GONE = () => NextResponse.json({ error: 'This link is no longer valid. Open Pay this week to approve.', code: 'link_invalid' }, { status: 410 })
 
 async function authorize(token: string) {
@@ -72,7 +73,16 @@ export async function POST(request: NextRequest) {
     const r = await approvePayWeek(a.admin, { orgId: a.link.org_id, actorUserId: a.profile.id, periodId: a.link.payroll_period_id, expectedTotal: expected })
     if (!r.ok) return NextResponse.json(r.body, { status: r.status })
     await consumeApprovalLink(a.admin, a.link.id)
-    return NextResponse.json({ ok: true, total: r.total, people: r.people })
+    // Same step the Pay screen runs after Approve (default on). The week is already approved: a mail problem only shows in the answer.
+    let emailed: EmailSummary | { error: string } | null = null
+    try {
+      const res = await emailWeekStatements(a.admin, a.link.org_id, a.link.payroll_period_id)
+      emailed = 'error' in res ? { error: res.error } : res
+    } catch (e) {
+      console.error('POST approve-link: statements', e)
+      emailed = { error: 'Could not send the statements' }
+    }
+    return NextResponse.json({ ok: true, total: r.total, people: r.people, emailed })
   } catch (e) {
     console.error('POST approve-link', e)
     return NextResponse.json({ error: 'Could not approve. Nothing was paid.' }, { status: 500 })
