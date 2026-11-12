@@ -18,7 +18,7 @@ export type JobEconomicsSummary = {
   netProfit: number
   jobsInMonth: number
   jobsMissingCostData: number
-  /** Jobs payroll could not price (no base / nobody credited): counted as $0 here, never guessed. */
+  /** Jobs payroll could not price (no base / nobody credited): LEFT OUT of every total above, never counted as $0 commission. */
   jobsMissingCommission: number
 }
 
@@ -58,13 +58,19 @@ export function summarizeJobEconomics(
   let jobsMissingCommission = 0
 
   for (const job of jobs) {
+    // A job payroll can't price is "missing", not $0 commission: it stays out of the profit totals and is counted.
+    if (!commissionByJob.get(job.id)) {
+      jobsMissingCommission += 1
+      const costsOf = costsByJob.get(job.id) ?? EMPTY_JOB_COST_SUMMARY
+      if (costsOf.lineCount === 0) jobsMissingCostData += 1
+      continue
+    }
     const sale = money(job.sale_amount)
     const costs = costsByJob.get(job.id) ?? EMPTY_JOB_COST_SUMMARY
     if (costs.lineCount === 0) jobsMissingCostData += 1
 
     const direct = jobDirectCosts(job, costs)
     const commissions = jobCommissions(job, commissionByJob)
-    if (!commissionByJob.get(job.id)) jobsMissingCommission += 1
     totalSale += sale
     totalCosts += direct + commissions
     totalCommissions += commissions

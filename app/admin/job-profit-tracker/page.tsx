@@ -184,6 +184,7 @@ export default async function AdminJobProfitTrackerPage({
   let invoiceTaxByJob = new Map<string, JobInvoiceFacts>()
   // Commission = what payroll paid, or computes for the job (lib/job-commission-actual.ts) — never a percentage typed here.
   let commissions = new Map<string, JobCommission>()
+  let commissionError = false
 
   if (jobIds.length > 0) {
     const [loadedLedger, { data: payments }, loadedInvoiceTax, loadedCommissions] = await Promise.all([
@@ -193,7 +194,12 @@ export default async function AdminJobProfitTrackerPage({
         .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds),
       loadJobInvoiceFacts(supabase, jobIds),
-      loadJobCommissions(supabase, profile.org_id, jobIds),
+      loadJobCommissions(supabase, profile.org_id, jobIds).catch((e) => {
+        // Payroll could not price the unpaid jobs: said out loud below, never shown as $0.
+        commissionError = true
+        console.error('job profit tracker: commissions failed', e)
+        return new Map<string, JobCommission>()
+      }),
     ])
     ledger = loadedLedger
     commissions = loadedCommissions
@@ -394,6 +400,11 @@ export default async function AdminJobProfitTrackerPage({
           ))}
         </div>
 
+        {commissionError && (
+          <p className="mb-4 text-sm font-semibold" style={{ color: '#7f1d1d' }}>
+            Payroll could not be reached, so jobs that are not paid yet show no commission or profit. Try again in a minute.
+          </p>
+        )}
         {totals.unpriced > 0 && (
           <p className="mb-4 text-sm text-gray-900">
             {totals.unpriced} {totals.unpriced === 1 ? 'job is' : 'jobs are'} not priced by payroll yet (no sale price or nobody credited), so {totals.unpriced === 1 ? 'it is' : 'they are'} left out of commission and profit.

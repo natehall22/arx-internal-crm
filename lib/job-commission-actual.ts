@@ -27,15 +27,28 @@ const toCents = (dollars: unknown): number => {
   return Number.isFinite(n) ? Math.round(n * 100) : 0
 }
 
+/** Payroll could not price the jobs that are not paid yet (planner / schedule failure). Callers show an error state. */
+export class CommissionUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CommissionUnavailableError'
+  }
+}
+
 export async function loadJobCommissions(admin: SupabaseClient, orgId: string, jobIds: string[], now: Date = new Date()): Promise<Map<string, JobCommission>> {
   const out = new Map<string, JobCommission>()
   if (jobIds.length === 0) return out
 
-  // 1. Paid: the pay lines of approved weeks.
+  // 1. Paid: the pay lines of approved weeks (net_amount: what payroll pays after the 18% pool cap; gross is the pre-cap figure) plus the job's commission change lines
+  //    (hourly jobs: signed fixes for hours billed / refunded after the week was paid). Same two sources payroll itself adds up.
   const { data: lines } = await admin.from('payroll_payout_lines').select('job_id, net_amount').eq('org_id', orgId).in('job_id', jobIds)
   const paid = new Map<string, number>()
   for (const l of (lines ?? []) as Array<{ job_id: string; net_amount: number | string | null }>) {
     paid.set(l.job_id, (paid.get(l.job_id) ?? 0) + toCents(l.net_amount))
+  }
+  const { data: changes } = await admin.from('payroll_adjustments').select('job_id, amount').eq('org_id', orgId).eq('kind', 'commission_change').neq('status', 'void').in('job_id', jobIds)
+  for (const c of (changes ?? []) as Array<{ job_id: string; amount: number | string | null }>) {
+    if (paid.has(c.job_id)) paid.set(c.job_id, (paid.get(c.job_id) ?? 0) + toCents(c.amount))
   }
   for (const [jobId, cents] of Array.from(paid)) out.set(jobId, { cents, source: 'paid' })
 
@@ -59,8 +72,10 @@ export async function loadJobCommissions(admin: SupabaseClient, orgId: string, j
     for (const j of plan.jobs) if (j.rows.length > 0) out.set(j.job.id, { cents: sum(j.rows), source: 'planned' })
     for (const w of plan.waiting) if (w.rows.length > 0 && !out.has(w.job.id)) out.set(w.job.id, { cents: sum(w.rows), source: 'estimate' })
   } catch (e) {
-    // No pay-week setup / engine could not run: those jobs show "—", never a made-up percentage.
+    // The engine could not run (no pay-week setup, a read failed): say so — the caller shows an error state. Never a silent $0
+    // and never a made-up percentage. Jobs already PAID (above) are unaffected, but the caller must not present a partial list as complete.
     console.error('loadJobCommissions: planner failed', e)
+    throw new CommissionUnavailableError(e instanceof Error ? e.message : 'payroll could not price these jobs')
   }
   return out
 }

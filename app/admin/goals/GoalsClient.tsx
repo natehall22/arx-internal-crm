@@ -243,6 +243,15 @@ function ScorecardTab({
           <p className="text-sm" style={{ color: '#2c2c2a' }}>
             Data quality: {data.dataQuality.jobsMissingCostData} of {data.dataQuality.jobsInMonth} jobs this month missing cost data.
           </p>
+          {data.dataQuality.commissionError ? (
+            <p className="text-sm font-semibold" style={{ color: '#7f1d1d' }}>
+              Payroll could not be reached, so profit is not shown for this month. Try again in a minute.
+            </p>
+          ) : data.dataQuality.jobsNotPriced > 0 ? (
+            <p className="text-sm" style={{ color: '#2c2c2a' }}>
+              {data.dataQuality.jobsNotPriced} job{data.dataQuality.jobsNotPriced === 1 ? '' : 's'} not priced yet (payroll can&apos;t work out the commission): left out of profit.
+            </p>
+          ) : null}
         </>
       ) : null}
     </div>

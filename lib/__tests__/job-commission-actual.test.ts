@@ -12,7 +12,7 @@ const mockPlan = jest.fn()
 jest.mock('@/lib/payroll-period-materialization', () => ({ planPayrollPeriod: (...a: unknown[]) => mockPlan(...a) }))
 
 import { jobProfitCents } from '@/lib/job-commission-actual-shared'
-import { loadJobCommissions } from '@/lib/job-commission-actual'
+import { CommissionUnavailableError, loadJobCommissions } from '@/lib/job-commission-actual'
 
 const ORG = 'org-a'
 const NOW = new Date('2026-11-11T15:00:00Z') // a Wednesday
@@ -60,16 +60,28 @@ describe('loadJobCommissions', () => {
     expect(mockPlan.mock.calls[0][1].simulate.includeSettledExternally).toBe(false)
   })
 
-  test('all jobs paid: the planner is never run; a planner failure leaves them unpriced, never invented', async () => {
+  test('all jobs paid: the planner is never run; a planner failure is an error, never a silent $0', async () => {
     const db = createFakeDb({ ...schedule, payroll_payout_lines: [{ org_id: ORG, job_id: 'j1', net_amount: 10 }] })
     await loadJobCommissions(db.client as never, ORG, ['j1'], NOW)
     expect(mockPlan).not.toHaveBeenCalled()
     mockPlan.mockRejectedValue(new Error('boom'))
     const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const m = await loadJobCommissions(db.client as never, ORG, ['j1', 'j9'], NOW)
-    expect(m.get('j1')?.source).toBe('paid')
-    expect(m.has('j9')).toBe(false)
+    await expect(loadJobCommissions(db.client as never, ORG, ['j1', 'j9'], NOW)).rejects.toBeInstanceOf(CommissionUnavailableError)
     spy.mockRestore()
+  })
+
+  test('commission-change fix lines (Payroll -> Fix a mistake) count in what was paid', async () => {
+    const db = createFakeDb({
+      ...schedule,
+      payroll_payout_lines: [{ org_id: ORG, job_id: 'j1', net_amount: 1000 }],
+      payroll_adjustments: [
+        { org_id: ORG, job_id: 'j1', kind: 'commission_change', amount: -250.25, status: 'approved' },
+        { org_id: ORG, job_id: 'j1', kind: 'commission_change', amount: -999, status: 'void' },
+        { org_id: ORG, job_id: 'j1', kind: 'bonus', amount: 500, status: 'approved' },
+      ],
+    })
+    const m = await loadJobCommissions(db.client as never, ORG, ['j1'], NOW)
+    expect(m.get('j1')).toEqual({ cents: 74975, source: 'paid' })
   })
 })
 
