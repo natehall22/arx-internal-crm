@@ -131,6 +131,9 @@ const SCREENS: Screen[] = [
   { name: 'force-paid-dialog', path: '/dev-harness/force-paid', ready: 'textarea, input' },
   { name: 'sale-credit-confirm', path: '/dev-harness/sale-credit', ready: 'text=Send Agreement',
     states: [{ name: 'credit-step', run: async (p) => {
+      // installation agreements need the roof color the customer initials (Nathan, 2026-11-12)
+      const color = p.getByPlaceholder(/Granite Black/)
+      if (await color.isVisible().catch(() => false)) await color.fill('IKO Dynasty — Granite Black')
       for (let i = 0; i < 3; i++) {
         if (await p.getByText('Sale credit', { exact: true }).first().isVisible().catch(() => false)) break
         await p.getByRole('button', { name: 'Next' }).click()
