@@ -60,6 +60,8 @@ export default function PdfPages({
     let live = true
     let task: { destroy?: () => void } | null = null
     setError(null)
+    setPdf(null) // a new source: drop the old pages so they never sit under a Loading or error message
+    setSizes([])
     ;(async () => {
       try {
         const pdfjs = await loadPdfjs()

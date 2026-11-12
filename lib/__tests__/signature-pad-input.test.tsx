@@ -1,3 +1,4 @@
+import React from 'react'
 import { fireEvent, render } from '@testing-library/react'
 import SignaturePad from '@/components/contracts/SignaturePad'
 
@@ -11,6 +12,7 @@ class FakePointerEvent extends MouseEvent {
   }
 }
 
+const RealImage = window.Image
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAA'
 let ctx: Record<string, jest.Mock | unknown>
 let toDataURL: jest.Mock
@@ -32,7 +34,7 @@ beforeEach(() => {
   ;(HTMLCanvasElement.prototype as any).setPointerCapture = (id: number) => { captured.push(id) }
   ;(HTMLCanvasElement.prototype as any).releasePointerCapture = (id: number) => { released.push(id) }
 })
-afterEach(() => { jest.restoreAllMocks(); delete (window as any).devicePixelRatio })
+afterEach(() => { jest.restoreAllMocks(); ;(window as any).Image = RealImage; delete (window as any).devicePixelRatio })
 
 const canvasOf = (c: HTMLElement) => c.querySelector('canvas') as HTMLCanvasElement
 
@@ -130,5 +132,39 @@ describe('SignaturePad pointer input + sharp backing store', () => {
     expect(c.width).toBe(600)
     expect(ctx.drawImage).toHaveBeenCalledTimes(2) // old bitmap into the scratch canvas, then scratch back, scaled
     delete (window as any).ResizeObserver
+  })
+
+  it('does not wipe the canvas when the parent echoes back the value it just emitted (fast second stroke)', () => {
+    const Controlled = () => {
+      const [v, setV] = React.useState<string | null>(null)
+      return <SignaturePad value={v} onChange={setV} />
+    }
+    const images: Array<{ onload?: () => void }> = []
+    ;(window as any).Image = class { onload?: () => void; set src(_: string) { images.push(this) } }
+    const { container } = render(<Controlled />)
+    const c = canvasOf(container)
+    fireEvent.pointerDown(c, { pointerId: 1, clientX: 5, clientY: 5 })
+    fireEvent.pointerMove(c, { pointerId: 1, clientX: 20, clientY: 20 })
+    fireEvent.pointerUp(c, { pointerId: 1 }) // stroke 1 emits; parent echoes it back as value
+    const fills = (ctx.fillRect as jest.Mock).mock.calls.length
+    // stroke 2 begins before any image load could resolve
+    fireEvent.pointerDown(c, { pointerId: 2, clientX: 30, clientY: 5 })
+    fireEvent.pointerMove(c, { pointerId: 2, clientX: 31, clientY: 6 })
+    fireEvent.pointerUp(c, { pointerId: 2 })
+    expect((ctx.fillRect as jest.Mock).mock.calls.length).toBe(fills) // never cleared after the echo
+    expect(images).toHaveLength(0) // no redraw of its own output
+    expect(toDataURL).toHaveBeenCalledTimes(2) // both strokes exported from the same, uncleared canvas
+  })
+
+  it('a parent that empties the value resets the pad, so a tap cannot export a blank PNG', () => {
+    const onChange = jest.fn()
+    const { container, rerender } = render(<SignaturePad value={PNG} onChange={onChange} />)
+    ;(window as any).Image = class { onload?: () => void; set src(_: string) { this.onload?.() } }
+    rerender(<SignaturePad value={null} onChange={onChange} />)
+    const c = canvasOf(container)
+    fireEvent.pointerDown(c, { pointerId: 1, clientX: 5, clientY: 5 })
+    fireEvent.pointerUp(c, { pointerId: 1 })
+    expect(onChange).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('Sign here')
   })
 })

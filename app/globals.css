@@ -95,6 +95,13 @@ input, textarea, select {
   background-color: #ffffff;
 }
 
+/* Pinch-zoom is allowed, so iOS zooms any focused field under 16px: beat Tailwind's text-sm/text-xs on phones. */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Ensure placeholder is lighter but input text is dark */
 input::placeholder,
 textarea::placeholder {

@@ -42,6 +42,8 @@ export default function SignaturePad({
   // Refs, not state, for the stroke itself: pointer events arrive faster than React re-renders.
   const drawingRef = useRef<number | null>(null) // pointerId of the stroke in progress
   const inkRef = useRef(false)
+  const lastEmittedRef = useRef<string | null>(null)
+  // Known limits (not handled): iOS 12 has no pointer events; Android palm rejection may drop a stroke when a palm rests on the pad.
   const [hasSignature, setHasSignature] = useState(false)
   // What a plain <form> posts when the pad is used with `name` (controlled callers read it from onChange instead).
   const [drawn, setDrawn] = useState<string>(value ?? '')
@@ -86,7 +88,10 @@ export default function SignaturePad({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width, height])
 
+  // Redraw only when the PARENT hands in a signature we did not just emit. Every caller echoes our own onChange back as
+  // `value`; clearing + async-redrawing that echo would wipe a fast second stroke (an i-dot) before the image loads.
   useEffect(() => {
+    if (value && value === lastEmittedRef.current) return
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -96,8 +101,14 @@ export default function SignaturePad({
     paint(ctx, canvas)
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, width, height)
+    lastEmittedRef.current = value ?? null
 
-    if (value) {
+    if (!value) {
+      // The parent emptied the pad: a tap must not export a blank PNG.
+      inkRef.current = false
+      setHasSignature(false)
+      setDrawn('')
+    } else {
       const img = new Image()
       img.onload = () => {
         ctx.drawImage(img, 0, 0, width, height)
@@ -163,6 +174,7 @@ export default function SignaturePad({
 
     if (canvas && inkRef.current) {
       const dataUrl = exportPng(canvas, width, height)
+      lastEmittedRef.current = dataUrl
       setDrawn(dataUrl)
       onChange?.(dataUrl)
     }
@@ -179,6 +191,7 @@ export default function SignaturePad({
     ctx.fillRect(0, 0, width, height)
     inkRef.current = false
     setHasSignature(false)
+    lastEmittedRef.current = null
     setDrawn('')
     onChange?.(null)
   }
