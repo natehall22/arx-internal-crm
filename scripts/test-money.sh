@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 PGBIN="${MONEY_PG_BIN:-/usr/lib/postgresql/16/bin}"
 PGRST="${POSTGREST_BIN:-/tmp/pgrst/postgrest}"
 [ -x "$PGRST" ] || { echo "test-money: PostgREST binary not found at $PGRST (set POSTGREST_BIN)" >&2; exit 2; }
-WORK="$(mktemp -d /tmp/money-e2e.XXXXXX)"; PGPORT_="${MONEY_PG_PORT:-55433}"; RESTPORT=3099; PROXYPORT=3098
+WORK="$(mktemp -d /tmp/money-e2e.XXXXXX)"; PGPORT_="${MONEY_PG_PORT:-55433}"; RESTPORT="${MONEY_REST_PORT:-3099}"; PROXYPORT="${MONEY_PROXY_PORT:-3098}"; export MONEY_REST_URL="http://127.0.0.1:$PROXYPORT"
 RUN_AS=""; if [ "$(id -u)" = 0 ]; then chown "$(id -u postgres 2>/dev/null || echo 0)" "$WORK" 2>/dev/null; RUN_AS="su postgres -c"; fi
 pgrun() { if [ -n "$RUN_AS" ]; then su postgres -c "$*"; else sh -c "$*"; fi; }
 cleanup() { [ -n "${PIDS:-}" ] && kill $PIDS 2>/dev/null; pgrun "$PGBIN/pg_ctl -D $WORK/data stop -m immediate" >/dev/null 2>&1; rm -rf "$WORK"; }
