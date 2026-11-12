@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useBackToClose } from '../lib/useBackToClose'
 
 export type SolarCandidatePeek = {
   candidateId: string
@@ -24,6 +25,7 @@ interface Props {
  * the answers we get back.
  */
 export default function SolarVerifySheet({ candidate, onAnswered, onClose }: Props) {
+  useBackToClose(true, onClose)
   const [saving, setSaving] = useState<null | boolean>(null)
   const [error, setError] = useState<string | null>(null)
 

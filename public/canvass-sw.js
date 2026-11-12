@@ -1,4 +1,6 @@
-const CACHE_NAME = 'canvass-v2';
+const CACHE_NAME = 'canvass-v4';
+const RUNTIME_CACHE = 'canvass-runtime-v4';
+const RUNTIME_MAX_ENTRIES = 60;
 const OFFLINE_URL = '/canvass/offline';
 
 // Assets to cache immediately on install
@@ -9,29 +11,47 @@ const PRECACHE_ASSETS = [
   '/canvass-icons/icon-512.png',
 ];
 
-// Install event - cache essential assets
+// Only a plain 200 from our own origin is worth keeping. A redirect (e.g. /canvass bounced to /login) or an error is not.
+function isCacheable(response) {
+  return response && response.status === 200 && !response.redirected && response.type === 'basic';
+}
+
+async function putRuntime(request, response) {
+  const cache = await caches.open(RUNTIME_CACHE);
+  await cache.put(request, response);
+  const keys = await cache.keys();
+  // keys() is oldest-first: trim from the front.
+  for (let i = 0; i < keys.length - RUNTIME_MAX_ENTRIES; i++) await cache.delete(keys[i]);
+}
+
+// Install: precache each asset on its own, never keeping a redirected response. No skipWaiting: an update waits until the
+// rep taps "New version" (a forced swap could interrupt a half-typed lead).
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Precaching assets');
-      return cache.addAll(PRECACHE_ASSETS);
-    })
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(
+        PRECACHE_ASSETS.map((url) =>
+          fetch(url, { credentials: 'same-origin' }).then((response) => {
+            if (isCacheable(response)) return cache.put(url, response);
+          })
+        )
+      )
+    )
   );
-  self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// Activate: clean up old caches. No clients.claim: pages already open keep their current behaviour; the worker takes
+// over on the next navigation.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name !== CACHE_NAME)
+          .filter((name) => name !== CACHE_NAME && name !== RUNTIME_CACHE)
           .map((name) => caches.delete(name))
       );
     })
   );
-  self.clients.claim();
 });
 
 // Fetch event - network first, fallback to cache
@@ -42,11 +62,14 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (request.method !== 'GET') return;
 
+  // Only our own origin: never touch Google Maps, Supabase or any other host.
+  if (url.origin !== self.location.origin) return;
+
   // Skip API requests - let them fail naturally for offline handling
   if (url.pathname.startsWith('/api/')) return;
 
-  // Skip Supabase requests
-  if (url.hostname.includes('supabase')) return;
+  // Next data / RSC payloads are per-navigation and never worth keeping.
+  if (url.searchParams.has('_rsc') || url.pathname.startsWith('/_next/data/')) return;
 
   // Skip the roof-report builder, opportunity pages, and public report share pages —
   // their HTML embeds short-lived signed URLs; a cached copy served offline would render
@@ -58,12 +81,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // Cache successful responses
-          if (response.ok) {
+          if (isCacheable(response)) {
             const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone);
-            });
+            event.waitUntil(putRuntime(request, responseClone));
           }
           return response;
         })
@@ -97,11 +117,9 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
 
         return fetch(request).then((response) => {
-          if (response.ok) {
+          if (isCacheable(response)) {
             const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone);
-            });
+            event.waitUntil(putRuntime(request, responseClone));
           }
           return response;
         });
@@ -114,11 +132,9 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(request)
       .then((response) => {
-        if (response.ok) {
+        if (isCacheable(response)) {
           const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone);
-          });
+          event.waitUntil(putRuntime(request, responseClone));
         }
         return response;
       })
@@ -150,7 +166,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || 'New notification',
     icon: '/canvass-icons/icon-192.png',
-    badge: '/canvass-icons/icon-72.png',
+    badge: '/canvass-icons/icon-192.png',
     vibrate: [100, 50, 100],
     data: {
       url: data.url || '/canvass',

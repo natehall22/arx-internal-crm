@@ -27,11 +27,15 @@ const TOKEN_PAGE_SOURCES = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // The page compares this with /api/build-id to offer a refresh after a deploy (never auto-reloads).
+  env: { NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA || 'dev' },
   // unpdf (PDF text, signed-document import) is ESM-only and ships its own pdf.js: load it at run time instead of bundling it.
   experimental: { serverComponentsExternalPackages: ['unpdf'] },
   async headers() {
     return [
       { source: '/:path*', headers: BASE_SECURITY_HEADERS },
+      // Caps the canvass worker's scope at /canvass (a narrower scope needs no header; this stops it ever being registered wider). Keep in step with lib/service-worker-scope.ts.
+      { source: '/canvass-sw.js', headers: [{ key: 'Service-Worker-Allowed', value: '/canvass' }] },
       ...TOKEN_PAGE_SOURCES.map((source) => ({ source, headers: TOKEN_PAGE_HEADERS })),
     ]
   },
