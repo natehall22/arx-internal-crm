@@ -595,7 +595,7 @@ export default function LeadModal({
                 </label>
                 <input
                   type="text"
-                  autoComplete="given-name"
+                  autoComplete="off"
                   value={formData.first_name}
                   onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
                   className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -608,7 +608,7 @@ export default function LeadModal({
                 </label>
                 <input
                   type="text"
-                  autoComplete="family-name"
+                  autoComplete="off"
                   value={formData.last_name}
                   onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
                   className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -623,7 +623,7 @@ export default function LeadModal({
               </label>
               <input
                 type="tel"
-                autoComplete="tel"
+                autoComplete="off"
                 inputMode="tel"
                 value={formData.phone}
                 onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
@@ -638,7 +638,7 @@ export default function LeadModal({
               </label>
               <input
                 type="email"
-                autoComplete="email"
+                autoComplete="off"
                 inputMode="email"
                 value={formData.email}
                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
