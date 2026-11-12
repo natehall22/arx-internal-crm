@@ -171,7 +171,7 @@ describe('mail is decided on the SENDING org', () => {
     clearDemoSenderCache()
     expect(await isDemoOrg(down, 'arx', { failClosed: true })).toBe(true)
     clearDemoSenderCache()
-    expect(await calendarSendUpdates(down, 'arx', 'all')).toBe('none')
+    expect(await calendarSendUpdates(down, 'arx', 'all')).toBe('all') // unknown status: send as asked (an unconfirmed company is almost always ARX); only a confirmed demo company goes quiet
     const ok = makeClient({ ids: ['demo1'] }).client
     clearDemoSenderCache()
     expect(await calendarSendUpdates(ok, 'demo1', 'all')).toBe('none')

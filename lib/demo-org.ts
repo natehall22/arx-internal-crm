@@ -156,9 +156,10 @@ export function allRecipientsReserved(...fields: unknown[]): boolean {
  * Google Calendar's `sendUpdates` for one company: a demo company's invites are never emailed (Google would mail every
  * attendee). Unknown status also answers 'none' — no invite emails is the safe side, and the event itself is still written.
  */
+/** Unknown demo status (database down) sends as asked: a crew must still hear about a cancelled install. Only a confirmed demo company goes quiet. */
 export async function calendarSendUpdates<T extends 'all' | 'externalOnly' | 'none'>(admin: SupabaseClient, orgId: string | null | undefined, wanted: T): Promise<T | 'none'> {
   if (wanted === 'none') return 'none'
-  return (await demoStatusOf(admin, orgId)) === 'not_demo' ? wanted : 'none'
+  return (await demoStatusOf(admin, orgId)) === 'demo' ? 'none' : wanted
 }
 
 /**
