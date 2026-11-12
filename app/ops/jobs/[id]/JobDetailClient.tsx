@@ -30,7 +30,6 @@ import { JobCatchUpBox, JobOwnerBanner } from '@/components/ops/JobCatchUp'
 import type { JobCatchUpResult } from '@/lib/job-catch-up'
 import { isJobTab, pickDefaultJobTab, tabsNeedingAttention, type JobTab } from '@/lib/job-tabs'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
-import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import SettledExternallyCard from '@/components/ops/SettledExternallyCard'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
@@ -53,7 +52,7 @@ import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import JobProjectTools from '@/components/project-tools/JobProjectTools'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
-import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
+import { COMMISSION_SOURCE_LABEL, jobProfitCents, type JobCommission } from '@/lib/job-commission-actual-shared'
 import { computeFinancedContractTotal, netCommissionableFromJob } from '@/lib/financing'
 import { canShowCompletionCertificateBoardLink } from '@/lib/ops-completion-cert-link'
 import { jobDirectCost, type JobCostSummary } from '@/lib/job-cost-ledger'
@@ -369,6 +368,8 @@ interface JobDetailClientProps {
   canViewProfitability: boolean
   /** reports:financials: the Financials card (contract total, comp, profit, margin). Optional: defaults to hidden. */
   canViewReportFinancials?: boolean
+  /** The company's own short name for "Net to …" (lib/org-brand.ts; falls back to the company name). */
+  companyShortName?: string
   canDeleteProductionJob: boolean
   /** Ops edit access (jobs:edit): may email the run sheet. */
   canEditJobs?: boolean
@@ -562,7 +563,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** Shortcut card that opens the Materials **+ Job Cost** form — rendered at the top of the job page so cost entry is not buried. */
+/** Shortcut card that opens the Materials **+ Add a cost** sheet — rendered at the top of the job page so cost entry is not buried. */
 function JobCostsCallout({ layout, onAddCost }: { layout: 'stacked' | 'inline'; onAddCost: () => void }) {
   const button = (
     <button
@@ -574,7 +575,7 @@ function JobCostsCallout({ layout, onAddCost }: { layout: 'stacked' | 'inline'; 
           : 'min-h-[44px] shrink-0 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800'
       }
     >
-      + Job Cost
+      + Add a cost
     </button>
   )
   const copy = (
@@ -608,6 +609,7 @@ export default function JobDetailClient({
   userRole,
   canViewProfitability,
   canViewReportFinancials = false,
+  companyShortName = '',
   canDeleteProductionJob,
   canEditJobs = false,
   canViewJobBilling,
@@ -633,6 +635,17 @@ export default function JobDetailClient({
   const orgTerms = useOrgProfile(serverOrgProfile).terms
   /** The job cost ledger summary (`lib/job-cost-ledger.ts`), reported by the Materials card. */
   const [costSummary, setCostSummary] = useState<JobCostSummary | null>(null)
+  /** What payroll paid / computes for this job's commission (undefined = loading, null = not priced yet). */
+  const [jobCommission, setJobCommission] = useState<JobCommission | null | undefined>(undefined)
+  useEffect(() => {
+    if (!canViewProfitability || !canViewReportFinancials) return
+    let cancelled = false
+    fetch(`/api/ops/jobs/${initialJob.id}/commission`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setJobCommission(d?.commission ?? null) })
+      .catch(() => { if (!cancelled) setJobCommission(null) })
+    return () => { cancelled = true }
+  }, [initialJob.id, canViewProfitability, canViewReportFinancials, job.sale_amount])
   /** Bumped when either card changes the ledger so the other card reloads. */
   const [ledgerVersion, setLedgerVersion] = useState(0)
   const bumpLedgerVersion = useCallback(() => setLedgerVersion((v) => v + 1), [])
@@ -1349,11 +1362,10 @@ export default function JobDetailClient({
 
   const status = jobStatusConfig(job.status)
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
-  // Every job cost comes from the one ledger (job_cost_lines) — Materials "+ Job Cost" and
-  // Photos & files "+ Add cost line" write the same list. The old production_jobs.labor_cost /
+  // Every job cost comes from the one ledger (job_cost_lines) — Materials "+ Add a cost" and
+  // Photos & files "+ Add a cost" write the same list. The old production_jobs.labor_cost /
   // material_cost columns are no longer read anywhere (Known Redundancy #11, closed 2026-10-21).
   const canViewFinancialTab = canViewProfitability || canViewJobBilling
-  const payrollSnapshot = useMemo(() => buildCommissionPayrollSnapshot(job), [job])
   const saleAmount = job.sale_amount || 0
   const laborCost = costSummary?.labor ?? 0
   const materialCost = costSummary?.materials ?? 0
@@ -1370,12 +1382,10 @@ export default function JobDetailClient({
   const dealerFeeCents = toCents(dealerFeeCost)
   const directCostCents = toCents(jobDirectCost(costSummary, dealerFeeCost))
   const netToArxCents = toCents(netCommissionableFromJob(saleAmount, dealerFeeCost))
-  const commissionCents =
-    payrollSnapshot.poolCap != null
-      ? Math.round(payrollSnapshot.poolCap * 100)
-      : Math.round(saleAmountCents * SALES_COMMISSION_POOL_RATE)
-  const profitCents = saleAmountCents - directCostCents - commissionCents
-  const profitPercent = saleAmountCents > 0 ? ((profitCents / saleAmountCents) * 100).toFixed(1) : '0.0'
+  const commissionCents = jobCommission?.cents ?? null
+  const profit = jobProfitCents({ saleCents: saleAmountCents, directCostCents, commissionCents })
+  const profitCents = profit?.profitCents ?? 0
+  const profitPercent = profit?.percent != null ? profit.percent.toFixed(1) : '0.0'
   const loanInfoParts = [
     job.financing_lender_name?.trim() || null,
     job.financing_term_months ? `${job.financing_term_months} mo` : null,
@@ -2085,19 +2095,8 @@ export default function JobDetailClient({
           onMarkCollected={handleCollectedClick}
           onMarkJobComplete={handleCompleteClick}
         />
-        <JobPayrollSentBanner
-          jobId={job.id}
-          status={job.status}
-          payrollSentAt={job.payroll_sent_at ?? null}
-          paymentSummary={paymentSummary}
-          saleAmount={job.sale_amount}
-          allowCloseWithBalance={job.allow_close_with_balance ?? false}
-          closeBalanceBy={job.close_balance_by ?? null}
-          canViewBilling={canViewJobBilling}
-          onUpdated={reloadJob}
-        />
 
-        {/* Job costs live on the Materials card (+ Job Cost). Surface a shortcut at the top so
+        {/* Job costs live on the Materials card (+ Add a cost). Surface a shortcut at the top so
             it is not buried. Desktop always shows it. Mobile hides it only on the Financials
             tab, which renders its own copy so the two don't stack. */}
         {!v2 && (
@@ -2335,7 +2334,7 @@ export default function JobDetailClient({
                   onClick={handleAddCostShortcut}
                   className="inline-flex min-h-[44px] items-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-[#2c2c2a] hover:bg-gray-50"
                 >
-                  + Job cost
+                  + Add a cost
                 </button>
               </div>
             )}
@@ -2345,7 +2344,7 @@ export default function JobDetailClient({
                   <div>
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
                     <p className="text-xs text-gray-500">
-                      Total contract minus est. comp, every job cost (Materials tab and Photos &amp; files are one list), and any lender dealer fee — admin &amp; owner only.
+                      Total contract minus the commission payroll pays on it, every job cost (Materials tab and Photos &amp; files are one list), and any lender dealer fee — admin &amp; owner only.
                     </p>
                   </div>
                   {canEditFinancialSource && (
@@ -2486,16 +2485,16 @@ export default function JobDetailClient({
                   )}
                   {dealerFeeCents > 0 && (
                     <div className="flex justify-between gap-4">
-                      <span className="text-gray-700">Net to ARX</span>
+                      <span className="text-gray-700">Net to {companyShortName || 'the company'}</span>
                       <span className="font-medium text-gray-900 tabular-nums">
                         {formatCents(netToArxCents)}
                       </span>
                     </div>
                   )}
                   <div className="flex justify-between gap-4">
-                    <span className="text-gray-700">Est. sales comp</span>
+                    <span className="text-gray-700">Commission{jobCommission ? ` (${COMMISSION_SOURCE_LABEL[jobCommission.source]})` : ''}</span>
                     <span className="font-medium text-gray-900 tabular-nums">
-                      {job.sale_amount !== null ? formatCents(commissionCents) : '—'}
+                      {commissionCents != null ? formatCents(commissionCents) : jobCommission === undefined ? '…' : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between gap-4">
@@ -2526,13 +2525,13 @@ export default function JobDetailClient({
                   <div className="border-t border-gray-200 pt-3 flex justify-between gap-4">
                     <span className="text-gray-900 font-medium">Est. profit</span>
                     <span className={`font-semibold tabular-nums ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
-                      {job.sale_amount !== null && costSummary ? formatCents(profitCents) : '—'}
+                      {job.sale_amount !== null && costSummary && profit ? formatCents(profitCents) : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-700">Margin</span>
                     <span className="font-semibold text-gray-900 tabular-nums">
-                      {job.sale_amount !== null && costSummary ? `${profitPercent}%` : '—'}
+                      {job.sale_amount !== null && costSummary && profit ? `${profitPercent}%` : '—'}
                     </span>
                   </div>
                 </div>

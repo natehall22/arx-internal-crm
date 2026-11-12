@@ -18,21 +18,17 @@ export type ProfitRow = {
   /** Billed by the hour: saleAmount is what has been invoiced so far, not a contract. */
   billedSoFar?: boolean
   financeCost: number
-  commissionable: number
+  /** The stored commission base (signed contract + change orders, sales tax out; the dealer fee is never deducted). */
+  commissionBase: number
   materials: number
   labor: number
   misc: number
   totalExpenses: number
-  setter: number
-  closer: number
-  sales: number
-  opp: number
-  grossProfit: number
+  /** What payroll paid or computes for this job (lib/job-commission-actual.ts); null = not priced yet. */
+  commission: number | null
+  commissionNote: string | null
+  grossProfit: number | null
   grossPercent: number | null
-  ownerDraw: number
-  perOwner: number
-  netProfit: number
-  netPercent: number | null
   notes: string | null
   status: string
   unreviewed: boolean
@@ -74,7 +70,7 @@ const COLUMNS: ColumnDef<ProfitRow, any>[] = [
     meta: R,
   },
   { accessorKey: 'financeCost', header: 'Finance costs', cell: money, meta: { ...R, mobile: 'hide' as const } },
-  { accessorKey: 'commissionable', header: 'Commissionable', cell: money, meta: { ...R, mobile: 'hide' as const } },
+  { accessorKey: 'commissionBase', header: 'Commission base', cell: money, meta: { ...R, mobile: 'hide' as const } },
   { accessorKey: 'materials', header: 'Materials', cell: money, meta: { ...R, mobile: 'hide' as const } },
   { accessorKey: 'labor', header: 'Labor', cell: money, meta: { ...R, mobile: 'hide' as const } },
   { accessorKey: 'misc', header: 'Misc', cell: money, meta: { ...R, mobile: 'hide' as const } },
@@ -89,16 +85,24 @@ const COLUMNS: ColumnDef<ProfitRow, any>[] = [
     ),
     meta: R,
   },
-  { accessorKey: 'setter', header: 'Setter 5%', cell: money, meta: { ...R, mobile: 'hide' as const } },
-  { accessorKey: 'closer', header: 'Closer 7%', cell: money, meta: { ...R, mobile: 'hide' as const } },
-  { accessorKey: 'sales', header: 'Sales 6%', cell: money, meta: { ...R, mobile: 'hide' as const } },
-  { accessorKey: 'opp', header: 'OPP 9%', cell: money, meta: { ...R, mobile: 'hide' as const } },
-  { accessorKey: 'grossProfit', header: 'Gross profit', cell: money, meta: R },
+  {
+    accessorKey: 'commission',
+    header: 'Commission',
+    cell: (c) => {
+      const r = c.row.original
+      return r.commission == null ? (
+        <span title="Payroll cannot price this job yet">—</span>
+      ) : (
+        <span>
+          {formatMoney(r.commission)}
+          {r.commissionNote ? <span className="block text-ui-sm text-ink">{r.commissionNote}</span> : null}
+        </span>
+      )
+    },
+    meta: R,
+  },
+  { accessorKey: 'grossProfit', header: 'Gross profit', cell: (c) => (c.getValue() == null ? '—' : formatMoney(Number(c.getValue()))), meta: R },
   { accessorKey: 'grossPercent', header: 'GP %', cell: (c) => pct(c.getValue()), meta: R },
-  { accessorKey: 'ownerDraw', header: 'Owner draw', cell: money, meta: { ...R, mobile: 'hide' as const } },
-  { accessorKey: 'perOwner', header: 'Per owner', cell: money, meta: { ...R, mobile: 'hide' as const } },
-  { accessorKey: 'netProfit', header: 'Net profit', cell: money, meta: R },
-  { accessorKey: 'netPercent', header: 'Net %', cell: (c) => pct(c.getValue()), meta: R },
   { id: 'notes', header: 'Notes', accessorFn: (r) => r.notes ?? '', cell: (c) => <span className="block max-w-[14rem] truncate" title={(c.getValue() as string) || undefined}>{(c.getValue() as string) || '—'}</span>, meta: { mobile: 'hide' as const } },
   { accessorKey: 'status', header: 'Status' },
 ]
