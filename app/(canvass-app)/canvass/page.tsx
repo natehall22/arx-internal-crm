@@ -19,6 +19,7 @@ import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLea
 import type { AssignedTerritoryMapPayload } from '@/lib/canvass-territories'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { formatPhone } from '@/lib/format'
+import { registerCanvassServiceWorker } from '@/lib/service-worker-scope'
 
 // Global type declarations for Google Maps and MarkerClusterer
 declare global {
@@ -181,48 +182,14 @@ export default function CanvassPage() {
     }
   }, [])
 
-  const swReloadGuard = useRef(false)
-
   useEffect(() => {
     loadData()
 
     // Ask the browser not to evict the offline queue under storage pressure. Best effort, silent.
     navigator.storage?.persist?.()?.catch(() => {})
 
-    if (!('serviceWorker' in navigator)) return
-
-    const onControllerChange = () => {
-      if (swReloadGuard.current) return
-      swReloadGuard.current = true
-      window.location.reload()
-    }
-
-    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
-
-    navigator.serviceWorker.register('/canvass-sw.js').then((registration) => {
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing
-        if (!newWorker) return
-
-        newWorker.addEventListener('statechange', () => {
-          if (
-            newWorker.state === 'installed' &&
-            navigator.serviceWorker.controller &&
-            registration.waiting
-          ) {
-            registration.waiting.postMessage({ type: 'SKIP_WAITING' })
-          }
-        })
-      })
-
-      if (registration.waiting) {
-        registration.waiting.postMessage({ type: 'SKIP_WAITING' })
-      }
-    }).catch(console.error)
-
-    return () => {
-      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
-    }
+    // One worker, scope /canvass (lib/service-worker-scope.ts): retires the old `/` registration first.
+    registerCanvassServiceWorker().catch(console.error)
   }, [])
 
   /** Work areas deep-link only for managers; strip ?areas=1 for everyone else. */

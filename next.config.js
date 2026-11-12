@@ -32,6 +32,8 @@ const nextConfig = {
   async headers() {
     return [
       { source: '/:path*', headers: BASE_SECURITY_HEADERS },
+      // The canvass worker is registered at scope /canvass, narrower than its URL's directory (/), which the browser only allows with this header.
+      { source: '/canvass-sw.js', headers: [{ key: 'Service-Worker-Allowed', value: '/canvass' }] },
       ...TOKEN_PAGE_SOURCES.map((source) => ({ source, headers: TOKEN_PAGE_HEADERS })),
     ]
   },
