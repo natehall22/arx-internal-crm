@@ -7,10 +7,10 @@ import { deploymentOrgId } from '@/lib/company-host'
 import { escapeHtml } from '@/lib/html'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
-import { insertNewLeadBell, resolveLeadOwner } from '@/lib/lead-intake-db'
-import { LEAD_FORM_HONEYPOT_FIELD, LEAD_FORM_RATE_LIMIT, LEAD_FORM_RATE_WINDOW_MS, cleanServiceRequested } from '@/lib/lead-intake'
+import { insertNewLeadBell, loadCompanyServiceChoices, resolveLeadOwner, takeLeadFormAttempt } from '@/lib/lead-intake-db'
+import { LEAD_FORM_HONEYPOT_FIELD, matchServiceChoice, readServiceOptions } from '@/lib/lead-intake'
 import { LEAD_FORM_TEXT } from '@/lib/lead-form-snippet'
-import { clientIpFromRequest, consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
+import { clientIpFromRequest } from '@/lib/public-estimate-rate-limit'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,6 +56,9 @@ type LeadSourceConfig = {
   field_mapping: Record<string, string> | null
   auto_assign_user_id: string | null
   routing?: unknown
+  public_form?: boolean | null
+  form_daily_cap?: number | null
+  service_options?: unknown
   webhook_enabled: boolean
   is_active: boolean
 }
@@ -313,25 +316,31 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Website form posts (the copy-paste snippet always sends the hidden honeypot field, even empty). JSON integrations
-    // never send it and are not limited or changed.
-    const isFormPost = LEAD_FORM_HONEYPOT_FIELD in body
+    // Website form posts. A source marked `public_form` (its token sits in a public web page) ALWAYS gets the honeypot, the
+    // required fields and the database-backed rate limit; the copy-paste snippet sends the hidden honeypot even when empty,
+    // so a post without it is not from the snippet. Server-to-server sources (no `public_form`, no honeypot field) are
+    // not limited or changed.
+    const isPublicSource = leadSource?.public_form === true
+    const isFormPost = isPublicSource || LEAD_FORM_HONEYPOT_FIELD in body
     if (isFormPost) {
-      if (typeof body[LEAD_FORM_HONEYPOT_FIELD] === 'string' && body[LEAD_FORM_HONEYPOT_FIELD].trim() !== '') {
+      const has = (v: unknown) => typeof v === 'string' && v.trim() !== ''
+      if (isPublicSource && !(LEAD_FORM_HONEYPOT_FIELD in body)) {
+        return NextResponse.json({ error: LEAD_FORM_TEXT.error }, { status: 400, headers: cors })
+      }
+      if (has(body[LEAD_FORM_HONEYPOT_FIELD])) {
         // A bot filled the hidden field: look like success, write nothing.
         return NextResponse.json({ success: true, message: LEAD_FORM_TEXT.success }, { headers: cors })
       }
-      const limit = consumePublicEstimateRateLimit({
-        key: `lead-form:${leadSource?.id ?? org_id}:${clientIpFromRequest(request)}`,
-        limit: LEAD_FORM_RATE_LIMIT,
-        windowMs: LEAD_FORM_RATE_WINDOW_MS,
+      if (!has(body.name) || (!has(body.phone) && !has(body.email))) {
+        return NextResponse.json({ error: LEAD_FORM_TEXT.missing }, { status: 400, headers: cors })
+      }
+      const limit = await takeLeadFormAttempt(adminClient, {
+        sourceId: leadSource?.id ?? org_id,
+        ip: clientIpFromRequest(request),
+        dailyCap: leadSource?.form_daily_cap,
       })
       if (!limit.ok) {
         return NextResponse.json({ error: LEAD_FORM_TEXT.tooMany }, { status: 429, headers: { ...cors, 'Retry-After': String(limit.retryAfterSec) } })
-      }
-      const has = (v: unknown) => typeof v === 'string' && v.trim() !== ''
-      if (!has(body.name) || (!has(body.phone) && !has(body.email))) {
-        return NextResponse.json({ error: LEAD_FORM_TEXT.missing }, { status: 400, headers: cors })
       }
     }
 
@@ -396,7 +405,11 @@ export async function POST(request: NextRequest) {
     // Owner = the company's routing (one person, take turns, or by service; the source may have its own), then the source's
     // person, the company's lead owner and its longest-standing active admin — each only if an ACTIVE user of THIS company.
     // The same person gets the bell and the email.
-    const serviceRequested = cleanServiceRequested(service_type)
+    // The structured service is stored only when it is one of the source's choices (else the company's); the free text stays
+    // in the notes line and raw_payload.
+    const sourceChoices = readServiceOptions(leadSource?.service_options)
+    const serviceChoices = sourceChoices.length ? sourceChoices : await loadCompanyServiceChoices(adminClient, org_id).catch(() => [] as string[])
+    const serviceRequested = matchServiceChoice(service_type, serviceChoices)
     const owner = await resolveLeadOwner(adminClient, org_id, org.settings, leadSource, serviceRequested)
     const ownerUserId: string | null = owner?.id ?? null
 

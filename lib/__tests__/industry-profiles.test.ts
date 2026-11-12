@@ -254,7 +254,7 @@ describe('switching profile', () => {
 })
 
 describe('definitions stay wired to real things (parity)', () => {
-  const todaySrc = read('lib/today.ts')
+  const todaySrc = read('lib/today.ts') + read('lib/leads-waiting.ts')
   const knownQueueIds = new Set(Array.from(todaySrc.matchAll(/(?:id: |Queue\()'([a-z-]+)'/g)).map((m) => m[1]))
 
   it.each(INDUSTRY_PROFILE_IDS)('%s', (id) => {

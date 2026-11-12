@@ -5,7 +5,8 @@
  * A lead is untouched when ALL of:
  * - it came in by a website form / webhook (channel 'inbound') or was typed in by hand (channel empty), and its status is still 'new'.
  *   Canvass pins are told apart by `canvass_disposition` (set on every pin) and by a door-knock `source`; they have their own flow.
- * - no call / text / email / visit has been logged on it (activities, the same contact kinds as lib/customer-contact.ts),
+ * - nobody has worked it: no activity written by a person after it was created (note, status change, call, text, email) on the
+ *   lead or on its opportunity once one exists,
  * - and N hours have passed since it arrived or was last handed to a new owner (`ownership_reassigned_at`), whichever is later.
  * N is the company's own (Settings → Lead routing, default 24) in plain hours — business hours are not modelled. Only leads
  * from the last 30 days count; older ones are owner clean-up.
@@ -13,7 +14,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { CONTACT_KINDS } from '@/lib/customer-contact'
+import { fetchSupabaseAllPages, selectIn } from '@/lib/supabase-fetch-all-pages'
 import { LEADS_WAITING_WINDOW_DAYS, readLeadIntakeSettings } from '@/lib/lead-intake'
 import { CANVASS_DOOR_SOURCES } from '@/lib/canvass-lead-attribution'
 import { resolveCompanyRecipient } from '@/lib/company-recipient'
@@ -53,6 +54,53 @@ export function waitingFor(lead: Pick<WaitingLead, 'created_at' | 'ownership_rea
   const h = Math.max(0, Math.floor((now.getTime() - leadClockStart(lead).getTime()) / HOUR_MS))
   if (h >= 48) return `${Math.floor(h / 24)} days`
   return `${h} hour${h === 1 ? '' : 's'}`
+}
+
+/** Activity written within this long of the lead's creation is part of creating it (e.g. the typist's own note), not a follow-up. */
+const CREATION_GRACE_MS = 10_000
+
+type ActivityRow = { lead_id: string | null; opportunity_id: string | null; user_id: string | null; origin: string | null; created_at: string }
+
+/**
+ * Which of these leads has been worked by a PERSON: any activity written by a user after the lead was created — a note, a
+ * status change, a call, text or email — on the lead itself, or on its opportunity once one exists. Automations (no
+ * author / origin 'system') and the customer's own portal or text messages (no user) do not count. Reads in chunks of
+ * IN_CHUNK ids and pages each chunk, so a big batch neither overflows the URL nor stops at the 1,000-row default.
+ * Throws on a failed read — never "nobody touched it".
+ */
+async function leadsTouchedByAPerson(admin: SupabaseClient, orgId: string, leads: Array<{ id: string; created_at: string }>): Promise<Set<string>> {
+  const createdAt = new Map(leads.map((l) => [l.id, new Date(l.created_at).getTime()]))
+  const ids = leads.map((l) => l.id)
+  const COLS = 'lead_id, opportunity_id, user_id, origin, created_at'
+  const paged = <T,>(run: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) =>
+    fetchSupabaseAllPages<T>(run).then((data) => ({ data, error: null }))
+
+  const opps = await selectIn<{ id: string; lead_id: string }>(ids, (chunk) =>
+    paged((from, to) => admin.from('opportunities').select('id, lead_id').eq('org_id', orgId).in('lead_id', chunk).order('id').range(from, to))
+  )
+  const leadOfOpp = new Map(opps.map((o) => [o.id, o.lead_id]))
+
+  const byLead = await selectIn<ActivityRow>(ids, (chunk) =>
+    paged((from, to) => admin.from('activities').select(COLS).eq('org_id', orgId).in('lead_id', chunk).is('deleted_at', null).order('id').range(from, to))
+  )
+  const byOpp = await selectIn<ActivityRow>(Array.from(leadOfOpp.keys()), (chunk) =>
+    paged((from, to) => admin.from('activities').select(COLS).eq('org_id', orgId).in('opportunity_id', chunk).is('deleted_at', null).order('id').range(from, to))
+  )
+
+  const touched = new Set<string>()
+  for (const a of [...byLead, ...byOpp]) {
+    const leadId = a.lead_id && createdAt.has(a.lead_id) ? a.lead_id : a.opportunity_id ? leadOfOpp.get(a.opportunity_id) : undefined
+    if (!leadId || touched.has(leadId)) continue
+    if (!a.user_id || a.origin === 'system' || a.origin === 'customer_portal' || a.origin === 'sms') continue
+    if (new Date(a.created_at).getTime() <= (createdAt.get(leadId) ?? 0) + CREATION_GRACE_MS) continue
+    touched.add(leadId)
+  }
+  return touched
+}
+
+/** The Today card when the read failed: said out loud, never "no leads waiting". Same id, so it sits in the same place. */
+export function leadsWaitingFailedQueue(): Queue {
+  return { id: 'leads-waiting', title: 'Leads waiting', count: 0, items: [], empty: 'Leads waiting couldn’t load today.' }
 }
 
 /**
@@ -109,15 +157,7 @@ export async function listUntouchedLeads(
   rows = rows.filter((r) => !(r.source && CANVASS_DOOR_SOURCES.has(r.source)))
   if (rows.length === 0) return { leads: [], capped: false }
 
-  const { data: contacts, error } = await admin
-    .from('activities')
-    .select('lead_id')
-    .eq('org_id', orgId)
-    .in('lead_id', rows.map((r) => r.id))
-    .in('type', [...CONTACT_KINDS])
-    .is('deleted_at', null)
-  if (error) throw error
-  const touched = new Set((contacts ?? []).map((c: { lead_id: string }) => c.lead_id))
+  const touched = await leadsTouchedByAPerson(admin, orgId, rows)
   const leads = rows.filter((r) => isLeadUntouched(r, touched.has(r.id), hours, now))
   return { leads, capped: (res.count ?? rows.length) > READ_CAP }
 }
@@ -150,7 +190,8 @@ export type LeadReminderRun = { orgId: string; considered: number; notified: num
 
 /**
  * Hourly, one company: one bell notification to a lead's owner the first time it has waited N hours (never again for the
- * same lead — a unique index on notifications(lead_id) for this type makes a repeat or a racing run a no-op). The owner is
+ * same lead AND owner — a unique index on notifications(lead_id, recipient) for this type makes a repeat or a racing run a no-op,
+ * while a lead handed to a new owner reminds that new owner once). The owner is
  * the lead's owner if still an active user of this company, else the company's longest-standing active admin.
  */
 export async function runLeadReminderForOrg(admin: SupabaseClient, org: { id: string; settings: unknown }, now: Date): Promise<LeadReminderRun> {
@@ -170,7 +211,7 @@ export async function runLeadReminderForOrg(admin: SupabaseClient, org: { id: st
       recipient_user_id: recipient.id,
       type: 'lead_waiting',
       title: 'Lead waiting',
-      body: `${lead.homeowner_name || 'A new lead'} has been waiting ${waitingFor(lead, now)} with no call, text or email logged.`,
+      body: `${lead.homeowner_name || 'A new lead'} has been waiting ${waitingFor(lead, now)} with nothing logged.`,
       link_url: `/leads/${lead.id}`,
       data: { lead_id: lead.id },
     })

@@ -13,8 +13,9 @@ import {
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
 import { createLeadRecord } from '@/lib/leads-create'
-import { insertNewLeadBell, resolveLeadOwner } from '@/lib/lead-intake-db'
-import { cleanServiceRequested, readLeadIntakeSettings } from '@/lib/lead-intake'
+import { insertNewLeadBell, loadCompanyServiceChoices, resolveLeadOwner } from '@/lib/lead-intake-db'
+import { matchServiceChoice, readLeadIntakeSettings } from '@/lib/lead-intake'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 export const dynamic = 'force-dynamic'
 
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role')
       .eq('id', user.id)
       .single()
 
@@ -107,17 +108,25 @@ export async function POST(request: NextRequest) {
     if (await firstForeignRef(adminClient, profile.org_id, { owner_user_id: ['users', ownerUserId] })) {
       return NextResponse.json({ error: 'Owner not found' }, { status: 400 })
     }
-    if (!pickedByHand) {
+    // Automatic routing is only for an office typing in a lead for someone else to work: never for field roles, and never for
+    // a lead the typist found themself (door to door) or got from a referral. The typist keeps those. When the routing
+    // matches nobody, the typist is the fallback too.
+    // The structured service is stored only when it is one of the company's choices.
+    const serviceChoices = await loadCompanyServiceChoices(adminClient, profile.org_id).catch(() => [] as string[])
+    const matchedService = matchServiceChoice(body.service_requested, serviceChoices)
+    const source = typeof body.source === 'string' ? body.source.trim().toLowerCase() : ''
+    const keepsOwn = isSetterLikeRole(profile.role) || source === 'door_to_door' || source === 'referral'
+    if (!pickedByHand && !keepsOwn) {
       const { data: org } = await adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle()
       const settings = (org as { settings?: unknown } | null)?.settings
       if (readLeadIntakeSettings(settings).routing.mode !== 'person') {
-        const routed = await resolveLeadOwner(adminClient, profile.org_id, settings, null, cleanServiceRequested(body.service_requested))
+        const routed = await resolveLeadOwner(adminClient, profile.org_id, settings, null, matchedService, user.id)
         if (routed) ownerUserId = routed.id
       }
     }
 
     // Create the lead
-    const created = await createLeadRecord(adminClient, profile.org_id, ownerUserId, body)
+    const created = await createLeadRecord(adminClient, profile.org_id, ownerUserId, { ...body, service_requested: matchedService })
     if (!created.ok) {
       console.error('Lead creation error:', created.error)
       return NextResponse.json({ error: `Failed to create lead: ${created.error}` }, { status: 400 })

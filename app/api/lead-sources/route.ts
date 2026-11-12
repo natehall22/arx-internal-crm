@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
       field_mapping: field_mapping || null,
       auto_assign_user_id: auto_assign_user_id || null,
       ...(services ? { service_options: services.options.length ? services.options : null } : {}),
+      ...(body.public_form === true ? { public_form: true } : {}),
     })
     .select()
     .single()
@@ -172,6 +173,38 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  return NextResponse.json({ success: true })
+}
+
+// PATCH - the website-form switch and its daily cap (a partial update: PUT replaces every field)
+export async function PATCH(request: NextRequest) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (!['admin', 'regional_manager'].includes(profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  const body = await request.json().catch(() => ({}))
+  if (typeof body.id !== 'string' || !body.id) return NextResponse.json({ error: 'Lead source ID is required' }, { status: 400 })
+  const patch: { public_form?: boolean; form_daily_cap?: number | null } = {}
+  if (body.public_form !== undefined) {
+    if (typeof body.public_form !== 'boolean') return NextResponse.json({ error: 'public_form must be true or false' }, { status: 400 })
+    patch.public_form = body.public_form
+  }
+  if (body.form_daily_cap !== undefined) {
+    const cap = body.form_daily_cap === null || body.form_daily_cap === '' ? null : Number(body.form_daily_cap)
+    if (cap !== null && (!Number.isInteger(cap) || cap < 1 || cap > 100000)) {
+      return NextResponse.json({ error: 'The daily limit must be a whole number from 1 to 100000' }, { status: 400 })
+    }
+    patch.form_daily_cap = cap
+  }
+  if (Object.keys(patch).length === 0) return NextResponse.json({ error: 'Nothing to change' }, { status: 400 })
+  const { data, error } = await createClient().from('lead_sources').update(patch).eq('id', body.id).eq('org_id', profile.org_id).select('id')
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data?.length) return NextResponse.json({ error: 'Lead source not found' }, { status: 404 })
   return NextResponse.json({ success: true })
 }
 

@@ -9,7 +9,7 @@ export type LeadRoutingView = {
   routing: LeadRouting
   reminder: { enabled: boolean; hours: number }
   leadOwnerId: string | null
-  people: Array<{ id: string; name: string }>
+  people: Array<{ id: string; name: string; inactive?: boolean }>
   sources: Array<{ id: string; name: string; routing: LeadRouting | null; autoAssignUserId: string | null; services: string[] }>
   services: string[]
 }
@@ -34,7 +34,7 @@ function People({ people, value, onChange, label }: { people: LeadRoutingView['p
             checked={value.includes(p.id)}
             onChange={(e) => onChange(people.map((x) => x.id).filter((id) => (id === p.id ? e.target.checked : value.includes(id))))}
           />
-          {p.name}
+          {p.name}{p.inactive ? ' (inactive)' : ''}
         </label>
       ))}
     </fieldset>
@@ -80,7 +80,7 @@ function RoutingEditor({ value, onChange, people, services, personId, onPerson, 
           <Select value={personId ?? ''} onChange={(e) => onPerson(e.target.value || null)}>
             <option value="">{personBlank}</option>
             {people.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+              <option key={p.id} value={p.id}>{p.name}{p.inactive ? ' (inactive)' : ''}</option>
             ))}
           </Select>
         </label>
@@ -167,11 +167,11 @@ export default function LeadRoutingSettings({ initial = null }: { initial?: Lead
       }),
     }).catch(() => null)
     setBusy(false)
-    const data = (res ? await res.json().catch(() => ({})) : {}) as LeadRoutingView & { error?: string }
+    const data = (res ? await res.json().catch(() => ({})) : {}) as LeadRoutingView & { error?: string; removed?: string[] }
     if (!res || !res.ok) return toast.error(data.error || 'Could not save')
     setSaved(data)
     setDraft(data)
-    toast.success('Saved')
+    toast.success(data.removed?.length ? `Saved. Taken out of the turns because they are no longer active: ${data.removed.join(', ')}` : 'Saved')
   }
 
   return (
@@ -195,7 +195,7 @@ export default function LeadRoutingSettings({ initial = null }: { initial?: Lead
               <Select value={draft.leadOwnerId ?? ''} onChange={(e) => set({ leadOwnerId: e.target.value || null })}>
                 <option value="">Your longest-standing admin</option>
                 {draft.people.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                  <option key={p.id} value={p.id}>{p.name}{p.inactive ? ' (inactive)' : ''}</option>
                 ))}
               </Select>
             </label>

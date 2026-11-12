@@ -29,6 +29,15 @@ const rotate = (args: Record<string, unknown>, t: Record<string, Array<Record<st
   return p.last_user_id
 }
 
+/** JS mirror of the shared counter (portal_take_attempt): true while within the limit. */
+const takeAttempt = (args: Record<string, unknown>, t: Record<string, Array<Record<string, unknown>>>) => {
+  const rows = (t.portal_rate_limits ??= [])
+  let r = rows.find((x) => x.key === args.p_key)
+  if (!r) rows.push((r = { key: args.p_key, attempts: 0 }))
+  r.attempts = (r.attempts as number) + 1
+  return (r.attempts as number) <= (args.p_limit as number)
+}
+
 function seed(orgSettings: Record<string, unknown> = {}, source: Record<string, unknown> = {}) {
   db = createFakeDb(
     {
@@ -40,7 +49,7 @@ function seed(orgSettings: Record<string, unknown> = {}, source: Record<string, 
         { id: 'adm', org_id: ORG, role: 'admin', active: true, email: 'adm@x.test', created_at: '2026-01-01' },
       ],
     },
-    { rpc: { lead_routing_next: rotate } }
+    { rpc: { lead_routing_next: rotate, portal_take_attempt: takeAttempt } }
   )
 }
 const post = (body: Record<string, unknown>, ip = '203.0.113.5') =>
@@ -127,14 +136,49 @@ describe('form protection', () => {
   })
 })
 
+describe('a public website form source (public_form)', () => {
+  const pub = (extra: Record<string, unknown> = {}) => seed({}, { public_form: true, ...extra })
+  test('always needs the honeypot field: a plain JSON post without it is refused', async () => {
+    pub()
+    const res = await post({ name: 'Bot', phone: '1' })
+    expect(res.status).toBe(400)
+    expect(db.tables.leads ?? []).toHaveLength(0)
+  })
+  test('always needs a name and a phone or email', async () => {
+    pub()
+    expect((await post({ name: 'No Contact', [LEAD_FORM_HONEYPOT_FIELD]: '' })).status).toBe(400)
+  })
+  test('the limit is counted in the database: 5 per address, then 429; a second address is separate', async () => {
+    pub()
+    for (let i = 0; i < 5; i++) expect((await post(formPayload({ name: 'P' + i, phone: '1' }))).status).toBe(200)
+    expect((await post(formPayload({ name: 'Six', phone: '1' }))).status).toBe(429)
+    expect((await post(formPayload({ name: 'Elsewhere', phone: '1' }), '198.51.100.9')).status).toBe(200)
+    expect(db.tables.portal_rate_limits.some((r) => String(r.key).startsWith('leadform:ls1:'))).toBe(true)
+    // the in-memory limiter is not what decided it
+    resetPublicEstimateRateLimitForTests()
+    expect((await post(formPayload({ name: 'Still six', phone: '1' }))).status).toBe(429)
+  })
+  test('a daily cap per source (default 200; the company can set it) stops a flood from many addresses', async () => {
+    pub({ form_daily_cap: 3 })
+    for (let i = 0; i < 3; i++) expect((await post(formPayload({ name: 'N' + i, phone: '1' }), `198.51.100.${i + 1}`)).status).toBe(200)
+    expect((await post(formPayload({ name: 'Over', phone: '1' }), '198.51.100.50')).status).toBe(429)
+  })
+})
+
 describe('the JSON webhook is unchanged', () => {
   test('no limit, no extra required fields, old service wording still works', async () => {
     for (let i = 0; i < 8; i++) expect((await post({ message: 'hi ' + i })).status).toBe(200)
     expect(db.tables.leads).toHaveLength(8)
-    await post({ name: 'Zap', service_type: 'Gutters' })
+    await post({ name: 'Zap', service_type: 'pressure  washing' })
+    await post({ name: 'Zap2', service_type: 'Gutters' })
     const last = db.tables.leads[8]
-    expect(last.service_requested).toBe('Gutters')
-    expect(String(last.notes)).toContain('Service requested: Gutters')
+    expect(last.service_requested).toBe('Pressure washing') // matched to the source's choice, as written there
+    expect(String(last.notes)).toContain('Service requested: pressure  washing')
+    // not one of the choices: no structured value; the text stays in the notes and the raw payload
+    const other = db.tables.leads[9]
+    expect(other.service_requested).toBeNull()
+    expect(String(other.notes)).toContain('Service requested: Gutters')
+    expect((other.raw_payload as Record<string, unknown>).service_type).toBe('Gutters')
   })
   test('nothing stored = the same owner as before (source person else the oldest admin)', async () => {
     seed({}, { auto_assign_user_id: A })

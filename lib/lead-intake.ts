@@ -45,6 +45,9 @@ export const LEADS_WAITING_WINDOW_DAYS = 30
  */
 export const LEAD_FORM_HONEYPOT_FIELD = 'hp_check'
 /** A form post: at most this many per visitor address per lead source in the window. */
+/** The per-source daily cap when the company set none (shown as the placeholder; lib/lead-intake-db.ts enforces it). */
+export const DEFAULT_FORM_DAILY_CAP = 200
+export const DEFAULT_FORM_DAILY_CAP_LABEL = String(DEFAULT_FORM_DAILY_CAP)
 export const LEAD_FORM_RATE_LIMIT = 5
 export const LEAD_FORM_RATE_WINDOW_MS = 10 * 60 * 1000
 
@@ -66,6 +69,18 @@ export function cleanServiceRequested(v: unknown): string | null {
   if (typeof v !== 'string' && typeof v !== 'number') return null
   const s = String(v).replace(/\s+/g, ' ').trim().slice(0, 80)
   return s || null
+}
+
+/**
+ * The structured service: the value only when it is one of the offered choices (matched ignoring case/spacing, returned as
+ * written in the list); anything else → null. Free text a visitor typed or a bot posted never lands in the column — the
+ * raw payload keeps it.
+ */
+export function matchServiceChoice(v: unknown, choices: readonly string[]): string | null {
+  const s = cleanServiceRequested(v)
+  if (!s) return null
+  const key = normalizeService(s)
+  return choices.find((c) => normalizeService(c) === key) ?? null
 }
 
 /** Stored `lead_sources.service_options` → the list (lenient: bad entries dropped). */
@@ -306,6 +321,29 @@ export function patchUserIds(p: LeadIntakePatch): string[] {
     if (s.autoAssignUserId) ids.add(s.autoAssignUserId)
   }
   return Array.from(ids)
+}
+
+/** People who must be ACTIVE: the single-person pickers (company lead owner, a source's person). Rotation lists are handled by dropInactiveFromRotations. */
+export function patchSinglePersonIds(p: LeadIntakePatch): string[] {
+  const ids = new Set<string>()
+  if (p.leadOwnerId) ids.add(p.leadOwnerId)
+  for (const s of p.sources) if (s.autoAssignUserId) ids.add(s.autoAssignUserId)
+  return Array.from(ids)
+}
+
+/**
+ * Take people who are no longer active out of every rotation / service list in a patch (instead of refusing the save).
+ * Returns the cleaned patch and the ids that were removed, so the screen can say so.
+ */
+export function dropInactiveFromRotations(p: LeadIntakePatch, isActive: (id: string) => boolean): { patch: LeadIntakePatch; removed: string[] } {
+  const removed = new Set<string>()
+  const keep = (ids: string[]) => ids.filter((id) => (isActive(id) ? true : (removed.add(id), false)))
+  const rules = (rs: RoutingRule[]) => rs.map((r) => ({ ...r, userIds: keep(r.userIds) }))
+  const set = { ...p.set }
+  if (Array.isArray(set.userIds)) set.userIds = keep(set.userIds as string[])
+  if (Array.isArray(set.rules)) set.rules = rules(set.rules as RoutingRule[])
+  const sources = p.sources.map((s) => (s.routing ? { ...s, routing: { ...s.routing, userIds: keep(s.routing.userIds), rules: rules(s.routing.rules) } } : s))
+  return { patch: { ...p, set, sources }, removed: Array.from(removed) }
 }
 
 /** Who may change routing: the same people who change job catch-up and checkups (admins and owners). */

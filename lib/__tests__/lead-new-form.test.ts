@@ -35,3 +35,33 @@ describe('insertNewLeadBell', () => {
     expect(db.tables.notifications[0]).toMatchObject({ type: 'new_lead', recipient_user_id: U, link_url: '/leads/L1' })
   })
 })
+
+import { dropInactiveFromRotations, matchServiceChoice, patchSinglePersonIds, type LeadIntakePatch } from '@/lib/lead-intake'
+
+describe('matchServiceChoice', () => {
+  const choices = ['Weekly lawn care', 'Pressure washing']
+  test('matches ignoring case and spacing, returns the choice as written; anything else is null', () => {
+    expect(matchServiceChoice('  pressure   WASHING ', choices)).toBe('Pressure washing')
+    expect(matchServiceChoice('Gutters', choices)).toBeNull()
+    expect(matchServiceChoice('', choices)).toBeNull()
+    expect(matchServiceChoice('Weekly lawn care', [])).toBeNull()
+  })
+})
+
+describe('dropInactiveFromRotations', () => {
+  const patch: LeadIntakePatch = {
+    set: { mode: 'rotate', userIds: ['a', 'gone'], rules: [{ service: 'Mulch', userIds: ['gone', 'b'] }] },
+    leadOwnerId: 'a',
+    sources: [{ id: 's1', routing: { mode: 'rotate', userIds: ['gone', 'b'], rules: [] }, autoAssignUserId: 'b' }],
+  }
+  test('quietly removes inactive people from every list and says who', () => {
+    const { patch: out, removed } = dropInactiveFromRotations(patch, (id) => id !== 'gone')
+    expect(out.set.userIds).toEqual(['a'])
+    expect((out.set.rules as Array<{ userIds: string[] }>)[0].userIds).toEqual(['b'])
+    expect(out.sources[0].routing?.userIds).toEqual(['b'])
+    expect(removed).toEqual(['gone'])
+  })
+  test('single-person pickers are checked separately (they must be active)', () => {
+    expect(patchSinglePersonIds(patch).sort()).toEqual(['a', 'b'])
+  })
+})

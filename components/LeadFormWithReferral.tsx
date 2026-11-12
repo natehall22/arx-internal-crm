@@ -39,7 +39,7 @@ interface LeadFormWithReferralProps {
   nameLabel?: string
   /** The company's service choices (Admin → Campaigns); none = no Service field. */
   serviceChoices?: string[]
-  /** People to pick as owner. Given only for a company that set up lead routing: the default is then "Assign automatically". */
+  /** People to pick as owner. Given only for a company that set up lead routing: the default is "Me"; "Assign automatically" is an explicit choice. */
   ownerChoices?: Array<{ id: string; name: string }> | null
 }
 
@@ -71,7 +71,7 @@ export default function LeadFormWithReferral({
   const [schedulingLoadError, setSchedulingLoadError] = useState<string | null>(null)
   const [source, setSource] = useState('')
   const [serviceRequested, setServiceRequested] = useState('')
-  const [ownerChoice, setOwnerChoice] = useState('auto')
+  const [ownerChoice, setOwnerChoice] = useState(userId)
   
   // Referral state
   const [showReferralSearch, setShowReferralSearch] = useState(false)
@@ -304,7 +304,7 @@ export default function LeadFormWithReferral({
     })
     setSource('')
     setServiceRequested('')
-    setOwnerChoice('auto')
+    setOwnerChoice(userId)
     setSelectedReferrer(null)
     setSelectedSchedule(null)
   }
@@ -504,9 +504,10 @@ export default function LeadFormWithReferral({
               onChange={(e) => setOwnerChoice(e.target.value)}
               className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
             >
+              <option value={userId}>Me</option>
               <option value="auto">Assign automatically</option>
-              {ownerChoices.map((p) => (
-                <option key={p.id} value={p.id}>{p.id === userId ? `${p.name} (me)` : p.name}</option>
+              {ownerChoices.filter((p) => p.id !== userId).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </div>

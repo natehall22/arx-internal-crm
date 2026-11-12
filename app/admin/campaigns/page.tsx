@@ -43,6 +43,8 @@ type LeadSource = {
   default_campaign_id: string | null
   auto_assign_user_id: string | null
   service_options?: string[] | null
+  public_form?: boolean | null
+  form_daily_cap?: number | null
   is_active: boolean
   total_leads_received: number
   last_lead_at: string | null
@@ -656,7 +658,7 @@ export default function CampaignsPage() {
                       </div>
                     </div>
 
-                    <WebsiteFormBox token={source.webhook_token} services={readServiceOptions(source.service_options)} />
+                    <WebsiteFormBox source={source} services={readServiceOptions(source.service_options)} onChanged={() => void loadData()} />
 
                     {/* Configuration summary */}
                     <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">

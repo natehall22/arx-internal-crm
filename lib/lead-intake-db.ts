@@ -2,10 +2,13 @@
  * Lead intake — server side: the turn pointer and the owner-resolution used by the website webhook.
  * Rules and parsing live in lib/lead-intake.ts.
  */
+import { createHash } from 'crypto'
+
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { normalizeService, readLeadIntakeSettings, readRouting, readServiceOptions, routeLeadCandidates, type LeadRouting } from '@/lib/lead-intake'
+import { DEFAULT_FORM_DAILY_CAP, LEAD_FORM_RATE_LIMIT, LEAD_FORM_RATE_WINDOW_MS, normalizeService, readLeadIntakeSettings, readRouting, readServiceOptions, routeLeadCandidates, type LeadRouting } from '@/lib/lead-intake'
 import { resolveCompanyRecipient, type CompanyRecipient } from '@/lib/company-recipient'
+import { consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
 
 /**
  * Whose turn is it? One SQL call (`lead_routing_next`, migration 202611230020) locks the pointer row, picks the next ACTIVE
@@ -34,7 +37,9 @@ export async function resolveLeadOwner(
   orgId: string,
   orgSettings: unknown,
   source: LeadSourceRoutingFields,
-  service: string | null
+  service: string | null,
+  /** A lead typed in by hand: when the routing matches nobody, THIS person (the typist) keeps it — not the company lead owner or an admin. */
+  typedBy?: string
 ): Promise<CompanyRecipient | null> {
   const company = readLeadIntakeSettings(orgSettings).routing
   const override: LeadRouting | null = source ? readRouting(source.routing) : null
@@ -44,8 +49,8 @@ export async function resolveLeadOwner(
       routing: override ?? company,
       scopeBase: override && source ? `source:${source.id}` : 'org',
       service,
-      sourceUserId: source?.auto_assign_user_id,
-      fallbackUserId: typeof settings.web_leads_owner_id === 'string' ? settings.web_leads_owner_id : null,
+      sourceUserId: typedBy ?? source?.auto_assign_user_id,
+      fallbackUserId: typedBy ? null : typeof settings.web_leads_owner_id === 'string' ? settings.web_leads_owner_id : null,
     },
     (scope, ids) => nextInRotation(admin, orgId, scope, ids)
   )
@@ -85,4 +90,34 @@ export async function insertNewLeadBell(
     data: { lead_id: input.leadId },
   })
   return { error: error?.message ?? null }
+}
+
+/**
+ * May this visitor post to this public website form? Counted in the database (portal_take_attempt, the shared atomic
+ * counter from migration 202611120060) so every server instance sees the same number: per source + visitor address
+ * (hashed, never stored raw) per window, plus one per-source daily cap the company can set. Fails over to the in-memory
+ * limiter if the database function is unavailable, so a lead form never goes down because of its own spam guard.
+ */
+export async function takeLeadFormAttempt(
+  admin: SupabaseClient,
+  input: { sourceId: string; ip: string; dailyCap: number | null | undefined; now?: number }
+): Promise<{ ok: true } | { ok: false; retryAfterSec: number }> {
+  const ipHash = createHash('sha256').update(`${input.sourceId}|${input.ip}`).digest('hex').slice(0, 32)
+  const windowSec = Math.round(LEAD_FORM_RATE_WINDOW_MS / 1000)
+  const cap = input.dailyCap && input.dailyCap > 0 ? input.dailyCap : DEFAULT_FORM_DAILY_CAP
+  const tries: Array<{ key: string; limit: number; seconds: number }> = [
+    { key: `leadform:${input.sourceId}:${ipHash}`, limit: LEAD_FORM_RATE_LIMIT, seconds: windowSec },
+    { key: `leadform-day:${input.sourceId}`, limit: cap, seconds: 86_400 },
+  ]
+  for (const t of tries) {
+    const { data, error } = await admin.rpc('portal_take_attempt', { p_key: t.key, p_limit: t.limit, p_window_seconds: t.seconds })
+    if (error) {
+      console.error('lead form rate limit: database counter unavailable, using the in-memory one', error.message)
+      const mem = consumePublicEstimateRateLimit({ key: t.key, limit: t.limit, windowMs: t.seconds * 1000, now: input.now })
+      if (!mem.ok) return { ok: false, retryAfterSec: mem.retryAfterSec }
+      continue
+    }
+    if (data === false) return { ok: false, retryAfterSec: t.seconds }
+  }
+  return { ok: true }
 }

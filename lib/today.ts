@@ -19,7 +19,7 @@ import { loadVisits } from '@/lib/service-plans-db'
 import { jobsPaidInFull } from '@/lib/job-collection-db'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
-import { loadLeadsWaitingQueue } from '@/lib/leads-waiting'
+import { leadsWaitingFailedQueue, loadLeadsWaitingQueue } from '@/lib/leads-waiting'
 
 export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
 
@@ -401,7 +401,7 @@ export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, 
   // Inbound leads nobody has contacted (only for companies that turned the reminder on).
   const leadsWaiting = await loadLeadsWaitingQueue(admin, orgId, now).catch((e): Queue => {
     console.error('today: leads waiting failed', e)
-    return { id: 'leads-waiting', title: 'Leads waiting', count: 0, items: [], empty: '' }
+    return leadsWaitingFailedQueue()
   })
   const queues = [
     apptQueue('no-outcome', 'Appointments with no outcome logged', (noOutcome.data ?? []) as ApptRow[], noOutcome.count ?? 0, '', true),
@@ -411,7 +411,8 @@ export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, 
     texts,
     leadsWaiting,
   ]
-  return queues.filter((q) => q.count > 0)
+  // A queue that failed to load stays on the list and says so: never "all clear".
+  return queues.filter((q) => q.count > 0 || q.empty.includes('couldn’t load'))
 }
 
 /**

@@ -8,7 +8,7 @@ CREATE TABLE orgs (id uuid PRIMARY KEY, settings jsonb);
 CREATE TABLE users (id uuid PRIMARY KEY, org_id uuid, active boolean DEFAULT true);
 CREATE TABLE leads (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
 CREATE TABLE lead_sources (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-CREATE TABLE notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, type text, data jsonb);
+CREATE TABLE notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, recipient_user_id uuid, type text, data jsonb);
 \i supabase/migrations/202611230020_lead_intake.sql
 -- idempotent re-run:
 \i supabase/migrations/202611230020_lead_intake.sql
@@ -33,13 +33,20 @@ BEGIN
   IF lead_routing_next(o, 'other', ARRAY[b, a]) <> b THEN RAISE EXCEPTION 'new scope starts at the first person'; END IF;
   -- list changed: continue after the last person, else start over
   IF lead_routing_next(o, 'org:rotate', ARRAY[b, a]) <> a THEN RAISE EXCEPTION 'last=b, list [b,a] -> next is a'; END IF;
-  -- once-per-lead bell
-  INSERT INTO notifications (org_id, type, data) VALUES (o, 'lead_waiting', '{"lead_id":"L1"}');
+  -- last person handed a lead went inactive: continue from the NEXT person in list order, not the first
+  INSERT INTO lead_routing_pointers (org_id, scope, last_user_id) VALUES (o, 'l2', c);
+  IF lead_routing_next(o, 'l2', ARRAY[a, c, b]) <> b THEN RAISE EXCEPTION 'last inactive (c) in [a,c,b] -> next is b, not a'; END IF;
+  -- ... and when they were removed from the list altogether, start at the first
+  INSERT INTO lead_routing_pointers (org_id, scope, last_user_id) VALUES (o, 'l2b', c);
+  IF lead_routing_next(o, 'l2b', ARRAY[b, a]) <> b THEN RAISE EXCEPTION 'last gone from the list -> first'; END IF;
+  -- one "lead waiting" bell per lead AND owner
+  INSERT INTO notifications (org_id, recipient_user_id, type, data) VALUES (o, a, 'lead_waiting', '{"lead_id":"L1"}');
   BEGIN
-    INSERT INTO notifications (org_id, type, data) VALUES (o, 'lead_waiting', '{"lead_id":"L1"}');
-    RAISE EXCEPTION 'second lead_waiting for one lead must fail';
+    INSERT INTO notifications (org_id, recipient_user_id, type, data) VALUES (o, a, 'lead_waiting', '{"lead_id":"L1"}');
+    RAISE EXCEPTION 'second lead_waiting for one lead and owner must fail';
   EXCEPTION WHEN unique_violation THEN NULL; END;
-  INSERT INTO notifications (org_id, type, data) VALUES (o, 'new_lead', '{"lead_id":"L1"}'), (o, 'new_lead', '{"lead_id":"L1"}');  -- other types unaffected
+  INSERT INTO notifications (org_id, recipient_user_id, type, data) VALUES (o, b, 'lead_waiting', '{"lead_id":"L1"}');  -- a new owner may be reminded once
+  INSERT INTO notifications (org_id, recipient_user_id, type, data) VALUES (o, a, 'new_lead', '{"lead_id":"L1"}'), (o, a, 'new_lead', '{"lead_id":"L1"}');  -- other types unaffected
   RAISE NOTICE 'sequential assertions passed';
 END $$;
 COMMIT;

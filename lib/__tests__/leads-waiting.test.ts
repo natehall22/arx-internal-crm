@@ -18,8 +18,9 @@ const make = (leads: Array<Record<string, unknown>>, activities: Array<Record<st
       users: [{ id: 'u1', org_id: ORG, active: true, email: 'u1@x.test' }, { id: 'adm', org_id: ORG, active: true, role: 'admin', email: 'adm@x.test', created_at: '2026-01-01' }],
       leads,
       activities,
+      opportunities: [{ id: 'opp1', org_id: ORG, lead_id: 'viaopp' }],
     },
-    { unique: { notifications: [['type', 'link_url']] } }
+    { unique: { notifications: [['type', 'link_url', 'recipient_user_id']] } }
   )
 const ids = (r: { leads: Array<{ id: string }> }) => r.leads.map((l) => l.id)
 
@@ -37,22 +38,29 @@ describe('the rule', () => {
 })
 
 describe('listUntouchedLeads', () => {
-  test('inbound or hand-typed (not canvass pins), still new, past N, no call/text/email/visit logged — this company only', async () => {
+  test('inbound or hand-typed (not canvass pins), still new, past N, nobody has worked it (note, status change, call, text, email on the lead or its opportunity) — this company only', async () => {
     const db = make(
       [
         lead('old'), lead('fresh', { created_at: ago(3) }),
         lead('called'), lead('noted'), lead('moved', { status: 'contacted' }),
         lead('callcenter', { channel: 'outbound' }), lead('typed', { channel: null, source: 'Referral' }),
         lead('pin', { channel: null, source: 'door_to_door' }), lead('pin2', { channel: null, source: 'Website', canvass_disposition: 'not_home' }), lead('other', { org_id: OTHER }), lead('ancient', { created_at: ago(24 * 40) }),
-        lead('deletedcall'),
+        lead('deletedcall'), lead('sysnote'), lead('custtext'), lead('atcreate'), lead('statuschg'), lead('viaopp'),
       ],
       [
-        { id: 'a1', org_id: ORG, lead_id: 'called', type: 'call', deleted_at: null },
-        { id: 'a2', org_id: ORG, lead_id: 'noted', type: 'note', deleted_at: null },
-        { id: 'a3', org_id: ORG, lead_id: 'deletedcall', type: 'call', deleted_at: ago(1) },
+        { id: 'a1', org_id: ORG, lead_id: 'called', type: 'call', user_id: 'u1', origin: 'human', created_at: ago(5), deleted_at: null },
+        { id: 'a2', org_id: ORG, lead_id: 'noted', type: 'note', user_id: 'u1', origin: 'human', created_at: ago(5), deleted_at: null },
+        { id: 'a3', org_id: ORG, lead_id: 'deletedcall', type: 'call', user_id: 'u1', origin: 'human', created_at: ago(5), deleted_at: ago(1) },
+        // not a person's work: an automation, the customer's own text, the typist's note at creation
+        { id: 'a4', org_id: ORG, lead_id: 'sysnote', type: 'note', user_id: null, origin: 'system', created_at: ago(5), deleted_at: null },
+        { id: 'a5', org_id: ORG, lead_id: 'custtext', type: 'text', user_id: null, origin: 'sms', created_at: ago(5), deleted_at: null },
+        { id: 'a6', org_id: ORG, lead_id: 'atcreate', type: 'note', user_id: 'u1', origin: 'human', created_at: ago(30), deleted_at: null },
+        // a person's status change, and work on the lead's opportunity once one exists
+        { id: 'a7', org_id: ORG, lead_id: 'statuschg', type: 'status_change', user_id: 'u1', origin: 'human', created_at: ago(5), deleted_at: null },
+        { id: 'a8', org_id: ORG, lead_id: null, opportunity_id: 'opp1', type: 'call', user_id: 'u1', origin: 'human', created_at: ago(5), deleted_at: null },
       ]
     )
-    expect(ids(await listUntouchedLeads(db.client as never, ORG, 24, NOW)).sort()).toEqual(['deletedcall', 'noted', 'old', 'typed'])
+    expect(ids(await listUntouchedLeads(db.client as never, ORG, 24, NOW)).sort()).toEqual(['atcreate', 'custtext', 'deletedcall', 'old', 'sysnote', 'typed'])
   })
   test('one person\'s leads only', async () => {
     const db = make([lead('mine'), lead('theirs', { owner_user_id: 'u2' })])
@@ -94,13 +102,22 @@ describe('the reminder', () => {
     expect(db.tables.notifications).toHaveLength(1)
   })
   test('a lead that crossed long ago is on the queue but not re-announced; contact stops it', async () => {
-    const db = make([lead('stale', { created_at: ago(24 * 10) }), lead('called', { created_at: ago(25) })], [{ id: 'a', org_id: ORG, lead_id: 'called', type: 'text', deleted_at: null }])
+    const db = make([lead('stale', { created_at: ago(24 * 10) }), lead('called', { created_at: ago(25) })], [{ id: 'a', org_id: ORG, lead_id: 'called', type: 'text', user_id: 'u1', origin: 'human', created_at: ago(2), deleted_at: null }])
     expect((await run(db)).notified).toBe(0)
   })
   test('owner gone or unassigned → the company\'s oldest active admin', async () => {
     const db = make([lead('l1', { created_at: ago(25), owner_user_id: 'left' }), lead('l2', { created_at: ago(26), owner_user_id: null })])
     await run(db)
     expect(db.tables.notifications.map((n) => n.recipient_user_id)).toEqual(['adm', 'adm'])
+  })
+  test('handed to a new owner: the new owner gets one more bell, once', async () => {
+    const db = make([lead('old', { created_at: ago(25) })])
+    await run(db)
+    db.tables.leads[0].owner_user_id = 'adm'
+    db.tables.leads[0].ownership_reassigned_at = ago(25)
+    expect((await run(db)).notified).toBe(1)
+    expect((await run(db)).notified).toBe(0)
+    expect(db.tables.notifications.map((n) => n.recipient_user_id)).toEqual(['u1', 'adm'])
   })
   test('off = nothing', async () => {
     const db = make([lead('old', { created_at: ago(25) })])
