@@ -58,7 +58,7 @@ export async function completeEnvelope(
     if (!path) return { ok: false, reason: 'pdf_pending' }
 
     const envOrNot = await ensureEnvelope(admin, args.kind, row)
-    // Migration 202611180010 not applied: signing works as it always did; the evidence starts when it is.
+    // Migration 202611200010 not applied: signing works as it always did; the evidence starts when it is.
     if (envOrNot === 'not_ready') return { ok: true, skipped: 'not_ready' }
     let env: EnvelopeRow = envOrNot
 

@@ -821,6 +821,12 @@ for other GCs and their calendar is not the whole truth.
 Invites reach any email address — Google mails a standard `.ics`. **A Google
 account is not required**; do not reintroduce copy claiming otherwise.
 
+## Signing engine (2026-11-11, PR1+PR2)
+- **ONE engine, `lib/signing/*`, for every signed document.** Envelope per document (`signing_envelopes`, made lazily, no backfill), append-only evidence (`signing_events`, once-events unique per envelope + `signer_key` + event), SHA-256 of the stored signed PDF, a completion certificate PDF (own file; contract/CO PDFs and goldens are untouched), consent (`lib/signing/consent.ts`, version `ESIGN_CONSENT_VERSION`, **wording is for counsel to review**), lifecycle (`lifecycle.ts`: resend/remind/extend/void/decline/markViewed), mail (`mail.ts`, the one SMTP door for signing mail). Domain row status stays the truth; a decline voids the row (enum has no 'declined'). Completion is `completeEnvelope`, idempotent, run as the named step `engine` in `finishSignedContract` and after the CO PDF.
+- **Company switches** (`orgs.settings.signing`, owner-only, writer `saveSigningSettings`/`/api/admin/signing`, stripped from the generic save): consent, decline, auto-file default ON only for a company with a saved profile (ARX/legacy = off, identical behavior); reminders (days 2 and 5) and the signed-copy/decline emails default OFF for everyone until Nathan says.
+- **Provider seam is narrow:** `getSigningProvider(admin, orgId, kind)`; contracts, change orders and quote approval are always native (they create the sale, job and commission base). `PROVIDER_ELIGIBLE_KINDS` lists the only kinds an outside provider may carry ("send my own PDF").
+- **Deploy order:** apply `202611200010_signing_engine.sql` BEFORE the code (the code degrades to "not ready" without it). Staff status/actions: `/api/signing/[kind]/[id]`; public: `/api/signing/viewed|decline` (host-fenced); cron `signing-reminders` (hourly, `SIGNING_REMINDERS_CRON=false` kills it).
+
 ## Major Features / Modules
 | Module | Path | Notes |
 |---|---|---|

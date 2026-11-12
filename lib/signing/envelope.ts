@@ -74,7 +74,7 @@ export async function findEnvelope(admin: SupabaseClient, kind: SigningKind, org
   return (data as EnvelopeRow | null) ?? null
 }
 
-/** The envelope for this document row, made from the row when it has none yet. 'not_ready' = migration 202611180010 not applied. */
+/** The envelope for this document row, made from the row when it has none yet. 'not_ready' = migration 202611200010 not applied. */
 export async function ensureEnvelope(admin: SupabaseClient, kind: SigningKind, row: DocRow): Promise<EnvelopeRow | 'not_ready'> {
   const orgId = String(row.org_id)
   const found = await findEnvelope(admin, kind, orgId, String(row.id))

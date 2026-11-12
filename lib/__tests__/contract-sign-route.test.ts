@@ -360,3 +360,20 @@ describe('quote approval contracts', () => {
   })
 })
 
+
+describe('signing engine on the contract route', () => {
+  it('refuses a signature without consent when the company requires it', async () => {
+    ;(db.tables as any).orgs = [{ id: ORG, settings: { signing: { consentStep: true } } }]
+    const res = await post(good())
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('consent_required')
+    expect(db.tables.order_form_contracts[0].status).not.toBe('completed')
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+  it('signs with the consent version stored', async () => {
+    ;(db.tables as any).orgs = [{ id: ORG, settings: { signing: { consentStep: true } } }]
+    const res = await post(good({ consent: { accepted: true, version: 'v1-2026-11' } }))
+    expect(res.status).toBe(200)
+    expect(db.tables.order_form_contracts[0]).toMatchObject({ status: 'completed', consent_version: 'v1-2026-11' })
+  })
+})
