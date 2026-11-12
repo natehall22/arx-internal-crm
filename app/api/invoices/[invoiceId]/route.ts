@@ -17,6 +17,7 @@ import {
   type CustomerPaymentMethod,
 } from '@/lib/invoices'
 import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
+import { recordJobInvoicePayment } from '@/lib/job-invoice-payment'
 import { loadInvoiceOnlineSummary } from '@/lib/online-payments/summary'
 import type { JobInvoice } from '@/lib/types/invoices'
 import { defaultTaxRates } from '@/lib/sales-tax'
@@ -49,9 +50,9 @@ export async function GET(
     const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
     // Taxable box on lines only when this company charges sales tax with rates (lib/sales-tax.ts).
     const salesTax = await loadOrgSalesTax(adminClient, profile.org_id)
-    // canMarkPaid: invoices without a job are paid right on the invoice (record_payment); job invoices use job payments.
+    // canMarkPaid: every invoice is paid right on the invoice (record_payment); a job invoice also records the job payment.
     const online = await loadInvoiceOnlineSummary(adminClient, profile.org_id, params.invoiceId)
-    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0, canMarkPaid: !invoiceCheck.job_id, online })
+    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0, canMarkPaid: true, online })
 
   } catch (error) {
     console.error('Error in GET /api/invoices/[invoiceId]:', error)
@@ -159,11 +160,21 @@ export async function PATCH(
       }
 
       case 'record_payment': {
-        // "Mark paid" on an invoice without a job — the one payment writer (a card processor's webhook will use it too).
-        if (invoiceCheck.job_id) {
-          return NextResponse.json({ error: 'Record job payments on the job' }, { status: 400 })
-        }
+        // "Mark paid": a job invoice records the job payment AND applies it here in one step; an invoice without a job uses the customer-invoice writer.
         const { amount_cents, paid_at, method, note } = body
+        if (invoiceCheck.job_id) {
+          const done = await recordJobInvoicePayment(adminClient, profile.org_id, { id: params.invoiceId, job_id: invoiceCheck.job_id, status: invoiceCheck.status }, {
+            amountCents: Number(amount_cents),
+            paidAt: typeof paid_at === 'string' ? paid_at : '',
+            method: ((CUSTOMER_PAYMENT_METHODS as readonly string[]).includes(method) ? method : '') as CustomerPaymentMethod,
+            note: typeof note === 'string' ? note : null,
+            createdBy: profile.id,
+            idempotencyKey: typeof body.idempotency_key === 'string' && body.idempotency_key ? `invoice-pay:${params.invoiceId}:${body.idempotency_key}`.slice(0, 120) : null,
+          })
+          if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status })
+          const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId) // recordJobPayment already re-syncs a time & materials commission base
+          return NextResponse.json({ success: true, invoice })
+        }
         const result = await recordCustomerInvoicePayment(adminClient, profile.org_id, params.invoiceId, {
           amountCents: Number(amount_cents),
           paidAt: typeof paid_at === 'string' ? paid_at : '',
