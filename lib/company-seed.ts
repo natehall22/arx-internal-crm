@@ -27,6 +27,10 @@ import { applyOrgTradesSeed, planOrgTradesSeed, readOrgTradesForSeed, type OrgTr
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES, isIndustryProfileId, type IndustryProfileId } from '@/lib/industry-profiles'
 import { ORG_PROFILE_SETTINGS_KEY } from '@/lib/org-profile'
 import { mergeOrgSettings } from '@/lib/org-settings'
+import { applyDemoCompany } from '@/lib/demo-company-apply'
+import { resetDemoOrg } from '@/lib/demo-reset'
+import { ymdInZone } from '@/lib/service-plans'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 export interface CompanySeedInput {
   org: {
@@ -47,6 +51,8 @@ export interface CompanySeedInput {
   owner: { email: string; fullName: string; phone: string | null }
   /** Plan templates to add (by name; an existing template of that name is kept as is). [] = none. */
   servicePlanTemplates: SeedTemplate[]
+  /** The fictional demo company (scripts/seed-company.ts --demo): the org is created with `is_demo`, and its sample data is written. */
+  demo: boolean
 }
 
 /** A plan template in a seed file: its own fields, or `starter` (lib/service-plan-starters.ts) + `tierPrices` + overrides. */
@@ -182,6 +188,7 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
       profile,
       owner: { email: ownerEmail, fullName, phone: str(owner.phone) },
       servicePlanTemplates,
+      demo: root.demo === true,
     },
   }
 }
@@ -196,6 +203,10 @@ export interface CompanySeedOptions {
   allowExisting?: boolean
   /** Allow making this owner a super admin when the org already has another one. */
   addOwner?: boolean
+  /** Demo only: wipe the demo org (it must carry the demo flag) and rebuild it. Refused for any other company. */
+  reset?: boolean
+  /** Clock for the demo data (tests); default now. */
+  now?: Date
 }
 
 export interface CompanySeedReport {
@@ -204,9 +215,11 @@ export interface CompanySeedReport {
   lines: string[]
   /** Set only when a new owner login was created with a generated password (apply only). */
   generatedOwnerPassword?: string
+  /** Demo apply only: every login made (printed once by the script, never stored) and what could not be written. */
+  demo?: { logins: Array<{ role: string; email: string; password: string }>; portalLink: string | null; skipped: string[] }
 }
 
-type OrgRow = { id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown; profile?: unknown }
+type OrgRow = { is_demo?: boolean | null; id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown; profile?: unknown }
 type UserRow = { id: string; org_id: string | null; email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null; full_name: string | null }
 
 class SeedStop extends Error {}
@@ -233,6 +246,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   const lines: string[] = []
   const say = (s: string) => lines.push(`${opts.apply ? '' : '[dry run] '}${s}`)
   const report: CompanySeedReport = { applied: opts.apply, orgId: input.org.id, lines }
+  if (opts.reset && !input.demo) throw new SeedStop('--reset only exists for the demo company (--demo). Nothing was written.')
 
   // ---- read phase: every refusal happens here, before anything is written ----
   let org: OrgRow | null = null
@@ -240,20 +254,31 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     org = await must(
       client
         .from('orgs')
-        .select(`id, name, phone, email, address, timezone, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`)
+        .select(`id, name, phone, email, address, timezone, ${input.demo ? 'is_demo, ' : ''}${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`)
         .eq('id', input.org.id)
         .maybeSingle(),
       'read org'
     )
     if (!org) throw new SeedStop(`No org with id ${input.org.id}. Leave org.id out to create a new company.`)
   } else {
-    const same = await must(client.from('orgs').select('id').ilike('name', input.org.name.replace(/[%_\\]/g, '\\$&')), 'read orgs')
-    if ((same ?? []).length) {
+    const same = await must(client.from('orgs').select(input.demo ? 'id, is_demo' : 'id').ilike('name', input.org.name.replace(/[%_\\]/g, '\\$&')), 'read orgs')
+    const sameRows = (same ?? []) as unknown as Array<{ id: string; is_demo?: boolean | null }>
+    // A demo run re-finds ITS OWN demo company by name (so a re-run / --reset needs no org id); anything else is refused below.
+    if (input.demo && sameRows.length === 1 && sameRows[0].is_demo === true) {
+      org = await must(
+        client.from('orgs').select(`id, name, phone, email, address, timezone, is_demo, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`).eq('id', sameRows[0].id).maybeSingle(),
+        'read demo org'
+      )
+    } else if (sameRows.length) {
       throw new SeedStop(
-        `An org named "${input.org.name}" already exists (${(same as { id: string }[]).map((o) => o.id).join(', ')}). ` +
+        `An org named "${input.org.name}" already exists (${sameRows.map((o) => o.id).join(', ')}). ` +
           'If it is this company, put its id in org.id and re-run; nothing was written.'
       )
     }
+  }
+  if (input.demo && org && org.is_demo !== true) {
+    // The demo flag is the database's, set only when the org is created by this script — never taken from the input.
+    throw new SeedStop(`Org ${org.id} is not a demo company (no demo flag). The demo seed only ever touches a demo company; nothing was written.`)
   }
   if (input.org.subdomain) {
     // Needs migration 202611100070 (orgs.subdomain); before it the read fails here, before anything is written.
@@ -288,10 +313,24 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     }
     const live = Object.values(counts).some((n) => n > 0)
     const summary = Object.entries(counts).map(([t, n]) => `${n} ${t}`).join(', ')
-    if (live && !opts.allowExisting) {
+    if (live && input.demo && !opts.reset) {
+      throw new SeedStop(`The demo company ${org.id} is already built (${summary}). Re-run with --reset to wipe it and rebuild; nothing was written.`)
+    }
+    if (live && !opts.allowExisting && !input.demo) {
       throw new SeedStop(`Org ${org.id} is in use (${summary}). Re-run with --allow-existing only if you mean to change it; nothing was written.`)
     }
-    if (live) say(`org ${org.id} is in use (${summary}) — continuing (--allow-existing)`)
+    if (live && !input.demo) say(`org ${org.id} is in use (${summary}) — continuing (--allow-existing)`)
+  }
+
+  if (input.demo && opts.reset && org) {
+    if (!opts.apply) {
+      say(`reset: would wipe the demo company ${org.id} (every table row it owns, and its logins) and rebuild it`)
+    } else {
+      const wiped = await resetDemoOrg(client, org.id)
+      const again = await runCompanySeed(client, { ...input, org: { ...input.org, id: org.id } }, { ...opts, reset: false })
+      again.lines.unshift(`reset: wiped ${wiped.rows} rows in ${wiped.tables} tables and ${wiped.logins} logins; rebuilding`)
+      return again
+    }
   }
 
   const ownerRows = await must(
@@ -330,7 +369,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   if (!org) {
     const taxReady = await salesTaxColumnsReady(client)
     say(
-      `create org "${input.org.name}" ` +
+      `create ${input.demo ? 'DEMO ' : ''}org "${input.org.name}" ` +
         (taxReady
           ? '(sales tax: on, no rates until the owner adds them)'
           : '(sales tax: NOT set up — apply migration 202611110040, then the owner saves Settings → Sales tax)')
@@ -342,7 +381,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
       // same check as the owner save); before that the company is left not set up and the owner saves Settings ->
       // Sales tax after the migration.
       const settings = taxReady ? { [SALES_TAX_SETTINGS_KEY]: { ...NEW_COMPANY_SALES_TAX } } : {}
-      const created = await must(client.from('orgs').insert({ ...wantColumns, settings }).select('id').single(), 'create org')
+      const created = await must(client.from('orgs').insert({ ...wantColumns, settings, ...(input.demo ? { is_demo: true } : {}) }).select('id').single(), 'create org')
       orgId = (created as { id: string }).id
       say(`org id ${orgId} — put it in org.id for every re-run`)
     }
@@ -485,6 +524,21 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
           if (error) throw new Error(`plan templates: ${error.message}`)
         }
       }
+    }
+  }
+
+  // ---- the demo company's sample data (its own flag is re-checked inside: only a demo org is ever written) ----
+  if (input.demo) {
+    if (!opts.apply || !ownerId) {
+      say('demo data: would add ~40 customers (3 commercial accounts), plan templates, 6 weeks of visits each way, crews + time, quotes, invoices, purchase orders, threads, a portal customer')
+    } else {
+      const now = opts.now ?? new Date()
+      const demo = await applyDemoCompany(client, orgId, ownerId, { now, today: ymdInZone(now, DEFAULT_TIMEZONE), timeZone: DEFAULT_TIMEZONE })
+      for (const l of demo.lines) say(`demo ${l}`)
+      for (const l of demo.skipped) say(`demo SKIPPED ${l}`)
+      const logins = [...demo.logins]
+      if (report.generatedOwnerPassword) logins.unshift({ role: 'owner', email: input.owner.email, password: report.generatedOwnerPassword })
+      report.demo = { logins, portalLink: demo.portalLink, skipped: demo.skipped }
     }
   }
 

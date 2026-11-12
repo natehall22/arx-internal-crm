@@ -340,3 +340,14 @@ export function isFictionalEmail(e: string | null | undefined): boolean {
 export function isFictionalPhone(p: string | null | undefined): boolean {
   return !!p && /^\(850\) 555-01\d\d$/.test(p)
 }
+
+/** The seed input for the demo company, in the same raw shape as a seed JSON file (validated by parseCompanySeedInput). */
+export function demoSeedRaw(opts: { name?: string | null; profile?: string | null } = {}): Record<string, unknown> {
+  return {
+    org: { name: opts.name?.trim() || DEMO_DEFAULTS.name, phone: DEMO_DEFAULTS.phone, email: DEMO_DEFAULTS.email, address: DEMO_DEFAULTS.address, subdomain: DEMO_DEFAULTS.subdomain },
+    brand: { shortName: opts.name?.trim() || 'Gulf Coast Grounds', website: 'https://demo.example.com', serviceArea: 'Wakulla County and nearby' },
+    profile: opts.profile || DEMO_DEFAULTS.profile,
+    owner: { email: DEMO_DEFAULTS.ownerEmail, fullName: DEMO_DEFAULTS.ownerName, phone: '(850) 555-0101' },
+    demo: true,
+  }
+}
