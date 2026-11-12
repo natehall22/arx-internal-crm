@@ -110,8 +110,10 @@ const SCREENS: Screen[] = [
   } },
   { name: 'announcements-admin', path: '/dev-harness/announcements-admin', ready: 'text=Announcements',
     states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).click(); await p.waitForSelector('text=Edit announcement') } }] },
+  { name: 'job-payments-undo', path: '/dev-harness/job-payments', ready: 'text=Undo payment',
+    states: [{ name: 'undo-sheet', run: async (p) => { await p.getByRole('button', { name: 'Undo payment' }).first().click(); await p.waitForSelector('#undo-reason') } }] },
   { name: 'materials-cost-entry', path: '/dev-harness/materials-costs', ready: 'text=Total job costs',
-    states: [{ name: 'add-cost-open', run: async (p) => { await p.getByRole('button', { name: /Job Cost/i }).first().click(); await p.waitForTimeout(300) } }] },
+    states: [{ name: 'add-cost-open', run: async (p) => { await p.getByRole('button', { name: /Add a cost/i }).first().click(); await p.waitForTimeout(300) } }] },
   { name: 'contract-signing', path: '/dev-harness/contract-signing', ready: 'text=Pat Customer',
     states: [{ name: 'notice-of-cancellation-open', run: async (p) => {
       await p.getByRole('button', { name: 'Notice of Cancellation' }).click()
@@ -545,7 +547,8 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'person-open', run: async (p) => { await p.getByRole('button', { name: /Jordan Vale/ }).click(); await p.waitForSelector('text=Change') } },
       { name: 'by-job', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.waitForSelector('text=Job 26-0141') } },
-      { name: 'fix-sheet', run: async (p) => { await p.getByRole('button', { name: 'Fix a mistake' }).click(); await p.waitForSelector('text=Amount (+ pays them') } },
+      { name: 'fix-sheet', run: async (p) => { await p.getByRole('button', { name: 'Fix a mistake' }).click(); await p.waitForSelector('text=Take money back') } },
+      { name: 'export-more-menu', run: async (p) => { await p.getByText('More', { exact: true }).click(); await p.waitForSelector('text=Download raw CSV') } },
       { name: 'approve-sheet', run: async (p) => { await p.getByRole('button', { name: /^Approve/ }).click(); await p.waitForSelector('text=Email each person their statement') } },
       { name: 'blocked-by-minimum', run: async (p) => { await p.route('**/api/admin/payroll/pay-week', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...PAY_WEEK, canApprove: false, blockedBy: { code: 'minimum_unanswered', text: 'Answer the weekly minimum for 1 person first.', count: 1 } }) })); await p.reload(); await p.waitForSelector('text=Answer the weekly minimum for 1 person first.') } },
       { name: 'change-sheet', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.getByRole('button', { name: 'Change who gets what' }).first().click(); await p.waitForSelector('text=Total 18% of the base'); await p.getByRole('button', { name: '+ Add someone' }).click() } },

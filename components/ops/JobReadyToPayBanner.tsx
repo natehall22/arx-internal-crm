@@ -38,7 +38,7 @@ export default function JobReadyToPayBanner({
   })
   if (collection.missingSaleAmount) return null
   const fullyPaid = collection.paidByPayments
-  /** Hide once job is collected — payroll handoff uses JobPayrollSentBanner. A cancelled job is never collected. */
+  /** Hide once job is collected. A cancelled job is never collected. */
   if (!fullyPaid || status === 'collected' || status === 'cancelled') return null
 
   const scrollPayments = () => {
