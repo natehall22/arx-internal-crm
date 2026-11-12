@@ -1,3 +1,4 @@
+import { enqueueRecordEvent } from '@/lib/integrations'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -111,6 +112,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (error) return rpcErrorResponse(error, 'Failed to cancel job')
 
   const result = data as CancelResult
+
+  // QuickBooks: a cancelled sale's invoice is voided there (void keeps the record; never deleted). Never blocks the cancel.
+  await enqueueRecordEvent(adminClient, profile.org_id, { eventType: 'invoice.voided', table: 'production_jobs', id: result.job_id })
 
   // Take every booked crew off the schedule, exactly as unassign does for one:
   // clear its date/length/sub, kill its crew photo link, and remove its Google
