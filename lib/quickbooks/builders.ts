@@ -8,6 +8,7 @@
 import { createHash } from 'crypto'
 
 import type { CrmBill, CrmCustomer, CrmInvoice, CrmInvoiceLine, CrmJob, CrmPayment, CrmVendor } from './crm'
+import { matchingQbCustomers } from './identity'
 import type { QbSettings } from './mapping'
 
 export type QbRefKind = 'inv' | 'pay' | 'ref' | 'bill' | 'cred'
@@ -68,15 +69,9 @@ export function buildCustomerBody(c: CrmCustomer, displayName: string): Record<s
   }
 }
 
-/** Does a QuickBooks customer/vendor look like the same person as ours? Email, then phone, then the street line. */
-export function samePerson(ours: { email: string | null; phone: string | null; addressText?: string | null }, qb: Record<string, any>): boolean {
-  const qEmail = String(qb.PrimaryEmailAddr?.Address ?? '').trim().toLowerCase()
-  if (ours.email && qEmail && ours.email.trim().toLowerCase() === qEmail) return true
-  const qPhone = digits(qb.PrimaryPhone?.FreeFormNumber ?? qb.Mobile?.FreeFormNumber ?? null)
-  if (digits(ours.phone).length === 10 && qPhone === digits(ours.phone)) return true
-  const street = firstAddressLine(ours.addressText ?? null)?.toLowerCase()
-  const qStreet = String(qb.BillAddr?.Line1 ?? '').trim().toLowerCase()
-  return !!street && !!qStreet && street === qStreet
+/** Does a QuickBooks customer look like the same person as ours? The CRM's one matching rule (lib/quickbooks/identity.ts). */
+export function samePerson(ours: { name?: string | null; email: string | null; phone: string | null; addressText?: string | null }, qb: Record<string, any>): boolean {
+  return matchingQbCustomers(ours, [qb]).length > 0
 }
 
 export function subCustomerName(job: Pick<CrmJob, 'jobNumber' | 'addressText'>): string {
