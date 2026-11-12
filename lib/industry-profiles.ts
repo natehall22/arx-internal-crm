@@ -218,7 +218,7 @@ const lawnLandscape: IndustryProfile = {
   },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
-    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'unpaid-invoices', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
+    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],
     texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
@@ -226,6 +226,7 @@ const lawnLandscape: IndustryProfile = {
       'Jobs to schedule': 'Projects to schedule',
       'Sold jobs with no install date': 'Approved projects with no date',
       'Installs past their date and not started': 'Projects past their date, not started',
+      'Finished, waiting on payment': 'Finished, not paid yet',
       "Today's appointments": "Today's estimate visits",
       'Appointments with no outcome logged': 'Estimate visits with no outcome logged',
       'Nothing waiting on a customer.': 'No quotes waiting on a customer.',
@@ -267,7 +268,7 @@ const exteriorCleaning: IndustryProfile = {
   terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
-    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'unpaid-invoices'],
+    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],
     texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
@@ -350,7 +351,7 @@ const homeBuilder: IndustryProfile = {
   terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
   today: {
-    order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'unpaid-invoices'],
+    order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],
     texts: {
       'Nothing waiting on a customer.': 'No bids waiting on a customer.',

@@ -16,6 +16,7 @@ import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { SERVICE_VISIT_TYPE, SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
 import { loadVisits } from '@/lib/service-plans-db'
+import { jobsPaidInFull } from '@/lib/job-collection-db'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 
@@ -263,14 +264,22 @@ export async function loadCloserQueues(admin: SupabaseClient, orgId: string, use
 export async function loadOpsQueues(admin: SupabaseClient, orgId: string): Promise<Queue[]> {
   const cols = 'id, job_number, address_text, scheduled_date'
   const base = () => admin.from('production_jobs').select(cols, { count: 'exact' }).eq('org_id', orgId).neq('status', 'cancelled')
-  const [toSchedule, toOrder] = await Promise.all([
+  const [toSchedule, toOrder, awaiting] = await Promise.all([
     base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(LIST_CAP),
     base().in('status', ['sold', 'materials', 'scheduled', 'in_progress']).eq('materials_status', 'not_ordered').order('scheduled_date', { ascending: true, nullsFirst: false }).limit(LIST_CAP),
+    base().eq('status', 'complete').order('sale_date', { ascending: true }).limit(LIST_CAP),
   ])
-  ;[toSchedule, toOrder].forEach(ok)
+  ;[toSchedule, toOrder, awaiting].forEach(ok)
+  // Finished jobs not yet collected: the same paid-in-full rule as everywhere (lib/job-collection.ts), so a job whose money is
+  // all in never sits here even if its status was not moved on. Works for any job-based company, no service-plans needed.
+  const finished = (awaiting.data ?? []) as JobRow[]
+  const paid = await jobsPaidInFull(admin, orgId, finished.map((j) => j.id))
+  const owing = finished.filter((j) => !paid.has(j.id))
+  const owingCount = Math.max(0, (awaiting.count ?? 0) - (finished.length - owing.length))
   return [
     jobQueue('jobs-to-schedule', 'Jobs to schedule', (toSchedule.data ?? []) as JobRow[], toSchedule.count ?? 0, 'Every sold job has an install date.'),
     jobQueue('orders-to-send', 'Orders to send', (toOrder.data ?? []) as JobRow[], toOrder.count ?? 0, 'Materials are ordered on every open job.'),
+    jobQueue('awaiting-payment', 'Finished, waiting on payment', owing, owingCount, 'Nothing is waiting on payment.'),
   ]
 }
 
