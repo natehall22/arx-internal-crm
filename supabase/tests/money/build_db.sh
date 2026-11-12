@@ -17,5 +17,7 @@ for f in $(ls supabase/migrations | grep -E '^[0-9]' | sort | awk '$0 >= "202611
   apply "$f"
 done
 for p in $phase3; do apply "$(ls supabase/migrations | grep "^$p")"; done
+# Supabase hands the API roles everything in public by default (RLS is what restricts anon/authenticated); the dump carries no privileges.
+psql -X -q -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role; GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role; GRANT USAGE ON SCHEMA arx_private TO anon, authenticated, service_role; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA arx_private TO anon, authenticated, service_role; NOTIFY pgrst, 'reload schema'" >/dev/null
 echo "migration failures: $fails"
 [ "$fails" = 0 ]
