@@ -172,7 +172,7 @@ describe('mail is decided on the SENDING org', () => {
   it('company-owned send paths pass the sending org to the mail door', () => {
     const fs = require('fs') as typeof import('fs')
     // every getMailTransport() call outside these public / org-less callers must name the sending org
-    const allowed = new Set(['lib/public-estimate-lead.ts', 'lib/supplier-order-email.ts', 'lib/customer-message-channels.ts', 'app/api/trial-signup/route.ts'])
+    const allowed = new Set(['lib/public-estimate-lead.ts', 'lib/customer-message-channels.ts', 'app/api/trial-signup/route.ts'])
     const bare: string[] = []
     const path = require('path') as typeof import('path')
     const walk = (d: string) => {

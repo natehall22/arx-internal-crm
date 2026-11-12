@@ -961,6 +961,7 @@ export async function executeSupplierOrderSend(
     result = input.manual
       ? { channel: 'email', reference: null }
       : await deps.transmit({
+      orgId: ctx.orgId,
       kind: preview.kind,
       supplier,
       jobNumber: ctx.jobNumber,

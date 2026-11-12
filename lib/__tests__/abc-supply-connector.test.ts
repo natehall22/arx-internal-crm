@@ -99,7 +99,7 @@ describe('kill switches (all three must be on)', () => {
     delete process.env.SUPPLIER_API_ORDERING
     const fetchSpy = jest.spyOn(global, 'fetch')
     await expect(
-      abcSupplyConnector.transmit({ kind: 'order', supplier: supplier(), jobNumber: '26-0141', poLabel: '26-0141-A', deliveryDate: '2026-11-03', deliveryAddress: 'x', deliveryNotes: null, note: null, lines: [] as never, email: {} as never, pdf: null })
+      abcSupplyConnector.transmit({ orgId: 'org-1', kind: 'order', supplier: supplier(), jobNumber: '26-0141', poLabel: '26-0141-A', deliveryDate: '2026-11-03', deliveryAddress: 'x', deliveryNotes: null, note: null, lines: [] as never, email: {} as never, pdf: null })
     ).rejects.toThrow(/refused/)
     expect(fetchSpy).not.toHaveBeenCalled()
     fetchSpy.mockRestore()

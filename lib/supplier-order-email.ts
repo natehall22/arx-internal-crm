@@ -199,14 +199,15 @@ export function composePurchaseOrderEmail(args: {
  */
 export async function deliverSupplierOrderEmail(
   email: ComposedSupplierEmail,
-  pdf: Buffer | null
+  pdf: Buffer | null,
+  orgId: string
 ): Promise<{ messageId: string | null }> {
   if (!process.env.SMTP_HOST) {
     throw new Error('Email is not set up on the server (SMTP_HOST missing)')
   }
   // Lazy import: keeps nodemailer out of anything that only composes/previews.
   const { getMailTransport } = await import('@/lib/setter-email')
-  const info = await getMailTransport().sendMail({
+  const info = await getMailTransport(orgId).sendMail({
     from: email.from,
     to: email.to,
     cc: email.cc.length > 0 ? email.cc : undefined,

@@ -901,6 +901,7 @@ export async function executePoSend(
     result = input.manual
       ? { channel: 'email', reference: null }
       : await deps.transmit({
+          orgId,
           kind: preview.kind,
           supplier: vendor,
           jobNumber: target.reference,

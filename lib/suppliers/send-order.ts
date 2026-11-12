@@ -15,6 +15,8 @@ import type { LineSnapshot, SendKind, SupplierRecord } from '@/lib/material-sour
 import { deliverSupplierOrderEmail, type ComposedSupplierEmail } from '@/lib/supplier-order-email'
 
 export type SupplierOrderTransmission = {
+  /** The sending company: a demo company's order is logged, never emailed to a real supplier (lib/demo-org-mail.ts). */
+  orgId: string
   kind: SendKind
   supplier: SupplierRecord
   jobNumber: string
@@ -83,7 +85,7 @@ export async function sendOrderToSupplier(order: SupplierOrderTransmission): Pro
     const { reference } = await connector.transmit(order)
     return { channel: 'api', reference }
   }
-  const { messageId } = await deliverSupplierOrderEmail(order.email, order.pdf)
+  const { messageId } = await deliverSupplierOrderEmail(order.email, order.pdf, order.orgId)
   return { channel: 'email', reference: messageId }
 }
 
