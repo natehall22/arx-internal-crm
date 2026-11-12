@@ -15,6 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createHash, randomBytes } from 'crypto'
 
 import { tryOrgAppUrl } from '@/lib/company-links'
+import { enqueueRecordEvent } from '@/lib/integrations'
 import { addJobCostLine, loadJobCostLedger } from '@/lib/job-cost-ledger'
 import {
   canonicalContent,
@@ -1186,6 +1187,8 @@ export async function recordPoBill(
   } else {
     warning = 'Recorded on the order. This visit is not on a job, so it is not in a job budget.'
   }
+  // QuickBooks: a recorded bill is an approved bill (staff entered it against a sent PO). Never blocks the bill.
+  await enqueueRecordEvent(admin, orgId, { eventType: 'bill.recorded', table: 'purchase_order_bills', id: billId })
   const status = await refreshPoStatus(admin, orgId, poId)
   return { ok: true, billId, costLineId, status, warning }
 }
@@ -1206,6 +1209,7 @@ export async function voidPoBill(admin: SupabaseClient, orgId: string, userId: s
   }
   const { error } = await admin.from('purchase_order_bills').update({ status: 'void', voided_at: new Date().toISOString(), voided_by: userId }).eq('org_id', orgId).eq('id', billId)
   if (error) return { ok: false, message: 'Could not void the bill.' }
+  await enqueueRecordEvent(admin, orgId, { eventType: 'bill.voided', table: 'purchase_order_bills', id: billId })
   return { ok: true, status: await refreshPoStatus(admin, orgId, poId) }
 }
 

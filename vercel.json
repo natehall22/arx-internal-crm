@@ -44,7 +44,7 @@
     },
     {
       "path": "/api/cron/quickbooks",
-      "schedule": "43 6 * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/cron/instant-estimate-accuracy",

@@ -67,6 +67,7 @@ const FUTURE = '2999-01-01T00:00:00.000Z'
 
 function seed(extra: Record<string, unknown> = {}) {
   db = createFakeDb({
+    orgs: [{ id: ORG, settings: { features: { quickbooks: true } } }],
     order_form_contracts: [
       {
         id: 'c1', org_id: ORG, agreement_type: 'contingency', status: 'pending_customer', signing_token: TOKEN,

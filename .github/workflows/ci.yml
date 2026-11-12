@@ -93,3 +93,40 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
+
+  # The money end-to-end suite (npm run test:money): real Postgres 16 with production's schema + every newer migration,
+  # real PostgREST, the real server functions, a fake QuickBooks. Its own job (not in scripts/gates.sh) so a money
+  # disagreement names itself in the PR checks. No secrets; the database is throwaway and local to the runner.
+  money-e2e:
+    name: money e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      TZ: America/New_York
+      POSTGREST_VERSION: v12.2.3
+      # sha256 of postgrest-v12.2.3-linux-static-x64.tar.xz from the PostgREST GitHub release.
+      POSTGREST_SHA256: 9f71269e61ac3a940281e93ff415760f5957e430e475ba4c3889f3ede7d5527c
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: PostgreSQL 16 binaries
+        run: |
+          if [ ! -x /usr/lib/postgresql/16/bin/initdb ]; then
+            sudo apt-get update -y && sudo apt-get install -y postgresql-16
+          fi
+          /usr/lib/postgresql/16/bin/postgres --version
+      - name: PostgREST (pinned by checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/pgrst"
+          curl -fsSL -o "$RUNNER_TEMP/pgrst.tar.xz" "https://github.com/PostgREST/postgrest/releases/download/${POSTGREST_VERSION}/postgrest-${POSTGREST_VERSION}-linux-static-x64.tar.xz"
+          echo "${POSTGREST_SHA256}  $RUNNER_TEMP/pgrst.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/pgrst.tar.xz" -C "$RUNNER_TEMP/pgrst"
+          echo "POSTGREST_BIN=$RUNNER_TEMP/pgrst/postgrest" >> "$GITHUB_ENV"
+      - name: Money suite
+        run: npm run test:money

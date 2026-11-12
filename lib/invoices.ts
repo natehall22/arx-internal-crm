@@ -18,6 +18,7 @@ import { computeCustomerSalesTax } from './sales-tax-server'
 import { normalizeDepositFraction } from './job-pipeline'
 import { invoiceItemLineFields, invoicePaidCents, lineTotalCents, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from './invoice-lines'
 import { orgDb } from '@/lib/supabase/org-db'
+import { enqueuePaymentRecorded, enqueueRecordEvent } from './integrations'
 export { CUSTOMER_PAYMENT_METHODS, CUSTOMER_PAYMENT_METHOD_LABELS, type CustomerPaymentMethod } from './invoice-lines'
 
 /**
@@ -722,11 +723,17 @@ export async function recalculateInvoiceTotals(
   if (updateError) throw new Error(`Failed to save invoice totals: ${updateError.message}`)
 }
 
+/** Tell the QuickBooks worker a CRM invoice was issued / voided. Its company is the row's own (set by trigger); never throws. */
+async function queueInvoiceForQuickBooks(supabase: SupabaseClient, invoice: { id: string; org_id?: string | null }, eventType: 'invoice.upserted' | 'invoice.voided'): Promise<void> {
+  if (!invoice.org_id) return
+  await enqueueRecordEvent(supabase, invoice.org_id, { eventType, table: 'job_invoices', id: invoice.id, version: 1 })
+}
+
 /**
  * Finalize and send an invoice.
  * Sets status to 'sent', records sent_at and email.
  * PDF generation is handled separately via the /api/invoices/[id]/pdf endpoint.
- * This only ISSUES the invoice (status, dates, who it went to); the email itself is lib/invoice-email.ts (sendCustomerInvoice), which calls this. Nothing is sent to QuickBooks (see docs/quickbooks-sync.md).
+ * This only ISSUES the invoice (status, dates, who it went to); the email itself is lib/invoice-email.ts (sendCustomerInvoice), which calls this. Issuing queues the invoice for QuickBooks (every-invoice mode; docs/quickbooks-sync.md).
  */
 export async function finalizeAndSendInvoice(
   supabase: SupabaseClient,
@@ -777,6 +784,8 @@ export async function finalizeAndSendInvoice(
   if (error || !updated) {
     throw new Error(`Failed to send invoice: ${error?.message || 'Unknown error'}`)
   }
+
+  await queueInvoiceForQuickBooks(supabase, updated, 'invoice.upserted')
 
   return updated as JobInvoice
 }
@@ -1092,6 +1101,7 @@ export async function voidInvoice(
     throw new Error(`Failed to void invoice: ${error?.message || 'Unknown error'}`)
   }
 
+  await queueInvoiceForQuickBooks(supabase, updated, 'invoice.voided')
   return updated as JobInvoice
 }
 
@@ -1278,6 +1288,8 @@ export async function recordCustomerInvoicePayment(
     throw new Error(`Failed to record payment: ${error.message}`)
   }
   const r = (data ?? {}) as { payment_id?: string; status?: InvoiceStatus; balance_cents?: number; duplicate?: boolean }
+  // A payment on an invoice without a job has no SQL outbox row (record_job_payment is the job writer): queue it here.
+  await enqueuePaymentRecorded(supabase, orgId, String(r.payment_id), { amount_cents: p.amountCents, paid_at: p.paidAt, payment_type: 'other', method: p.method, payer: 'other' }).catch((e) => console.error('queue payment for QuickBooks failed', e))
   return { ok: true, paymentId: String(r.payment_id), status: (r.status ?? 'partially_paid') as InvoiceStatus, balanceCents: Number(r.balance_cents ?? 0), duplicate: !!r.duplicate }
 }
 
@@ -1309,6 +1321,7 @@ export async function recordCustomerInvoiceRefund(
     throw new Error(`Failed to record refund: ${error.message}`)
   }
   const r = (data ?? {}) as { payment_id?: string; duplicate?: boolean }
+  await enqueuePaymentRecorded(supabase, orgId, String(r.payment_id), { amount_cents: -Math.abs(p.amountCents), paid_at: p.paidAt, payment_type: 'other', method: p.method, payer: 'other' }, 'payment.refunded').catch((e) => console.error('queue refund for QuickBooks failed', e))
   return { ok: true, paymentId: String(r.payment_id), duplicate: !!r.duplicate }
 }
 
