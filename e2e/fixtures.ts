@@ -365,7 +365,7 @@ export const HARNESS_LEADS = {
 }
 export const HARNESS_PROFIT_ROWS = [
   { id: 'j1', jobNumber: '26-0041', lastName: 'Gaines', customerName: 'Ashley Gaines', address: '1423 Maple Ridge Dr, Concord NC', saleDate: '2026-10-01', saleAmount: 18400, financeCost: 0, commissionBase: 18400, materials: 6100, labor: 4060, misc: 0, totalExpenses: 10160, commission: 2760, commissionNote: 'pays next week', grossProfit: 5480, grossPercent: 29.78, notes: 'Dumpster on the street', status: 'Deposit Received', unreviewed: true },
-  { id: 'j2', jobNumber: '26-0038', lastName: 'Cox', customerName: 'Bill Cox', address: '88 Oak Ave, Kannapolis NC', saleDate: '2026-09-12', saleAmount: 16325, financeCost: 900, commissionBase: 16325, materials: 5200, labor: 4060, misc: 200, totalExpenses: 9460, commission: null, commissionNote: null, grossProfit: null, grossPercent: null, notes: null, status: 'Reconciled & Closed', unreviewed: false },
+  { id: 'j2', jobNumber: '26-0038', lastName: 'Cox', customerName: 'Bill Cox', address: '88 Oak Ave, Kannapolis NC', saleDate: '2026-09-12', saleAmount: 16325, financeCost: 900, commissionBase: 16325, materials: 5200, labor: 4060, misc: 200, totalExpenses: 9460, commission: 4100, commissionNote: 'paid', grossProfit: 2765, grossPercent: 16.94, notes: null, status: 'Reconciled & Closed', unreviewed: false },
 ]
 
 export const HARNESS_APPOINTMENTS = {
