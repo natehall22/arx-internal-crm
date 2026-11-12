@@ -28,6 +28,8 @@ export type WorkerDeps = {
   /** Stop starting new rows after this long (the cron has a hard limit). */
   budgetMs?: number
   maxRows?: number
+  /** Test seam: the safety-net sweep (default on). */
+  sweep?: boolean
 }
 
 export type WorkerReport = {
@@ -63,7 +65,7 @@ export async function runQuickBooksForOrg(deps: WorkerDeps, org: WorkerOrg, feat
   const links = createQbLinks(admin, org.id)
 
   try {
-    const swept = await sweepUnheard(admin, org.id, settings)
+    const swept = deps.sweep === false ? { invoices: 0, payments: 0, bills: 0 } : await sweepUnheard(admin, org.id, settings)
     report.swept = swept.invoices + swept.payments + swept.bills
   } catch (e) {
     console.error('quickbooks sweep failed', org.id, e instanceof Error ? e.message : e)

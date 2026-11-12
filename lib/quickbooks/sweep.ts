@@ -3,7 +3,8 @@
  * because enqueueing happens in many CRM code paths (signing, invoicing, payments, bills); one forgotten or failed enqueue must
  * never mean a missing invoice in the books. A record is "unheard" when it has NO qb_link and NO outbox row of any kind
  * (a skipped / failed / waiting row means someone already decided something about it — the sweep never re-queues those).
- * Company-scoped (orgDb) and bounded per run; a huge backlog drains over a few runs.
+ * Company-scoped (orgDb) and bounded per run; a huge backlog drains over a few runs. `dryRun` only counts (the mapping screen's
+ * "these would be sent" preview).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -28,7 +29,7 @@ async function unheard(admin: SupabaseClient, orgId: string, table: string, ids:
 
 export type SweepResult = { invoices: number; payments: number; bills: number }
 
-export async function sweepUnheard(admin: SupabaseClient, orgId: string, settings: QbSettings): Promise<SweepResult> {
+export async function sweepUnheard(admin: SupabaseClient, orgId: string, settings: QbSettings, opts: { dryRun?: boolean } = {}): Promise<SweepResult> {
   const out: SweepResult = { invoices: 0, payments: 0, bills: 0 }
   const start = settings.startDate
   if (!start) return out
@@ -40,7 +41,7 @@ export async function sweepUnheard(admin: SupabaseClient, orgId: string, setting
     const jobs = (data ?? []) as Array<{ id: string; sale_amount: number }>
     const missing = await unheard(admin, orgId, 'production_jobs', jobs.map((j) => j.id), ['Invoice'])
     for (const j of jobs.filter((x) => missing.has(x.id)).slice(0, LIMIT)) {
-      await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'invoice.upserted', entityTable: 'production_jobs', entityId: j.id, payload: {}, version: centsOf(j.sale_amount) })
+      if (!opts.dryRun) await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'invoice.upserted', entityTable: 'production_jobs', entityId: j.id, payload: {}, version: centsOf(j.sale_amount) })
       out.invoices++
     }
   }
@@ -50,7 +51,7 @@ export async function sweepUnheard(admin: SupabaseClient, orgId: string, setting
     const rows = (data ?? []) as Array<{ id: string }>
     const missing = await unheard(admin, orgId, 'job_invoices', rows.map((r) => r.id), ['Invoice'])
     for (const r of rows.filter((x) => missing.has(x.id)).slice(0, LIMIT)) {
-      await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'invoice.upserted', entityTable: 'job_invoices', entityId: r.id, payload: {}, version: 1 })
+      if (!opts.dryRun) await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'invoice.upserted', entityTable: 'job_invoices', entityId: r.id, payload: {}, version: 1 })
       out.invoices++
     }
   }
@@ -60,7 +61,7 @@ export async function sweepUnheard(admin: SupabaseClient, orgId: string, setting
     const rows = (data ?? []) as Array<{ id: string; amount_cents: number }>
     const missing = await unheard(admin, orgId, 'job_payments', rows.map((r) => r.id), ['Payment', 'RefundReceipt'])
     for (const r of rows.filter((x) => missing.has(x.id)).slice(0, LIMIT)) {
-      await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: Number(r.amount_cents) < 0 ? 'payment.refunded' : 'payment.recorded', entityTable: 'job_payments', entityId: r.id, payload: {}, version: 1 })
+      if (!opts.dryRun) await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: Number(r.amount_cents) < 0 ? 'payment.refunded' : 'payment.recorded', entityTable: 'job_payments', entityId: r.id, payload: {}, version: 1 })
       out.payments++
     }
   }
@@ -70,7 +71,7 @@ export async function sweepUnheard(admin: SupabaseClient, orgId: string, setting
     const rows = (data ?? []) as Array<{ id: string }>
     const missing = await unheard(admin, orgId, 'purchase_order_bills', rows.map((r) => r.id), ['Bill', 'VendorCredit'])
     for (const r of rows.filter((x) => missing.has(x.id)).slice(0, LIMIT)) {
-      await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'bill.recorded', entityTable: 'purchase_order_bills', entityId: r.id, payload: {}, version: 1 })
+      if (!opts.dryRun) await enqueueIntegrationEvent(admin, { orgId, provider: 'quickbooks', eventType: 'bill.recorded', entityTable: 'purchase_order_bills', entityId: r.id, payload: {}, version: 1 })
       out.bills++
     }
   }
