@@ -251,7 +251,7 @@ export async function POST(
               user: process.env.SMTP_USER,
               pass: process.env.SMTP_PASS,
             },
-          })
+          }, workOrder.org_id)
 
           const appUrl = await orgAppUrl(workOrder.org_id)
 

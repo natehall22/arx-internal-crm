@@ -364,7 +364,7 @@ export async function sendSetterFieldUpdateEmail(
     .eq('org_id', params.orgId)
     .eq('active', true)
   if (teamUsersError) throw teamUsersError
-  const transporter = getMailTransport()
+  const transporter = getMailTransport(params.orgId)
   let sent = 0
   for (const recipient of recipients) {
     const managedTeamIds = resolveRecipientManagedTeamIds(

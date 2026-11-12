@@ -290,7 +290,7 @@ async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, 
   <p style="font-size:13px;color:#374151;">It works once and expires in ${LOGIN_LINK_MINUTES} minutes. If you did not ask for it, you can ignore this email — nobody can see your account without it.</p>
 </div>`
   const text = [invite ? `${company} set up your online account. You can see your project, photos, documents and invoices, and send us a message.` : `Here is your sign-in link for your ${company} account.`, '', ...links.map((l) => `${l.url}`), '', ...(invite ? [`Next time, go to ${later} and enter your email to get a new link.`, ''] : []), `It works once and expires in ${LOGIN_LINK_MINUTES} minutes. If you did not ask for it, ignore this email.`].join('\n')
-  await getMailTransport().sendMail({ from: getCrmEmailFrom(), to, ...(brand.email ? { replyTo: brand.email } : {}), subject: invite ? `Your ${company} account is ready` : `Your ${company} account link`, html, text })
+  await getMailTransport(orgId).sendMail({ from: getCrmEmailFrom(), to, ...(brand.email ? { replyTo: brand.email } : {}), subject: invite ? `Your ${company} account is ready` : `Your ${company} account link`, html, text })
   return true
 }
 

@@ -93,7 +93,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const safeJobNumber = sheet.jobNumber.replace(/[^A-Za-z0-9._-]/g, '-')
   const { getMailTransport } = await import('@/lib/setter-email')
   try {
-    const info = await getMailTransport().sendMail({
+    const info = await getMailTransport(ctx.profile.org_id).sendMail({
       from: getCrmEmailFrom(),
       to: to.map((r) => r.email),
       replyTo: ctx.profile.email || undefined,

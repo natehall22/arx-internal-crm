@@ -120,6 +120,7 @@ async function getProposalSoldRoofSquares(
 }
 
 async function sendEmail(
+  orgId: string,
   to: string,
   subject: string,
   text: string,
@@ -913,7 +914,7 @@ async function finishSignedContract(
         projectCost: contract.project_cost,
         customerPdfUrl,
       })
-      emailSent = await sendEmail(contract.customer_email, email.subject, email.text, email.html)
+      emailSent = await sendEmail(contract.org_id, contract.customer_email, email.subject, email.text, email.html)
       
       console.log('[Contract Sign] Email sent:', emailSent)
       if (emailSent) await mark('customer_email')

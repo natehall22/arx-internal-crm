@@ -5,7 +5,8 @@ import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 export { pickValidEmail } from '@/lib/email-address'
 export { getCrmEmailFrom }
 
-export function getMailTransport() {
+/** `sendingOrgId` = the company the mail is sent for: a demo company's mail is logged, never sent. */
+export function getMailTransport(sendingOrgId?: string | null) {
   return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -14,7 +15,7 @@ export function getMailTransport() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-  })
+  }, sendingOrgId)
 }
 
 type SetterEmailRow = { label: string; value: string }
@@ -26,6 +27,8 @@ export async function sendSetterEmail(params: {
   to: string
   /** When set, email is skipped if this CRM user is disabled. */
   recipientUserId?: string | null
+  /** The sending company (a demo company's mail is logged, never sent). */
+  orgId?: string | null
   setterName?: string | null
   subject: string
   introHtml: string
@@ -41,7 +44,7 @@ export async function sendSetterEmail(params: {
       return
     }
   }
-  const transporter = getMailTransport()
+  const transporter = getMailTransport(params.orgId)
   const name = params.setterName || 'Setter'
   const rowsHtml = params.rows
     .map(

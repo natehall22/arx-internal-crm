@@ -213,7 +213,7 @@ export async function sendSelection(
     try {
       const brand = await getDocumentBrand(admin, ctx.orgId)
       const mail = buildSelectionRequestEmail({ brand, customerName: ctx.contact.name, item: cur.item as string, link, dueDate: (cur.due_date as string | null) ?? null, repName: ctx.userName || brand.name })
-      const transporter = createGuardedTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: false, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } })
+      const transporter = createGuardedTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: false, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } }, ctx.orgId)
       await transporter.sendMail({ from: getCrmEmailFrom(), to: ctx.contact.email, subject: mail.subject, text: mail.text, html: mail.html })
       emailed = true
     } catch (e) {

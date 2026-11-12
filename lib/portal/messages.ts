@@ -18,7 +18,7 @@ export async function notifyCompanyOfPortalMessage(admin: SupabaseClient, orgId:
     const link = base ? `${base}/c/${customerId}` : null
     const who = c.name || 'A customer'
     const lines = [via === 'text' ? `${who} sent a text message.` : `${who} sent a message from their customer account.`, body, [c.phone, c.email].filter(Boolean).join(' · ')].filter(Boolean)
-    await getMailTransport().sendMail({
+    await getMailTransport(orgId).sendMail({
       from: getCrmEmailFrom(),
       to,
       ...(c.email ? { replyTo: c.email } : {}),

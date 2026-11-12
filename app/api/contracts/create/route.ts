@@ -267,7 +267,7 @@ export async function POST(request: NextRequest) {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
           },
-        })
+        }, profile.org_id)
 
         const email = buildContractReadyEmail({
           brand: await getDocumentBrand(supabase, profile.org_id),

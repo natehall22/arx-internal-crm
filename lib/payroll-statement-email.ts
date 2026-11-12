@@ -103,6 +103,8 @@ export async function sendPayrollStatementEmail(input: {
   /** The paying company's link target (lib/company-links loadOrgForLinks): the statement link uses its address. */
   linkOrg: AppUrlOrg
   attachPdf?: boolean
+  /** The paying company: a demo company's mail is logged, never sent. */
+  orgId?: string | null
 }): Promise<{ statementUrl: string; pdfAttached: boolean }> {
   if (!process.env.SMTP_HOST) {
     throw new Error('SMTP is not configured')
@@ -134,7 +136,7 @@ export async function sendPayrollStatementEmail(input: {
     pdfAttached,
   })
 
-  await getMailTransport().sendMail({
+  await getMailTransport(input.orgId).sendMail({
     from: fromAddress,
     to: input.to,
     subject: buildPayrollStatementEmailSubject(input.statement),

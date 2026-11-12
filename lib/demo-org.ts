@@ -53,6 +53,16 @@ export async function isDemoOrg(admin: SupabaseClient, orgId: string | null | un
   }
 }
 
+/** Pure: is this Supabase URL a database on this machine (localhost / 127.x / ::1 / *.local / the docker host)? */
+export function isLocalSupabaseUrl(url: string | null | undefined): boolean {
+  try {
+    const h = new URL(String(url)).hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    return h === 'localhost' || h === '::1' || h === 'host.docker.internal' || h.endsWith('.localhost') || h.endsWith('.local') || /^127(\.\d{1,3}){3}$/.test(h)
+  } catch {
+    return false
+  }
+}
+
 /** Uncached, fail-closed read for destructive code: throws unless the company is a demo. */
 export async function assertDemoOrg(admin: SupabaseClient, orgId: string): Promise<void> {
   const { data, error } = await admin.from('orgs').select('id, is_demo').eq('id', orgId).maybeSingle()
@@ -97,77 +107,63 @@ export function allRecipientsReserved(...fields: unknown[]): boolean {
   return clean.length > 0 && clean.every(isReservedMailDomain)
 }
 
-/** Every address in nodemailer `to`/`cc`/`bcc` fields, lower-cased and bare. */
-export function recipientAddresses(...fields: unknown[]): string[] {
-  const out: string[] = []
-  const walk = (v: unknown) => {
-    if (!v) return
-    if (typeof v === 'string') out.push(...v.split(','))
-    else if (Array.isArray(v)) v.forEach(walk)
-    else if (typeof v === 'object' && typeof (v as { address?: unknown }).address === 'string') out.push((v as { address: string }).address)
-  }
-  fields.forEach(walk)
-  return out.map((s) => s.trim().toLowerCase().replace(/^.*</, '').replace(/>.*$/, '')).filter((a) => a.includes('@'))
-}
-
-const demoIdsCache: { at: number; ids: string[] } = { at: 0, ids: [] }
+const demoSet: { at: number; ids: Set<string>; loaded: boolean } = { at: 0, ids: new Set(), loaded: false }
 
 /** Test hook. */
-export function clearDemoRecipientCache(): void {
-  demoIdsCache.at = 0
-  demoIdsCache.ids = []
+export function clearDemoSenderCache(): void {
+  demoSet.at = 0
+  demoSet.ids = new Set()
+  demoSet.loaded = false
 }
 
 /**
- * Does ANY of these addresses belong to a person in a demo company (a user, customer or lead stored in a demo org)? This is
- * how the mail door knows the org without every caller passing it: even a real address typed into a demo customer is found
- * here, so a demo company never emails anyone for real. Fail-open on a read error (a real company's mail must not stop),
- * but a missing column / no demo companies is a plain "no".
+ * Is this the SENDING company a demo? Decided on the sending org, never on who the mail is for. One read of the (tiny) set of
+ * demo companies per 60 s serves every send in the process, so a normal company's mail costs no extra query. When that read
+ * fails the last known set is used (a demo stays blocked, a normal company is unaffected); only a process that has NEVER
+ * managed to read it falls back to a one-company check, and if that fails too, it answers "demo" (fail closed).
  */
-export async function anyRecipientInDemoOrg(admin: SupabaseClient, addresses: string[], now = Date.now()): Promise<boolean> {
-  if (addresses.length === 0) return false
-  try {
-    if (now - demoIdsCache.at > CACHE_MS) {
+export async function isDemoSenderOrg(admin: SupabaseClient, orgId: string | null | undefined, now = Date.now()): Promise<boolean> {
+  if (!orgId) return false
+  if (now - demoSet.at > CACHE_MS) {
+    try {
       const { data, error } = await admin.from('orgs').select('id').eq('is_demo', true)
       if (error) {
-        demoIdsCache.ids = []
-        demoIdsCache.at = now
-        if (!isMissingColumn(error, 'is_demo')) console.error('[demo-org] could not list demo companies', error.message)
-        return false
+        if (isMissingColumn(error, 'is_demo')) {
+          demoSet.ids = new Set()
+          demoSet.loaded = true
+        } else console.error('[demo-org] could not list demo companies', error.message)
+      } else {
+        demoSet.ids = new Set(((data as { id: string }[] | null) ?? []).map((r) => r.id))
+        demoSet.loaded = true
       }
-      demoIdsCache.ids = ((data as { id: string }[] | null) ?? []).map((r) => r.id)
-      demoIdsCache.at = now
+    } catch (e) {
+      console.error('[demo-org] demo company list failed', e)
     }
-    if (demoIdsCache.ids.length === 0) return false
-    for (const table of ['users', 'customers', 'leads']) {
-      const { data, error } = await admin.from(table).select('id').in('org_id', demoIdsCache.ids).in('email', addresses).limit(1)
-      if (!error && (data?.length ?? 0) > 0) return true
-    }
-    return false
-  } catch (e) {
-    console.error('[demo-org] recipient check failed', e)
-    return false
+    demoSet.at = now // on failure keep the old set, retry in 60 s
+  }
+  if (demoSet.ids.has(orgId)) return true
+  if (demoSet.loaded) return false
+  try {
+    const { data, error } = await admin.from('orgs').select('is_demo').eq('id', orgId).maybeSingle()
+    if (error) return !isMissingColumn(error, 'is_demo')
+    return (data as { is_demo?: boolean } | null)?.is_demo === true
+  } catch {
+    return true
   }
 }
 
 /**
- * Wrap a mail transport so mail that belongs to a demo company is logged and dropped (never handed to the mail server):
- * addressed only to reserved example addresses, OR to any address stored in a demo org (`isDemoRecipient`). Everything else
- * passes through untouched.
+ * Wrap a mail transport so mail that belongs to a demo company is logged and dropped (never handed to the mail server): sent
+ * FROM a demo company (`isDemoSender`, decided on the sending org), or addressed only to reserved `demo.example.com`
+ * addresses (always safe — such an address can never receive mail). Mail to anyone else from another company is untouched.
  */
-export function guardReservedRecipients<T extends { sendMail: (...args: any[]) => any }>(
-  transport: T,
-  isDemoRecipient?: (addresses: string[]) => Promise<boolean>
-): T {
+export function guardReservedRecipients<T extends { sendMail: (...args: any[]) => any }>(transport: T, isDemoSender?: () => Promise<boolean>): T {
   if (!transport || typeof transport.sendMail !== 'function') return transport
   return new Proxy(transport, {
     get(target, prop, receiver) {
       if (prop !== 'sendMail') return Reflect.get(target, prop, receiver)
       return async (message: Record<string, unknown>, ...rest: unknown[]) => {
-        const suppressed =
-          !!message &&
-          (allRecipientsReserved(message.to, message.cc, message.bcc) ||
-            (isDemoRecipient ? await isDemoRecipient(recipientAddresses(message.to, message.cc, message.bcc)) : false))
+        const suppressed = !!message && (allRecipientsReserved(message.to, message.cc, message.bcc) || (isDemoSender ? await isDemoSender() : false))
         if (suppressed) {
           console.info('[demo] mail for a demo company was not sent', { to: message.to, subject: message.subject })
           return { messageId: 'demo-suppressed', accepted: [], rejected: [], response: 'suppressed (demo company)' }

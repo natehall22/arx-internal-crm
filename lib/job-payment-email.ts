@@ -93,7 +93,7 @@ export async function notifyAdminOpsOfJobPayment(
       </div>
     `
 
-  const transporter = getMailTransport()
+  const transporter = getMailTransport(params.orgId)
   const subject = `Payment posted: ${params.jobNumber} — ${formatMoney(params.amountCents)}`
 
   for (const to of emails) {

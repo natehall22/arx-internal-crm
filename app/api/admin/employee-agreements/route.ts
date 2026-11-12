@@ -36,13 +36,13 @@ function errorResponse(error: unknown) {
   return NextResponse.json({ error: 'Unable to process compensation agreement' }, { status: 500 })
 }
 
-async function sendAgreementEmail(input: { to: string; name: string; roleName: string; effectiveDate: string; token: string; appUrl: string; companyName: string }) {
+async function sendAgreementEmail(input: { to: string; name: string; roleName: string; effectiveDate: string; token: string; appUrl: string; companyName: string; orgId: string }) {
   if (!process.env.SMTP_HOST) throw new Error('smtp_not_configured')
   const url = `${input.appUrl}/comp-agreements/sign/${input.token}`
   const transport = createGuardedTransport({
     host: process.env.SMTP_HOST, port: parseInt(process.env.SMTP_PORT || '587', 10), secure: process.env.SMTP_SECURE === 'true',
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }, connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 60_000,
-  })
+  }, input.orgId)
   await transport.sendMail({
     from: getCrmEmailFrom(), to: input.to,
     subject: `${input.companyName ? `${input.companyName} ` : ''}${input.roleName} compensation agreement - signature requested`,
@@ -66,7 +66,7 @@ async function claimAndSend(admin: ReturnType<typeof createServiceClient>, input
     const appUrl = await orgAppUrl(claimed.org_id as string)
     const brand = await getOrgBrand(admin, claimed.org_id as string)
     const companyName = brand.shortName || brand.name
-    await sendAgreementEmail({ to: snapshot.employeeEmail, name: snapshot.employeeName, roleName: EMPLOYEE_AGREEMENT_TEMPLATES[agreementKey].roleName, effectiveDate: snapshot.effectiveDate, token, appUrl, companyName })
+    await sendAgreementEmail({ to: snapshot.employeeEmail, name: snapshot.employeeName, roleName: EMPLOYEE_AGREEMENT_TEMPLATES[agreementKey].roleName, effectiveDate: snapshot.effectiveDate, token, appUrl, companyName, orgId: claimed.org_id as string })
   } catch (mailError) {
     console.error('employee agreement send failed', mailError)
     const { error: failureError } = await admin.rpc('fail_employee_agreement_send', { p_agreement_id: input.agreementId, p_attempt_id: attemptId, p_actor_user_id: input.actorId, p_actor_name: input.actorName, p_actor_email: input.actorEmail })

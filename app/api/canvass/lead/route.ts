@@ -79,7 +79,7 @@ function formatScheduledAppointmentInsertError(dbMessage: string): string {
   return `Could not save the appointment (${dbMessage})`
 }
 
-function getMailTransport() {
+function getMailTransport(sendingOrgId?: string | null) {
   return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -88,7 +88,7 @@ function getMailTransport() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-  })
+  }, sendingOrgId)
 }
 
 // Helper to get valid access token (refresh if needed)
@@ -1276,6 +1276,7 @@ export async function POST(request: Request) {
             await sendSetterEmail({
               to: setterEmail,
               recipientUserId: profile.id,
+              orgId: profile.org_id,
               setterName,
               subject: `🚀 ${leadRow.homeowner_name || 'Customer'} Inspection Set 🚀`,
               introHtml: `<p style="color:#374151;">Your inspection has been scheduled. Here are the details:</p>`,
@@ -1341,7 +1342,7 @@ export async function POST(request: Request) {
           const leadUrl = `${appUrl}/leads/${leadRow.id}`
           const scheduledTime = formatInspectionTimeEt(inspectionScheduledFor)
 
-          const transporter = getMailTransport()
+          const transporter = getMailTransport(profile.org_id)
           await transporter.sendMail({
             from: getCrmEmailFrom(),
             to: alertTo,
@@ -1410,7 +1411,7 @@ export async function POST(request: Request) {
             const recordUrl = opportunityId ? `${appUrl}/opportunities/${opportunityId}` : `${appUrl}/leads/${leadRow.id}`
             const closerName = closerProfile.full_name || 'Closer'
 
-            const transporter = getMailTransport()
+            const transporter = getMailTransport(profile.org_id)
             await transporter.sendMail({
               from: getCrmEmailFrom(),
               to: closerProfile.email,

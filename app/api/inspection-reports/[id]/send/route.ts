@@ -76,7 +76,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       ? `<p style="color:#374151; white-space:pre-line;">${escapeHtml(personalMessage)}</p>`
       : ''
 
-    await getMailTransport().sendMail({
+    await getMailTransport(profile.org_id).sendMail({
       from: getCrmEmailFrom(),
       replyTo: sender?.email && sender.email.includes('@') ? sender.email : undefined,
       to,

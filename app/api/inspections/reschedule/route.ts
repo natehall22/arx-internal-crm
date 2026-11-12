@@ -410,6 +410,7 @@ export async function POST(request: NextRequest) {
             await sendSetterEmail({
               to: setterUser.email,
               recipientUserId: originalAppointment.canvasser_user_id,
+              orgId: profile.org_id,
               setterName: setterUser.full_name,
               subject: `Inspection rescheduled: ${originalAppointment.leads?.homeowner_name || 'Customer'}`,
               introHtml: `<p style="color: #374151;">${closerProfile?.full_name || 'Your closer'} rescheduled an inspection to a new time.</p>`,

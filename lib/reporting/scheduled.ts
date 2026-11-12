@@ -69,7 +69,7 @@ export async function sendScheduledReports(
           const ctx = await buildReportContext(admin, person)
           if (!ctx.canExport) continue
           const result = await runReport(admin, ctx, parsed.spec)
-          await getMailTransport().sendMail({
+          await getMailTransport(orgId).sendMail({
             from: getCrmEmailFrom(),
             to: person.email,
             subject: `${r.name} — ${todayKey}`,

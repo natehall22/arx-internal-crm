@@ -541,7 +541,7 @@ export async function PATCH(request: NextRequest) {
       `redirect_to=${encodeURIComponent(`${appUrl}/reset-password`)}`
     )
 
-    const transporter = getMailTransport()
+    const transporter = getMailTransport(targetUser.org_id)
     await transporter.sendMail({
       from: getCrmEmailFrom(),
       to: targetUser.email,

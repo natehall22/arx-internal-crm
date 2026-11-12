@@ -45,7 +45,7 @@ export async function POST(
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-  })
+  }, contract.org_id)
 
   await transporter.sendMail({
     from: getCrmEmailFrom(),

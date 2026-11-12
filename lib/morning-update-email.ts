@@ -474,7 +474,7 @@ export async function sendMorningUpdateEmail(
   }
 
   const metrics = params.metrics ?? (await fetchMorningUpdateMetrics(supabase, params.orgId))
-  const transporter = getMailTransport()
+  const transporter = getMailTransport(params.orgId)
   const subjectPrefix = isTest ? '[TEST] ' : ''
   const subject = `${subjectPrefix}ARX Morning Update — ${metrics.sentDateLabel}`
   // The daily data-health check rides along. It must never stop the update going out.

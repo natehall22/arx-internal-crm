@@ -173,7 +173,7 @@ async function upsertPendingInspectionPrompt(
   }
 }
 
-function getMailTransport() {
+function getMailTransport(sendingOrgId?: string | null) {
   return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -182,7 +182,7 @@ function getMailTransport() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-  })
+  }, sendingOrgId)
 }
 
 export async function POST(request: NextRequest) {
@@ -893,7 +893,7 @@ export async function POST(request: NextRequest) {
           setterUser?.email &&
           (await isUserActiveForTransactionalEmail(createServiceClient(), setterUserId))
         ) {
-          const transporter = getMailTransport()
+          const transporter = getMailTransport(profile.org_id)
           const setterName = setterUser.full_name || 'Setter'
           const submittedAt = new Date().toLocaleString('en-US', {
             dateStyle: 'full',
@@ -1227,6 +1227,7 @@ export async function POST(request: NextRequest) {
               await sendSetterEmail({
                 to: setterUser.email,
                 recipientUserId: setterUid,
+                orgId: profile.org_id,
                 setterName: setterUser.full_name,
                 subject: `Follow-up scheduled: ${customerName}`,
                 introHtml: `<p style="color: #374151;">${profile.full_name || 'A closer'} scheduled a follow-up appointment for your lead.</p>`,

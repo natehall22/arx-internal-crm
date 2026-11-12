@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
           },
-        })
+        }, changeOrder.org_id)
 
         const email = buildChangeOrderSignedEmail({
           brand: documentBrand,

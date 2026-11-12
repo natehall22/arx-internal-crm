@@ -121,7 +121,7 @@ async function settingsStep(ctx: Ctx) {
   // The texting line: a reserved 555-01xx number on the test adapter (no provider is ever called for a demo org).
   const now = new Date().toISOString()
   const sms = await orgDb(admin, orgId).from('org_sms').upsert(
-    { e164: DEMO_DEFAULTS.textingE164, number_kind: 'local', number_source: 'manual', status: 'active', approved_at: now, updated_by: ctx.ownerId, updated_at: now },
+    { provider: 'test', e164: DEMO_DEFAULTS.textingE164, number_kind: 'local', number_source: 'manual', status: 'active', approved_at: now, updated_by: ctx.ownerId, updated_at: now },
     { onConflict: 'org_id' }
   )
   if (sms.error) throw new Error(`texting number: ${sms.error.message ?? sms.error.code}`)

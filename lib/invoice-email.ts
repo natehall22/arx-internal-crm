@@ -109,7 +109,7 @@ export async function sendCustomerInvoice(
   if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
   if (doc.items.length === 0 || invoice.total_cents <= 0) return { ok: false, status: 400, error: 'This invoice has nothing to bill' }
   const mail = renderInvoiceEmail(doc, { payUrl: doc.isPaid ? null : opts.payUrl ?? null })
-  await getMailTransport().sendMail({
+  await getMailTransport(orgId).sendMail({
     from: fromHeader,
     to: address,
     ...(doc.company.email ? { replyTo: doc.company.email } : {}),
@@ -150,7 +150,7 @@ export async function emailInvoicePayLink(
   const address = (to ?? doc.billTo.email ?? '').trim()
   if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
   const mail = renderInvoiceEmail(doc, { payUrl })
-  await getMailTransport().sendMail({
+  await getMailTransport(orgId).sendMail({
     from: getCrmEmailFrom(),
     to: address,
     ...(doc.company.email ? { replyTo: doc.company.email } : {}),

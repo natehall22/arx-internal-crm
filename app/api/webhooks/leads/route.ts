@@ -43,7 +43,7 @@ export async function OPTIONS(request: NextRequest) {
 // This endpoint receives leads from external sources (websites, forms, etc.)
 // It can be called with an API key for authentication
 
-function getMailTransport() {
+function getMailTransport(sendingOrgId?: string | null) {
   return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -52,7 +52,7 @@ function getMailTransport() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-  })
+  }, sendingOrgId)
 }
 
 type LeadSourceConfig = {
@@ -482,7 +482,7 @@ export async function POST(request: NextRequest) {
       const sourceLabel = String(source || 'web')
       const h = (v: unknown, fallback: string) => escapeHtml(String(v || fallback))
 
-      const transporter = getMailTransport()
+      const transporter = getMailTransport(org_id)
       await transporter.sendMail({
         from: getCrmEmailFrom(),
         to: owner.email,

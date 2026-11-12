@@ -11,7 +11,7 @@
  * Optional "profile" (roofing | lawn_landscape | exterior_cleaning | home_builder, lib/industry-profiles.ts) sets the
  * industry profile and, when "trades" is left out, its starting trades; `--profile=<id>` overrides the file.
  *
- *   npm run seed:company -- --demo [--apply] [--reset] [--name="…"] [--logo-url=https://…] [--profile=<id>]
+ *   npm run seed:company -- --demo [--apply] [--reset] [--i-know-this-is-prod] [--name="…"] [--logo-url=https://…] [--profile=<id>]
  *
  * --demo builds ONE fictional company ("Gulf Coast Grounds & Exterior", lawn_landscape, address `demo`) with sample data
  * for sales demos; no input file. The org carries the database flag `is_demo`: outbound email / texts are only logged, Stripe
@@ -26,6 +26,7 @@ import { createClient } from '@supabase/supabase-js'
 
 import { parseCompanySeedInput, runCompanySeed, SeedStop } from '@/lib/company-seed'
 import { demoSeedRaw } from '@/lib/demo-company-data'
+import { isLocalSupabaseUrl } from '@/lib/demo-org'
 import { setDemoLogoFromUrl } from '@/lib/demo-logo'
 import { deploymentOrgId } from '@/lib/company-host'
 
@@ -59,6 +60,17 @@ async function main() {
     process.exit(2)
   }
 
+  // The demo seed builds and wipes a whole fictional company: it runs against a local / test database only. A hosted one needs
+  // --i-know-this-is-prod, and even then the run only ever creates or resets the demo-flagged company (the flag is re-read
+  // from the database before anything is wiped).
+  if (demo && !isLocalSupabaseUrl(url) && !args.includes('--i-know-this-is-prod')) {
+    console.error(`Refusing: ${new URL(url).host} is not a local database. The demo seed is for a local / test database; pass --i-know-this-is-prod to run it against a hosted one (it will still only touch the demo-flagged company).`)
+    process.exit(2)
+  }
+  if (!demo && args.includes('--i-know-this-is-prod')) {
+    console.error('--i-know-this-is-prod is only for --demo')
+    process.exit(2)
+  }
   const raw = demo ? demoSeedRaw({ name: nameArg, profile: profileArg }) : JSON.parse(readFileSync(file!, 'utf8'))
   const parsed = parseCompanySeedInput(profileArg && !demo ? { ...raw, profile: profileArg } : raw)
   if (!parsed.ok) {

@@ -88,7 +88,7 @@ export async function notifyOrgAdminsOfSale(
       ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
       : '—'
 
-  const transporter = getMailTransport()
+  const transporter = getMailTransport(params.orgId)
   const subject = `🚀 SALE! 🚀 ${params.customerName}`
 
   const setterRow = params.setterName

@@ -76,7 +76,7 @@ export async function emailWeekStatements(admin: SupabaseClient, orgId: string, 
         out.skipped += 1
         continue
       }
-      await sendPayrollStatementEmail({ to, recipientName: (user.full_name as string) || 'there', recipientUserId: p.userId, statement, brand, linkOrg, attachPdf: true })
+      await sendPayrollStatementEmail({ to, recipientName: (user.full_name as string) || 'there', recipientUserId: p.userId, statement, brand, linkOrg, attachPdf: true, orgId })
       out.sent += 1
     } catch (e) {
       console.error('pay-week: statement email failed', p.userId, e)

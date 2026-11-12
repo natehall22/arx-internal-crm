@@ -80,49 +80,77 @@ describe('demoSuppressedChannel', () => {
   })
 })
 
-describe('every mail path is suppressed for a demo company, unchanged for others', () => {
-  const { anyRecipientInDemoOrg, clearDemoRecipientCache, recipientAddresses } = jest.requireActual('@/lib/demo-org') as typeof import('@/lib/demo-org')
-  // orgs -> demo ids; users/customers/leads -> rows whose email is in `known` and org is demo
-  const client = (demoIds: string[], known: Record<string, string[]>) =>
-    ({
-      from: (table: string) => {
-        if (table === 'orgs') return { select: () => ({ eq: async () => ({ data: demoIds.map((id) => ({ id })), error: null }) }) }
-        return {
-          select: () => ({
-            in: (_c: string, orgs: string[]) => ({
-              in: (_e: string, emails: string[]) => ({
-                limit: async () => ({ data: emails.some((e) => (known[table] ?? []).includes(e)) && orgs.length ? [{ id: 'x' }] : [], error: null }),
-              }),
-            }),
-          }),
-        }
-      },
-    }) as never
-
-  beforeEach(() => clearDemoRecipientCache())
-
-  it('a real address stored in a demo org is suppressed; the same address elsewhere is not', async () => {
+describe('mail is decided on the SENDING org', () => {
+  const T = 1_000_000
+  const { isDemoSenderOrg, clearDemoSenderCache } = jest.requireActual('@/lib/demo-org') as typeof import('@/lib/demo-org')
+  type Mode = { ids?: string[]; fail?: boolean; failOne?: boolean }
+  const makeClient = (mode: Mode) => {
+    const reads = { list: 0, one: 0 }
+    const client = {
+      from: () => ({
+        select: () => ({
+          eq: (col: string) => {
+            if (col === 'is_demo') {
+              reads.list += 1
+              return Promise.resolve(mode.fail ? { data: null, error: { message: 'down' } } : { data: (mode.ids ?? []).map((id) => ({ id })), error: null })
+            }
+            reads.one += 1
+            return { maybeSingle: async () => (mode.failOne ? { data: null, error: { message: 'down' } } : { data: { is_demo: false }, error: null }) }
+          },
+        }),
+      }),
+    } as never
+    return { client, reads }
+  }
+  const sendWith = async (orgId: string | null, mode: Mode, to = 'someone@gmail.com') => {
     const sent: unknown[] = []
-    const info = jest.spyOn(console, 'info').mockImplementation(() => undefined)
-    const demoT = guardReservedRecipients({ sendMail: async (m: unknown) => (sent.push(m), { messageId: 'real' }) }, (a) =>
-      anyRecipientInDemoOrg(client(['demo1'], { customers: ['prospect@gmail.com'] }), a)
-    )
-    expect((await demoT.sendMail({ to: 'Prospect <prospect@gmail.com>', subject: 's' })).messageId).toBe('demo-suppressed')
-    expect(sent).toHaveLength(0)
-    clearDemoRecipientCache()
-    const realT = guardReservedRecipients({ sendMail: async (m: unknown) => (sent.push(m), { messageId: 'real' }) }, (a) =>
-      anyRecipientInDemoOrg(client([], {}), a)
-    )
-    expect((await realT.sendMail({ to: 'prospect@gmail.com', subject: 's' })).messageId).toBe('real')
-    expect(sent).toHaveLength(1)
-    info.mockRestore()
+    const { client } = makeClient(mode)
+    const t = guardReservedRecipients({ sendMail: async (m: unknown) => (sent.push(m), { messageId: 'real' }) }, orgId ? () => isDemoSenderOrg(client, orgId) : undefined)
+    const info = await t.sendMail({ to, subject: 's' })
+    return { sent: sent.length, id: info.messageId as string }
+  }
+  beforeEach(() => {
+    clearDemoSenderCache()
+    jest.spyOn(console, 'info').mockImplementation(() => undefined)
+    jest.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+  afterEach(() => jest.restoreAllMocks())
+
+  it('a demo company\'s mail never leaves, whoever it is addressed to', async () => {
+    expect(await sendWith('demo1', { ids: ['demo1'] }, 'prospect@gmail.com')).toEqual({ sent: 0, id: 'demo-suppressed' })
   })
 
-  it('recipientAddresses normalizes every shape', () => {
-    expect(recipientAddresses('A <a@x.com>, b@y.com', [{ address: 'C@z.com' }], undefined)).toEqual(['a@x.com', 'b@y.com', 'c@z.com'])
+  it('a normal company\'s mail still sends, even to an address that also exists in a demo company', async () => {
+    expect(await sendWith('arx', { ids: ['demo1'] }, 'prospect@gmail.com')).toEqual({ sent: 1, id: 'real' })
   })
 
-  it('no raw nodemailer transport exists outside the guarded factory, and the factory wires the org check', () => {
+  it('only @demo.example.com recipients are dropped without knowing the org; nothing else', async () => {
+    expect((await sendWith(null, {}, 'a@demo.example.com')).sent).toBe(0)
+    expect((await sendWith(null, {}, 'a@gmail.com')).sent).toBe(1)
+  })
+
+  it('a normal company costs one read per minute, not one per send', async () => {
+    const { client, reads } = makeClient({ ids: ['demo1'] })
+    for (let i = 0; i < 50; i++) expect(await isDemoSenderOrg(client, 'arx', T + i)).toBe(false)
+    expect(reads).toEqual({ list: 1, one: 0 })
+    expect(await isDemoSenderOrg(client, 'arx', T + 61_000)).toBe(false)
+    expect(reads.list).toBe(2)
+  })
+
+  it('a database error: the demo stays blocked, another company is unaffected (last known set kept)', async () => {
+    const good = makeClient({ ids: ['demo1'] }).client
+    expect(await isDemoSenderOrg(good, 'arx', T)).toBe(false)
+    const down = makeClient({ fail: true }).client
+    expect(await isDemoSenderOrg(down, 'demo1', T + 61_000)).toBe(true)
+    expect(await isDemoSenderOrg(down, 'arx', T + 61_000)).toBe(false)
+  })
+
+  it('never managed to read the list and cannot check the company: fail closed', async () => {
+    const down = makeClient({ fail: true, failOne: true }).client
+    expect(await isDemoSenderOrg(down, 'whoever', T)).toBe(true)
+  })
+
+  it('no raw nodemailer transport outside the guarded factory; the factory and push use the sending-org check', () => {
     const fs = require('fs') as typeof import('fs')
     const path = require('path') as typeof import('path')
     const hits: string[] = []
@@ -136,7 +164,39 @@ describe('every mail path is suppressed for a demo company, unchanged for others
     }
     for (const d of ['app', 'lib', 'components', 'scripts']) if (fs.existsSync(d)) walk(d)
     expect(hits).toEqual(['lib/demo-org-mail.ts'])
-    expect(fs.readFileSync('lib/demo-org-mail.ts', 'utf8')).toMatch(/anyRecipientInDemoOrg/)
-    expect(fs.readFileSync('lib/push-apns.ts', 'utf8')).toMatch(/isDemoOrg/)
+    expect(fs.readFileSync('lib/demo-org-mail.ts', 'utf8')).toMatch(/isDemoSenderOrg/)
+    expect(fs.readFileSync('lib/push-apns.ts', 'utf8')).toMatch(/isDemoSenderOrg/)
+    expect(fs.readFileSync('lib/customer-messages-db.ts', 'utf8')).toMatch(/isDemoSenderOrg/)
+  })
+
+  it('company-owned send paths pass the sending org to the mail door', () => {
+    const fs = require('fs') as typeof import('fs')
+    // every getMailTransport() call outside these public / org-less callers must name the sending org
+    const allowed = new Set(['lib/public-estimate-lead.ts', 'lib/supplier-order-email.ts', 'lib/customer-message-channels.ts', 'app/api/trial-signup/route.ts'])
+    const bare: string[] = []
+    const path = require('path') as typeof import('path')
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name === '.next' || e.name === '__tests__' || e.name.startsWith('.')) continue
+        const f = path.join(d, e.name)
+        if (e.isDirectory()) walk(f)
+        else if (/\.(ts|tsx)$/.test(e.name) && /getMailTransport\(\)/.test(fs.readFileSync(f, 'utf8')) && !allowed.has(path.relative(process.cwd(), f))) bare.push(path.relative(process.cwd(), f))
+      }
+    }
+    for (const d of ['app', 'lib']) walk(d)
+    expect(bare).toEqual([])
+  })
+})
+
+describe('seed --demo database guard', () => {
+  const { isLocalSupabaseUrl } = jest.requireActual('@/lib/demo-org') as typeof import('@/lib/demo-org')
+  it('only a database on this machine counts as local', () => {
+    for (const u of ['http://127.0.0.1:54321', 'http://localhost:54321', 'http://[::1]:5432', 'http://host.docker.internal:54321']) expect(isLocalSupabaseUrl(u)).toBe(true)
+    for (const u of ['https://abc.supabase.co', 'https://localhost.evil.io', 'https://127.0.0.1.evil.io', '', 'not a url', undefined]) expect(isLocalSupabaseUrl(u as never)).toBe(false)
+  })
+  it('the script refuses a hosted URL without --i-know-this-is-prod, and the flag is demo-only', () => {
+    const src = require('fs').readFileSync('scripts/seed-company.ts', 'utf8') as string
+    expect(src).toMatch(/demo && !isLocalSupabaseUrl\(url\) && !args\.includes\('--i-know-this-is-prod'\)/)
+    expect(src).toMatch(/!demo && args\.includes\('--i-know-this-is-prod'\)/)
   })
 })

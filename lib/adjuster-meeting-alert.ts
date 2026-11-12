@@ -165,7 +165,7 @@ export async function sendAdjusterMeetingSyncAlert(
     const to = await adjusterMeetingAlertEmailTo(admin ?? createServiceClient(), input.orgId)
     if (!to) return { sent: false, skippedReason: 'no_recipient' }
 
-    const transporter = getMailTransport()
+    const transporter = getMailTransport(input.orgId)
     await transporter.sendMail({
       from: getCrmEmailFrom(),
       to,

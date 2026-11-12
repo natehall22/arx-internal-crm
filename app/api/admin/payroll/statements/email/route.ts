@@ -96,6 +96,7 @@ export async function POST(request: NextRequest) {
       to,
       recipientName: (user.full_name as string) || 'Consultant',
       recipientUserId: userId,
+      orgId,
       statement,
       brand: await getOrgBrand(supabase, orgId),
       linkOrg: await loadOrgForLinks(orgId),

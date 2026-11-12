@@ -127,6 +127,8 @@ export async function sendCloserBriefingEmail(params: {
   to: string
   /** When set, email is skipped if this CRM user is disabled. */
   recipientUserId?: string | null
+  /** The sending company: a demo company's mail is logged, never sent. */
+  orgId?: string | null
   closerName: string | null
   customerName: string
   address: string
@@ -165,7 +167,7 @@ export async function sendCloserBriefingEmail(params: {
     if (result.notes) briefingRows.push(row('Notes', result.notes))
   }
 
-  const transporter = getMailTransport()
+  const transporter = getMailTransport(params.orgId)
   await transporter.sendMail({
     from: getCrmEmailFrom(),
     to: params.to,

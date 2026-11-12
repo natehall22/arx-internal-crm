@@ -216,7 +216,7 @@ export async function sendFounderContactsDigests(
         supabase.from('founder_contacts').select(COLUMNS).eq('org_id', rows[0].org_id).eq('created_by', userId)
           .order('created_at', { ascending: false }).order('id', { ascending: true }).range(from, to)
       )
-      await getMailTransport().sendMail({
+      await getMailTransport(rows[0].org_id as string).sendMail({
         from: getCrmEmailFrom(),
         to: user.email,
         subject: `Your contacts — ${rows.length} new (${dateLabel})`,

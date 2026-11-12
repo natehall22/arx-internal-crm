@@ -61,7 +61,7 @@ export async function notifyOfficeOfPaymentProblem(
   ${lines.map((l) => `<p style="font-size:14px;margin:0 0 8px;">${escapeHtml(l)}</p>`).join('')}
   ${link ? `<p style="margin-top:16px;"><a href="${escapeHtml(link)}" style="color:#1d4ed8;">Open in the CRM</a></p>` : ''}
 </div>`
-    const transport = getMailTransport()
+    const transport = getMailTransport(orgId)
     for (const to of emails) {
       await transport.sendMail({ from: getCrmEmailFrom(), to, subject: `${title}: ${number}`, html, text: lines.join('\n') }).catch((e: unknown) => console.error('notifyOfficeOfPaymentProblem: send failed', to, e))
     }
@@ -96,7 +96,7 @@ export async function notifyCustomerOfFailedPayment(
   <p style="margin:20px 0;"><a href="${escapeHtml(link.url)}" style="display:inline-block;background:#111827;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">Pay ${escapeHtml(formatCurrency(doc.balanceCents))}</a></p>
   <p style="font-size:14px;color:#374151;">Questions? Reply to this email${doc.company.phone ? ` or call ${escapeHtml(doc.company.phone)}` : ''}.</p>
 </div>`
-    await getMailTransport().sendMail({
+    await getMailTransport(orgId).sendMail({
       from: getCrmEmailFrom(),
       to: doc.billTo.email as string,
       ...(doc.company.email ? { replyTo: doc.company.email } : {}),

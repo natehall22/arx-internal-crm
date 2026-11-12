@@ -343,7 +343,7 @@ export async function PATCH(
           : `${appUrl}/leads/${appointment.lead_id}`
         const scheduledTime = formatDateTimeInTimezone(appointment.scheduled_for)
         const typeLabel = appointment.appointment_type === 'close' ? 'Close' : 'Inspection'
-        const transporter = getMailTransport()
+        const transporter = getMailTransport(profile.org_id)
         const leadContact = leadContactFromAppointment(appointment)
         let previousCloserName = 'the previous assignee'
         if (appointment.closer_user_id) {

@@ -74,7 +74,7 @@ export async function POST(
     const fromAddress = getCrmEmailFrom()
     const brand = await getOrgBrand(supabase, profile.org_id)
 
-    await getMailTransport().sendMail({
+    await getMailTransport(profile.org_id).sendMail({
       from: fromAddress,
       to: customerEmail,
       subject: `Certificate of Completion - ${jobNumber}`,

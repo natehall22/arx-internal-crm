@@ -2,7 +2,7 @@ import http2 from 'http2'
 import { SignJWT, importPKCS8 } from 'jose'
 import { waitUntil } from '@vercel/functions'
 import { createServiceClient } from '@/lib/supabase/service'
-import { isDemoOrg } from '@/lib/demo-org'
+import { isDemoSenderOrg } from '@/lib/demo-org'
 
 /**
  * APNs sender for ARX Sales (com.arx.ARX-Sales).
@@ -199,6 +199,20 @@ async function deleteTokenRow(id: string): Promise<void> {
   }
 }
 
+const userOrgCache = new Map<string, { orgId: string | null; at: number }>()
+
+async function userOrgIdCached(admin: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
+  const hit = userOrgCache.get(userId)
+  if (hit && Date.now() - hit.at < 600_000) return hit.orgId
+  // org-scope-ok: looks up the user's own company from their id, to decide whether the company is a demo
+  const { data, error } = await admin.from('users').select('org_id').eq('id', userId).maybeSingle()
+  if (error) throw new Error(`push owner lookup: ${error.message}`) // cannot tell whose push this is: send nothing
+  const orgId = (data as { org_id?: string } | null)?.org_id ?? null
+  if (userOrgCache.size > 5000) userOrgCache.clear()
+  userOrgCache.set(userId, { orgId, at: Date.now() })
+  return orgId
+}
+
 /**
  * Best-effort push to all of a user's registered devices.
  * Never throws — callers should fire-and-forget so push failures never break business requests.
@@ -219,11 +233,10 @@ export async function sendPushToUser(
     if (!jwt) return
 
     const admin = createServiceClient()
-    // A demo company never pushes to a real device (logged only).
-    // org-scope-ok: looks up the user's own company from their id, to decide whether the company is a demo
-    const { data: owner } = await admin.from('users').select('org_id').eq('id', userId).maybeSingle()
-    const ownerOrgId = (owner as { org_id?: string } | null)?.org_id ?? null
-    if (await isDemoOrg(admin, ownerOrgId)) {
+    // A demo company never pushes to a real device (logged only). Decided on the sending (the user's own) company; the user's
+    // company is remembered for 10 minutes and the demo set is cached, so a normal company's push costs no extra read.
+    const ownerOrgId = await userOrgIdCached(admin, userId)
+    if (await isDemoSenderOrg(admin, ownerOrgId)) {
       console.info('[demo] push for a demo company was not sent', { userId, title })
       return
     }

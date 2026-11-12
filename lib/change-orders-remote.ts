@@ -110,7 +110,7 @@ export async function createRemoteChangeOrder(admin: SupabaseClient, input: Remo
         port: Number(process.env.SMTP_PORT || 587),
         secure: false,
         auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      })
+      }, input.orgId)
       const email = buildChangeOrderReadyEmail({
         brand: documentBrand,
         coNumber: input.coNumber,

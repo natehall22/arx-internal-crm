@@ -97,7 +97,7 @@ export async function notifyPayWeekReady(admin: SupabaseClient, orgId: string, n
     const to = pickValidEmail(o.email as string | null)
     if (to && process.env.SMTP_HOST) {
       try {
-        await getMailTransport().sendMail({
+        await getMailTransport(orgId).sendMail({
           from: getCrmEmailFrom(),
           to,
           subject: title,

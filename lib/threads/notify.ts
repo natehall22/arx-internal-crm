@@ -78,7 +78,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    })
+    }, input.orgId)
     await Promise.allSettled(
       rows.map((r) => {
         const u = (users ?? []).find((x) => x.id === r.userId)

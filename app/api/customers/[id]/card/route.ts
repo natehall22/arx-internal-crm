@@ -64,7 +64,7 @@ export async function POST(request: Request, { params }: Ctx) {
     `You can save a card with ${brand.casualName || brand.name} so your service invoices are paid automatically when they're sent.`,
     'It takes a minute, and your card is entered on Stripe’s secure page.',
   ]
-  await getMailTransport().sendMail({
+  await getMailTransport(orgId).sendMail({
     from: getCrmEmailFrom(),
     to: customer.email as string,
     ...(brand.email ? { replyTo: brand.email } : {}),
