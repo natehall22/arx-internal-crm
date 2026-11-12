@@ -459,15 +459,19 @@ export async function syncReversals(admin: SupabaseClient, account: PaymentAccou
 export async function jobAlreadyPaidOut(admin: SupabaseClient, orgId: string, jobId: string): Promise<string | null> {
   const { data: job } = await orgDb(admin, orgId).from('production_jobs').select('status').eq('id', jobId).maybeSingle()
   const status = (job as { status?: string } | null)?.status
-  // org-scope-ok: jobId is this company's job (its invoice was found in orgId); snapshots hang off it
-  const { data: snaps } = await admin.from('payroll_job_snapshots').select('payroll_period_id').eq('job_id', jobId)
-  const periodIds = ((snaps ?? []) as Array<{ payroll_period_id: string }>).map((x) => x.payroll_period_id)
-  if (periodIds.length > 0) {
-    const { data: periods } = await orgDb(admin, orgId).from('payroll_periods').select('status').in('id', periodIds)
-    if (((periods ?? []) as Array<{ status: string }>).some((p) => p.status === 'locked' || p.status === 'paid')) return 'already in an approved payroll week'
-  }
+  if (await commissionInApprovedWeek(admin, orgId, jobId)) return 'already in an approved payroll week'
   if (status === 'collected' || status === 'complete') return 'already collected'
   return null
+}
+
+/** True when this job's commission is in a payroll week that is approved (locked / paid): the pay already went out. Best effort. */
+export async function commissionInApprovedWeek(admin: SupabaseClient, orgId: string, jobId: string): Promise<boolean> {
+  // org-scope-ok: jobId is this company's job (callers found it in orgId); snapshots hang off it
+  const { data: snaps } = await admin.from('payroll_job_snapshots').select('payroll_period_id').eq('job_id', jobId)
+  const periodIds = ((snaps ?? []) as Array<{ payroll_period_id: string }>).map((x) => x.payroll_period_id)
+  if (periodIds.length === 0) return false
+  const { data: periods } = await orgDb(admin, orgId).from('payroll_periods').select('status').in('id', periodIds)
+  return ((periods ?? []) as Array<{ status: string }>).some((p) => p.status === 'locked' || p.status === 'paid')
 }
 
 /** The currency the company takes (settings; US companies = usd). A payment in any other currency is never recorded. */

@@ -11,6 +11,7 @@ jest.mock('@/lib/company-links', () => ({ orgAppUrl: async () => 'https://acme.c
 
 import { undoJobPayment } from '@/lib/job-payment-undo'
 import { undoRefusal } from '@/lib/job-payment-undo-rules'
+import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { evaluateJobCollection } from '@/lib/job-collection'
 
 type Row = Record<string, unknown>
@@ -34,7 +35,7 @@ function world(extra: Record<string, Row[]> = {}) {
       payroll_periods: [],
       ...extra,
     },
-    { rpc: FAKE_PAYMENT_RPC, relations: { job_invoices: { production_jobs: { table: 'production_jobs', fk: 'job_id' } } } }
+    { rpc: FAKE_PAYMENT_RPC, relations: { job_invoices: { production_jobs: { table: 'production_jobs', fk: 'job_id' } }, job_payments: { production_jobs: { table: 'production_jobs', fk: 'job_id' } } } }
   )
 }
 const collected = (db: ReturnType<typeof world>, skip: string[] = ['p-stripe']) => {
@@ -45,14 +46,15 @@ const collected = (db: ReturnType<typeof world>, skip: string[] = ['p-stripe']) 
 describe('undoJobPayment', () => {
   test('writes a negative row, keeps the original, re-opens the invoice and the job, queues QuickBooks', async () => {
     const db = world()
+    ;(db.tables.production_jobs as Row[])[0].status = 'collected' // a collected job: only an owner may undo (see the pay-week test)
     expect(collected(db).paidInFull).toBe(true)
-    const r = await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p1', reason: 'Check bounced', actor: office })
-    expect(r.ok).toBe(true)
+    const r = await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p1', reason: 'Check bounced', actor: owner })
+    expect(r).toMatchObject({ ok: true })
     const pays = db.tables.job_payments as Row[]
     expect(pays.find((p) => p.id === 'p1')?.amount_cents).toBe(10000) // original untouched
     const rev = pays.find((p) => p.idempotency_key === 'undo:p1')!
     expect(rev.amount_cents).toBe(-10000)
-    expect(rev.created_by).toBe('u-office')
+    expect(rev.created_by).toBe('u-owner')
     expect(String(rev.note)).toContain('Check bounced')
     // totals: sum 0, no longer paid in full
     const c = collected(db)
@@ -62,8 +64,24 @@ describe('undoJobPayment', () => {
     // invoice back to unpaid, balance re-opened by exactly the payment
     expect((db.tables.job_invoices as Row[])[0].status).toBe('sent')
     expect((db.tables.invoice_payments as Row[]).reduce((s, a) => s + Number(a.applied_cents), 0)).toBe(0)
+    // no longer paid in full: collected goes back to complete
+    expect((db.tables.production_jobs as Row[])[0].status).toBe('complete')
     // QuickBooks event
-    expect((db.tables.integration_outbox as Row[]).map((o) => o.event_type)).toEqual(['payment.refunded'])
+    expect((db.tables.integration_outbox as Row[]).map((o) => o.event_type)).toEqual(['payment.voided'])
+  })
+
+  test('a pending (not yet cleared) payment cannot be undone', async () => {
+    expect(undoRefusal({ amount_cents: 100, funding_status: 'pending' })).toMatch(/pending|clear/i)
+  })
+
+  test('a job that stays paid in full stays collected', async () => {
+    const db = world({ job_payments: [
+      { id: 'p1', job_id: 'job1', paid_at: '2026-11-01', amount_cents: 10000, payment_type: 'final', method: 'check', payer: 'homeowner', note: null, idempotency_key: null },
+      { id: 'p2', job_id: 'job1', paid_at: '2026-11-02', amount_cents: 500, payment_type: 'other', method: 'check', payer: 'homeowner', note: null, idempotency_key: null },
+    ] })
+    ;(db.tables.production_jobs as Row[])[0].status = 'collected'
+    await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p2', reason: 'Typo', actor: owner })
+    expect((db.tables.production_jobs as Row[])[0].status).toBe('collected')
   })
 
   test('a double tap writes nothing new', async () => {
@@ -91,6 +109,19 @@ describe('undoJobPayment', () => {
     expect(await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p1', reason: 'x', actor: office })).toMatchObject({ ok: false, status: 403 })
     expect((db.tables.job_payments as Row[])).toHaveLength(2)
     expect((await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p1', reason: 'Wrong job', actor: owner })).ok).toBe(true)
+  })
+
+  test('undo after the commission was paid raises the same review line as a lost dispute (fixed-price jobs)', async () => {
+    const db = world({ online_payments: [], payroll_job_snapshots: [{ job_id: 'job1', payroll_period_id: 'wk1' }], payroll_periods: [{ id: 'wk1', org_id: ORG, status: 'locked' }] })
+    expect((await undoJobPayment(db.client as never, { orgId: ORG, jobId: 'job1', paymentId: 'p1', reason: 'Wrong job', actor: owner })).ok).toBe(true)
+    for (const p of db.tables.job_payments as Row[]) if (p.idempotency_key === 'undo:p1') p.created_at = new Date().toISOString() // the table default, which the fake RPC does not set
+    const q = await loadPaymentReversalsQueue(db.client as never, ORG, new Date())
+    expect(q.count).toBe(1)
+    expect(q.items[0].ref).toBe('Job 26-1')
+    expect(q.items[0].note).toMatch(/already in an approved payroll week/)
+    // an hourly job takes the commission back by itself: no line
+    ;(db.tables.production_jobs as Row[])[0].billing_mode = 'time_materials'
+    expect((await loadPaymentReversalsQueue(db.client as never, ORG, new Date())).count).toBe(0)
   })
 
   test('a payment never applied to an invoice only writes the reversal', async () => {

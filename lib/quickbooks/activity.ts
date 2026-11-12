@@ -77,6 +77,7 @@ const VERB: Record<string, string> = {
   'payment.recorded': 'Payment',
   'payment.refunded': 'Refund',
   'payment.disputed': 'Lost dispute',
+  'payment.voided': 'Void payment',
   'bill.recorded': 'Vendor bill',
   'bill.voided': 'Vendor bill voided',
 }

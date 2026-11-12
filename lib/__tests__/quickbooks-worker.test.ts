@@ -487,6 +487,37 @@ describe('refunds, voids, bills, service invoices', () => {
     expect(refunds[0].DepositToAccountRef.value).toBe('acct-dep')
   })
 
+  it('Undo payment VOIDS the QuickBooks Payment (kept, zeroed), once; never-sent and already-voided do nothing; no Refund Receipt', async () => {
+    const w = makeWorld([{ id: A }])
+    const { cid, jid } = w.seeds[0].ids
+    const pays = w.fake.tables.job_payments as any[]
+    pays.push({ id: 'pay-1', job_id: jid, org_id: null, paid_at: '2026-11-08', amount_cents: 500000, payment_type: 'deposit', method: 'check', note: null, idempotency_key: null })
+    await w.enqueue(A, 'customer.upserted', 'customers', cid)
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 1070000)
+    await w.enqueue(A, 'payment.recorded', 'job_payments', 'pay-1')
+    await w.run(A)
+    pays.push({ id: 'u-1', job_id: jid, org_id: null, paid_at: '2026-11-09', amount_cents: -500000, payment_type: 'deposit', method: 'check', note: 'Undo', idempotency_key: 'undo:pay-1' })
+    await w.enqueue(A, 'payment.voided', 'job_payments', 'u-1')
+    expect(await w.run(A)).toMatchObject({ done: 1, needsYou: 0 })
+    const [pay] = w.companies[A].all('Payment')
+    expect(pay.TotalAmt).toBe(0)
+    expect(pay.PrivateNote).toMatch(/^Voided/)
+    expect(w.companies[A].all('RefundReceipt')).toHaveLength(0)
+    // the same event again: still one void
+    await w.enqueue(A, 'payment.voided', 'job_payments', 'u-1', 2)
+    await w.run(A)
+    expect(w.companies[A].calls.filter((c) => c.op === 'void' && c.entity === 'Payment')).toHaveLength(1)
+
+    // an undone payment that was never sent: nothing to void; and the payment itself is never created afterwards
+    pays.push({ id: 'pay-2', job_id: jid, org_id: null, paid_at: '2026-11-10', amount_cents: 1000, payment_type: 'other', method: 'check', note: null, idempotency_key: null })
+    pays.push({ id: 'u-2', job_id: jid, org_id: null, paid_at: '2026-11-10', amount_cents: -1000, payment_type: 'other', method: 'check', note: 'Undo', idempotency_key: 'undo:pay-2' })
+    await w.enqueue(A, 'payment.voided', 'job_payments', 'u-2')
+    await w.enqueue(A, 'payment.recorded', 'job_payments', 'pay-2')
+    const r = await w.run(A)
+    expect(r.skipped).toBe(2)
+    expect(w.companies[A].all('Payment')).toHaveLength(1)
+  })
+
   it('cancelling a job VOIDS its QuickBooks invoice (kept, zeroed); a job never sent has nothing to void; nothing is ever deleted', async () => {
     const w = makeWorld([{ id: A }])
     const { jid } = w.seeds[0].ids

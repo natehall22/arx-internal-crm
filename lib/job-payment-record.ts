@@ -25,7 +25,7 @@ export type RecordJobPaymentInput = {
   /** A processor's payment / refund id: a retry with the same key returns the first row instead of a second one. */
   idempotencyKey?: string | null
   /** QuickBooks outbox event: money in (default), or money back out by a refund / a lost dispute. */
-  eventType?: 'payment.recorded' | 'payment.refunded' | 'payment.disputed'
+  eventType?: 'payment.recorded' | 'payment.refunded' | 'payment.disputed' | 'payment.voided'
 }
 
 export type RecordJobPaymentResult =
