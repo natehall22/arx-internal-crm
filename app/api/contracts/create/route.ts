@@ -12,6 +12,7 @@ import {
   type SaleCreditChange,
 } from '@/lib/deal-sale-credit'
 import { isSuperAdmin } from '@/lib/super-admin'
+import { cleanRoofColor } from '@/lib/contracts/terms'
 import { buildContractReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { newSigningTokenColumns } from '@/lib/signing-tokens'
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
       projectCost,
       totalSquares,
       roofingMaterial,
+      roofColor,
       scopeRoofReplacement,
       scopeRoofRepair,
       scopeGutters,
@@ -85,6 +87,9 @@ export async function POST(request: NextRequest) {
       safeAgreementType === 'contingency' || safeAgreementType === 'repair'
         ? null
         : (roofingMaterial || null)
+    // The color the customer picked, typed by the rep; the customer initials a line confirming it. Installation only —
+    // repair and contingency agreements have no color acknowledgement.
+    const safeRoofColor = safeAgreementType === 'installation' ? cleanRoofColor(roofColor) : null
     const safeEstCompletionDate = safeAgreementType === 'contingency' ? null : (estCompletionDate || null)
     const safeExclusions = safeAgreementType === 'contingency' ? null : (exclusions || null)
     const safeAdditionalProducts =
@@ -106,6 +111,13 @@ export async function POST(request: NextRequest) {
             ? 'Customer name, project address, and project cost are required'
             : 'Customer name and project address are required',
         },
+        { status: 400 }
+      )
+    }
+
+    if (safeAgreementType === 'installation' && !safeRoofColor) {
+      return NextResponse.json(
+        { error: 'Enter the roof color the customer selected (for example, IKO Dynasty — Granite Black).' },
         { status: 400 }
       )
     }
@@ -218,6 +230,7 @@ export async function POST(request: NextRequest) {
         project_cost: safeProjectCost,
         total_squares: safeTotalSquares,
         roofing_material: safeRoofingMaterial,
+        roof_color: safeRoofColor,
         scope_roof_replacement: scopeRoofReplacement || false,
         scope_roof_repair: scopeRoofRepair || false,
         scope_gutters: scopeGutters || false,

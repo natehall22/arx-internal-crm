@@ -22,6 +22,8 @@ export type JobSignedContract = {
   agreementType: string | null
   pdfUrl: string | null
   roofingMaterial: string | null
+  /** The color the customer confirmed (initialed) on the installation agreement. */
+  roofColor: string | null
   scopeOther: string | null
   additionalProducts: string | null
   exclusions: string | null
@@ -31,6 +33,8 @@ export type JobSignedContract = {
 
 const CONTRACT_COLUMNS =
   'id, customer_signed_at, created_at, agreement_type, pdf_url, roofing_material, scope_other, additional_products, exclusions, notes'
+// roof_color arrives with migration 202611230060; until it is applied the lookup falls back to the columns above.
+const CONTRACT_COLUMNS_WITH_COLOR = `${CONTRACT_COLUMNS}, roof_color`
 
 function clean(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -64,6 +68,7 @@ function toContract(row: Record<string, any>): JobSignedContract {
     agreementType: clean(row.agreement_type),
     pdfUrl: clean(row.pdf_url),
     roofingMaterial: meaningful(row.roofing_material),
+    roofColor: meaningful(row.roof_color),
     scopeOther: meaningful(row.scope_other),
     additionalProducts: meaningful(row.additional_products),
     exclusions: meaningful(row.exclusions),
@@ -81,18 +86,21 @@ export async function findJobSignedContracts(
   if (ids.opportunityId) attempts.push(['opportunity_id', ids.opportunityId])
 
   for (const [column, value] of attempts) {
-    const { data, error } = await admin
-      .from('order_form_contracts')
-      .select(CONTRACT_COLUMNS)
-      .eq('org_id', orgId)
-      .eq(column, value)
-      .eq('status', 'completed')
-      .order('created_at', { ascending: true })
+    const query = (columns: string) =>
+      admin
+        .from('order_form_contracts')
+        .select(columns)
+        .eq('org_id', orgId)
+        .eq(column, value)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: true })
+    let { data, error } = await query(CONTRACT_COLUMNS_WITH_COLOR)
+    if (error) ({ data, error } = await query(CONTRACT_COLUMNS))
     if (error) {
       console.error('[Job contract] lookup failed:', error)
       return []
     }
-    if (data && data.length > 0) return data.map(toContract)
+    if (data && data.length > 0) return (data as unknown as Record<string, any>[]).map(toContract)
   }
   return []
 }

@@ -12,8 +12,10 @@ import {
   CONTINGENCY_TERMS,
   INSTALLATION_SIGNING_STATEMENT,
   INSTALLATION_TERMS,
+  installationAcknowledgements,
   NOTICE_OF_CANCELLATION_CANCEL_LINE,
   NOTICE_OF_CANCELLATION_TITLE,
+  cleanRoofColor,
   REPAIR_TERMS,
   type CancellationNotice,
 } from '@/lib/contracts/terms'
@@ -28,6 +30,7 @@ interface Contract {
   project_cost: number
   total_squares: number | null
   roofing_material: string | null
+  roof_color?: string | null
   scope_roof_replacement: boolean
   scope_roof_repair: boolean
   scope_gutters: boolean
@@ -78,13 +81,21 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
   
   const [initialsChangeOrders, setInitialsChangeOrders] = useState('')
   const [initialsPropertyCondition, setInitialsPropertyCondition] = useState('')
-  const [initialsLandscaping, setInitialsLandscaping] = useState('')
+  const [initialsColor, setInitialsColor] = useState('')
   const [initialsInsurance, setInitialsInsurance] = useState('')
   
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const colorToConfirm = cleanRoofColor(contract.roof_color)
+  // A pending contract never carries the legacy landscaping initials; the filter keeps the map below total.
+  const acknowledgements = installationAcknowledgements(contract).filter((a) => a.key !== 'landscaping')
+  const ackInitials: Record<string, [string, (v: string) => void]> = {
+    changeOrders: [initialsChangeOrders, setInitialsChangeOrders],
+    propertyCondition: [initialsPropertyCondition, setInitialsPropertyCondition],
+    color: [initialsColor, setInitialsColor],
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -112,7 +123,7 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
         setError('Please initial the insurance acknowledgement section')
         return
       }
-    } else if (!initialsChangeOrders || !initialsPropertyCondition || !initialsLandscaping) {
+    } else if (!initialsChangeOrders || !initialsPropertyCondition || (colorToConfirm && !initialsColor)) {
       setError('Please initial all acknowledgement sections')
       return
     }
@@ -139,7 +150,7 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
           signature,
           initialsChangeOrders: isContingency ? null : initialsChangeOrders,
           initialsPropertyCondition: isContingency || isRepair ? null : initialsPropertyCondition,
-          initialsLandscaping: isContingency || isRepair ? null : initialsLandscaping,
+          initialsColor: isContingency || isRepair || !colorToConfirm ? null : initialsColor,
           initialsInsurance: (isContingency || contract.payment_method === 'insurance') ? initialsInsurance : null,
           ...(consent ? { consent: { accepted: true, version: consent.version } } : {}),
         }),
@@ -304,6 +315,12 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
                   <div>
                     <span className="text-gray-700">Primary Roofing System:</span>
                     <span className="ml-2 font-medium text-black">{contract.roofing_material}</span>
+                  </div>
+                )}
+                {!isContingency && !isRepair && colorToConfirm && (
+                  <div>
+                    <span className="text-gray-500">Color:</span>
+                    <span className="ml-2 font-medium text-black">{colorToConfirm}</span>
                   </div>
                 )}
                 {!isContingency && !isRepair && contract.total_squares && (
@@ -475,50 +492,26 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
 
                 {!isContingency && !isRepair && (
                   <>
-                <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg">
-                  <input
-                    type="text"
-                    placeholder="Initials"
-                    value={initialsChangeOrders}
-                    onChange={e => setInitialsChangeOrders(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
-                    style={{ color: '#000000' }}
-                    maxLength={4}
-                  />
-                  <p className="text-sm text-black">
-                    <strong>Change Orders:</strong> I understand additional work beyond the Base Scope requires a signed change order.
-                  </p>
-                </div>
-
-                <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg">
-                  <input
-                    type="text"
-                    placeholder="Initials"
-                    value={initialsPropertyCondition}
-                    onChange={e => setInitialsPropertyCondition(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
-                    style={{ color: '#000000' }}
-                    maxLength={4}
-                  />
-                  <p className="text-sm text-black">
-                    <strong>Property Condition:</strong> I affirm there are no known structural defects (rotted rafters, sagging roof lines, etc.) other than disclosed in writing.
-                  </p>
-                </div>
-
-                <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg">
-                  <input
-                    type="text"
-                    placeholder="Initials"
-                    value={initialsLandscaping}
-                    onChange={e => setInitialsLandscaping(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
-                    style={{ color: '#000000' }}
-                    maxLength={4}
-                  />
-                  <p className="text-sm text-black">
-                    <strong>Landscaping/Cosmetic Impacts:</strong> I understand incidental cosmetic impacts may occur as described in Section 8.
-                  </p>
-                </div>
+                {acknowledgements.map((ack) => {
+                  const [value, setValue] = ackInitials[ack.key]
+                  return (
+                    <div key={ack.key} className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg">
+                      <input
+                        type="text"
+                        placeholder="Initials"
+                        aria-label={`Initials for ${ack.label}`}
+                        value={value}
+                        onChange={e => setValue(e.target.value.toUpperCase())}
+                        className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
+                        style={{ color: '#000000' }}
+                        maxLength={4}
+                      />
+                      <p className="text-sm text-black">
+                        <strong>{ack.label}:</strong> {ack.text}
+                      </p>
+                    </div>
+                  )
+                })}
 
                   </>
                 )}

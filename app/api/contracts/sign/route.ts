@@ -974,7 +974,7 @@ export async function POST(request: NextRequest) {
       signature: signatureInput,
       initialsChangeOrders: initialsChangeOrdersInput,
       initialsPropertyCondition: initialsPropertyConditionInput,
-      initialsLandscaping: initialsLandscapingInput,
+      initialsColor: initialsColorInput,
       initialsInsurance: initialsInsuranceInput,
     } = body ?? {}
 
@@ -1045,12 +1045,12 @@ export async function POST(request: NextRequest) {
 
     const initialsChangeOrders = cleanInitials(initialsChangeOrdersInput)
     const initialsPropertyCondition = cleanInitials(initialsPropertyConditionInput)
-    const initialsLandscaping = cleanInitials(initialsLandscapingInput)
+    const initialsColor = cleanInitials(initialsColorInput)
     const initialsInsurance = cleanInitials(initialsInsuranceInput)
     const initialsProblem = contractInitialsProblem(contract, {
       changeOrders: initialsChangeOrders,
       propertyCondition: initialsPropertyCondition,
-      landscaping: initialsLandscaping,
+      color: initialsColor,
       insurance: initialsInsurance,
     })
     if (initialsProblem && !isQuoteApproval) {
@@ -1074,7 +1074,8 @@ export async function POST(request: NextRequest) {
         customer_user_agent: clientUserAgent,
         customer_initials_change_orders: initialsChangeOrders,
         customer_initials_property_condition: initialsPropertyCondition,
-        customer_initials_landscaping: initialsLandscaping,
+        // Color gets its own key; the legacy landscaping column is no longer written (signed old contracts keep theirs).
+        customer_initials_color: initialsColor,
         customer_initials_insurance: initialsInsurance,
         // Written only when the company's consent step is on (so nothing new is written for a company that has it off).
         ...(consent.version ? { consent_version: consent.version, consent_at: customerSignedAt } : {}),

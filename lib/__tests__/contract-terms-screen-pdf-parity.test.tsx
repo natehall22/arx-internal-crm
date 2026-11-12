@@ -22,6 +22,7 @@ import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSig
 import { generateContractPdf } from '@/lib/contracts/generatePdf'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import {
+  installationAcknowledgements,
   INSTALLATION_SIGNING_STATEMENT,
   CHANGE_ORDER_AGREEMENT,
   CONTINGENCY_TERMS,
@@ -154,6 +155,61 @@ describe('signing screen shows exactly the PDF terms', () => {
       />,
     )
     expect(norm(screen.getByTestId('change-order-agreement').textContent ?? '')).toBe(pdf)
+  })
+})
+
+const ackScreen = () => blockText(screen.getByText('Customer Acknowledgements').closest('section') as HTMLElement)
+
+describe('installation acknowledgements: color replaces landscaping (Nathan, 2026-11-12)', () => {
+  it('the screen and the PDF show the same lines, with the typed color', async () => {
+    const pdf = pdfBetween(await generateContractPdf(contract('installation'), DOC), 'Customer Acknowledgements', (r) => r.startsWith('Insurance Funds'))
+    expect(pdf).toContain('Color: I confirm the color I selected is Granite Black.')
+    render(<ContractSigningForm contract={contract('installation')} token="tok" brand={DOC} cancellationNotice={notice} />)
+    const text = ackScreen()
+    expect(text).toContain('Color: I confirm the color I selected is Granite Black.')
+    expect(text).not.toMatch(/Landscaping/)
+    expect(text).toContain('Change Orders:')
+    expect(text).toContain('Property Condition:')
+  })
+
+  it('the PDF no longer asks for landscaping initials on a new contract, and prints the color in Project Details', async () => {
+    const text = pdfTextRuns(await generateContractPdf(contract('installation'), DOC)).join('\n')
+    expect(text).not.toMatch(/Landscaping\/Cosmetic/)
+    expect(text).toContain('Color: Granite Black')
+  })
+
+  it('Section 8 (cosmetic impacts) is untouched', () => {
+    expect(INSTALLATION_TERMS[7].title).toBe('Section 8 — Job Site Protection, Cleanup, and Cosmetic Damage')
+    expect(INSTALLATION_TERMS[7].content[2]).toMatch(/^8\.3 ARX is not responsible for ordinary incidental\/cosmetic impacts/)
+  })
+
+  it('the exact color line', () => {
+    expect(installationAcknowledgements({ roof_color: '  IKO Dynasty — Granite Black ' }).at(-1)).toEqual({
+      key: 'color',
+      label: 'Color',
+      text: 'I confirm the color I selected is IKO Dynasty — Granite Black.',
+    })
+  })
+
+  it('an old signed contract (landscaping initials, no color) still renders its landscaping line; an old unsigned one shows two lines', async () => {
+    const legacy = { ...(contract('installation') as object), roof_color: null, customer_initials_color: null, customer_initials_landscaping: 'JQH' } as never
+    const text = pdfTextRuns(await generateContractPdf(legacy, DOC)).join('\n')
+    expect(text).toContain('Landscaping/Cosmetic Impacts:')
+    expect(text).not.toMatch(/I confirm the color/)
+    expect(installationAcknowledgements({ roof_color: null }).map((a) => a.key)).toEqual(['changeOrders', 'propertyCondition'])
+    expect(installationAcknowledgements({ roof_color: null, customer_initials_landscaping: 'JQH' }).map((a) => a.key)).toEqual([
+      'changeOrders',
+      'propertyCondition',
+      'landscaping',
+    ])
+  })
+
+  it('repair and contingency screens have no color line', () => {
+    for (const t of ['repair', 'contingency']) {
+      const { unmount } = render(<ContractSigningForm contract={contract(t)} token="tok" brand={DOC} cancellationNotice={notice} />)
+      expect(screen.queryByText(/I confirm the color/)).toBeNull()
+      unmount()
+    }
   })
 })
 

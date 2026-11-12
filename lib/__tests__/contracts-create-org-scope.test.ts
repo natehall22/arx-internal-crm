@@ -85,3 +85,30 @@ test('no session → 401', async () => {
   const res = await post(body('opp-a'))
   expect(res.status).toBe(401)
 })
+
+describe('roof color on the installation agreement (2026-11-12)', () => {
+  const install = (over: Record<string, unknown> = {}) => ({ ...body('opp-a'), agreementType: 'installation', projectCost: 15000, ...over })
+  const written = () => db.writes.find((w) => w.table === 'order_form_contracts' && w.op === 'insert')
+
+  test('an installation agreement with no color is refused and nothing is written', async () => {
+    for (const roofColor of [undefined, '', '   ']) {
+      const res = await post(install({ roofColor }))
+      expect(res.status).toBe(400)
+    }
+    expect(written()).toBeUndefined()
+  })
+
+  test('the typed color is stored trimmed', async () => {
+    const res = await post(install({ roofColor: '  IKO Dynasty — Granite Black ' }))
+    expect(res.status).toBe(200)
+    expect(written()?.rows[0]).toMatchObject({ roof_color: 'IKO Dynasty — Granite Black' })
+  })
+
+  test('repair and contingency agreements take no color (stored null even if sent)', async () => {
+    expect((await post({ ...body('opp-a'), roofColor: 'Black' })).status).toBe(200)
+    expect(written()?.rows[0]).toMatchObject({ roof_color: null })
+    db.writes.length = 0
+    expect((await post({ ...body('opp-a'), agreementType: 'repair', projectCost: 900, roofColor: 'Black' })).status).toBe(200)
+    expect(written()?.rows[0]).toMatchObject({ roof_color: null })
+  })
+})

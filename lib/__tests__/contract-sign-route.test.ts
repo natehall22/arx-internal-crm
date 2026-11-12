@@ -133,14 +133,31 @@ describe('server-side checks', () => {
     ['contingency with no insurance initials', { agreement_type: 'contingency' }, { initialsInsurance: '' }],
     ['repair with no initials', { agreement_type: 'repair', payment_method: 'cash' }, { initialsInsurance: null, initialsChangeOrders: null }],
     ['repair paid by insurance with no insurance initials', { agreement_type: 'repair', payment_method: 'insurance' }, { initialsInsurance: null, initialsChangeOrders: 'AB' }],
-    ['installation missing property-condition initials', { agreement_type: 'installation', payment_method: 'cash' }, { initialsInsurance: null, initialsChangeOrders: 'AB', initialsLandscaping: 'AB' }],
-    ['installation paid by insurance with no insurance initials', { agreement_type: 'installation', payment_method: 'insurance' }, { initialsInsurance: null, initialsChangeOrders: 'AB', initialsPropertyCondition: 'AB', initialsLandscaping: 'AB' }],
+    ['installation missing property-condition initials', { agreement_type: 'installation', payment_method: 'cash' }, { initialsInsurance: null, initialsChangeOrders: 'AB' }],
+    ['installation with a color but no color initials', { agreement_type: 'installation', payment_method: 'cash', roof_color: 'IKO Dynasty — Granite Black' }, { initialsInsurance: null, initialsChangeOrders: 'AB', initialsPropertyCondition: 'AB' }],
+    ['installation paid by insurance with no insurance initials', { agreement_type: 'installation', payment_method: 'insurance' }, { initialsInsurance: null, initialsChangeOrders: 'AB', initialsPropertyCondition: 'AB' }],
   ])('refuses %s (a direct POST cannot skip the initials)', async (_n, contract, over) => {
     seed(contract)
     const res = await post(good(over))
     expect(res.status).toBe(400)
     expect(db.tables.order_form_contracts[0].status).toBe('pending_customer')
     expect(db.writes).toEqual([])
+  })
+
+  it('installation with a color: color initials are stored under their own key; landscaping is not written', async () => {
+    seed({ agreement_type: 'installation', payment_method: 'cash', project_cost: 15000, roof_color: 'IKO Dynasty — Granite Black' })
+    const res = await post(good({ initialsInsurance: null, initialsChangeOrders: 'PH', initialsPropertyCondition: 'PH', initialsColor: 'PH' }))
+    expect(res.status).toBe(200)
+    const claim = claims()[0].rows[0]
+    expect(claim.customer_initials_color).toBe('PH')
+    expect('customer_initials_landscaping' in claim).toBe(false)
+  })
+
+  it('installation sent before color existed (no color): two initials are enough', async () => {
+    seed({ agreement_type: 'installation', payment_method: 'cash', project_cost: 15000 })
+    const res = await post(good({ initialsInsurance: null, initialsChangeOrders: 'PH', initialsPropertyCondition: 'PH' }))
+    expect(res.status).toBe(200)
+    expect(claims()[0].rows[0].customer_initials_color).toBeNull()
   })
 
   it('refuses expired and voided links', async () => {

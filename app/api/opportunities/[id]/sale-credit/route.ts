@@ -35,8 +35,16 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     ) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
+    // Names for whoever the deal already names, active or not: the pick-list only holds active users, so without this
+    // an inactive setter would show as "No setter" on the contract screen.
+    const ids = [loaded.credit.closerUserId, loaded.credit.setterUserId].filter((v): v is string => !!v)
+    const { data: named } = ids.length
+      ? await admin.from('users').select('id, full_name, active').eq('org_id', ctx.profile.org_id).in('id', ids)
+      : { data: [] as Array<{ id: string; full_name: string | null; active: boolean | null }> }
+    const people = (named ?? []).map((u) => ({ id: u.id, name: u.full_name ?? null, active: u.active !== false }))
     return NextResponse.json({
       ...loaded.credit,
+      people,
       locked: loaded.locked,
       canChange: !loaded.locked || isSuperAdmin(ctx.profile),
     })

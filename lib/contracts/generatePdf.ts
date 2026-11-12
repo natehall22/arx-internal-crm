@@ -2,10 +2,12 @@ import { jsPDF } from 'jspdf'
 
 import type { DocumentBrand } from '@/lib/org-brand'
 import {
+  cleanRoofColor,
   CONTINGENCY_TERMS,
   formatContractDate as formatDate,
   INSTALLATION_SIGNING_STATEMENT,
   INSTALLATION_TERMS,
+  installationAcknowledgements,
   NOTICE_OF_CANCELLATION_CANCEL_LINE,
   NOTICE_OF_CANCELLATION_TITLE,
   noticeOfCancellation,
@@ -22,6 +24,7 @@ export interface ContractData {
   project_cost: number
   total_squares?: number
   roofing_material?: string
+  roof_color?: string | null
   scope_roof_replacement?: boolean
   scope_roof_repair?: boolean
   scope_gutters?: boolean
@@ -39,6 +42,7 @@ export interface ContractData {
   customer_initials_change_orders?: string
   customer_initials_property_condition?: string
   customer_initials_landscaping?: string
+  customer_initials_color?: string | null
   customer_initials_insurance?: string
   rep_name?: string
   rep_title?: string
@@ -461,6 +465,11 @@ export async function generateContractPdf(contract: ContractData, brand: Documen
   }
   doc.text(`Primary Roofing System / Material: ${contract.roofing_material || ''}`, margin, y)
   y += 16
+  const roofColor = cleanRoofColor(contract.roof_color)
+  if (roofColor) {
+    doc.text(`Color: ${roofColor}`, margin, y)
+    y += 16
+  }
   doc.text(`Total Squares: ${contract.total_squares || ''}`, margin, y)
   doc.text(`Project Cost: ${formatCurrency(contract.project_cost)}`, 300, y)
   y += 16
@@ -656,10 +665,14 @@ export async function generateContractPdf(contract: ContractData, brand: Documen
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
 
+  const initialsByKey: Record<string, string | null | undefined> = {
+    changeOrders: contract.customer_initials_change_orders,
+    propertyCondition: contract.customer_initials_property_condition,
+    color: contract.customer_initials_color,
+    landscaping: contract.customer_initials_landscaping,
+  }
   const acknowledgements = [
-    { label: 'Change Orders', text: 'I understand additional work beyond the Base Scope requires a signed change order.', initials: contract.customer_initials_change_orders },
-    { label: 'Property Condition', text: 'I affirm there are no known structural defects (rotted rafters, sagging roof lines, etc.) other than disclosed in writing.', initials: contract.customer_initials_property_condition },
-    { label: 'Landscaping/Cosmetic Impacts', text: 'I understand incidental cosmetic impacts may occur as described in Section 8.', initials: contract.customer_initials_landscaping },
+    ...installationAcknowledgements(contract).map((a) => ({ label: a.label, text: a.text, initials: initialsByKey[a.key] })),
     { label: 'Insurance Funds (if applicable)', text: 'I agree to Section 11.', initials: contract.customer_initials_insurance },
   ]
 
