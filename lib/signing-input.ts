@@ -2,6 +2,7 @@
  * What a customer's signing request must look like — checked on the server, whatever the page sent.
  * The signing pages validate the same things for the customer's benefit; this is the check that counts.
  */
+import { cleanRoofColor } from '@/lib/contracts/terms'
 
 /** A drawn signature is a small PNG data URL (the pad's output). Anything else would bloat the row or break the PDF. */
 export const MAX_SIGNATURE_CHARS = 400_000
@@ -35,7 +36,7 @@ export function cleanPreferredContact(value: unknown): 'phone' | 'email' | null 
 export type ContractInitials = {
   changeOrders: string | null
   propertyCondition: string | null
-  landscaping: string | null
+  color: string | null
   insurance: string | null
 }
 
@@ -44,7 +45,7 @@ export type ContractInitials = {
  * Returns the message to show, or null when everything required is there.
  */
 export function contractInitialsProblem(
-  contract: { agreement_type?: string | null; payment_method?: string | null },
+  contract: { agreement_type?: string | null; payment_method?: string | null; roof_color?: string | null },
   initials: ContractInitials
 ): string | null {
   const type = contract.agreement_type || 'installation'
@@ -57,7 +58,9 @@ export function contractInitialsProblem(
     if (insurance && !initials.insurance) return 'Please initial the insurance acknowledgement section'
     return null
   }
-  if (!initials.changeOrders || !initials.propertyCondition || !initials.landscaping) {
+  // Color is initialed only when the rep entered one (an agreement sent before color existed has none). Landscaping is
+  // no longer initialed — Section 8 covers it.
+  if (!initials.changeOrders || !initials.propertyCondition || (cleanRoofColor(contract.roof_color) && !initials.color)) {
     return 'Please initial all acknowledgement sections'
   }
   if (insurance && !initials.insurance) return 'Please initial the insurance acknowledgement section'

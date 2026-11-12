@@ -12,6 +12,7 @@ const contract = (patch: Partial<JobSignedContract>): JobSignedContract => ({
   agreementType: 'installation',
   pdfUrl: null,
   roofingMaterial: null,
+  roofColor: null,
   scopeOther: null,
   additionalProducts: null,
   exclusions: null,

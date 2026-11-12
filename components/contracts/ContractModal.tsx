@@ -1,6 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import {
+  creditPersonLabel,
+  creditSelectOptions,
+  saleCreditFormProblem,
+  setSelfGenerated,
+  type CreditPerson,
+} from '@/lib/sale-credit-form'
 import SignaturePad from './SignaturePad'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { formatPhone } from '@/lib/format'
@@ -34,6 +41,7 @@ interface ContractFormData {
   projectCost: string
   totalSquares: number | null
   roofingMaterial: string
+  roofColor: string
   scopeRoofReplacement: boolean
   scopeRoofRepair: boolean
   scopeGutters: boolean
@@ -80,6 +88,7 @@ export default function ContractModal({
     setterUserId: string
     isSelfGenerated: boolean
   } | null>(null)
+  const [creditPeople, setCreditPeople] = useState<CreditPerson[]>([])
   const [creditOriginal, setCreditOriginal] = useState<string>('')
   const [creditLocked, setCreditLocked] = useState(false)
   const [creditCanChange, setCreditCanChange] = useState(true)
@@ -95,6 +104,7 @@ export default function ContractModal({
     projectCost: projectCost ? String(projectCost) : '',
     totalSquares: totalSquares || null,
     roofingMaterial: '',
+    roofColor: '',
     scopeRoofReplacement: true,
     scopeRoofRepair: false,
     scopeGutters: false,
@@ -148,6 +158,7 @@ export default function ContractModal({
           isSelfGenerated: c.isSelfGenerated === true,
         }
         setCredit(loaded)
+        setCreditPeople(Array.isArray(c.people) ? c.people : [])
         setCreditOriginal(JSON.stringify(loaded))
         setCreditLocked(Boolean(c.locked))
         setCreditCanChange(c.canChange !== false)
@@ -163,7 +174,7 @@ export default function ContractModal({
 
   const creditApplies = formData.agreementType === 'installation' || formData.agreementType === 'repair'
   const creditChanged = credit != null && JSON.stringify(credit) !== creditOriginal
-  const creditUserName = (id: string) => creditUsers.find((u) => u.id === id)?.full_name || (id ? 'Unknown' : 'None')
+  const creditUserName = (id: string) => creditPersonLabel(creditUsers, id, creditPeople)
 
   const handleInputChange = (field: keyof ContractFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -174,6 +185,10 @@ export default function ContractModal({
       case 1:
         if (!formData.customerName || !formData.projectAddress) {
           setError('Please fill in customer name and project address')
+          return false
+        }
+        if (formData.agreementType === 'installation' && !formData.roofColor.trim()) {
+          setError('Enter the roof color the customer selected')
           return false
         }
         if (formData.agreementType === 'installation' || formData.agreementType === 'repair') {
@@ -196,12 +211,9 @@ export default function ContractModal({
         break
       case 3:
         if (creditApplies && credit && creditCanChange) {
-          if (!credit.closerUserId) {
-            setError('Pick who closed this sale')
-            return false
-          }
-          if (credit.isSelfGenerated && credit.setterUserId && credit.setterUserId !== credit.closerUserId) {
-            setError('A self-generated sale has no separate setter. Clear the setter or untick self-generated.')
+          const creditProblem = saleCreditFormProblem(credit)
+          if (creditProblem) {
+            setError(creditProblem)
             return false
           }
           if (creditLocked && creditChanged && !creditReason.trim()) {
@@ -502,6 +514,20 @@ export default function ContractModal({
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Color *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g., IKO Dynasty — Granite Black"
+                          value={formData.roofColor}
+                          maxLength={120}
+                          onChange={e => handleInputChange('roofColor', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                        <p className="mt-1 text-sm text-gray-700">The customer initials a line confirming this color.</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
                           Total Squares
                         </label>
                         <input
@@ -759,23 +785,23 @@ export default function ContractModal({
                             style={{ color: '#2c2c2a' }}
                           >
                             <option value="">Pick the closer</option>
-                            {creditUsers.map((u) => (
-                              <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>
+                            {creditSelectOptions(creditUsers, credit.closerUserId, creditPeople).map((o) => (
+                              <option key={o.id} value={o.id}>{o.label}</option>
                             ))}
                           </select>
                         </div>
                         <div>
                           <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>Setter</label>
                           <select
-                            value={credit.isSelfGenerated ? '' : credit.setterUserId}
-                            disabled={!creditCanChange || credit.isSelfGenerated}
+                            value={credit.setterUserId}
+                            disabled={!creditCanChange}
                             onChange={(e) => setCredit({ ...credit, setterUserId: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-400 rounded-lg bg-white disabled:bg-gray-100"
                             style={{ color: '#2c2c2a' }}
                           >
                             <option value="">No setter</option>
-                            {creditUsers.map((u) => (
-                              <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>
+                            {creditSelectOptions(creditUsers, credit.setterUserId, creditPeople).map((o) => (
+                              <option key={o.id} value={o.id}>{o.label}</option>
                             ))}
                           </select>
                         </div>
@@ -785,7 +811,7 @@ export default function ContractModal({
                             className="mt-1 h-5 w-5"
                             checked={credit.isSelfGenerated}
                             disabled={!creditCanChange}
-                            onChange={(e) => setCredit({ ...credit, isSelfGenerated: e.target.checked })}
+                            onChange={(e) => setCredit(setSelfGenerated(credit, e.target.checked))}
                           />
                           <span>The closer found this customer themselves (self-generated, no setter)</span>
                         </label>
@@ -900,6 +926,9 @@ export default function ContractModal({
                     </div>
                     {formData.agreementType === 'installation' && formData.roofingMaterial && (
                       <p className="text-sm mt-2"><span className="text-gray-500">Material:</span> {formData.roofingMaterial}</p>
+                    )}
+                    {formData.agreementType === 'installation' && formData.roofColor && (
+                      <p className="text-sm mt-2"><span className="text-gray-500">Color:</span> {formData.roofColor}</p>
                     )}
                   </div>
 
