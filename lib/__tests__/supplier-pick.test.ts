@@ -7,17 +7,19 @@
 const requireAuthApi = jest.fn()
 const createServiceClient = jest.fn()
 const resolveAccess = jest.fn()
+const loadCtx = jest.fn()
 jest.mock('@/lib/auth', () => ({ requireAuthApi: (...a: unknown[]) => requireAuthApi(...a) }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => createServiceClient() }))
 jest.mock('@/lib/supplier-orders', () => ({
   ...jest.requireActual('@/lib/supplier-orders'),
   resolveSupplierOrderAccess: (...a: unknown[]) => resolveAccess(...a),
+  loadSupplierOrderContext: (...a: unknown[]) => loadCtx(...a),
 }))
 
 import { NextRequest } from 'next/server'
 
 import { PATCH } from '@/app/api/ops/jobs/[id]/supplier-orders/route'
-import { buildSupplierOrdersView, type SupplierOrderContext } from '@/lib/supplier-orders'
+import { buildSupplierOrdersView, vendorHasLiveOrder, type SendRecord, type SupplierOrderContext } from '@/lib/supplier-orders'
 import type { OrderLine, SupplierOrderRecord, SupplierRecord, TradeOverride } from '@/lib/material-sourcing'
 
 const supplier = (over: Partial<SupplierRecord>): SupplierRecord => ({
@@ -42,14 +44,14 @@ function ctx(over: Partial<SupplierOrderContext> = {}): SupplierOrderContext {
   }
 }
 
-function fakeAdmin(vendors: Record<string, { org_id: string }>) {
+function fakeAdmin(vendors: Record<string, { org_id: string; active?: boolean; vendor_type?: string }>) {
   const upserts: Record<string, unknown>[] = []
   const deletes: string[] = []
   const admin = {
     from: (table: string) => {
       if (table === 'production_jobs') return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: 'job-1' } }) }) }) }) }
       if (table === 'vendors') {
-        return { select: () => ({ eq: (_c: string, id: string) => ({ eq: (_o: string, org: string) => ({ is: () => ({ maybeSingle: async () => ({ data: vendors[id]?.org_id === org ? { id } : null }) }) }) }) }) }
+        return { select: () => ({ eq: (_c: string, id: string) => ({ eq: (_o: string, org: string) => ({ is: () => ({ maybeSingle: async () => ({ data: vendors[id]?.org_id === org ? { id, active: vendors[id].active ?? true, vendor_type: vendors[id].vendor_type ?? 'supplier' } : null }) }) }) }) }) }
       }
       if (table === 'job_trade_material_sources') {
         return {
@@ -69,6 +71,11 @@ const patch = (body: unknown) =>
 beforeEach(() => {
   requireAuthApi.mockResolvedValue({ authUser: { id: 'u1' }, profile: { org_id: 'org', role: 'admin' } })
   resolveAccess.mockResolvedValue({ canView: true, canSend: true })
+  loadCtx.mockResolvedValue({ ok: true, ctx: ctx() })
+})
+
+const send = (status: SendRecord['status'], over: Partial<SendRecord> = {}): SendRecord => ({
+  id: 's1', supplierOrderId: 'o1', vendorId: 'v-abc', kind: 'order', status, createdAt: '2026-11-01T10:00:00Z', sentAt: null, toEmail: 'a@abc.test', poLabel: 'PO-A', ...over,
 })
 
 describe('which cards offer the switch', () => {
@@ -76,7 +83,7 @@ describe('which cards offer the switch', () => {
     const view = buildSupplierOrdersView(ctx())
     expect(view.cards).toHaveLength(1)
     expect(view.cards[0].supplierName).toBe('ABC Supply')
-    expect(view.cards[0].supplierPick).toEqual({ trades: [{ trade: 'roofing', source: null }, { trade: 'gutters', source: null }] })
+    expect(view.cards[0].supplierPick).toEqual({ trades: [{ trade: 'roofing', source: null }, { trade: 'gutters', source: null }], options: [{ id: 'v-abc', name: 'ABC Supply' }, { id: 'v-qxo', name: 'QXO' }] })
     expect(view.suppliers.map((s) => s.name)).toEqual(['ABC Supply', 'QXO'])
   })
 
@@ -100,9 +107,29 @@ describe('which cards offer the switch', () => {
     expect(Object.fromEntries(v.cards.map((c) => [c.supplierName, c.supplierPick !== null]))).toEqual({ QXO: false, 'ABC Supply': true })
   })
 
-  it('a cancelled (nothing live) order can still be re-pointed', () => {
-    const v = buildSupplierOrdersView(ctx({ orders: [order({ status: 'cancelled' })] }))
-    expect(v.cards[0].supplierPick).not.toBeNull()
+  it('H1: a draft whose only send FAILED can switch; any other send attempt blocks it', () => {
+    const only = (status: SendRecord['status']) => buildSupplierOrdersView(ctx({ orders: [order({ status: 'draft' })], sends: [send(status)] }))
+    expect(only('failed').cards[0].supplierPick).not.toBeNull()
+    for (const st of ['unknown', 'sending', 'sent'] as const) expect(only(st).cards[0].supplierPick).toBeNull()
+    expect(vendorHasLiveOrder(ctx({ orders: [order({})], sends: [send('failed'), send('unknown', { id: 's2' })] }), 'v-abc')).toBe(true)
+    expect(vendorHasLiveOrder(ctx({ orders: [order({})], sends: [send('unknown', { supplierOrderId: 'other' })] }), 'v-abc')).toBe(false)
+  })
+
+  it('H1: a draft with a live send keeps its card and cancel path when it has no lines left', () => {
+    const v = buildSupplierOrdersView(ctx({ lines: [], orders: [order({ status: 'draft' })], sends: [send('unknown')] }))
+    expect(v.cards).toHaveLength(1)
+    expect(v.cards[0]).toMatchObject({ vendorId: 'v-abc', canCancel: true, state: 'needs_cancellation', supplierPick: null })
+    // ...but a draft with only a failed send and no lines is not a card.
+    expect(buildSupplierOrdersView(ctx({ lines: [], orders: [order({ status: 'draft' })], sends: [send('failed')] })).cards).toHaveLength(0)
+  })
+
+  it('M3: a supplier holding a live order on this job is not offered', () => {
+    const qxoOrder = order({ id: 'o2', vendorId: 'v-qxo', poLetter: 'B', status: 'draft' })
+    const v = buildSupplierOrdersView(ctx({ orders: [order({}), qxoOrder], sends: [send('unknown', { id: 's2', supplierOrderId: 'o2', vendorId: 'v-qxo' })] }))
+    // QXO may already hold an order, so ABC's card has nobody to switch to.
+    expect(v.cards[0].supplierPick).toBeNull()
+    const three = buildSupplierOrdersView(ctx({ suppliers: [ABC, QXO, supplier({ id: 'v-z', name: 'Zed', defaultForTrades: [] })], orders: [qxoOrder], sends: [send('sent', { supplierOrderId: 'o2', vendorId: 'v-qxo' })] }))
+    expect(three.cards[0].supplierPick?.options.map((o) => o.name)).toEqual(['ABC Supply', 'Zed'])
   })
 })
 
@@ -131,6 +158,31 @@ describe('PATCH then regroup', () => {
   it('a vendor with no order email shows its warning after the switch', () => {
     const noEmail = buildSupplierOrdersView(ctx({ tradeOverrides: [{ trade: 'roofing', source: null, vendorId: 'v-abc' }], suppliers: [{ ...ABC, defaultForTrades: [] }, QXO, { ...supplier({ id: 'v-z', name: 'Zed', orderEmail: null }), defaultForTrades: [] }], lines: [line('shingles', 'roofing')] }))
     expect(noEmail.cards[0].blockers.join(' ')).toMatch(/no order email/)
+  })
+
+  it('M2: 409 when the trade\'s current supplier already has a live order, or the target does', async () => {
+    const { admin, upserts } = fakeAdmin({ 'v-qxo': { org_id: 'org' }, 'v-abc': { org_id: 'org' } })
+    createServiceClient.mockReturnValue(admin)
+    loadCtx.mockResolvedValue({ ok: true, ctx: ctx({ orders: [order({})], sends: [send('unknown')] }) })
+    let res = await patch({ trade: 'roofing', material_source: null, vendor_id: 'v-qxo' })
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('This order already went to ABC Supply — cancel it first')
+    // target holds the live order
+    loadCtx.mockResolvedValue({ ok: true, ctx: ctx({ tradeOverrides: [{ trade: 'roofing', source: null, vendorId: 'v-qxo' }], orders: [order({ id: 'o2', vendorId: 'v-abc', status: 'sent' })] }) })
+    res = await patch({ trade: 'roofing', material_source: null, vendor_id: 'v-abc' })
+    expect(res.status).toBe(409)
+    // a failed-only send does not block
+    loadCtx.mockResolvedValue({ ok: true, ctx: ctx({ orders: [order({})], sends: [send('failed')] }) })
+    expect((await patch({ trade: 'roofing', material_source: null, vendor_id: 'v-qxo' })).status).toBe(200)
+    expect(upserts).toHaveLength(1)
+  })
+
+  it('refuses an inactive vendor and a sub', async () => {
+    const { admin, upserts } = fakeAdmin({ 'v-off': { org_id: 'org', active: false }, 'v-sub': { org_id: 'org', vendor_type: 'sub' } })
+    createServiceClient.mockReturnValue(admin)
+    expect((await patch({ trade: 'roofing', material_source: null, vendor_id: 'v-off' })).status).toBe(400)
+    expect((await patch({ trade: 'roofing', material_source: null, vendor_id: 'v-sub' })).status).toBe(400)
+    expect(upserts).toHaveLength(0)
   })
 
   it('refuses another company\'s vendor and a field role', async () => {

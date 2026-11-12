@@ -137,18 +137,33 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
   const switchSupplier = async (card: SupplierCard, vendorId: string) => {
     if (!card.supplierPick || vendorId === card.vendorId) return
     setSwitching(card.vendorId)
-    try {
-      for (const t of card.supplierPick.trades) {
+    const patch = async (trade: string, source: string | null, to: string) => {
+      try {
         const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trade: t.trade, material_source: t.source, vendor_id: vendorId }),
+          body: JSON.stringify({ trade, material_source: source, vendor_id: to }),
         })
         const json = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          setError(json.error || 'Could not change the supplier. Try again.')
-          break
-        }
+        return res.ok ? null : (json.error as string) || 'Could not change the supplier. Try again.'
+      } catch {
+        return 'Could not change the supplier. Check your connection and try again.'
+      }
+    }
+    try {
+      const done: { trade: string; source: string | null }[] = []
+      let failed: string | null = null
+      for (const t of card.supplierPick.trades) {
+        failed = await patch(t.trade, t.source, vendorId)
+        if (failed) break
+        done.push(t)
+      }
+      if (failed) {
+        // Put back what already moved so the card is never split across two suppliers.
+        let restored = true
+        for (const t of done) if (await patch(t.trade, t.source, card.vendorId)) restored = false
+        setError(restored ? failed : 'Supplier only partly changed — pick again')
+      } else {
         setError(null)
       }
       await load()
@@ -203,10 +218,10 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
                     aria-label="Supplier"
                     className="min-h-[44px] max-w-full rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base font-semibold text-[#2c2c2a] disabled:opacity-50"
                     value={c.vendorId}
-                    disabled={switching !== null}
+                    disabled={switching !== null || busy}
                     onChange={(e) => void switchSupplier(c, e.target.value)}
                   >
-                    {view.suppliers.map((s) => (
+                    {c.supplierPick.options.map((s) => (
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>

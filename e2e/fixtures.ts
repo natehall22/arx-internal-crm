@@ -29,14 +29,14 @@ export const HARNESS_NEEDS_YOU = {
   ],
 } as unknown as DataHealthReport
 
-const cardBase = { supplierPick: null as { trades: { trade: string; source: string | null }[] } | null, orderStatus: null, lastSentAt: null, lastSentTo: null, canCancel: false, blockers: [] as string[] }
+const cardBase = { supplierPick: null as { trades: { trade: string; source: string | null }[]; options: { id: string; name: string }[] } | null, orderStatus: null, lastSentAt: null, lastSentTo: null, canCancel: false, blockers: [] as string[] }
 
 export const SUPPLIER_VIEW = {
   jobNumber: '26-0042', jobCancelled: false, canSend: true,
   rollup: { parts: [], covered: 1, total: 2, allCovered: false, summary: '1 of 2 suppliers ordered' },
   blockers: [], warnings: ['The gutter installer now supplies their own materials — check the PO.'],
   cards: [
-    { ...cardBase, vendorId: 'v1', supplierName: 'ABC Supply', state: 'not_sent', poNumber: 'PO-26-0042-A', supplierPick: { trades: [{ trade: 'roofing', source: null }, { trade: 'gutters', source: null }] },
+    { ...cardBase, vendorId: 'v1', supplierName: 'ABC Supply', state: 'not_sent', poNumber: 'PO-26-0042-A', supplierPick: { trades: [{ trade: 'roofing', source: null }, { trade: 'gutters', source: null }], options: [{ id: 'v1', name: 'ABC Supply' }, { id: 'v3', name: 'QXO' }] },
       lines: [
         { key: 'shingles', label: 'Field shingles — Owens Corning Duration Driftwood', qty: '58 bundles', trade: 'roofing' },
         { key: 'ridge', label: 'Hip & ridge cap', qty: '6 bundles', trade: 'roofing' },

@@ -190,8 +190,8 @@ const SCREENS: Screen[] = [
           return route.fallback()
         })
         const pick = p.getByLabel('Supplier', { exact: true }).first()
-        await pick.selectOption({ label: 'City Electric Supply' })
-        await p.waitForTimeout(300)
+        await pick.selectOption({ label: 'QXO' })
+        await expect.poll(() => calls.filter((c) => c.startsWith('PATCH')).length).toBe(2)
         if (calls.filter((c) => c.startsWith('PATCH')).length !== 2 || calls.includes('POST')) throw new Error(`unexpected calls: ${calls.join(' | ')}`)
         if (await p.getByRole('dialog').count()) throw new Error('a dialog opened after switching the supplier')
       } },

@@ -384,6 +384,17 @@ export function sourcingFor(ctx: SupplierOrderContext): SourcingResult {
 // View (GET) — read-only
 // ---------------------------------------------------------------------------
 
+/**
+ * ONE rule for "something may already be at this supplier": the vendor's PO on this job is sent, or has any
+ * send attempt that is not 'failed' (sending / unknown / sent-but-unrecorded / a cancellation). Used to offer
+ * the switch, to refuse it on the server, and to keep a line-less draft card alive.
+ */
+export function vendorHasLiveOrder(ctx: Pick<SupplierOrderContext, 'orders' | 'sends'>, vendorId: string): boolean {
+  const order = ctx.orders.find((o) => o.vendorId === vendorId)
+  if (!order) return false
+  return order.status === 'sent' || ctx.sends.some((s) => s.supplierOrderId === order.id && s.status !== 'failed')
+}
+
 export type SupplierCard = {
   vendorId: string
   supplierName: string
@@ -401,9 +412,10 @@ export type SupplierCard = {
    * Set only when the person may switch this card's supplier with one tap: nothing live at the supplier
    * (never sent, or cancelled), the job is open, no line has its own supplier/source override, and there is
    * somewhere to switch to. `trades` = what the PATCH must be sent for (each with the source to keep).
+   * `options` = active suppliers with no live order on this job (so a switch never reopens a live PO).
    * A sent order is a cancellation flow, never a switch.
    */
-  supplierPick: { trades: { trade: string; source: MaterialSource | null }[] } | null
+  supplierPick: { trades: { trade: string; source: MaterialSource | null }[]; options: { id: string; name: string }[] } | null
 }
 
 export type SupplierOrdersView = {
@@ -449,13 +461,14 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
   const jobCancelled = ctx.jobStatus === 'cancelled'
 
   const tradeSource = new Map(ctx.tradeOverrides.map((t) => [t.trade, t.source]))
-  const activeSupplierCount = ctx.suppliers.filter((s) => s.active).length
+  const pickOptions = ctx.suppliers.filter((s) => s.active && !vendorHasLiveOrder(ctx, s.id)).map((s) => ({ id: s.id, name: s.name }))
   const cards: SupplierCard[] = sourcing.supplierGroups.map((g) => {
     const order = orderByVendor.get(g.supplier.id) ?? null
     const switchable =
       !jobCancelled &&
-      activeSupplierCount > 1 &&
-      (!order || order.status === 'draft' || order.status === 'cancelled') &&
+      pickOptions.length > 1 &&
+      pickOptions.some((o) => o.id === g.supplier.id) &&
+      !vendorHasLiveOrder(ctx, g.supplier.id) &&
       g.lines.every((l) => !l.vendorOverrideId && !l.sourceOverride)
     const channel = supplierChannelProblem(g.supplier, snapshotLines(g.lines))
     return {
@@ -470,17 +483,19 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
       lastSentTo: order?.lastSentTo ?? null,
       receivedAt: order?.receivedAt ?? null,
       canCancel: order?.status === 'sent',
-      supplierPick: switchable ? { trades: g.trades.map((trade) => ({ trade, source: tradeSource.get(trade) ?? null })) } : null,
+      supplierPick: switchable ? { trades: g.trades.map((trade) => ({ trade, source: tradeSource.get(trade) ?? null })), options: pickOptions } : null,
     }
   })
   // POs already sent to a supplier that no longer has any lines (moved, excluded, source changed).
   for (const o of ctx.orders) {
-    if (o.status === 'draft' || cards.some((c) => c.vendorId === o.vendorId)) continue
+    // A draft that has a send attempt that may have reached the supplier keeps its card (and its cancel path).
+    const liveDraft = o.status === 'draft' && vendorHasLiveOrder(ctx, o.vendorId)
+    if ((o.status === 'draft' && !liveDraft) || cards.some((c) => c.vendorId === o.vendorId)) continue
     const s = supplierById.get(o.vendorId)
     cards.push({
       vendorId: o.vendorId,
       supplierName: s?.name ?? 'Supplier',
-      state: supplierCardState(null, o),
+      state: liveDraft ? 'needs_cancellation' : supplierCardState(null, o),
       orderStatus: o.status,
       poNumber: o.poNumber,
       lines: [],
@@ -488,7 +503,7 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
       lastSentAt: o.lastSentAt,
       lastSentTo: o.lastSentTo,
       receivedAt: o.receivedAt,
-      canCancel: o.status === 'sent',
+      canCancel: o.status === 'sent' || liveDraft,
       supplierPick: null,
     })
   }
