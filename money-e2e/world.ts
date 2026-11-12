@@ -15,7 +15,7 @@ export const admin = (): SupabaseClient => createServiceClient()
 
 /** Raw SQL against the throwaway database (setup, "what is really stored" checks, simulated time travel). JSON rows back. */
 export function sql<T = Record<string, unknown>>(query: string): T[] {
-  const out = execFileSync('psql', ['-X', '-At', '-v', 'ON_ERROR_STOP=1', '-c', `select coalesce(json_agg(t), '[]') from (${query}) t`], {
+  const out = execFileSync('psql', ['-X', '-At', '-v', 'ON_ERROR_STOP=1', '-c', `select coalesce(json_agg(q), '[]') from (${query}) q`], {
     env: { ...process.env, PGHOST: process.env.MONEY_PG_HOST || '/tmp/moneypg', PGPORT: process.env.MONEY_PG_PORT || '55433', PGUSER: 'postgres', PGDATABASE: 'postgres' },
     encoding: 'utf8',
   })
