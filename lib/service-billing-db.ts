@@ -12,6 +12,7 @@ import { isUsableCustomerEmail } from '@/lib/invoice-document'
 import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
 import { createServiceInvoiceFromLines } from '@/lib/invoices'
 import { invoicePaidCents } from '@/lib/invoice-lines'
+import { jobsPaidInFull } from '@/lib/job-collection-db'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import type { SalesTaxSettings } from '@/lib/sales-tax'
 import {
@@ -387,6 +388,10 @@ export async function loadUnpaidInvoices(admin: SupabaseClient, orgId: string): 
     }
     if (invoices.length < UNPAID_INVOICES_READ_CAP) break
   }
+  // A job invoice on a job that is PAID IN FULL (the one rule, lib/job-collection.ts) is not owed: the money was recorded on
+  // the job and never applied to the invoice, so its own balance still reads open. Applies to every user of this list.
+  const paidJobs = await jobsPaidInFull(admin, orgId, Array.from(new Set(open.map((x) => x.i.job_id).filter((id): id is string => !!id))))
+  for (let k = open.length - 1; k >= 0; k--) if (open[k].i.job_id && paidJobs.has(open[k].i.job_id as string)) open.splice(k, 1)
   // Oldest due first, no due date last (sorted here so it never depends on the database's null ordering).
   open.sort((x, y) => (x.i.due_at ?? '9999').localeCompare(y.i.due_at ?? '9999') || x.i.created_at.localeCompare(y.i.created_at))
   // A job invoice names its customer through the job (customer_id on the invoice itself is only set without a job).

@@ -49,6 +49,30 @@ function db() {
   })
 }
 
+describe('job invoices on jobs already paid in full (the prod shape)', () => {
+  it('payments were recorded on the job and never applied to the invoice: the invoice is not owed, an unpaid job stays', async () => {
+    const d = createFakeDb({
+      production_jobs: [
+        { id: 'jp', org_id: ORG, customer_id: 'c1', job_number: '26-0001', sale_amount: 100, status: 'collected' }, // paid in full
+        { id: 'ju', org_id: ORG, customer_id: 'c1', job_number: '26-0002', sale_amount: 100, status: 'complete' }, // only half paid
+      ],
+      customers: [{ id: 'c1', org_id: ORG, name: 'Pat Lee', email: null }],
+      job_invoices: [
+        inv('1', { job_id: 'jp', total_cents: 10000 }), // sent, never applied
+        inv('2', { job_id: 'ju', total_cents: 10000 }),
+      ],
+      invoice_payments: [],
+      job_payments: [
+        { id: 'a', job_id: 'jp', amount_cents: 10000, payment_type: 'final', method: 'check', paid_at: '2026-11-01' },
+        { id: 'b', job_id: 'ju', amount_cents: 5000, payment_type: 'deposit', method: 'check', paid_at: '2026-11-01' },
+      ],
+    })
+    const q = await loadUnpaidInvoicesQueue(d.client as never, ORG, NOW, { money: true })
+    expect(q.items.map((i) => i.ref)).toEqual(['Job 26-0002 · Invoice INV-26-2'])
+    expect(q.count).toBe(1)
+  })
+})
+
 describe('loadUnpaidInvoicesQueue', () => {
   it('lists what is still owed, oldest due first, with amounts only when money is on', async () => {
     const q = await loadUnpaidInvoicesQueue(db().client as never, ORG, NOW, { money: true })
