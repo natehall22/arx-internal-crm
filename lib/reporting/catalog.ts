@@ -32,7 +32,7 @@ export type Dataset = {
 }
 
 export const DATASET_KEYS = [
-  'jobs', 'sales', 'payments', 'invoices', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
+  'jobs', 'sales', 'payments', 'invoices', 'revenue', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
   'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy',
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
@@ -77,6 +77,16 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
       c('invoice_number', 'Invoice #'), c('customer', 'Customer'), c('property', 'Property'), c('status', 'Status'), c('invoice_date', 'Invoice date', 'date'),
       c('due_at', 'Due', 'date'), c('subtotal', 'Subtotal', 'money'), c('tax', 'Sales tax', 'money'), c('total', 'Total', 'money'), c('paid', 'Paid', 'money'),
       c('balance_due', 'Owed', 'money'), c('days_overdue', 'Days late', 'number'), c('aging_bucket', 'How late'),
+    ],
+  },
+  revenue: {
+    idColumn: 'revenue_id', key: 'revenue', label: 'Revenue', description: 'Gross revenue: what was billed (job contracts and service invoices, sales tax shown on its own line) and what was collected (every payment, refunds taken off). A dollar is never counted twice.',
+    view: 'rpt_revenue', dateColumn: 'event_date', ownerColumn: null, financeOnly: true,
+    columns: [
+      c('event_date', 'Date', 'date'), c('work_type', 'Kind of work'), c('entry', 'Billed or collected'), c('service', 'Service'), c('trade', 'Trade'),
+      c('reference', 'Job / invoice #'), c('customer', 'Customer'), c('billed', 'Billed', 'money'), c('collected', 'Collected', 'money'),
+      c('billed_jobs', 'Billed: jobs', 'money'), c('billed_service', 'Billed: service', 'money'),
+      c('collected_jobs', 'Collected: jobs', 'money'), c('collected_service', 'Collected: service', 'money'),
     ],
   },
   job_costs: {

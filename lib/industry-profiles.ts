@@ -183,6 +183,8 @@ const SERVICE_REPORTS = [
   'appointments-by-type',
   'referrals-by-partner',
   'payments-by-month',
+  'revenue-by-month',
+  'revenue-by-service',
   'ar-aging',
   'jobs-by-status',
   'profit-by-job',

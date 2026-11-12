@@ -23,6 +23,7 @@ export function specTouchesFinancials(spec: ReportSpec, scope?: 'own' | 'team' |
   const used = [
     spec.groupBy && !spec.groupBy.startsWith('@') ? spec.groupBy : null,
     'column' in spec.metric ? spec.metric.column : null,
+    ...(spec.alsoSum ?? []),
     spec.sortBy ?? null,
     ...spec.filters.map((f) => f.column),
   ].filter(Boolean) as string[]
@@ -65,6 +66,10 @@ const RAW_TEMPLATES: ReportTemplate[] = [
     spec: base('leads', { groupBy: 'source' }) },
   { key: 'payments-by-month', title: 'Money collected by month', group: 'Money', blurb: 'Payments received (pending ones included).', chart: 'line',
     spec: base('payments', { groupBy: '@month', metric: { kind: 'sum', column: 'amount' }, date: { preset: 'ytd' }, sortDesc: false }) },
+  { key: 'revenue-by-month', title: 'Revenue by month', group: 'Money', blurb: 'Billed and collected each month, jobs and service work together, with each kind split out. No dollar is counted twice.', chart: 'line',
+    spec: base('revenue', { groupBy: '@month', metric: { kind: 'sum', column: 'billed' }, alsoSum: ['collected', 'billed_jobs', 'billed_service', 'collected_jobs', 'collected_service'], date: { preset: 'ytd' }, sortDesc: false }) },
+  { key: 'revenue-by-service', title: 'Revenue by service', group: 'Money', blurb: 'What was billed, by service (plan type, trade or job type). Sales tax shows as its own line.', chart: 'bar',
+    spec: base('revenue', { groupBy: 'service', metric: { kind: 'sum', column: 'billed' }, date: { preset: 'ytd' }, filters: [{ column: 'entry', op: 'eq', value: 'Billed' }] }) },
   { key: 'ar-aging', title: 'Money owed (aging)', group: 'Money', blurb: 'Unpaid balance on sold jobs by how old the sale is.', chart: 'bar',
     spec: base('jobs', { groupBy: 'aging_bucket', metric: { kind: 'sum', column: 'balance_due' }, date: { preset: 'all' }, filters: [{ column: 'balance_due', op: 'gt', value: 0 }] }) },
   { key: 'jobs-by-status', title: 'Jobs by status', group: 'Jobs', blurb: 'Where every job stands.', chart: 'bar',
