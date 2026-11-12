@@ -532,6 +532,15 @@ const SCREENS: Screen[] = [
       crmRates: [], vendors: [{ id: 'v1', name: 'Acme Roofing Supply' }], tradeSlugs: [], preview: { invoices: 3, payments: 2, bills: 1 }, today: '2026-11-12',
     })))
   } },
+  { name: 'quickbooks-backfill', path: '/dev-harness/quickbooks-backfill', ready: 'text=Match what is already in QuickBooks', mock: async (p) => {
+    await p.route('**/api/admin/quickbooks/backfill', (route) => route.fulfill(json({
+      items: [
+        { key: 'customer:c1', kind: 'customer', crmTable: 'customers', crmId: 'c1', label: 'Dana Twin', state: 'ambiguous', reason: 'More than one QuickBooks customer fits. Pick the right one.', candidates: [{ qbId: '11', label: 'Dana', detail: 'dana@example.com' }, { qbId: '12', label: 'Dana T', detail: 'dana@example.com · 9 Elm St' }], chosen: null },
+        { key: 'customer:c2', kind: 'customer', crmTable: 'customers', crmId: 'c2', label: 'Pat Homeowner', state: 'certain', reason: null, candidates: [{ qbId: '10', label: 'Pat H', detail: 'pat@example.com' }], chosen: null },
+      ],
+      counts: { alreadyLinked: 4, certain: 1, ambiguous: 1, none: 0 }, qb: { customers: 40, jobs: 12, invoices: 30 }, willSend: { invoices: 3, payments: 2, bills: 1 }, truncated: false,
+    })))
+  }, states: [{ name: 'looked', run: async (p) => { await p.getByRole('button', { name: 'Look at QuickBooks' }).click(); await p.waitForSelector('text=Need your say') } }] },
   { name: 'quickbooks-activity', path: '/dev-harness/quickbooks-activity', ready: 'text=QuickBooks activity', mock: async (p) => {
     await p.route('**/api/admin/quickbooks/activity**', (route) => route.fulfill(json({
       counts: { sent: 1, waiting: 0, needs_you: 1, skipped: 0, working: 0 },

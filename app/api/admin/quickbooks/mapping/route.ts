@@ -4,7 +4,7 @@ import { loadOrgFeatures } from '@/lib/org-features'
 import { requireOnlinePaymentsCaller } from '@/lib/online-payments/access'
 import { loadConnection } from '@/lib/quickbooks/connection'
 import { readQbSettings, saveQuickBooksSettings } from '@/lib/quickbooks/mapping'
-import { checkAgainstLists, loadMappingScreen, loadOrgForMapping } from '@/lib/quickbooks/mapping-screen'
+import { backfillDone, checkAgainstLists, loadMappingScreen, loadOrgForMapping } from '@/lib/quickbooks/mapping-screen'
 import { createQbLinks } from '@/lib/quickbooks/links'
 import { dayIn } from '@/lib/quickbooks/worker'
 import { openQbClient } from '@/lib/quickbooks/session'
@@ -69,6 +69,12 @@ export async function PUT(request: Request) {
   if (lists.country && lists.country !== 'US') return NextResponse.json({ error: 'The CRM sends to US QuickBooks companies only so far.' }, { status: 409 })
   const wrong = checkAgainstLists(next, lists)
   if (wrong) return NextResponse.json({ error: wrong }, { status: 400 })
+  // Link-first: a QuickBooks company that already has customers must be matched before the first "Start sending", or the worker could create duplicates.
+  if (body.confirm === true && !saved.confirmedAt && !backfillDone(org.settings)) {
+    const existing = await opened.client.query('Customer', null, { max: 1 })
+    if (!existing.ok) return NextResponse.json({ error: 'QuickBooks is not answering, so it could not be checked for existing customers. Try again in a minute.' }, { status: 409 })
+    if (existing.value.length > 0) return NextResponse.json({ error: 'Your QuickBooks already has customers. Match them first (“Match what is already in QuickBooks”), then start sending.', needsBackfill: true }, { status: 409 })
+  }
 
   const result = await saveQuickBooksSettings(a.admin, orgId, body, a.profile.id)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 500 })

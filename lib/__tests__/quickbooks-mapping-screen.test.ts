@@ -34,3 +34,12 @@ describe('mapping screen: choices must be QuickBooks’ own', () => {
     expect(checkAgainstLists({ ...EMPTY_QB_SETTINGS }, lists)).toBeNull()
   })
 })
+
+import { backfillDone } from '@/lib/quickbooks/mapping-screen'
+describe('backfill gate', () => {
+  it('is done only once apply stored a time', () => {
+    expect(backfillDone({})).toBe(false)
+    expect(backfillDone({ quickbooks: { backfill: {} } })).toBe(false)
+    expect(backfillDone({ quickbooks: { backfill: { doneAt: '2026-11-12T00:00:00Z' } } })).toBe(true)
+  })
+})

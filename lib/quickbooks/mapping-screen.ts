@@ -72,3 +72,9 @@ export function checkAgainstLists(s: QbSettings, lists: QbLists): string | null 
 }
 
 export { QUICKBOOKS_SETTINGS_KEY }
+
+/** Has the owner matched what is already in QuickBooks (or applied with nothing to match)? Stored by `applyBackfill`. */
+export function backfillDone(orgSettings: Record<string, unknown>): boolean {
+  const qb = orgSettings[QUICKBOOKS_SETTINGS_KEY] as { backfill?: { doneAt?: unknown } } | undefined
+  return typeof qb?.backfill?.doneAt === 'string' && qb.backfill.doneAt.length > 0
+}
