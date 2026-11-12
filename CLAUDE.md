@@ -412,6 +412,17 @@ system — a portal session is a row (`portal_sessions`) tied to ONE customer of
 - **Pre-launch (not blocking the prototype):** SMS sign-in (email only now), a staff view of `portal_login_events`, change-order signing
   inside the portal.
 
+## Move signed documents (2026-11-11)
+Settings → Move signed documents (`/admin/import/signed-documents`, owners only). `lib/signed-import/*`, routes under
+`/api/admin/import/signed-docs`, migration `202611190010` (NOT applied). Docs: `docs/signed-documents-import.md`.
+- **Reuses the Jobber import's tables, run helpers and matcher** (`import_runs.source = 'signed_docs'`; `matchExistingCustomer`,
+  `matchFileNames`). Never a second matcher; customers are never created. Jobber's `listRuns/loadRun/openRun/startUndo` take a source.
+- **ZIPs open in the browser** (fflate streaming, real byte counts, never trust headers); PDFs go straight to storage; the server re-hashes.
+- **An imported document is read-only and never re-rendered.** `documents.sha256 / import_source / import_envelope_id` are
+  immutable (trigger); duplicates are skipped by (org, sha256). Unmatched = `customer_id NULL` (the "Waiting for a customer" list).
+- Known Redundancy (29): customer rows are loaded for matching in `lib/signed-import/db.ts` beside the Jobber loaders
+  (`loadCustomerNames`); one loader when either is next touched.
+
 ## Move from Jobber (2026-11-12)
 Settings → Move from Jobber (`/admin/import/jobber`, owners only, `lib/jobber-import/access.ts`). Full write-up with Jobber
 citations: `docs/jobber-import.md`. Migration `202611120040_jobber_import.sql` (NOT applied; after 0010/0020/0030/0060).
