@@ -705,3 +705,40 @@ for (const screen of SCREENS) {
     }
   })
 }
+
+// Proposal builder step 3 (roofing type + tear-off question): no sideways scroll, tear-off buttons >= 44px and inside the screen.
+// Its own test, not a SCREENS case: the builder's step bar and other controls are older and fail the generic tap-target sweep.
+test('proposal-builder / step 3 tear-off buttons fit the phone', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/proposals/builder**', (route) => route.fulfill(json({
+    role: 'admin', roofingTypes: [{ id: 'rt1', name: 'Asphalt Shingles', price_per_square: 451.2, is_default: true }],
+    pricebookItems: [], adders: [], priceLists: [], templates: [], financingPrograms: [],
+    measurement: { id: 'm1', total_squares: 11.75, suggested_waste_percent: 12 },
+  })))
+  await page.goto('/dev-harness/proposal-builder?opportunity_id=opp-1&measurement_id=m1')
+  await page.getByRole('button', { name: '3', exact: true }).click()
+  await page.waitForSelector('text=Is this a tear-off job?')
+  const yes = page.getByRole('button', { name: /Yes, Tear-off Required/ })
+  const no = page.getByRole('button', { name: /No, Overlay\/New/ })
+  const vw = page.viewportSize()!.width
+  for (const b of [yes, no]) {
+    const r = (await b.boundingBox())!
+    expect(r.height).toBeGreaterThanOrEqual(43.5)
+    expect(r.x).toBeGreaterThanOrEqual(0)
+    expect(r.x + r.width).toBeLessThanOrEqual(vw)
+  }
+  const culprits = await page.evaluate(() => {
+    const w = document.documentElement.clientWidth
+    const out: string[] = []
+    document.querySelectorAll('body *').forEach((el) => {
+      const r = (el as HTMLElement).getBoundingClientRect()
+      if (r.right <= w + 1 || r.width === 0) return
+      let q = el.parentElement
+      while (q && q !== document.body) { const o = getComputedStyle(q).overflowX; if (o === 'auto' || o === 'scroll' || o === 'hidden') return; q = q.parentElement }
+      out.push(`${el.tagName.toLowerCase()}.${String((el as HTMLElement).className).slice(0, 70)} "${(el.textContent || '').trim().slice(0, 30)}" right=${Math.round(r.right)}`)
+    })
+    return out.slice(0, 8)
+  })
+  expect(culprits, 'elements past the right edge').toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(vw)
+})

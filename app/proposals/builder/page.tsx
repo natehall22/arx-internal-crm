@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { findStaleSquareLines, isPerSquareUnit, keepLinesWhenRoofingTypeChanges } from '@/lib/proposal-line-squares'
 import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { toast } from '@/components/ui/toast'
 import SalesTaxPicker from '@/components/proposals/SalesTaxPicker'
@@ -463,6 +464,7 @@ export default function ProposalBuilderPage() {
   // Calculate waste squares and total squares
   const wasteSquares = baseSquares * (effectiveWastePercent / 100)
   const totalSquaresWithWaste = baseSquares + wasteSquares
+  const staleSquareLines = findStaleSquareLines(lineItems, totalSquaresWithWaste)
   const rawBundleCount = totalSquaresWithWaste * BUNDLES_PER_SQUARE
   const roundedBundles = Math.ceil(rawBundleCount)
   const bundleRoundedSquares = roundedBundles / BUNDLES_PER_SQUARE
@@ -749,7 +751,11 @@ export default function ProposalBuilderPage() {
     let calculatedQuantity = quantity || 1
     
     if (!quantity && measurementData?.total_squares) {
-      calculatedQuantity = convertQuantityForUnit(measurementData.total_squares, item.unit)
+      // Per-square lines use the sold squares shown in step 2 (waste included), same as the base price.
+      calculatedQuantity = convertQuantityForUnit(
+        isPerSquareUnit(item.unit) ? totalSquaresWithWaste : measurementData.total_squares,
+        item.unit
+      )
     }
     
     const isPercentage = item.price_type === 'percentage' || item.unit === 'percent'
@@ -1168,12 +1174,12 @@ export default function ProposalBuilderPage() {
         {/* Measurement Summary Banner */}
         {measurementData && (
           <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-6 mb-6 text-white">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-semibold mb-1">Roof Measurement Loaded</h3>
                 <p className="text-indigo-100 text-sm">{measurementData.address_text}</p>
               </div>
-              <div className="flex gap-6 text-center">
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-center">
                 {squaresOn && (
                 <div>
                   <div className="text-3xl font-bold">{measurementData.total_squares?.toFixed(1) || urlSquares}</div>
@@ -1511,14 +1517,7 @@ export default function ProposalBuilderPage() {
                           const newLineItem = buildRoofingLineItem(type)
                           console.log('Creating line item:', totalSquaresWithWaste, 'squares x $', type.price_per_square, '= $', newLineItem.line_total, '(recommended order:', recommendedOrderSquares, 'sq)')
                           // Replace any existing roofing line items
-                          setLineItems(prev => {
-                            const nonRoofingItems = prev.filter(item => 
-                              !item.name.toLowerCase().includes('roofing') && 
-                              !item.name.toLowerCase().includes('installation') ||
-                              item.is_adder
-                            )
-                            return [newLineItem, ...nonRoofingItems.filter(i => !i.is_adder)]
-                          })
+                          setLineItems(prev => [newLineItem, ...keepLinesWhenRoofingTypeChanges(prev)])
                         } else {
                           console.log('No squares available, not creating line item')
                         }
@@ -1598,7 +1597,7 @@ export default function ProposalBuilderPage() {
                   <p className="text-sm text-gray-600 mb-4">
                     Does the existing roof need to be removed before installing the new roof?
                   </p>
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <button
                       onClick={() => {
                         setIsTearOff(true)
@@ -1611,7 +1610,7 @@ export default function ProposalBuilderPage() {
                         )
                         setTearOffOptions(tearOffAdders)
                       }}
-                      className={`flex-1 py-4 px-6 rounded-xl font-semibold border-2 transition-all ${
+                      className={`flex-1 min-w-0 min-h-[44px] py-4 px-3 sm:px-6 rounded-xl font-semibold border-2 transition-all ${
                         isTearOff === true
                           ? 'bg-amber-600 text-white border-amber-600'
                           : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
@@ -1630,7 +1629,7 @@ export default function ProposalBuilderPage() {
                         setSelectedTearOff(null)
                         setTearOffOptions([])
                       }}
-                      className={`flex-1 py-4 px-6 rounded-xl font-semibold border-2 transition-all ${
+                      className={`flex-1 min-w-0 min-h-[44px] py-4 px-3 sm:px-6 rounded-xl font-semibold border-2 transition-all ${
                         isTearOff === false
                           ? 'bg-gray-600 text-white border-gray-600'
                           : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
@@ -1763,11 +1762,30 @@ export default function ProposalBuilderPage() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {lineItems.filter(i => !i.is_adder).map((item) => (
+                      {lineItems.filter(i => !i.is_adder).map((item) => {
+                        const stale = editingProposalId ? staleSquareLines.find(l => l.id === item.id) : undefined
+                        return (
                         <div key={item.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
                           <div className="flex-1">
                             <p className="font-medium text-gray-900">{item.name}</p>
                             <p className="text-sm text-gray-700">{item.category}</p>
+                            {stale && (
+                              <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-lg" data-testid="stale-squares-warning">
+                                <p className="text-sm text-gray-900">
+                                  This line is {stale.quantity} sq. The roof is now {stale.soldSquares} sq (waste included).
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuantityDrafts(prev => { const next = { ...prev }; delete next[item.id]; return next })
+                                    updateLineItem(item.id, 'quantity', stale.soldSquares)
+                                  }}
+                                  className="mt-2 min-h-[44px] px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg"
+                                >
+                                  Update to {stale.soldSquares} sq
+                                </button>
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-3">
                             <input
@@ -1803,7 +1821,8 @@ export default function ProposalBuilderPage() {
                             </button>
                           </div>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </>

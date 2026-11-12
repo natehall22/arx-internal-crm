@@ -5,6 +5,7 @@ type ProposalLike = {
 }
 
 type ProposalLineItemLike = {
+  id?: string | null
   category?: string | null
   name?: string | null
   description?: string | null
@@ -14,7 +15,6 @@ type ProposalLineItemLike = {
 }
 
 const SQUARE_UNITS = new Set(['square', 'squares', 'sq'])
-const ROOFING_KEYWORDS = ['roof', 'roofing', 'shingle', 'shingles']
 
 function roundSquares(value: number | string | null | undefined): number | null {
   const n = typeof value === 'string' ? Number(value) : value
@@ -33,32 +33,28 @@ function parseDescriptionValue(description: string | null | undefined, pattern: 
   return Number.isFinite(parsed) ? roundSquares(parsed) : null
 }
 
-function looksRoofingRelated(item: ProposalLineItemLike): boolean {
-  const haystack = `${item.category || ''} ${item.name || ''} ${item.description || ''}`.toLowerCase()
-  return ROOFING_KEYWORDS.some((keyword) => haystack.includes(keyword))
+/**
+ * The ONE line that can stand in for sold squares: the roofing installation line the builder writes
+ * (id `roofing-<type>` in the builder; once saved, ids are database ids, so its description
+ * "<measured> sq + <waste>% waste = <sold> sq" is the lasting mark). Per-square labor, dump, cap and
+ * other lines never feed squares; a roofing line with no mark is not trusted.
+ */
+const INSTALL_LINE_MARK = /\+\s*[0-9]+(?:\.[0-9]+)?%\s*waste\s*=\s*[0-9]+(?:\.[0-9]+)?\s*sq/i
+
+export function isRoofingInstallationLine(item: ProposalLineItemLike): boolean {
+  if (item.is_adder || !parseSquareUnit(item.unit)) return false
+  if (typeof item.id === 'string' && item.id.startsWith('roofing-')) return true
+  return INSTALL_LINE_MARK.test(item.description || '')
 }
 
+/** The roofing installation line's OWN quantity (never the rounded text in its description). */
 export function inferSoldRoofSquaresFromLineItems(lineItems: ProposalLineItemLike[]): number | null {
-  const squareItems = lineItems.filter((item) => !item.is_adder && parseSquareUnit(item.unit))
-  if (squareItems.length === 0) return null
-
-  for (const item of squareItems) {
-    const parsed = parseDescriptionValue(item.description, /=\s*([0-9]+(?:\.[0-9]+)?)\s*sq/i)
-    if (parsed != null) return parsed
+  let best: number | null = null
+  for (const item of lineItems.filter(isRoofingInstallationLine)) {
+    const quantity = roundSquares(item.quantity)
+    if (quantity != null && quantity > 0 && (best == null || quantity > best)) best = quantity
   }
-
-  const roofingSquareItems = squareItems.filter(looksRoofingRelated)
-  const bestCandidate = (roofingSquareItems.length > 0 ? roofingSquareItems : squareItems).reduce<number | null>(
-    (best, item) => {
-      const quantity = roundSquares(item.quantity)
-      if (quantity == null) return best
-      if (best == null || quantity > best) return quantity
-      return best
-    },
-    null
-  )
-
-  return bestCandidate
+  return best
 }
 
 export function inferMeasuredSquaresFromLineItems(lineItems: ProposalLineItemLike[]): number | null {
@@ -81,21 +77,11 @@ export function resolveProposalSoldRoofSquares(
   proposal: ProposalLike | null | undefined,
   lineItems: ProposalLineItemLike[] = []
 ): number | null {
+  // Larger of the stored sold squares and the roofing installation line's own quantity (a manual bump
+  // above the stored value is what ops orders). Labor, dump, cap and other per-square lines never count.
   const stored = roundSquares(proposal?.sold_squares)
-  const inferred = inferSoldRoofSquaresFromLineItems(lineItems)
-
-  // When a line item quantity is manually bumped above the stored/inferred value
-  // (e.g. the description says "= 53.31 sq" but qty was changed to 57), use the
-  // higher raw quantity so ops sees the correct amount to order.
-  const squareItems = lineItems.filter((item) => !item.is_adder && parseSquareUnit(item.unit))
-  const roofingItems = squareItems.filter(looksRoofingRelated)
-  const candidateItems = roofingItems.length > 0 ? roofingItems : squareItems
-  const rawLineItemMax = candidateItems.reduce<number | null>((best, item) => {
-    const q = roundSquares(item.quantity)
-    return q != null && q > 0 && (best == null || q > best) ? q : best
-  }, null)
-
-  const candidates = [stored, inferred, rawLineItemMax].filter((v): v is number => v != null && v > 0)
+  const installed = inferSoldRoofSquaresFromLineItems(lineItems)
+  const candidates = [stored, installed].filter((v): v is number => v != null && v > 0)
   return candidates.length > 0 ? Math.max(...candidates) : null
 }
 
