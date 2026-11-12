@@ -127,10 +127,12 @@ function envelopeSigners(signers: readonly SignerRow[]) {
 
 /** The envelope for this request (made at creation; made here if a request somehow lacks one). 'not_ready' = migration not applied. */
 export async function ensureRequestEnvelope(admin: SupabaseClient, request: RequestRow, signers: readonly SignerRow[]): Promise<EnvelopeRow | 'not_ready'> {
+  // org-scope-ok: org_id comes from the request row this function was handed (already loaded company-scoped); its name only looks like an HTTP request to the checker
   const { data, error } = await admin.from('signing_envelopes').select('*').eq('org_id', request.org_id).eq('doc_kind', REQUEST_KIND).eq('doc_id', request.id).maybeSingle()
   if (error) return 'not_ready'
   if (data) return data as EnvelopeRow
   const { data: created, error: insErr } = await admin
+    // org-scope-ok: insert for the same already-loaded request row's company
     .from('signing_envelopes')
     .insert({
       org_id: request.org_id, doc_kind: REQUEST_KIND, doc_id: request.id, provider: 'native', status: 'sent', signers: envelopeSigners(signers),
@@ -139,6 +141,7 @@ export async function ensureRequestEnvelope(admin: SupabaseClient, request: Requ
     .select('*')
     .single()
   if (created) return created as EnvelopeRow
+  // org-scope-ok: same loaded request row's company
   const { data: again } = await admin.from('signing_envelopes').select('*').eq('org_id', request.org_id).eq('doc_kind', REQUEST_KIND).eq('doc_id', request.id).maybeSingle()
   void insErr
   return (again as EnvelopeRow | null) ?? 'not_ready'
@@ -158,6 +161,7 @@ export async function loadRequest(admin: SupabaseClient, orgId: string, id: stri
 export async function findSignerByToken(admin: SupabaseClient, token: unknown): Promise<{ signer: SignerRow; request: RequestRow; signers: SignerRow[]; fields: FieldRow[] } | null> {
   const t = typeof token === 'string' ? token.trim() : ''
   if (!/^[0-9a-f]{64}$/i.test(t)) return null
+  // org-scope-ok: the hashed signer token IS the access: a public link reaches exactly the row it names, in whichever company owns it
   const { data: signer } = await admin.from('signature_request_signers').select('*').eq('token_hash', hashSigningToken(t)).maybeSingle()
   if (!signer) return null
   const s = signer as SignerRow
@@ -220,6 +224,7 @@ export async function inviteSigners(admin: SupabaseClient, request: RequestRow, 
     const ok = token ? await emailSigner(admin, { request, signer: s, token, variant: 'invite' }) : false
     if (!ok) { failed.push(s.name); continue }
     sent++
+    // org-scope-ok: filtered by the signer id and the loaded request row's company
     await admin.from('signature_request_signers').update({ notified_at: new Date().toISOString() }).eq('id', s.id).eq('org_id', request.org_id)
     if (env !== 'not_ready') await recordSigningEvent(admin, { org_id: request.org_id, envelope_id: env.id, doc_kind: REQUEST_KIND, doc_id: request.id, event: 'sent', signer_key: s.role_key, actor_type: 'system', actor_email: s.email, meta: { role: s.role_label } })
   }

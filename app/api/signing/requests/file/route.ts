@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
   if (which === 'source' && r.status === 'pending') path = r.source_path
   else if (which === 'signed' && r.status === 'completed') path = r.signed_path
   else if (which === 'certificate' && r.status === 'completed') {
+    // org-scope-ok: org_id is the loaded signature request's company (found by the signer's hashed token), not a value from the HTTP request
     const { data: env } = await admin.from('signing_envelopes').select('certificate_path').eq('org_id', r.org_id).eq('doc_kind', REQUEST_KIND).eq('doc_id', r.id).maybeSingle()
     path = (env as { certificate_path?: string | null } | null)?.certificate_path ?? null
   }
