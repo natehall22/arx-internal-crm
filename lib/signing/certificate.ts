@@ -26,7 +26,7 @@ export type CertificateInput = {
   sentAt: string | null
   signers: EnvelopeSigner[]
   /** Per signer: where it was signed from. Keyed by role. */
-  evidence: Partial<Record<'customer' | 'company', { ip?: string | null; userAgent?: string | null; consentVersion?: string | null; consentAt?: string | null }>>
+  evidence: Record<string, { ip?: string | null; userAgent?: string | null; consentVersion?: string | null; consentAt?: string | null }>
   events: Array<Pick<SigningEventRow, 'event' | 'actor_type' | 'actor_name' | 'ip' | 'created_at'> & { meta?: Record<string, unknown> }>
   generatedAt: string
 }
@@ -114,7 +114,7 @@ export function buildCertificatePdf(input: CertificateInput): Buffer {
   for (const s of [...input.signers].sort((a, b) => a.order - b.order)) {
     const ev = input.evidence[s.role] ?? {}
     ensure(70)
-    text(`${s.name || '(no name)'} — ${s.role === 'company' ? 'company representative' : 'customer'}`, { size: 10.5, bold: true })
+    text(`${s.name || '(no name)'} — ${s.label ?? (s.role === 'company' ? 'company representative' : 'customer')}`, { size: 10.5, bold: true })
     if (s.email) text(`Email: ${s.email}`, { size: 9.5, indent: 10 })
     text(`Status: ${s.status === 'signed' ? 'Signed' : s.status === 'declined' ? 'Declined' : 'Not signed'}${s.signedAt ? ` on ${utcStamp(s.signedAt)}` : ''}`, { size: 9.5, indent: 10 })
     if (ev.ip) text(`From IP address: ${ev.ip}`, { size: 9.5, indent: 10 })

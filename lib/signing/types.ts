@@ -7,6 +7,9 @@ import type { SigningDocKind } from '@/lib/signing-tokens'
 
 export type SigningKind = SigningDocKind
 
+/** What an envelope or an event can be about: the two native domain documents, plus a request to sign a document the company uploaded. */
+export type EnvelopeDocKind = SigningKind | 'signature-request'
+
 /** 'native' = our own signing pages. 'docusign' is the seam for companies that must use it (see lib/signing/provider.ts). */
 export type SigningProviderId = 'native' | 'docusign'
 export const SIGNING_PROVIDER_IDS: readonly SigningProviderId[] = ['native', 'docusign']
@@ -20,7 +23,8 @@ export const SIGNING_EVENT_TYPES = [
 ] as const
 export type SigningEventType = (typeof SIGNING_EVENT_TYPES)[number]
 
-export type SignerRole = 'customer' | 'company'
+/** 'customer' / 'company' on a contract or change order; a send-any-PDF signer's own role key ("owner", "tenant", …). */
+export type SignerRole = string
 export type SignerStatus = 'pending' | 'viewed' | 'signed' | 'declined'
 
 export interface EnvelopeSigner {
@@ -31,6 +35,8 @@ export interface EnvelopeSigner {
   order: number
   status: SignerStatus
   signedAt: string | null
+  /** What to call this signer on the certificate ("Tenant"); default by role for a contract / change order. */
+  label?: string
 }
 
 export interface EnvelopeDocument {
@@ -52,7 +58,7 @@ export interface EnvelopeField {
 export interface EnvelopeRow {
   id: string
   org_id: string
-  doc_kind: SigningKind
+  doc_kind: EnvelopeDocKind
   doc_id: string
   provider: SigningProviderId
   provider_ref: string | null
@@ -85,7 +91,7 @@ export interface SigningEventRow {
   id?: string
   org_id: string
   envelope_id: string
-  doc_kind: SigningKind
+  doc_kind: EnvelopeDocKind
   doc_id: string
   event: SigningEventType
   /** Which signer the event is about ('customer', 'company', …); '' (default) for envelope-level events. */

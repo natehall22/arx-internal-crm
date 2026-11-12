@@ -23,6 +23,8 @@ export type SigningSettings = {
   declineEnabled: boolean
   /** File the signed copy + certificate on the customer (protected `signed_executed` document) when it is signed. */
   autoFile: boolean
+  /** Send any PDF for signature with placed fields, templates and bulk send (a new capability: on unless the owner turns it off). */
+  customDocuments: boolean
   reminders: { enabled: boolean; days: number[] }
   /** Days a link is extended by when the office extends or resends an expired one. */
   extendDays: number
@@ -45,6 +47,7 @@ export function defaultSigningSettings(hasProfile: boolean): SigningSettings {
     consentStep: hasProfile,
     declineEnabled: hasProfile,
     autoFile: hasProfile,
+    customDocuments: true,
     reminders: { enabled: false, days: [...DEFAULT_REMINDER_DAYS] },
     extendDays: 7,
     emails: { signedCopy: false, declineNotice: false },
@@ -77,6 +80,7 @@ export function readSigningSettings(storedSettings: unknown): SigningSettings {
     consentStep: typeof s.consentStep === 'boolean' ? s.consentStep : d.consentStep,
     declineEnabled: typeof s.declineEnabled === 'boolean' ? s.declineEnabled : d.declineEnabled,
     autoFile: typeof s.autoFile === 'boolean' ? s.autoFile : d.autoFile,
+    customDocuments: typeof s.customDocuments === 'boolean' ? s.customDocuments : d.customDocuments,
     reminders: {
       enabled: typeof rem.enabled === 'boolean' ? rem.enabled : d.reminders.enabled,
       days: cleanReminderDays(rem.days) ?? d.reminders.days,
@@ -94,7 +98,7 @@ export function parseSigningPatch(current: SigningSettings, body: unknown): { se
   const p = obj(obj(body).settings)
   const next: SigningSettings = { ...current, reminders: { ...current.reminders }, emails: { ...current.emails } }
   for (const [k, v] of Object.entries(p)) {
-    if (k === 'consentStep' || k === 'declineEnabled' || k === 'autoFile') {
+    if (k === 'consentStep' || k === 'declineEnabled' || k === 'autoFile' || k === 'customDocuments') {
       if (typeof v !== 'boolean') return { error: 'Use on or off' }
       next[k] = v
     } else if (k === 'provider') {

@@ -91,6 +91,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Customers',
     children: [
       { href: '/customers', label: 'Customers', show: (c) => c.permsReady && (has(c, 'customers:view', 'customers:edit') || c.flags.customerRecords) },
+      { href: '/signing', label: 'Signatures', show: (c) => c.permsReady && !c.flags.salesDocBarred && gated('contracts:send', 'contracts:view')(c) },
     ],
   },
   {

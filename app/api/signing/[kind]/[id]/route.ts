@@ -1,35 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { requireAuthApi } from '@/lib/auth'
 import { signFilesObject } from '@/lib/files/files-object'
 import { canActOnSigning } from '@/lib/signing/access'
-import { crossSiteWrite } from '@/lib/online-payments/access'
-import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { documentTitle, isSigningKind, loadDocRow, peekEnvelope } from '@/lib/signing/envelope'
 import { listSigningEvents } from '@/lib/signing/events'
 import { getSigningProvider } from '@/lib/signing/provider'
 import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { effectiveStatus, STATUS_LABELS } from '@/lib/signing/types'
-import { createServiceClient } from '@/lib/supabase/service'
+import { PRIVATE, staffSigningGate } from '@/lib/signing/staff-gate'
 
 export const dynamic = 'force-dynamic'
-const PRIVATE = { 'Cache-Control': 'private, no-store, max-age=0', 'Referrer-Policy': 'no-referrer' }
 
 async function gate(request: Request | null, params: { kind: string; id: string }) {
-  if (request && crossSiteWrite(request)) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: PRIVATE }) } as const
-  let auth: Awaited<ReturnType<typeof requireAuthApi>>
-  try {
-    auth = await requireAuthApi()
-  } catch {
-    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: PRIVATE }) } as const
-  }
   if (!isSigningKind(params.kind)) return { error: NextResponse.json({ error: 'Not found' }, { status: 404, headers: PRIVATE }) } as const
-  const admin = createServiceClient()
-  // Field roles (setters, canvassers, inside sales) never send, void or read money documents.
-  if (await resolveSalesDocAccessBarred(admin, auth.authUser.id, auth.profile)) {
-    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: PRIVATE }) } as const
-  }
-  return { admin, profile: auth.profile, userId: auth.authUser.id as string, kind: params.kind } as const
+  const g = await staffSigningGate(request)
+  if (g.error) return { error: g.error } as const
+  return { admin: g.admin, profile: g.profile, userId: g.userId, kind: params.kind, error: undefined } as const
 }
 
 /**
@@ -38,7 +24,7 @@ async function gate(request: Request | null, params: { kind: string; id: string 
  */
 export async function GET(_request: NextRequest, { params }: { params: { kind: string; id: string } }) {
   const g = await gate(null, params)
-  if ('error' in g) return g.error
+  if (g.error) return g.error
   const row = await loadDocRow(g.admin, g.kind, g.profile.org_id, params.id)
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404, headers: PRIVATE })
   const env = await peekEnvelope(g.admin, g.kind, row)
@@ -80,7 +66,7 @@ export async function GET(_request: NextRequest, { params }: { params: { kind: s
 /** POST { action: 'resend' | 'remind' | 'extend' | 'void' | 'certificate', days?, reason? } — the office's one-tap lifecycle actions. */
 export async function POST(request: NextRequest, { params }: { params: { kind: string; id: string } }) {
   const g = await gate(request, params)
-  if ('error' in g) return g.error
+  if (g.error) return g.error
   const body = await request.json().catch(() => ({}))
   const row = await loadDocRow(g.admin, g.kind, g.profile.org_id as string, params.id)
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404, headers: PRIVATE })

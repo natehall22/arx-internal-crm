@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 
 /** Tells the server a person opened the signing page (once). Never throws, never blocks the page. */
-export function useSigningBeacon(kind: 'contract' | 'change-order', token: string): void {
+export function useSigningBeacon(kind: 'contract' | 'change-order' | 'signature-request', token: string): void {
   useEffect(() => {
     if (typeof fetch !== 'function') return
     try {

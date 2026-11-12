@@ -20,3 +20,13 @@ export async function canActOnSigning(
   if (action === 'void') return effectiveHasPermission(perms, 'teams:manage')
   return effectiveHasPermission(perms, 'contracts:send')
 }
+
+/** Sending your own documents for signature: anyone who may send contracts (`contracts:send`) — reps, managers, admins. */
+export async function canSendDocuments(admin: SupabaseClient, user: { id: string; role: string; custom_role_id?: string | null }): Promise<boolean> {
+  return effectiveHasPermission(await resolveEffectivePermissionNames(admin, user.id, user), 'contracts:send')
+}
+
+/** Saving or changing a template (the layout everyone else then sends): managers (`teams:manage`) and admins. */
+export async function canManageTemplates(admin: SupabaseClient, user: { id: string; role: string; custom_role_id?: string | null }): Promise<boolean> {
+  return effectiveHasPermission(await resolveEffectivePermissionNames(admin, user.id, user), 'teams:manage')
+}

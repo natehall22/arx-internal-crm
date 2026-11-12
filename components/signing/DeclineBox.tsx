@@ -3,7 +3,7 @@
 import { useState } from 'react'
 
 /** "I can't sign this" — the signer gives a reason; the office is told. Shown only when the company's decline switch is on. */
-export default function DeclineBox({ kind, token, companyName, onDeclined }: { kind: 'contract' | 'change-order'; token: string; companyName: string; onDeclined: () => void }) {
+export default function DeclineBox({ kind, token, companyName, onDeclined }: { kind: 'contract' | 'change-order' | 'signature-request'; token: string; companyName: string; onDeclined: () => void }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)

@@ -129,7 +129,7 @@ export async function completeEnvelope(
         signers: env.signers.map((s) => (s.role === 'customer' ? { ...s, status: 'signed', signedAt: row.customer_signed_at, name: signerName || s.name } : s)),
         evidence: {
           customer: { ip: row.customer_ip ?? null, userAgent: row.customer_user_agent ?? null, consentVersion: row.consent_version ?? null, consentAt: row.consent_at ?? null },
-          company: companySigner ? { ip: row.rep_ip ?? null } : undefined,
+          ...(companySigner ? { company: { ip: row.rep_ip ?? null } } : {}),
         },
         events: events.map((e) => ({ event: e.event, actor_type: e.actor_type, actor_name: e.actor_name, ip: e.ip, created_at: e.created_at, meta: e.meta })),
         generatedAt: new Date().toISOString(),

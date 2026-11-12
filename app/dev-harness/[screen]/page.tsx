@@ -32,6 +32,7 @@ import SuppliersClient from '@/app/admin/suppliers/SuppliersClient'
 import ContractSigningForm from '@/app/contracts/sign/[token]/CustomerSigningForm'
 import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSigningForm'
 import SigningStatus from '@/components/signing/SigningStatus'
+import SignerFlow from '@/components/signing/SignerFlow'
 import { esignDisclosure } from '@/lib/signing/consent'
 import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
 import JobProjectTools from '@/components/project-tools/JobProjectTools'
@@ -330,6 +331,18 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <EmailBlastsPage />
     case 'contract-signing':
       return <ContractSigningForm contract={HARNESS_CONTRACT as never} token="tok" brand={DEFAULT_DOCUMENT_BRAND} cancellationNotice={noticeOfCancellation('2026-11-06T15:00:00Z', DEFAULT_DOCUMENT_BRAND)} />
+    case 'signer-flow':
+      return (
+        <SignerFlow
+          token="tok" title="Lease agreement" companyName="Acme Roofing" signerName="Olive Owner" roleLabel="Owner" waitingFor={null} alreadySigned={false} completed={false} declineEnabled
+          consent={esignDisclosure({ name: 'Acme Roofing', phone: '555-0100', email: 'office@acme.test' })}
+          fields={[
+            { id: 'f1', roleKey: 'owner', kind: 'signature', page: 0, x: 0.1, y: 0.3, w: 0.4, h: 0.06, required: true, mine: true, roleLabel: 'Owner' },
+            { id: 'f2', roleKey: 'owner', kind: 'date', page: 0, x: 0.6, y: 0.3, w: 0.25, h: 0.04, required: true, mine: true, roleLabel: 'Owner' },
+            { id: 'f3', roleKey: 'tenant', kind: 'signature', page: 0, x: 0.1, y: 0.5, w: 0.4, h: 0.06, required: true, mine: false, roleLabel: 'Tenant' },
+          ]}
+        />
+      )
     case 'change-order-signing':
       return <ChangeOrderSigningForm changeOrder={{ co_number: 'CO-1', description: 'Replace 3 sheets of rotten decking at the rear slope. Add 40 LF of drip edge.', customer_print_name: 'Pat Customer', updated_total: 16825 }} token="tok" />
     case 'change-order-signing-consent':

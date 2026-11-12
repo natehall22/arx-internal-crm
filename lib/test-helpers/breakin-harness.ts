@@ -140,6 +140,11 @@ export function attackerSeed(table: string, hasOrgId = true): Row {
   if (table === 'customer_messages') Object.assign(r, { link_token_hash: createHash('sha256').update(BRAVO_PUBLIC_TOKEN).digest('hex'), status: 'sent', kind: 'visit_done', channel: 'email', to_address: 'customer@bravo.test', sent_at: new Date().toISOString(), refs: { visitId: BRAVO_ROW_ID }, customer_id: BRAVO_ROW_ID })
   // A live quote link (lib/quotes/links.ts: hashed token, unexpired), so B's /q routes resolve B's own quote.
   if (table === 'quote_links') Object.assign(r, { token_hash: createHash('sha256').update(BRAVO_PUBLIC_TOKEN).digest('hex'), revoked_at: null, expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString() })
+  // A pending send-any-PDF request and its signer whose link token is B's public token (hashed; lib/signing/requests/db.ts findSignerByToken).
+  if (table === 'signature_request_signers') Object.assign(r, { token_hash: createHash('sha256').update(BRAVO_PUBLIC_TOKEN).digest('hex'), token_enc: null, status: 'pending', role_key: 'owner', role_label: 'Owner', order_index: 0, email: 'signer@bravo.test', name: 'Bravo Signer', request_id: BRAVO_ROW_ID })
+  if (table === 'signature_requests') Object.assign(r, { status: 'pending', signing_order: 'parallel', page_count: 1, source_path: `org/${ORG_B}/signing/requests/src.pdf`, source_sha256: 'a'.repeat(64), expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), created_by: ATTACKER_ID })
+  if (table === 'signature_fields') Object.assign(r, { request_id: BRAVO_ROW_ID, role_key: 'owner', kind: 'signature', page: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.05, required: true })
+  if (table === 'signature_templates') Object.assign(r, { roles: [{ key: 'owner', label: 'Owner', order: 0 }], fields: [{ id: 'f1', roleKey: 'owner', kind: 'signature', page: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.05, required: true }], source_path: `org/${ORG_B}/signing/templates/src.pdf`, source_sha256: 'a'.repeat(64), page_count: 1, archived_at: null })
   if (table === 'payment_accounts') Object.assign(r, { account_id: 'acct_BRAVO', status: 'active', charges_enabled: true, livemode: false, disconnected_at: null })
   Object.assign(r, { user_id: ATTACKER_ID, owner_user_id: ATTACKER_ID, created_at: '2026-11-02T12:00:00.000Z', updated_at: '2026-11-02T12:00:00.000Z' })
   if (hasOrgId) r.org_id = ORG_B
