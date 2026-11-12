@@ -31,10 +31,11 @@ export function exec(statement: string): void {
 export const cents = (dollars: unknown): number => Math.round(Number(dollars) * 100)
 export const dollars = (c: number): string => (c / 100).toFixed(2)
 
-export async function must<T>(p: PromiseLike<{ data: T | null; error: { message: string } | null }>, what: string): Promise<T> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function must<T = any>(p: PromiseLike<{ data: unknown; error: { message: string } | null }>, what: string): Promise<T> {
   const { data, error } = await p
   if (error || data == null) throw new Error(`${what}: ${error?.message ?? 'no data'}`)
-  return data
+  return data as T
 }
 
 export type Company = { id: string; name: string; ownerId: string; users: Record<string, string> }

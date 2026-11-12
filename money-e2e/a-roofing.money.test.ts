@@ -137,7 +137,7 @@ it('A6 job complete -> portal shows the balance as paid, board and page agree', 
   await admin().from('production_jobs').update({ salesperson_id: closerId, status: 'complete', completed_at: '2026-11-10T15:00:00-05:00' }).eq('id', deal.jobId)
   exec(`update job_payments set created_at = paid_at::timestamptz + interval '12 hours' where job_id = '${deal.jobId}'`)
   const page = await jobPageMoney(deal.jobId)
-  const portal = await portalJobMoney(co.id, deal.customerId, deal.jobId)
+  const portal = (await portalJobMoney(co.id, deal.customerId, deal.jobId))!
   agree('paid in full once installed', { 'job page summary': page.summary.paid_in_full, 'portal job money': portal.paidInFull, expected: true })
   agree('customer total (cents)', { 'job page required': page.summary.sale_amount_cents, 'portal total': portal.totalCents, 'sale amount': SALE1 + CO1 })
   agree('customer paid (cents)', { 'job page collected': page.summary.collected_cents, 'portal paid': portal.paidCents, 'sale amount': SALE1 + CO1 })
@@ -182,7 +182,7 @@ it('A7 pay week: preview == approved == CSV == provider export == pay sheets == 
 
 it('A8 costs: manual lines + a supplier PO bill + the dealer-fee mirror line -> ledger == board == reports == profit tracker == Financials card', async () => {
   const db = admin()
-  const abc = await resolveVendorId(db, co.id, 'ABC Supply')
+  const abc = await resolveVendorId(db, co.id, 'ABC Supply', null)
   const add = (description: string, amount: number, costType: any, over: Record<string, unknown> = {}) =>
     addJobCostLine(db, { orgId: co.id, jobId: deal.jobId, userId: co.ownerId, description, amount, costType, vendorId: abc, source: 'manual', ...over })
   for (const r of [await add('Shingles + underlayment', 4100, 'material'), await add('Crew labor', 2350.55, 'subcontractor'), await add('Permit', 75, 'permit'), await add('Return: unused bundles', 118.25, 'material', { credit: true })]) expect(r.ok).toBe(true)
@@ -317,7 +317,7 @@ describe('known disagreements (were it.failing; fixed on feat/money-simple, now 
     await recordJobPayment(admin(), { orgId: co.id, jobId: d4.jobId, paidAt: '2026-11-10', amountCents: 1000000, paymentType: 'final', method: 'check', payer: 'homeowner', createdBy: null })
     const page = await jobPageMoney(d4.jobId)
     agree('balance due after paying the contract but not the invoice tax (cents)', {
-      'job page remaining (sale + invoice tax - collected)': Math.max(page.summary.remaining_cents ?? page.summary.balance_cents ?? 0, 0),
+      'job page remaining (sale + invoice tax - collected)': Math.max(page.summary.remaining_cents ?? 0, 0),
       'rpt_jobs.balance_due': cents(rptJob(d4.jobId)?.balance_due),
     })
   })

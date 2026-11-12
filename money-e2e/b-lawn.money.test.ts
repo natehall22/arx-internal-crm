@@ -54,7 +54,7 @@ it('B2 issued invoice = what is owed on a time-and-materials job (not the $520 e
     'job page remaining': page.summary.remaining_cents,
     'invoice total - collected': invoiceTotal - 10000,
   })
-  agree('collected on the job (cents)', { 'ops board collected_cents': board?.collected_cents, 'rpt_jobs.collected': cents(rptJob(deal.jobId)?.collected), 'job page': page.summary.total_paid_cents ?? page.summary.collected_cents })
+  agree('collected on the job (cents)', { 'ops board collected_cents': board?.collected_cents, 'rpt_jobs.collected': cents(rptJob(deal.jobId)?.collected), 'job page': page.summary.collected_cents })
 
   agree('not paid in full', { 'job page paid_in_full': page.summary.paid_in_full ? 'paid' : 'open', expected: 'open' })
 })
