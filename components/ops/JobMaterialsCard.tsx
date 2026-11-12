@@ -6,13 +6,13 @@ import {
   isDealerFeeCostLine,
   normalizeJobCostType,
   type JobCostSummary,
-  type JobCostType,
 } from '@/lib/job-cost-ledger'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import AddCostSheet from './AddCostSheet'
 
 /**
- * Materials card. "+ Job Cost" writes to the job cost ledger (`job_cost_lines`, via
+ * Materials card. "+ Add a cost" (the shared AddCostSheet) writes to the job cost ledger (`job_cost_lines`, via
  * `/api/ops/jobs/[id]/cost-lines`) — the same list the Photos & files card shows and the only
  * thing the Financials card's Est. profit reads. Labor is a job cost with type "Labor"; the old
  * separate "Save Labor Cost" box (production_jobs.labor_cost) was removed 2026-10-21 because it
@@ -48,14 +48,6 @@ interface JobMaterialsCardProps {
   dealerFeeAmount?: number | null
 }
 
-const COST_TYPE_OPTIONS: Array<{ value: JobCostType; label: string }> = [
-  { value: 'material', label: 'Materials' },
-  { value: 'labor', label: 'Labor' },
-  { value: 'subcontractor', label: 'Subcontractor' },
-  { value: 'permit', label: 'Permit' },
-  { value: 'misc', label: 'Other' },
-]
-
 const typePill: Record<string, string> = {
   material: 'bg-blue-100 text-blue-800',
   labor: 'bg-green-100 text-green-800',
@@ -63,16 +55,6 @@ const typePill: Record<string, string> = {
   permit: 'bg-purple-100 text-purple-800',
 }
 
-
-type CostForm = {
-  description: string
-  supplier: string
-  amount: string
-  cost_type: JobCostType
-  credit: boolean
-}
-
-const EMPTY_FORM: CostForm = { description: '', supplier: '', amount: '', cost_type: 'material', credit: false }
 
 export default function JobMaterialsCard({
   jobId,
@@ -91,12 +73,8 @@ export default function JobMaterialsCard({
   const [lines, setLines] = useState<CostLine[]>([])
   const [summary, setSummary] = useState<JobCostSummary | null>(null)
   const [loading, setLoading] = useState(true)
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [newCost, setNewCost] = useState<CostForm>(EMPTY_FORM)
-  const [editingLine, setEditingLine] = useState<CostLine | null>(null)
-  const [editForm, setEditForm] = useState<CostForm>(EMPTY_FORM)
-  const [savingEdit, setSavingEdit] = useState(false)
+  /** The shared sheet: null = closed, `{ line: null }` = add a cost, `{ line }` = edit that cost. */
+  const [sheet, setSheet] = useState<{ line: CostLine | null } | null>(null)
 
   const isAdmin = userRole === 'admin'
 
@@ -124,7 +102,7 @@ export default function JobMaterialsCard({
 
   useEffect(() => {
     if (!registerOpenAddJobCost) return
-    registerOpenAddJobCost(() => setShowAddForm(true))
+    registerOpenAddJobCost(() => setSheet({ line: null }))
     return () => {
       registerOpenAddJobCost(null)
     }
@@ -133,85 +111,6 @@ export default function JobMaterialsCard({
   const afterMutation = () => {
     loadLines()
     onLedgerMutated?.()
-  }
-
-  const handleAddCost = async () => {
-    if (!newCost.description.trim() || !newCost.amount) return
-    setSaving(true)
-    try {
-      const response = await fetch(`/api/ops/jobs/${jobId}/cost-lines`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          description: newCost.description.trim(),
-          supplier: newCost.supplier.trim() || null,
-          amount: Number(newCost.amount),
-          cost_type: newCost.cost_type,
-          credit: newCost.credit,
-        }),
-      })
-      if (response.ok) {
-        const out = (await response.json().catch(() => ({}))) as { warning?: string }
-        if (out.warning) toast.error(out.warning)
-        setNewCost(EMPTY_FORM)
-        setShowAddForm(false)
-        afterMutation()
-      } else {
-        const error = await response.json().catch(() => ({}))
-        toast.error(error.error || 'Could not add this cost')
-      }
-    } catch (error) {
-      console.error('Error adding job cost:', error)
-      toast.error('Could not add this cost')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const openEdit = (line: CostLine) => {
-    setEditingLine(line)
-    const amount = Number(line.amount ?? 0)
-    setEditForm({
-      description: line.description,
-      supplier: line.vendors?.name ?? '',
-      amount: line.amount == null ? '' : String(Math.abs(amount)),
-      cost_type: normalizeJobCostType(line.cost_type, 'misc'),
-      credit: amount < 0,
-    })
-  }
-
-  const handleSaveEdit = async () => {
-    if (!editingLine) return
-    if (!editForm.description.trim()) return
-    setSavingEdit(true)
-    try {
-      const payload: Record<string, unknown> = {
-        description: editForm.description.trim(),
-        supplier: editForm.supplier.trim() || null,
-        cost_type: editForm.cost_type,
-      }
-      if (editingLine.amount != null && editForm.amount !== '') {
-        payload.amount = Number(editForm.amount)
-        payload.credit = editForm.credit
-      }
-      const response = await fetch(`/api/ops/jobs/${jobId}/cost-lines/${editingLine.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (response.ok) {
-        setEditingLine(null)
-        afterMutation()
-      } else {
-        const error = await response.json().catch(() => ({}))
-        toast.error(error.error || 'Could not save this cost')
-      }
-    } catch (error) {
-      console.error('Error updating job cost:', error)
-      toast.error('Could not save this cost')
-    } finally {
-      setSavingEdit(false)
-    }
   }
 
   const handleDelete = async (lineId: string) => {
@@ -233,73 +132,6 @@ export default function JobMaterialsCard({
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
 
-  const renderForm = (form: CostForm, setForm: (f: CostForm) => void, opts: { showSupplier: boolean; amountLocked: boolean }) => (
-    <div className="p-4 space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-800 mb-1">What was it for? *</label>
-        <input
-          type="text"
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
-          placeholder="e.g., Shingles, Labor - roofing crew"
-        />
-      </div>
-      {opts.showSupplier && (
-        <div>
-          <label className="block text-sm font-medium text-gray-800 mb-1">Supplier or crew</label>
-          <input
-            type="text"
-            value={form.supplier}
-            onChange={(e) => setForm({ ...form, supplier: e.target.value })}
-            className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
-            placeholder="e.g., QXO"
-          />
-        </div>
-      )}
-      <div>
-        <label className="block text-sm font-medium text-gray-800 mb-1">Type</label>
-        <select
-          value={form.cost_type}
-          onChange={(e) => setForm({ ...form, cost_type: e.target.value as JobCostType })}
-          className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
-        >
-          {COST_TYPE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      {!opts.amountLocked && (
-        <>
-          <div>
-            <label className="block text-sm font-medium text-gray-800 mb-1">Amount *</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
-              value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
-              placeholder="0.00"
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm text-gray-900 min-h-[44px]">
-            <input
-              type="checkbox"
-              checked={form.credit}
-              onChange={(e) => setForm({ ...form, credit: e.target.checked })}
-              className="h-5 w-5"
-            />
-            Return or refund (takes this amount off the job&apos;s cost)
-          </label>
-        </>
-      )}
-    </div>
-  )
-
   return (
     <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
@@ -315,10 +147,10 @@ export default function JobMaterialsCard({
             </button>
           )}
           <button
-            onClick={() => setShowAddForm(true)}
+            onClick={() => setSheet({ line: null })}
             className="min-h-[44px] text-sm px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
           >
-            + Job Cost
+            + Add a cost
           </button>
         </div>
       </div>
@@ -371,7 +203,7 @@ export default function JobMaterialsCard({
       {loading ? (
         <div className="text-center py-4 text-gray-700">Loading...</div>
       ) : lines.length === 0 ? (
-        <div className="text-center py-4 text-gray-700 text-sm">No job costs added yet</div>
+        <div className="text-center py-4 text-gray-700 text-sm">No costs added yet</div>
       ) : (
         <div className="space-y-2">
           {lines.map((line) => {
@@ -399,7 +231,7 @@ export default function JobMaterialsCard({
                   </span>
                   <button
                     type="button"
-                    onClick={() => openEdit(line)}
+                    onClick={() => setSheet({ line })}
                     className="text-sm text-indigo-700 hover:text-indigo-900 min-h-[44px] min-w-[44px] px-2"
                   >
                     Edit
@@ -420,63 +252,16 @@ export default function JobMaterialsCard({
         </div>
       )}
 
-      {showAddForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
-          <div className="bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
-            <div className="p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Add Job Cost</h3>
-            </div>
-            {renderForm(newCost, setNewCost, { showSupplier: true, amountLocked: false })}
-            <div className="sticky bottom-0 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t flex gap-3">
-              <button
-                onClick={() => setShowAddForm(false)}
-                className="flex-1 px-4 py-2 border rounded-lg text-gray-800 hover:bg-gray-50 min-h-[44px]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddCost}
-                disabled={saving || !newCost.description.trim() || !newCost.amount}
-                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 min-h-[44px]"
-              >
-                {saving ? 'Adding...' : 'Add Job Cost'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editingLine && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
-          <div className="bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
-            <div className="p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Edit Job Cost</h3>
-              {editingLine.approved && (
-                <p className="mt-1 text-xs text-gray-800">
-                  Changing the amount or type sends this cost back for admin review.
-                </p>
-              )}
-            </div>
-            {renderForm(editForm, setEditForm, { showSupplier: true, amountLocked: editingLine.amount == null })}
-            <div className="sticky bottom-0 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t flex gap-3">
-              <button
-                type="button"
-                onClick={() => setEditingLine(null)}
-                className="flex-1 px-4 py-2 border rounded-lg text-gray-800 hover:bg-gray-50 min-h-[44px]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveEdit}
-                disabled={savingEdit || !editForm.description.trim()}
-                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 min-h-[44px]"
-              >
-                {savingEdit ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {sheet && (
+        <AddCostSheet
+          jobId={jobId}
+          line={sheet.line}
+          onClose={() => setSheet(null)}
+          onSaved={() => {
+            setSheet(null)
+            afterMutation()
+          }}
+        />
       )}
     </div>
   )
