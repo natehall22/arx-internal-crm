@@ -1,11 +1,10 @@
-/** @jest-environment node */
 /**
- * QuickBooks PR 1 ("deletes first"): until the sync worker exists (docs/quickbooks-sync.md), the outbox gets exactly two kinds
- * of rows, from exactly two places:
- *  - customer.upserted — contract signing only (`enrichCustomerFromContract`); booking, the repair-contract project tool,
- *    the customer backfill and customer linking all go through `upsertCustomer`, which never enqueues;
- *  - payment.recorded — recording a job payment (`recordJobPayment`, lib/job-payment-record.ts).
- * Invoices (job_invoices) are never queued: the design syncs one QuickBooks invoice per job = sale amount.
+ * QuickBooks outbox: ONE helper family in lib/integrations.ts (`enqueueCustomerUpserted`, `enqueuePaymentRecorded`,
+ * `enqueueRecordEvent`) and a closed list of callers. A new caller must be added here on purpose (docs/quickbooks-sync.md):
+ *  - customer.upserted — contract signing only (`enrichCustomerFromContract`);
+ *  - payment.recorded/refunded — `recordJobPayment` (job payments) and the customer-invoice payment/refund writers in lib/invoices.ts;
+ *  - invoice.upserted/voided — job sale amount (`syncJobSaleAndCommissionBase`), invoice send/void (lib/invoices.ts), job cancel;
+ *  - bill.recorded/voided — purchase-order bill record/void (lib/purchase-orders-db.ts).
  */
 import fs from 'fs'
 import path from 'path'
@@ -46,17 +45,25 @@ describe('QuickBooks outbox: who can enqueue', () => {
     expect(src).not.toMatch(/lib\/integrations|enqueue[A-Z]/)
   })
 
-  it('only recording a job payment queues a payment (the one job payment writer)', () => {
-    expect(callersOf('enqueuePaymentRecorded')).toEqual(['lib/job-payment-record.ts'])
-    // Office "Add payment" and the online-payment webhook both go through recordJobPayment.
+  it('payments are queued only by the payment writers', () => {
+    expect(callersOf('enqueuePaymentRecorded')).toEqual(['lib/invoices.ts', 'lib/job-payment-record.ts'])
     expect(callersOf('recordJobPayment').sort()).toEqual(expect.arrayContaining(['app/api/ops/jobs/[id]/payments/route.ts']))
   })
 
-  it('invoices are never queued, and the unused worker stubs are gone', () => {
+  it('invoice and bill events are queued only from their own writers', () => {
+    expect(callersOf('enqueueRecordEvent')).toEqual([
+      'app/api/ops/jobs/[id]/cancel/route.ts',
+      'lib/invoices.ts',
+      'lib/job-commission-base.ts',
+      'lib/purchase-orders-db.ts',
+    ])
+  })
+
+  it('the unused worker stubs stay gone and the helpers never throw into a money write', () => {
     const lib = read('lib/integrations.ts')
-    expect(lib).not.toMatch(/invoice\.(finalized|voided)|enqueueInvoice/)
     expect(lib).not.toMatch(/getPendingOutboxEvents|markEventCompleted|markEventFailed/)
-    expect(read('lib/invoices.ts')).not.toMatch(/lib\/integrations|\.\/integrations'|enqueue/)
+    const fn = lib.slice(lib.indexOf('export async function enqueueRecordEvent'))
+    expect(fn).toMatch(/catch/)
   })
 
   it('the dead admin Integrations screen (it read a table that does not exist) stays deleted', () => {

@@ -20,6 +20,8 @@ import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import QuickBooksCard from '@/components/admin/QuickBooksCard'
+import QuickBooksMappingCard from '@/components/admin/QuickBooksMappingCard'
+import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
@@ -79,6 +81,8 @@ export default async function SettingsPage() {
           {canEditFeatures && features.onlinePayments ? <OnlinePaymentsCard /> : null}
           {/* Owners, when the company uses QuickBooks: connect its own QuickBooks company (lib/quickbooks). */}
           {canEditFeatures && features.quickbooks ? <QuickBooksCard /> : null}
+          {canEditFeatures && features.quickbooks ? <QuickBooksMappingCard /> : null}
+          {canEditFeatures && features.quickbooks ? <QuickBooksActivityCard /> : null}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}
