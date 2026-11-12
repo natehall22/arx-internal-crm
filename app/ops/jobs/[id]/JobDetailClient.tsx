@@ -2139,11 +2139,11 @@ export default function JobDetailClient({
           <div className="flex overflow-x-auto">
             {([
               { key: 'overview', label: 'Overview' },
+              ...(embedded ? [] : [{ key: 'notes' as const, label: 'Notes' }]),
               { key: 'scope',    label: 'Details' },
               { key: 'materials', label: 'Materials' },
               ...(canViewFinancialTab ? [{ key: 'financials' as const, label: 'Financials' }] : []),
               { key: 'photos',   label: 'Photos & files' },
-              ...(embedded ? [] : [{ key: 'notes' as const, label: 'Notes' }]),
             ] as const).map((tab) => (
               <button
                 key={tab.key}
@@ -2288,12 +2288,6 @@ export default function JobDetailClient({
                 compact={v2}
               />
             </div>
-
-            {!embedded && !v2 && (
-              <div className={mobileTab !== 'notes' ? 'hidden lg:block' : undefined}>
-                {legacyNotes}
-              </div>
-            )}
           </div>
 
           <div className={v2 ? 'contents' : 'space-y-4 sm:space-y-6'}>
@@ -2305,6 +2299,14 @@ export default function JobDetailClient({
                 onTradesChange={handleTradesChange}
               />
             </div>{/* end overview tab wrapper */}
+
+            {/* Internal Notes — right column, straight under Schedule & Crews (was the very bottom of the
+                left column, below Scope, Materials and Files). Same card, same mobile Notes tab. */}
+            {!embedded && !v2 && (
+              <div className={mobileTab !== 'notes' ? 'hidden lg:block' : undefined}>
+                {legacyNotes}
+              </div>
+            )}
 
             {/* Final photos — desktop: above Financials (admin/owner); mobile: Photos tab */}
             <div className={blockCls('photos', 'crews')} style={ord(3)}>
