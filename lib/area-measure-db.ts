@@ -1,6 +1,6 @@
 /**
  * Measure yard — server side: who may measure for what, the company settings, and the ONE writer of `area_measurements`.
- * (Pure rules: lib/area-measure.ts. Migration 202611230020, not applied until an owner does it.)
+ * (Pure rules: lib/area-measure.ts. Migration 202611230040, not applied until an owner does it.)
  *
  * Access: a measurement hangs off a customer, a property, a deal (opportunity) or a lead. A person may READ / WRITE it when
  * they may open that record (the same rules as the Customer File: `resolveCustomerAccess`, `canOpenDeal`), and may WRITE only

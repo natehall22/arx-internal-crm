@@ -529,7 +529,7 @@ Budget vs actual, selections & allowances, job schedule stages, daily log. Migra
 
 ## Measure yard — lawn & landscape area measuring (2026-11-12)
 Switch `areaMeasure` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape profile ON, profile version 4; ARX unchanged). Migration
-`202611230020_area_measurements.sql` (NOT applied; apply before the code). A **separate tool**: `/tools/area-measure`, `components/area-measure/*`,
+`202611230040_area_measurements.sql` (NOT applied; apply before the code). A **separate tool**: `/tools/area-measure`, `components/area-measure/*`,
 `lib/area-measure.ts` (pure rules), `lib/area-measure-db.ts` (access + the ONE writer), `/api/area-measure` (+ `/settings`).
 - **HARD RULE (owner): the roof measuring tool does not change.** `app/tools/roof-measure/`, `lib/lidar/*`, `lib/roof-measure*`, detect-roof and the instant
   estimate are never edited and never imported by this tool. `lib/__tests__/area-measure-roof-isolation.test.ts` fails on an import from those paths and (on branch
@@ -547,7 +547,7 @@ Switch `areaMeasure` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape profil
   pricing-barred) may look but never save. A reference from another company is 404.
 - **Pricing hook (not built, on purpose):** a price-book "size option" (feat/price-sheet) would read `lawn_sqft` / `bed_sqft` / `line_feet` of the newest row
   (`GET /api/area-measure?property_id=` → `latest`). Nothing here depends on that branch.
-- **Known Redundancy (41):** the app has NO shared Google Maps loader — four screens inject their own `<script>` (`LocationMap`, `CanvassTerritoriesEditor`, the canvass map,
+- **Known Redundancy (45):** the app has NO shared Google Maps loader — four screens inject their own `<script>` (`LocationMap`, `CanvassTerritoriesEditor`, the canvass map,
   the roof measure page, which is off limits). `lib/google-maps-client.ts` is the one loader for new map screens; move the other copies onto it when touched.
 - **Not built:** adding / removing a point on a finished shape (drag only), per-lawn cut-out overlap, a Measure yard entry in the main menu (it opens from the customer or lead).
 
