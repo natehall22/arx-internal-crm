@@ -13,7 +13,9 @@ export type Named = Record<string, number | boolean | string | null | undefined>
 
 /** Fails with a message naming the first two readers whose values differ. */
 export function agree(what: string, readers: Named): void {
-  const entries = Object.entries(readers).filter(([, v]) => v !== undefined)
+  const missing = Object.entries(readers).filter(([, v]) => v === undefined || v === null).map(([k]) => k)
+  if (missing.length) throw new Error(`agree(${what}): reader(s) returned NOTHING: ${missing.join(', ')}`)
+  const entries = Object.entries(readers)
   if (entries.length < 2) throw new Error(`agree(${what}): needs at least two readers, got ${entries.map(([k]) => k).join(',')}`)
   const [firstName, first] = entries[0]
   for (const [name, v] of entries.slice(1)) {
@@ -41,7 +43,9 @@ export async function jobPageMoney(jobId: string) {
 export async function portalJobMoney(orgId: string, customerId: string, jobId: string) {
   const home = await loadPortalHome(admin(), { sessionId: 'money-e2e', orgId, customerId })
   const j = (home?.jobs ?? []).find((x: any) => x.id === jobId) as any
-  return j?.money as { totalCents: number; paidCents: number; balanceCents: number; paidInFull: boolean } | undefined
+  if (!j) throw new Error(`portal: job ${jobId} not in the customer's portal home (jobs: ${JSON.stringify((home?.jobs ?? []).map((x: any) => x.id))})`)
+  if (!j.money) throw new Error(`portal: job ${jobId} shows no money block (${JSON.stringify(j).slice(0, 300)})`)
+  return j.money as { totalCents: number; paidCents: number; balanceCents: number; paidInFull: boolean } | undefined
 }
 
 /** What QuickBooks holds for one job's sale invoice (cents): the invoice total, and the gross of the payments applied to it. */

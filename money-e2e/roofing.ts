@@ -30,3 +30,12 @@ export async function signChangeOrder(co: Company, d: RoofingDeal, p: { coNumber
   return (row as { id: string }).id
 }
 export const uuid = () => randomUUID()
+
+/** A percentage comp plan assigned to a user from a date (what an owner sets up in Settings -> Comp plans). */
+export async function givePercentPlan(co: Company, userId: string, role: string, percent: number, from = '2026-01-01'): Promise<string> {
+  const db = admin()
+  const plan = await must(db.from('comp_plans').insert({ org_id: co.id, name: `${role} ${percent}%`, plan_type: 'percentage', base_percentage: percent, is_active: true, applicable_roles: [role], plan_purpose: 'primary' }).select('id').single(), 'comp plan')
+  const planId = (plan as { id: string }).id
+  await must(db.from('user_comp_plans').insert({ org_id: co.id, user_id: userId, comp_plan_id: planId, effective_from: from }).select('id').single(), 'plan assignment')
+  return planId
+}
