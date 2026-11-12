@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
+import { parseServiceOptions } from '@/lib/lead-intake'
 
 /** Webhook leads go to the source's campaign and auto-assignee: both must be this company's. */
 function foreignLeadSourceRef(orgId: string, campaignId: unknown, assigneeId: unknown) {
@@ -83,6 +84,8 @@ export async function POST(request: NextRequest) {
   if (await foreignLeadSourceRef(profile.org_id, default_campaign_id, auto_assign_user_id)) {
     return NextResponse.json({ error: 'Campaign or assignee not found' }, { status: 400 })
   }
+  const services = body.service_options === undefined ? null : parseServiceOptions(body.service_options)
+  if (services && 'error' in services) return NextResponse.json({ error: services.error }, { status: 400 })
 
   const { data: leadSource, error } = await supabase
     .from('lead_sources')
@@ -93,6 +96,7 @@ export async function POST(request: NextRequest) {
       default_campaign_id: default_campaign_id || null,
       field_mapping: field_mapping || null,
       auto_assign_user_id: auto_assign_user_id || null,
+      ...(services ? { service_options: services.options.length ? services.options : null } : {}),
     })
     .select()
     .single()
@@ -147,9 +151,13 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Campaign or assignee not found' }, { status: 400 })
   }
 
+  const services = body.service_options === undefined ? null : parseServiceOptions(body.service_options)
+  if (services && 'error' in services) return NextResponse.json({ error: services.error }, { status: 400 })
+
   const { error } = await supabase
     .from('lead_sources')
     .update({
+      ...(services ? { service_options: services.options.length ? services.options : null } : {}),
       name: typeof body.name === 'string' ? body.name.trim() : undefined,
       source_type: body.source_type,
       default_campaign_id: body.default_campaign_id || null,

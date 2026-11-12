@@ -35,6 +35,12 @@ interface LeadFormWithReferralProps {
   defaultBonusAmount?: number
   /** Enables post-create “Schedule inspection” when user also has scheduling:create server-side */
   canScheduleInspection?: boolean
+  /** The name field's label (industry profile word; roofing: "Homeowner Name"). */
+  nameLabel?: string
+  /** The company's service choices (Admin → Campaigns); none = no Service field. */
+  serviceChoices?: string[]
+  /** People to pick as owner. Given only for a company that set up lead routing: the default is then "Assign automatically". */
+  ownerChoices?: Array<{ id: string; name: string }> | null
 }
 
 type SchedulingResources = {
@@ -49,6 +55,9 @@ export default function LeadFormWithReferral({
   userId,
   defaultBonusAmount = 100,
   canScheduleInspection = false,
+  nameLabel = 'Homeowner Name',
+  serviceChoices = [],
+  ownerChoices = null,
 }: LeadFormWithReferralProps) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
@@ -61,6 +70,8 @@ export default function LeadFormWithReferral({
   const [schedulingResources, setSchedulingResources] = useState<SchedulingResources | null>(null)
   const [schedulingLoadError, setSchedulingLoadError] = useState<string | null>(null)
   const [source, setSource] = useState('')
+  const [serviceRequested, setServiceRequested] = useState('')
+  const [ownerChoice, setOwnerChoice] = useState('auto')
   
   // Referral state
   const [showReferralSearch, setShowReferralSearch] = useState(false)
@@ -182,7 +193,7 @@ export default function LeadFormWithReferral({
 
     if (selectedSchedule) {
       const missingScheduleFields = [
-        !form.homeowner_name.trim() ? 'homeowner name' : null,
+        !form.homeowner_name.trim() ? nameLabel.toLowerCase() : null,
         !form.phone.trim() ? 'phone' : null,
         !form.address_text.trim() ? 'address' : null,
       ].filter(Boolean)
@@ -200,7 +211,10 @@ export default function LeadFormWithReferral({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        owner_user_id: userId,
+        // Without a routing setup the person typing owns it (as always). With one, "Assign automatically" sends no owner so the
+        // server routes it; a person picked by hand always wins.
+        ...(ownerChoices && ownerChoice === 'auto' ? {} : { owner_user_id: ownerChoices ? ownerChoice : userId }),
+        service_requested: serviceRequested || null,
         homeowner_name: form.homeowner_name || null,
         phone: form.phone || null,
         email: form.email || null,
@@ -289,6 +303,8 @@ export default function LeadFormWithReferral({
       notes: '',
     })
     setSource('')
+    setServiceRequested('')
+    setOwnerChoice('auto')
     setSelectedReferrer(null)
     setSelectedSchedule(null)
   }
@@ -412,48 +428,48 @@ export default function LeadFormWithReferral({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="text-sm font-medium text-gray-500">Homeowner Name</label>
+          <label className="text-sm font-medium text-[#2c2c2a]">{nameLabel}</label>
           <input
             value={form.homeowner_name}
             onChange={(e) => setForm(prev => ({ ...prev, homeowner_name: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
             placeholder="Jane Smith"
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Phone</label>
+          <label className="text-sm font-medium text-[#2c2c2a]">Phone</label>
           <input
             value={form.phone}
             onChange={(e) => setForm(prev => ({ ...prev, phone: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
             placeholder="(555) 555-5555"
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Email</label>
+          <label className="text-sm font-medium text-[#2c2c2a]">Email</label>
           <input
             type="email"
             value={form.email}
             onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
             placeholder="homeowner@email.com"
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Address</label>
+          <label className="text-sm font-medium text-[#2c2c2a]">Address</label>
           <input
             value={form.address_text}
             onChange={(e) => setForm(prev => ({ ...prev, address_text: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
             placeholder="123 Main St, Dallas TX"
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-500">Source</label>
+          <label className="text-sm font-medium text-[#2c2c2a]">Source</label>
           <select
             value={source}
             onChange={(e) => setSource(e.target.value)}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
           >
             <option value="">Select source</option>
             {MANUAL_LEAD_SOURCES.map((s) => (
@@ -463,12 +479,44 @@ export default function LeadFormWithReferral({
             ))}
           </select>
         </div>
+        {serviceChoices.length > 0 && (
+          <div>
+            <label htmlFor="lead-service" className="text-sm font-medium text-[#2c2c2a]">Service requested</label>
+            <select
+              id="lead-service"
+              value={serviceRequested}
+              onChange={(e) => setServiceRequested(e.target.value)}
+              className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+            >
+              <option value="">Not sure</option>
+              {serviceChoices.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {ownerChoices && (
+          <div>
+            <label htmlFor="lead-owner" className="text-sm font-medium text-[#2c2c2a]">Owner</label>
+            <select
+              id="lead-owner"
+              value={ownerChoice}
+              onChange={(e) => setOwnerChoice(e.target.value)}
+              className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+            >
+              <option value="auto">Assign automatically</option>
+              {ownerChoices.map((p) => (
+                <option key={p.id} value={p.id}>{p.id === userId ? `${p.name} (me)` : p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
-          <label className="text-sm font-medium text-gray-500">Status</label>
+          <label className="text-sm font-medium text-[#2c2c2a]">Status</label>
           <select
             value={form.status}
             onChange={(e) => setForm(prev => ({ ...prev, status: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
           >
             {leadStatuses.map((status) => (
               <option key={status} value={status}>

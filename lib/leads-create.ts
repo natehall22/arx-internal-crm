@@ -4,6 +4,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { cleanServiceRequested } from '@/lib/lead-intake'
+
 export type NewLeadInput = {
   homeowner_name?: unknown
   phone?: unknown
@@ -15,9 +17,12 @@ export type NewLeadInput = {
   notes?: unknown
   lat?: unknown
   lng?: unknown
+  /** The structured service the lead asked for (leads.service_requested); only written when given. */
+  service_requested?: unknown
 }
 
 export async function createLeadRecord(admin: SupabaseClient, orgId: string, ownerUserId: string, body: NewLeadInput): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const service = cleanServiceRequested(body.service_requested)
   const { data: lead, error } = await admin
     .from('leads')
     .insert({
@@ -33,6 +38,7 @@ export async function createLeadRecord(admin: SupabaseClient, orgId: string, own
       notes: body.notes || null,
       lat: body.lat || null,
       lng: body.lng || null,
+      ...(service ? { service_requested: service } : {}),
     })
     .select('id')
     .single()

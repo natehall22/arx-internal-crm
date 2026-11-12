@@ -7,7 +7,10 @@ import { deploymentOrgId } from '@/lib/company-host'
 import { escapeHtml } from '@/lib/html'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
-import { resolveCompanyRecipient } from '@/lib/company-recipient'
+import { insertNewLeadBell, resolveLeadOwner } from '@/lib/lead-intake-db'
+import { LEAD_FORM_HONEYPOT_FIELD, LEAD_FORM_RATE_LIMIT, LEAD_FORM_RATE_WINDOW_MS, cleanServiceRequested } from '@/lib/lead-intake'
+import { LEAD_FORM_TEXT } from '@/lib/lead-form-snippet'
+import { clientIpFromRequest, consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,9 +55,14 @@ type LeadSourceConfig = {
   default_campaign_id: string | null
   field_mapping: Record<string, string> | null
   auto_assign_user_id: string | null
+  routing?: unknown
   webhook_enabled: boolean
   is_active: boolean
 }
+
+// `*` on purpose: the routing column only exists after migration 202611230010, and a named column that is missing
+// would make every token look invalid.
+const LEAD_SOURCE_COLUMNS = '*'
 
 function secretMatches(given: string | null | undefined, expected: string): boolean {
   const a = Buffer.from(given ?? '')
@@ -238,7 +246,7 @@ export async function POST(request: NextRequest) {
     if (sourceToken) {
       const { data, error } = await adminClient
         .from('lead_sources')
-        .select('id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active')
+        .select(LEAD_SOURCE_COLUMNS)
         .eq('webhook_token', sourceToken)
         .single()
 
@@ -289,7 +297,7 @@ export async function POST(request: NextRequest) {
     if (!leadSource) {
       const { data: defaultSource, error: defaultSourceError } = await adminClient
         .from('lead_sources')
-        .select('id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active')
+        .select(LEAD_SOURCE_COLUMNS)
         .eq('org_id', org_id)
         .eq('source_type', 'website')
         .eq('is_active', true)
@@ -302,6 +310,28 @@ export async function POST(request: NextRequest) {
         console.log('Could not load default website lead source:', defaultSourceError)
       } else if (defaultSource) {
         leadSource = defaultSource as LeadSourceConfig
+      }
+    }
+
+    // Website form posts (the copy-paste snippet always sends the hidden honeypot field, even empty). JSON integrations
+    // never send it and are not limited or changed.
+    const isFormPost = LEAD_FORM_HONEYPOT_FIELD in body
+    if (isFormPost) {
+      if (typeof body[LEAD_FORM_HONEYPOT_FIELD] === 'string' && body[LEAD_FORM_HONEYPOT_FIELD].trim() !== '') {
+        // A bot filled the hidden field: look like success, write nothing.
+        return NextResponse.json({ success: true, message: LEAD_FORM_TEXT.success }, { headers: cors })
+      }
+      const limit = consumePublicEstimateRateLimit({
+        key: `lead-form:${leadSource?.id ?? org_id}:${clientIpFromRequest(request)}`,
+        limit: LEAD_FORM_RATE_LIMIT,
+        windowMs: LEAD_FORM_RATE_WINDOW_MS,
+      })
+      if (!limit.ok) {
+        return NextResponse.json({ error: LEAD_FORM_TEXT.tooMany }, { status: 429, headers: { ...cors, 'Retry-After': String(limit.retryAfterSec) } })
+      }
+      const has = (v: unknown) => typeof v === 'string' && v.trim() !== ''
+      if (!has(body.name) || (!has(body.phone) && !has(body.email))) {
+        return NextResponse.json({ error: LEAD_FORM_TEXT.missing }, { status: 400, headers: cors })
       }
     }
 
@@ -342,7 +372,7 @@ export async function POST(request: NextRequest) {
     const source = leadSource?.name || body.source || body.lead_source || body.leadSource || 'web'
     const notes = pickMappedField(body, fieldMapping, 'notes') || body.notes || body.note || ''
     const message = pickMappedField(body, fieldMapping, 'message') || body.message || body.comments || body.comment || body.inquiry || body.description || ''
-    const service_type = body.service_type || body.serviceType || body.service || ''
+    const service_type = body.service_requested || body.serviceRequested || body.service_type || body.serviceType || body.service || ''
     const project_type = body.project_type || body.projectType || body.project || ''
     const custom_fields = body.custom_fields || body.customFields || body.custom || body.metadata || null
 
@@ -363,12 +393,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Owner = the lead source's auto-assign user, else the company's web-leads owner, else its longest-standing
-    // active admin — each only if an ACTIVE user of THIS company (lib/company-recipient). The same person gets the email.
-    const owner = await resolveCompanyRecipient(adminClient, org_id, [
-      leadSource?.auto_assign_user_id,
-      org.settings?.web_leads_owner_id,
-    ], 'web_lead')
+    // Owner = the company's routing (one person, take turns, or by service; the source may have its own), then the source's
+    // person, the company's lead owner and its longest-standing active admin — each only if an ACTIVE user of THIS company.
+    // The same person gets the bell and the email.
+    const serviceRequested = cleanServiceRequested(service_type)
+    const owner = await resolveLeadOwner(adminClient, org_id, org.settings, leadSource, serviceRequested)
     const ownerUserId: string | null = owner?.id ?? null
 
     const campaignId = await resolveCampaignId(
@@ -389,6 +418,7 @@ export async function POST(request: NextRequest) {
       source: source || 'web',
       status: 'new',
       notes: leadNotes.trim() || null,
+      service_requested: serviceRequested,
       lead_source_id: leadSource?.id || null,
       campaign_id: campaignId,
       source_type: leadSource?.source_type || null,
@@ -448,17 +478,15 @@ export async function POST(request: NextRequest) {
     // Bell notification for the assigned user (non-blocking). It used to write
     // non-existent `user_id`/`read` columns, so it never landed.
     if (ownerUserId) {
-      const { error: notifyError } = await adminClient.from('notifications').insert({
-        org_id,
-        recipient_user_id: ownerUserId,
-        type: 'new_lead',
+      const { error: notifyError } = await insertNewLeadBell(adminClient, {
+        orgId: org_id,
+        userId: ownerUserId,
+        leadId: lead.id,
         title: 'New Web Lead',
         body: `New lead from website: ${fullName || 'Unknown'} - ${phone || email || 'No contact info'}`,
-        link_url: `/leads/${lead.id}`,
-        data: { lead_id: lead.id },
       })
       if (notifyError) {
-        console.error('Web lead notification insert failed:', notifyError.message)
+        console.error('Web lead notification insert failed:', notifyError)
       }
     }
 

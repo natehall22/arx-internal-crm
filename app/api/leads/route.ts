@@ -13,6 +13,8 @@ import {
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
 import { createLeadRecord } from '@/lib/leads-create'
+import { insertNewLeadBell, resolveLeadOwner } from '@/lib/lead-intake-db'
+import { cleanServiceRequested, readLeadIntakeSettings } from '@/lib/lead-intake'
 
 export const dynamic = 'force-dynamic'
 
@@ -97,10 +99,21 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
 
-    // A chosen owner must be a user of this company (the insert runs on the service client, no RLS).
-    const ownerUserId: string = body.owner_user_id || user.id
+    // An owner picked by hand always wins (and must be a user of this company: the insert runs on the service client, no RLS).
+    // With none picked, a company that set up lead routing (Settings → Lead routing) hands the lead out by it; every other
+    // company keeps the person who typed it in, as before.
+    const pickedByHand = typeof body.owner_user_id === 'string' && body.owner_user_id.trim() !== ''
+    let ownerUserId: string = pickedByHand ? body.owner_user_id : user.id
     if (await firstForeignRef(adminClient, profile.org_id, { owner_user_id: ['users', ownerUserId] })) {
       return NextResponse.json({ error: 'Owner not found' }, { status: 400 })
+    }
+    if (!pickedByHand) {
+      const { data: org } = await adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle()
+      const settings = (org as { settings?: unknown } | null)?.settings
+      if (readLeadIntakeSettings(settings).routing.mode !== 'person') {
+        const routed = await resolveLeadOwner(adminClient, profile.org_id, settings, null, cleanServiceRequested(body.service_requested))
+        if (routed) ownerUserId = routed.id
+      }
     }
 
     // Create the lead
@@ -110,6 +123,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Failed to create lead: ${created.error}` }, { status: 400 })
     }
     const lead = { id: created.id }
+
+    // Whoever now owns the lead (and is not the person who typed it in) gets the same new-lead bell website leads send.
+    if (ownerUserId !== user.id) {
+      const who = [body.homeowner_name, body.phone || body.email].filter((v) => typeof v === 'string' && v.trim()).join(' - ')
+      const { error: bellError } = await insertNewLeadBell(adminClient, {
+        orgId: profile.org_id,
+        userId: ownerUserId,
+        leadId: lead.id,
+        title: 'New Lead',
+        body: `New lead added by the office: ${who || 'No contact info'}`,
+      })
+      if (bellError) console.error('New lead notification insert failed:', bellError)
+    }
 
     return NextResponse.json({ lead_id: lead.id })
   } catch (error) {

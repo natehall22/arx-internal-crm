@@ -901,6 +901,12 @@ export default async function LeadView({
           />
         </div>
 
+        {(lead as { service_requested?: string | null }).service_requested ? (
+          <p className="mb-6 text-base font-semibold text-gray-900">
+            Service requested: {(lead as { service_requested?: string | null }).service_requested}
+          </p>
+        ) : null}
+
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-4">Lead Workflow</h2>
           <form

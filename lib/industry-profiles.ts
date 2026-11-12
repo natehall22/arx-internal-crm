@@ -30,10 +30,11 @@ export function isIndustryProfileId(v: unknown): v is IndustryProfileId {
  * - job / jobs: customer file Job tab, Nav "Jobs" section
  * - jobBoard: Nav link to /ops · productionBoard: the /ops page heading
  * - inspection / proposal / install / installed: customer file progress steps + "Next:" button
+ * - leadName: the name field label on the New Lead form (roofing: "Homeowner Name")
  * - subs: Settings → Subcontractors + the /admin/subs heading. "Crews" is NOT used for subs: crews are the per-trade
  *   crews on a job (work_orders), so a profile that renamed subs to "Crews" would clash.
  */
-export const TERM_KEYS = ['job', 'jobs', 'jobBoard', 'productionBoard', 'inspection', 'proposal', 'install', 'installed', 'subs'] as const
+export const TERM_KEYS = ['job', 'jobs', 'jobBoard', 'productionBoard', 'inspection', 'proposal', 'install', 'installed', 'subs', 'leadName'] as const
 export type TermKey = (typeof TERM_KEYS)[number]
 export type Terms = Record<TermKey, string>
 
@@ -48,6 +49,7 @@ export const TERM_LABELS: Readonly<Record<TermKey, string>> = Object.freeze({
   install: 'Install step',
   installed: 'Installed step',
   subs: 'Subcontractors (Settings)',
+  leadName: 'Name on the New Lead form',
 })
 
 /** Today's words (= the roofing profile). Every other profile starts from these. */
@@ -61,6 +63,7 @@ export const BASE_TERMS: Readonly<Terms> = Object.freeze({
   install: 'Install',
   installed: 'Installed',
   subs: 'Subcontractors',
+  leadName: 'Homeowner Name',
 })
 
 export type NavSectionId = 'today' | 'pipeline' | 'jobs' | 'customers' | 'money' | 'insights'
@@ -195,7 +198,7 @@ const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
-  version: 3,
+  version: 4,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
   features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, ...ROOF_ONLY_OFF },
@@ -207,6 +210,7 @@ const lawnLandscape: IndustryProfile = {
     { label: 'Soft wash / pressure washing', matchKeywords: ['soft ?wash', 'pressure ?wash', 'power ?wash'] },
   ],
   terms: {
+    leadName: 'Customer / company name',
     job: 'Project',
     jobs: 'Work',
     jobBoard: 'Work board',
@@ -218,7 +222,7 @@ const lawnLandscape: IndustryProfile = {
   },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
-    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
+    order: ['todays-visits', 'skipped-visits', 'leads-waiting', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],
     texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
@@ -254,7 +258,7 @@ const lawnLandscape: IndustryProfile = {
 
 const exteriorCleaning: IndustryProfile = {
   id: 'exterior_cleaning',
-  version: 2,
+  version: 3,
   label: 'Exterior cleaning',
   description: 'Pressure washing, soft washing, window and gutter cleaning — one-off and repeat.',
   // Door knocking stays on: many cleaning companies sell door to door.
@@ -265,7 +269,7 @@ const exteriorCleaning: IndustryProfile = {
     { label: 'Window cleaning', matchKeywords: ['\\bwindows?\\b'] },
     { label: 'Gutter cleaning', matchKeywords: ['gutter'] },
   ],
-  terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done' },
+  terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done', leadName: 'Customer / company name' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
     order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment', 'unpaid-invoices'],
@@ -334,7 +338,7 @@ const HOME_BUILDER_SCHEDULE_TEMPLATES: readonly ScheduleTemplate[] = [
 
 const homeBuilder: IndustryProfile = {
   id: 'home_builder',
-  version: 2,
+  version: 3,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
   features: { canvassing: false, incentives: false, projectTools: true, customerPortal: true, ...ROOF_ONLY_OFF },
@@ -348,7 +352,7 @@ const homeBuilder: IndustryProfile = {
     { label: 'HVAC', matchKeywords: ['hvac', 'duct'] },
     { label: 'Finishes', matchKeywords: ['drywall', 'paint', 'trim', 'floor', 'cabinet'] },
   ],
-  terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners' },
+  terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners', leadName: 'Client / company name' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
   today: {
     order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment', 'unpaid-invoices'],

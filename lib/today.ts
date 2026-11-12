@@ -19,6 +19,7 @@ import { loadVisits } from '@/lib/service-plans-db'
 import { jobsPaidInFull } from '@/lib/job-collection-db'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import { loadLeadsWaitingQueue } from '@/lib/leads-waiting'
 
 export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
 
@@ -397,12 +398,18 @@ export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, 
   ])
   ;[noOutcome, overdue, unscheduled].forEach(ok)
   const texts = await loadSmsInboxQueue(admin, orgId)
+  // Inbound leads nobody has contacted (only for companies that turned the reminder on).
+  const leadsWaiting = await loadLeadsWaitingQueue(admin, orgId, now).catch((e): Queue => {
+    console.error('today: leads waiting failed', e)
+    return { id: 'leads-waiting', title: 'Leads waiting', count: 0, items: [], empty: '' }
+  })
   const queues = [
     apptQueue('no-outcome', 'Appointments with no outcome logged', (noOutcome.data ?? []) as ApptRow[], noOutcome.count ?? 0, '', true),
     { ...proposalQueue(stale.rows, stale.count, opts.money), title: 'Proposals waiting over a week, still unsigned' },
     jobQueue('overdue-installs', 'Installs past their date and not started', (overdue.data ?? []) as JobRow[], overdue.count ?? 0, ''),
     jobQueue('unscheduled-jobs', 'Sold jobs with no install date', (unscheduled.data ?? []) as JobRow[], unscheduled.count ?? 0, ''),
     texts,
+    leadsWaiting,
   ]
   return queues.filter((q) => q.count > 0)
 }
