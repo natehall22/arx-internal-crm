@@ -10,10 +10,11 @@ const uploads: string[] = []
 let uploadFails = false
 let downloadFails = false
 /** Make the next write(s) to a table fail: { table, op, when(patch/row), times }. */
+let colorColumnMissing = false
 let failRules: Array<{ table: string; op: 'update' | 'insert'; when?: (v: any) => boolean; times: number }> = []
-function failing(): any {
+function failing(err: { message: string; code?: string } = { message: 'injected failure' }): any {
   const p: any = new Proxy(function () {}, {
-    get: (_t, k) => (k === 'then' ? (res: (v: unknown) => void) => res({ data: null, error: { message: 'injected failure' }, count: null }) : () => p),
+    get: (_t, k) => (k === 'then' ? (res: (v: unknown) => void) => res({ data: null, error: err, count: null }) : () => p),
   })
   return p
 }
@@ -22,7 +23,10 @@ function withFailures(t: string, b: any) {
     get: (target, k: string) => {
       const v = target[k]
       if (k !== 'update' && k !== 'insert') return typeof v === 'function' ? v.bind(target) : v
-      return (arg: unknown) => {
+      return (arg: any) => {
+        if (colorColumnMissing && t === 'order_form_contracts' && k === 'update' && arg && 'customer_initials_color' in arg) {
+          return failing({ code: '42703', message: 'column "customer_initials_color" of relation "order_form_contracts" does not exist' })
+        }
         const rule = failRules.find((r) => r.table === t && r.op === k && r.times > 0 && (!r.when || r.when(arg)))
         if (rule) {
           rule.times--
@@ -96,6 +100,7 @@ const good = (over: Record<string, unknown> = {}) => ({
 const claims = () => db.writes.filter((w) => w.table === 'order_form_contracts' && w.op === 'update' && w.rows.some((r) => r.status === 'completed' && r.customer_signature_data && !r.pdf_url && !r.signing_steps))
 
 beforeEach(() => {
+  colorColumnMissing = false
   failRules = []
   uploads.length = 0
   uploadFails = false
@@ -157,7 +162,18 @@ describe('server-side checks', () => {
     seed({ agreement_type: 'installation', payment_method: 'cash', project_cost: 15000 })
     const res = await post(good({ initialsInsurance: null, initialsChangeOrders: 'PH', initialsPropertyCondition: 'PH' }))
     expect(res.status).toBe(200)
-    expect(claims()[0].rows[0].customer_initials_color).toBeNull()
+    expect(claims()[0].rows[0]).not.toHaveProperty('customer_initials_color')
+  })
+
+  it('a missing customer_initials_color column (migration not applied) retries without it and the signing still completes', async () => {
+    seed({ agreement_type: 'installation', payment_method: 'cash', project_cost: 15000, roof_color: 'Black' })
+    colorColumnMissing = true
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const res = await post(good({ initialsInsurance: null, initialsChangeOrders: 'PH', initialsPropertyCondition: 'PH', initialsColor: 'PH' }))
+    expect(res.status).toBe(200)
+    expect(warn).toHaveBeenCalled()
+    expect(db.tables.order_form_contracts[0].status).toBe('completed')
+    warn.mockRestore()
   })
 
   it('refuses expired and voided links', async () => {

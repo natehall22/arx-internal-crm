@@ -89,7 +89,9 @@ export async function loadDealSaleCredit(
   const opp = await loadOpportunity(admin, orgId, opportunityId)
   if (!opp) return null
   let setterUserId = opp.setter_user_id
-  if (!setterUserId && opp.lead_id) {
+  // A self-generated deal has no separate setter, so the pin owner is not a setter guess here: filling it in would open the
+  // form already showing the "no separate setter" error.
+  if (!setterUserId && opp.lead_id && opp.is_self_generated !== true) {
     const { data: lead } = await admin
       .from('leads')
       .select('owner_user_id')
@@ -131,6 +133,21 @@ export function diffSaleCredit(current: DealSaleCredit, next: SaleCreditChange):
     changed.isSelfGenerated = next.isSelfGenerated
   }
   return changed
+}
+
+/**
+ * Pure: the only change is clearing the setter on a deal that is self-generated. A self-generated deal can have no
+ * separate setter, so this is the one consistent state, not a credit change that needs an owner. Ticking
+ * self-generated, or changing the closer, still is a change.
+ */
+export function isSelfGenSetterClearOnly(current: DealSaleCredit, changed: SaleCreditChange): boolean {
+  const keys = Object.keys(changed)
+  return (
+    current.isSelfGenerated === true &&
+    keys.length === 1 &&
+    keys[0] === 'setterUserId' &&
+    (changed.setterUserId ?? null) === null
+  )
 }
 
 /**

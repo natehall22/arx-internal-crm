@@ -173,6 +173,7 @@ export default function ContractModal({
   }, [isOpen, opportunityId])
 
   const creditApplies = formData.agreementType === 'installation' || formData.agreementType === 'repair'
+  const creditLoadedSetter = creditOriginal ? (JSON.parse(creditOriginal).setterUserId as string) || '' : ''
   const creditChanged = credit != null && JSON.stringify(credit) !== creditOriginal
   const creditUserName = (id: string) => creditPersonLabel(creditUsers, id, creditPeople)
 
@@ -188,7 +189,7 @@ export default function ContractModal({
           return false
         }
         if (formData.agreementType === 'installation' && !formData.roofColor.trim()) {
-          setError('Enter the roof color the customer selected')
+          setError('Enter the color the customer chose')
           return false
         }
         if (formData.agreementType === 'installation' || formData.agreementType === 'repair') {
@@ -794,13 +795,13 @@ export default function ContractModal({
                           <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>Setter</label>
                           <select
                             value={credit.setterUserId}
-                            disabled={!creditCanChange}
+                            disabled={!creditCanChange || credit.isSelfGenerated}
                             onChange={(e) => setCredit({ ...credit, setterUserId: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-400 rounded-lg bg-white disabled:bg-gray-100"
                             style={{ color: '#2c2c2a' }}
                           >
                             <option value="">No setter</option>
-                            {creditSelectOptions(creditUsers, credit.setterUserId, creditPeople).map((o) => (
+                            {creditSelectOptions(creditUsers, credit.setterUserId, creditPeople, creditLoadedSetter ? [creditLoadedSetter] : []).map((o) => (
                               <option key={o.id} value={o.id}>{o.label}</option>
                             ))}
                           </select>
@@ -811,7 +812,7 @@ export default function ContractModal({
                             className="mt-1 h-5 w-5"
                             checked={credit.isSelfGenerated}
                             disabled={!creditCanChange}
-                            onChange={(e) => setCredit(setSelfGenerated(credit, e.target.checked))}
+                            onChange={(e) => setCredit(setSelfGenerated(credit, e.target.checked, creditLoadedSetter))}
                           />
                           <span>The closer found this customer themselves (self-generated, no setter)</span>
                         </label>
