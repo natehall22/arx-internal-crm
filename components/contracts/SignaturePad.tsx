@@ -146,7 +146,7 @@ export default function SignaturePad({
         />
         {!hasSignature && !disabled && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-gray-400 text-sm">Sign here</span>
+            <span className="text-gray-600 text-sm">Sign here</span>
           </div>
         )}
       </div>

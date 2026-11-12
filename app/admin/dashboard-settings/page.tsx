@@ -222,7 +222,7 @@ export default function DashboardSettingsPage() {
               ← Back to Settings
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">Dashboard Settings</h1>
-            <p className="text-gray-500 mt-1">
+            <p className="text-gray-700 mt-1">
               Customize dashboard for your organization, regions, or teams
             </p>
           </div>
@@ -244,7 +244,7 @@ export default function DashboardSettingsPage() {
         {/* Scope Selection */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Settings Scope</h2>
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-sm text-gray-700 mb-4">
             Choose which level to configure. Team settings override region settings, which override org-wide defaults.
           </p>
           
@@ -262,7 +262,7 @@ export default function DashboardSettingsPage() {
               }`}
             >
               <p className="font-semibold text-gray-900">Organization</p>
-              <p className="text-sm text-gray-500">Default for all users</p>
+              <p className="text-sm text-gray-700">Default for all users</p>
             </button>
             <button
               onClick={() => {
@@ -276,7 +276,7 @@ export default function DashboardSettingsPage() {
               }`}
             >
               <p className="font-semibold text-gray-900">Region</p>
-              <p className="text-sm text-gray-500">Override for a region</p>
+              <p className="text-sm text-gray-700">Override for a region</p>
             </button>
             <button
               onClick={() => {
@@ -290,7 +290,7 @@ export default function DashboardSettingsPage() {
               }`}
             >
               <p className="font-semibold text-gray-900">Team</p>
-              <p className="text-sm text-gray-500">Override for a team</p>
+              <p className="text-sm text-gray-700">Override for a team</p>
             </button>
           </div>
 
@@ -340,7 +340,7 @@ export default function DashboardSettingsPage() {
         {/* Widget Selection */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Dashboard Widgets</h2>
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-sm text-gray-700 mb-4">
             Select which widgets to show on the dashboard
           </p>
           
@@ -362,7 +362,7 @@ export default function DashboardSettingsPage() {
                 />
                 <div>
                   <p className="font-medium text-gray-900">{widget.label}</p>
-                  <p className="text-sm text-gray-500">{widget.description}</p>
+                  <p className="text-sm text-gray-700">{widget.description}</p>
                 </div>
               </label>
             ))}
@@ -372,7 +372,7 @@ export default function DashboardSettingsPage() {
         {/* Goals */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Weekly Goals</h2>
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-sm text-gray-700 mb-4">
             Set weekly targets for progress tracking
           </p>
           
@@ -425,7 +425,7 @@ export default function DashboardSettingsPage() {
         {/* Save Button */}
         <div className="flex justify-end gap-4">
           {existingSettings && (
-            <span className="text-sm text-gray-500 self-center">
+            <span className="text-sm text-gray-700 self-center">
               Last updated: {new Date(existingSettings.settings ? Date.now() : 0).toLocaleDateString()}
             </span>
           )}

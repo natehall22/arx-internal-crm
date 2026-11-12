@@ -197,7 +197,7 @@ export default function LeadReferralInfo({
                   {referral.status}
                 </span>
                 {referral.paid_at && (
-                  <span className="text-gray-500">
+                  <span className="text-gray-700">
                     Paid {new Date(referral.paid_at).toLocaleDateString()}
                   </span>
                 )}
@@ -212,7 +212,7 @@ export default function LeadReferralInfo({
               </Link>
               <button
                 onClick={removeReferral}
-                className="text-gray-400 hover:text-red-500"
+                className="text-gray-600 hover:text-red-500"
                 title="Remove referral link"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -250,7 +250,7 @@ export default function LeadReferralInfo({
           <div className="mt-3 flex items-center gap-2">
             <label className="text-sm text-indigo-800">Bonus:</label>
             <div className="relative w-24">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-700 text-sm">$</span>
               <input
                 type="number"
                 value={bonusAmount}
@@ -273,7 +273,7 @@ export default function LeadReferralInfo({
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium text-gray-900">{result.name}</p>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-700">
                         {result.phone ? formatPhone(result.phone) : result.email || 'No contact info'}
                       </p>
                     </div>

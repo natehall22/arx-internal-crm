@@ -200,7 +200,7 @@ export default function TeamsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
               <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
               <span>/</span>
               <span>Teams</span>
@@ -242,7 +242,7 @@ export default function TeamsPage() {
         {/* Region filter */}
         {!regionFilter && regions.length > 0 && (
           <div className="mb-6 flex items-center gap-2 flex-wrap">
-            <span className="text-sm text-gray-500">Filter by region:</span>
+            <span className="text-sm text-gray-700">Filter by region:</span>
             {regions.map((region) => (
               <Link
                 key={region.id}
@@ -256,18 +256,18 @@ export default function TeamsPage() {
         )}
 
         {loading ? (
-          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-700">
             Loading teams...
           </div>
         ) : teams.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
-            <div className="text-gray-400 mb-4">
+            <div className="text-gray-600 mb-4">
               <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-1">No teams yet</h3>
-            <p className="text-gray-500 mb-4">
+            <p className="text-gray-700 mb-4">
               {selectedRegion 
                 ? `Create a team in ${selectedRegion.name}.`
                 : 'Create your first team to organize your sales reps.'}
@@ -292,17 +292,17 @@ export default function TeamsPage() {
                     {team.regions && (
                       <p className="text-sm text-indigo-600">{team.regions.name}</p>
                     )}
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-gray-700">
                       {team.members.length} member{team.members.length !== 1 ? 's' : ''}
                     </p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-600">
                       {timezones.find(tz => tz.value === (team as any).timezone)?.label?.split(' - ')[0] || 'Eastern Time (ET)'}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Link
                       href={`/admin/teams/${team.id}/closers`}
-                      className="p-2 text-gray-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50"
+                      className="p-2 text-gray-600 hover:text-indigo-600 rounded-lg hover:bg-indigo-50"
                       title="Manage Closers"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -311,7 +311,7 @@ export default function TeamsPage() {
                     </Link>
                     <button
                       onClick={() => openEditModal(team)}
-                      className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                       title="Edit"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -320,7 +320,7 @@ export default function TeamsPage() {
                     </button>
                     <button
                       onClick={() => handleDelete(team)}
-                      className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                      className="p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
                       title="Delete"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -332,7 +332,7 @@ export default function TeamsPage() {
                 
                 {team.members.length > 0 ? (
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Members</p>
+                    <p className="text-xs font-medium text-gray-700 uppercase tracking-wide">Members</p>
                     <div className="space-y-1">
                       {team.members.slice(0, 5).map((member) => (
                         <div key={member.id} className="flex items-center gap-2 text-sm">
@@ -340,18 +340,18 @@ export default function TeamsPage() {
                             {member.full_name?.charAt(0) || '?'}
                           </div>
                           <span className="text-gray-700">{member.full_name || 'Unknown'}</span>
-                          <span className="text-gray-400 text-xs">({member.role})</span>
+                          <span className="text-gray-600 text-xs">({member.role})</span>
                         </div>
                       ))}
                       {team.members.length > 5 && (
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-gray-600">
                           +{team.members.length - 5} more
                         </p>
                       )}
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-400 italic">No members assigned</p>
+                  <p className="text-sm text-gray-600 italic">No members assigned</p>
                 )}
               </div>
             ))}
@@ -420,7 +420,7 @@ export default function TeamsPage() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-700">
                     Used for calendar scheduling. Default is Eastern Time (Charlotte, NC).
                   </p>
                 </div>

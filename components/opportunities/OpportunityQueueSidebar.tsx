@@ -113,7 +113,7 @@ export default function OpportunityQueueSidebar({ currentOpportunityId, filters 
       <div className="sticky top-24 rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-100 px-4 py-4">
           <h2 className="text-sm font-semibold text-gray-900">Opportunity Queue</h2>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-700">
             {loading ? 'Loading...' : `${filteredOpportunities.length} in this view`}
           </p>
           {activeFilterLabels.length > 0 && (
@@ -131,7 +131,7 @@ export default function OpportunityQueueSidebar({ currentOpportunityId, filters 
           {error ? (
             <div className="p-4 text-sm text-red-600">{error}</div>
           ) : filteredOpportunities.length === 0 && !loading ? (
-            <div className="p-4 text-sm text-gray-500">No opportunities match this view.</div>
+            <div className="p-4 text-sm text-gray-700">No opportunities match this view.</div>
           ) : (
             <div className="divide-y divide-gray-100">
               {filteredOpportunities.map((opportunity) => {
@@ -154,7 +154,7 @@ export default function OpportunityQueueSidebar({ currentOpportunityId, filters 
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-gray-900">{customerName}</p>
-                        <p className="mt-0.5 truncate text-xs text-gray-500">
+                        <p className="mt-0.5 truncate text-xs text-gray-700">
                           {opportunity.address_text || 'No address'}
                         </p>
                       </div>
@@ -187,7 +187,7 @@ export default function OpportunityQueueSidebar({ currentOpportunityId, filters 
                       )}
                     </div>
 
-                    <p className="mt-2 text-[11px] text-gray-400">
+                    <p className="mt-2 text-[11px] text-gray-600">
                       {opportunity.users?.full_name || 'Unassigned'}
                     </p>
                   </Link>

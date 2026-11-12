@@ -158,7 +158,7 @@ export default function RegionsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
               <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
               <span>/</span>
               <span>Regions</span>
@@ -175,18 +175,18 @@ export default function RegionsPage() {
         </div>
 
         {loading ? (
-          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-700">
             Loading regions...
           </div>
         ) : regions.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
-            <div className="text-gray-400 mb-4">
+            <div className="text-gray-600 mb-4">
               <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-1">No regions yet</h3>
-            <p className="text-gray-500 mb-4">Create your first region to organize teams geographically.</p>
+            <p className="text-gray-700 mb-4">Create your first region to organize teams geographically.</p>
             <button
               onClick={() => setShowCreateModal(true)}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
@@ -201,14 +201,14 @@ export default function RegionsPage() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">{region.name}</h3>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-gray-700">
                       {region.teams?.length || 0} team{region.teams?.length !== 1 ? 's' : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => openEditModal(region)}
-                      className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                       title="Edit"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -217,7 +217,7 @@ export default function RegionsPage() {
                     </button>
                     <button
                       onClick={() => handleDelete(region)}
-                      className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                      className="p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
                       title="Delete"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -229,7 +229,7 @@ export default function RegionsPage() {
                 
                 {region.teams && region.teams.length > 0 ? (
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Teams</p>
+                    <p className="text-xs font-medium text-gray-700 uppercase tracking-wide">Teams</p>
                     <div className="flex flex-wrap gap-2">
                       {region.teams.map((team) => (
                         <Link
@@ -243,7 +243,7 @@ export default function RegionsPage() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-400 italic">No teams assigned</p>
+                  <p className="text-sm text-gray-600 italic">No teams assigned</p>
                 )}
               </div>
             ))}

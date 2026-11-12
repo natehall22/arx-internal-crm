@@ -40,14 +40,14 @@ function BriefCell({
   const value = field.value
   return (
     <div className="min-w-0">
-      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">
         {label}
       </span>
       <div className="mt-1 flex flex-wrap items-baseline gap-1.5">
         {value ? (
           <span className="text-sm font-semibold tabular-nums text-[#2c2c2a]">{value}</span>
         ) : (
-          <span className="text-sm text-gray-400">{emptyLabel}</span>
+          <span className="text-sm text-gray-600">{emptyLabel}</span>
         )}
         {field.edited ? (
           <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-900">
@@ -56,7 +56,7 @@ function BriefCell({
         ) : null}
       </div>
       {field.edited && field.computedValue && field.computedValue !== field.value ? (
-        <p className="mt-0.5 text-[11px] text-gray-500 line-through tabular-nums">{field.computedValue}</p>
+        <p className="mt-0.5 text-[11px] text-gray-700 line-through tabular-nums">{field.computedValue}</p>
       ) : null}
     </div>
   )
@@ -131,7 +131,7 @@ export default function JobRoofingBrief({
           Job materials brief
         </span>
         <div className="flex items-center gap-2">
-          {loading ? <span className="text-[11px] text-gray-500">Refreshing…</span> : null}
+          {loading ? <span className="text-[11px] text-gray-700">Refreshing…</span> : null}
           {fields.proposalHref ? (
             <Link
               href={fields.proposalHref}
@@ -152,7 +152,7 @@ export default function JobRoofingBrief({
         <BriefCell label="Step flashing" field={fields.stepFlashingLf} />
         <BriefCell label="Wall flashing" field={fields.wallFlashingLf} />
         <div className="sm:col-span-2 lg:col-span-3">
-          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">
             Accessories
           </span>
           {fields.accessories.value ? (
@@ -160,14 +160,14 @@ export default function JobRoofingBrief({
               {fields.accessories.value}
             </p>
           ) : (
-            <p className="mt-1 text-sm text-gray-400">None listed on work order or project review</p>
+            <p className="mt-1 text-sm text-gray-600">None listed on work order or project review</p>
           )}
         </div>
       </div>
 
       {fields.soldAddOns.value ? (
         <div className="mt-3 border-t border-gray-100 pt-3">
-          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">
             Sold add-ons
           </span>
           <p className="mt-1 text-sm text-[#2c2c2a] whitespace-pre-wrap break-words">
@@ -178,7 +178,7 @@ export default function JobRoofingBrief({
 
       {fields.specialRemarks.value ? (
         <div className="mt-3 border-t border-gray-100 pt-3">
-          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-700">
             Special remarks
           </span>
           <p className="mt-1 text-sm text-[#2c2c2a] whitespace-pre-wrap break-words">

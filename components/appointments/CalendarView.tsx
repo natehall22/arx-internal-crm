@@ -893,7 +893,7 @@ export default function CalendarView() {
         <div className="flex-1 bg-white rounded-xl shadow-sm border overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-96">
-              <div className="text-gray-500">Loading calendar...</div>
+              <div className="text-gray-700">Loading calendar...</div>
             </div>
           ) : viewMode === 'team' && canAccessTeamCalendar ? (
             <TeamLaneView
@@ -914,7 +914,7 @@ export default function CalendarView() {
               {/* Day headers */}
               <div className="grid grid-cols-7 border-b bg-gray-50">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="px-2 py-3 text-center text-sm font-medium text-gray-500">
+                  <div key={day} className="px-2 py-3 text-center text-sm font-medium text-gray-700">
                     {day}
                   </div>
                 ))}
@@ -934,7 +934,7 @@ export default function CalendarView() {
                       } ${isToday(day) ? 'bg-indigo-50' : ''}`}
                     >
                       <div className={`text-sm font-medium mb-1 ${
-                        isToday(day) ? 'text-indigo-600' : isCurrentMonth(day) ? 'text-gray-900' : 'text-gray-400'
+                        isToday(day) ? 'text-indigo-600' : isCurrentMonth(day) ? 'text-gray-900' : 'text-gray-600'
                       }`}>
                         {formatNyDayOfMonth(day)}
                       </div>
@@ -973,7 +973,7 @@ export default function CalendarView() {
                           </button>
                         ))}
                         {totalItems > 3 && (
-                          <div className="text-xs text-gray-500 px-1">
+                          <div className="text-xs text-gray-700 px-1">
                             +{totalItems - 3} more
                           </div>
                         )}
@@ -994,7 +994,7 @@ export default function CalendarView() {
                     key={idx}
                     className={`px-2 py-3 text-center border-l ${isToday(day) ? 'bg-indigo-50' : ''}`}
                   >
-                    <div className="text-xs text-gray-500">{formatNyWeekdayShort(day)}</div>
+                    <div className="text-xs text-gray-700">{formatNyWeekdayShort(day)}</div>
                     <div className={`text-lg font-semibold ${isToday(day) ? 'text-indigo-600' : 'text-gray-900'}`}>
                       {formatNyDayOfMonth(day)}
                     </div>
@@ -1006,7 +1006,7 @@ export default function CalendarView() {
               <div className="flex-1">
                 {timeSlots.map(hour => (
                   <div key={hour} className="grid grid-cols-8 border-b min-h-[60px]">
-                    <div className="w-16 px-2 py-1 text-xs text-gray-500 text-right">
+                    <div className="w-16 px-2 py-1 text-xs text-gray-700 text-right">
                       {formatEasternHourLabel(hour)}
                     </div>
                     {weekDays.map((day, idx) => {
@@ -1057,7 +1057,7 @@ export default function CalendarView() {
                 })
                 return (
                   <div key={hour} data-hour-slot={hour} className="flex border-b min-h-[80px]">
-                    <div className="w-20 px-3 py-2 text-sm text-gray-500 text-right border-r bg-gray-50">
+                    <div className="w-20 px-3 py-2 text-sm text-gray-700 text-right border-r bg-gray-50">
                       {formatEasternHourLabel(hour)}
                     </div>
                     <div className="flex-1 p-2">
@@ -1086,7 +1086,7 @@ export default function CalendarView() {
             /* Agenda View */
             <div className="divide-y">
               {filteredAppointments.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
+                <div className="p-8 text-center text-gray-700">
                   No appointments scheduled
                 </div>
               ) : (
@@ -1097,13 +1097,13 @@ export default function CalendarView() {
                     className={`w-full p-4 text-left hover:bg-gray-50 flex items-start gap-4 ${apt.status === 'cancelled' ? 'opacity-60' : ''}`}
                   >
                     <div className="text-center min-w-[60px]">
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-700">
                         {new Date(apt.scheduled_for).toLocaleDateString([], { weekday: 'short' })}
                       </div>
                       <div className="text-2xl font-bold text-gray-900">
                         {new Date(apt.scheduled_for).getDate()}
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-700">
                         {new Date(apt.scheduled_for).toLocaleDateString([], { month: 'short' })}
                       </div>
                     </div>
@@ -1113,7 +1113,7 @@ export default function CalendarView() {
                         <span className={`font-semibold text-gray-900 ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
                           {apt.lead?.homeowner_name || 'Appointment'}
                         </span>
-                        <span className="text-sm text-gray-500">
+                        <span className="text-sm text-gray-700">
                           {formatTime(apt.scheduled_for)}
                         </span>
                         <span className={`text-xs font-medium px-1.5 py-0.5 rounded text-white ${getTypeColor(apt.appointment_type, apt.status)}`}>
@@ -1129,7 +1129,7 @@ export default function CalendarView() {
                         {apt.lead?.address_text || apt.address_text}
                       </div>
                       {apt.closer && (
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="text-xs text-gray-700 mt-1">
                           Rep: {apt.closer.full_name}
                         </div>
                       )}
@@ -1165,13 +1165,13 @@ export default function CalendarView() {
             {/* Scrollable body */}
             <div className="p-6 space-y-4 overflow-y-auto flex-1">
               <div>
-                <p className="text-sm text-gray-500">Customer</p>
+                <p className="text-sm text-gray-700">Customer</p>
                 <p className="font-semibold text-gray-900">
                   {selectedAppointment.lead?.homeowner_name || 'Unknown'}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Date & Time</p>
+                <p className="text-sm text-gray-700">Date & Time</p>
                 <p className="font-semibold text-gray-900">
                   {new Date(selectedAppointment.scheduled_for).toLocaleDateString([], {
                     weekday: 'long',
@@ -1184,38 +1184,38 @@ export default function CalendarView() {
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Address</p>
+                <p className="text-sm text-gray-700">Address</p>
                 <p className="font-semibold text-gray-900">
                   {selectedAppointment.lead?.address_text || selectedAppointment.address_text || 'No address'}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Type</p>
+                <p className="text-sm text-gray-700">Type</p>
                 <p className="font-semibold text-gray-900">{appointmentKindLabel(selectedAppointment.appointment_type)}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Sales Rep</p>
+                <p className="text-sm text-gray-700">Sales Rep</p>
                 {appointmentNeedsCloser(selectedAppointment) ? (
                   <p className="font-semibold text-amber-800">Unassigned — use scheduling tools to assign or reassign</p>
                 ) : selectedAppointment.closer ? (
                   <p className="font-semibold text-gray-900">{selectedAppointment.closer.full_name}</p>
                 ) : (
-                  <p className="font-semibold text-gray-500">—</p>
+                  <p className="font-semibold text-gray-700">—</p>
                 )}
               </div>
               {selectedAppointment.canvasser && (
                 <div>
-                  <p className="text-sm text-gray-500">Set By</p>
+                  <p className="text-sm text-gray-700">Set By</p>
                   <p className="font-semibold text-gray-900">{selectedAppointment.canvasser.full_name}</p>
                 </div>
               )}
               <div>
-                <p className="text-sm text-gray-500">Status</p>
+                <p className="text-sm text-gray-700">Status</p>
                 <p className="font-semibold text-gray-900 capitalize">{selectedAppointment.status.replace('_', ' ')}</p>
               </div>
               {selectedAppointment.notes && (
                 <div>
-                  <p className="text-sm text-gray-500">Notes</p>
+                  <p className="text-sm text-gray-700">Notes</p>
                   <p className="text-gray-900">{selectedAppointment.notes}</p>
                 </div>
               )}
@@ -1317,17 +1317,17 @@ export default function CalendarView() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <p className="text-sm text-gray-500">Job Number</p>
+                <p className="text-sm text-gray-700">Job Number</p>
                 <p className="font-semibold text-gray-900">{selectedJob.job_number}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Customer</p>
+                <p className="text-sm text-gray-700">Customer</p>
                 <p className="font-semibold text-gray-900">
                   {selectedJob.customer_name || 'Unknown'}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Install Date</p>
+                <p className="text-sm text-gray-700">Install Date</p>
                 <p className="font-semibold text-gray-900">
                   {new Date(selectedJob.scheduled_date + 'T12:00:00').toLocaleDateString([], {
                     weekday: 'long',
@@ -1339,21 +1339,21 @@ export default function CalendarView() {
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Address</p>
+                <p className="text-sm text-gray-700">Address</p>
                 <p className="font-semibold text-gray-900">{selectedJob.address_text}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Job Type</p>
+                <p className="text-sm text-gray-700">Job Type</p>
                 <p className="font-semibold text-gray-900 capitalize">{selectedJob.job_type}</p>
               </div>
               {selectedJob.crew_name && (
                 <div>
-                  <p className="text-sm text-gray-500">Assigned Crew</p>
+                  <p className="text-sm text-gray-700">Assigned Crew</p>
                   <p className="font-semibold text-gray-900">{selectedJob.crew_name}</p>
                 </div>
               )}
               <div>
-                <p className="text-sm text-gray-500">Status</p>
+                <p className="text-sm text-gray-700">Status</p>
                 <p className="font-semibold text-gray-900 capitalize">{selectedJob.status.replace('_', ' ')}</p>
               </div>
               <div className="pt-4 flex gap-3">

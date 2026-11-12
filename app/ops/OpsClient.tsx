@@ -465,7 +465,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{terms.productionBoard}</h1>
-            <p className="text-gray-500 text-sm">Track each {terms.job.toLowerCase()} from sold through payment</p>
+            <p className="text-gray-700 text-sm">Track each {terms.job.toLowerCase()} from sold through payment</p>
             {catchUpFailed && (
               <p role="status" className="mt-1 text-sm text-amber-950">The where-it-stands lines couldn&apos;t load. Refresh to try again.</p>
             )}
@@ -499,34 +499,34 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-blue-600">{stats.sold}</div>
-            <div className="text-xs text-gray-500">Sold - Not Scheduled</div>
+            <div className="text-xs text-gray-700">Sold - Not Scheduled</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-amber-600">{stats.materials}</div>
-            <div className="text-xs text-gray-500">Ordering Materials</div>
+            <div className="text-xs text-gray-700">Ordering Materials</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-purple-600">{stats.scheduled}</div>
-            <div className="text-xs text-gray-500">Scheduled</div>
+            <div className="text-xs text-gray-700">Scheduled</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-indigo-600">{stats.inProgress}</div>
-            <div className="text-xs text-gray-500">In Progress</div>
+            <div className="text-xs text-gray-700">In Progress</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-green-600">{stats.complete}</div>
-            <div className="text-xs text-gray-500">Completed - Awaiting Final Collection</div>
+            <div className="text-xs text-gray-700">Completed - Awaiting Final Collection</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-gray-900">
               ${(stats.totalValue / 1000).toFixed(0)}k
             </div>
-            <div className="text-xs text-gray-500">Pipeline Value</div>
+            <div className="text-xs text-gray-700">Pipeline Value</div>
           </div>
           {canViewProfitability && knownGrossProfit !== null && (
             <div className="bg-white rounded-lg border p-4">
               <div className="text-2xl font-bold text-green-700">${knownGrossProfit.toLocaleString()}</div>
-              <div className="text-xs text-gray-500">Gross Profit (Known)</div>
+              <div className="text-xs text-gray-700">Gross Profit (Known)</div>
             </div>
           )}
         </div>
@@ -622,7 +622,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                   </div>
                   <div className="p-3 space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto overscroll-contain">
                     {statusJobs.length === 0 ? (
-                      <div className="text-center py-8 text-gray-400 text-sm">
+                      <div className="text-center py-8 text-gray-600 text-sm">
                         No jobs in this stage
                       </div>
                     ) : (
@@ -680,7 +680,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Completed Jobs</h2>
-              <p className="text-xs text-gray-500">Fully closed-out jobs (collected)</p>
+              <p className="text-xs text-gray-700">Fully closed-out jobs (collected)</p>
             </div>
             <div className="w-full sm:w-[360px]">
               <input
@@ -697,7 +697,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
 
           <div className="md:hidden space-y-3">
             {filteredCompletedJobs.length === 0 ? (
-              <div className="text-sm text-gray-500 py-4">No completed jobs found.</div>
+              <div className="text-sm text-gray-700 py-4">No completed jobs found.</div>
             ) : (
               filteredCompletedJobs.map((job) => (
                 <div key={job.id} className="rounded-lg border p-4">
@@ -705,7 +705,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                     <div>
                       <p className="font-mono text-sm text-gray-900">{job.job_number}</p>
                       <p className="text-sm text-gray-700">{job.customer?.name || '-'}</p>
-                      <p className="text-xs text-gray-500 truncate">{job.address_text}</p>
+                      <p className="text-xs text-gray-700 truncate">{job.address_text}</p>
                     </div>
                     <span className="text-xs px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-gray-700">
                       Collected
@@ -713,11 +713,11 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
                     <div>
-                      <p className="text-gray-500">Value</p>
+                      <p className="text-gray-700">Value</p>
                       <p className="font-semibold text-gray-900">{job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}</p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Job Type</p>
+                      <p className="text-gray-700">Job Type</p>
                       <p className="font-semibold text-gray-900 capitalize">{job.job_type}</p>
                     </div>
                   </div>
@@ -744,18 +744,18 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Address</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Job</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Customer</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Address</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Value</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {filteredCompletedJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-sm text-gray-500 text-center">
+                    <td colSpan={7} className="px-4 py-6 text-sm text-gray-700 text-center">
                       No completed jobs found.
                     </td>
                   </tr>
@@ -838,7 +838,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
           >
             <div className="sticky top-0 bg-white border-b px-5 py-4 flex justify-between items-start gap-3 z-10">
               <div>
-                <p className="font-mono text-sm text-gray-500">{snapshotJob.job_number}</p>
+                <p className="font-mono text-sm text-gray-700">{snapshotJob.job_number}</p>
                 <p className="font-medium text-gray-900 mt-1">{snapshotJob.customer?.name || '—'}</p>
                 <p className="text-sm text-gray-600">{snapshotJob.address_text}</p>
               </div>
@@ -846,7 +846,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                 <button
                   type="button"
                   onClick={() => setSnapshotJob(null)}
-                  className="text-gray-500 hover:text-gray-800 text-sm"
+                  className="text-gray-700 hover:text-gray-800 text-sm"
                 >
                   Close
                 </button>
@@ -873,7 +873,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                   }
                 />
               ) : (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-700">
                   No operations snapshot on the linked project yet. Add details or a project review on the{' '}
                   <Link href={`/projects/${snapshotJob.project_id}`} className="text-indigo-600 hover:underline">
                     project page

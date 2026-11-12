@@ -1129,7 +1129,7 @@ export default function ProposalBuilderPage() {
                 <button
                   key={s.num}
                   onClick={() => setStep(s.num)}
-                  className={`flex items-center gap-2 flex-shrink-0 ${step === s.num ? 'text-indigo-600' : 'text-gray-400'}`}
+                  className={`flex items-center gap-2 flex-shrink-0 ${step === s.num ? 'text-indigo-600' : 'text-gray-600'}`}
                 >
                   <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
                     step === s.num ? 'bg-indigo-600 text-white' : step > s.num ? 'bg-green-500 text-white' : 'bg-gray-200'
@@ -1141,7 +1141,7 @@ export default function ProposalBuilderPage() {
               ))}
             </div>
             <div className="text-right flex-shrink-0">
-              <p className="text-sm text-gray-500">Total</p>
+              <p className="text-sm text-gray-700">Total</p>
               <p className="text-lg sm:text-2xl font-bold text-gray-900">
                 $
                 {(primaryDisplayTotal || 0).toLocaleString(undefined, {
@@ -1211,7 +1211,7 @@ export default function ProposalBuilderPage() {
           <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Customer Information</h2>
             
-            <p className="text-sm text-gray-500 mb-4">Fields marked with * are required</p>
+            <p className="text-sm text-gray-700 mb-4">Fields marked with * are required</p>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
@@ -1290,7 +1290,7 @@ export default function ProposalBuilderPage() {
         {step === 2 && squaresOn && (
           <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Material Waste Factor</h2>
-            <p className="text-gray-500 mb-6">
+            <p className="text-gray-700 mb-6">
               Add a waste percentage to account for cuts, overlaps, and material waste. Industry standard is typically 10-15%.
             </p>
 
@@ -1298,24 +1298,24 @@ export default function ProposalBuilderPage() {
             <div className="bg-gray-50 rounded-xl p-6 mb-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Measured Area</p>
+                  <p className="text-sm text-gray-700 mb-1">Measured Area</p>
                   <p className="text-2xl font-bold text-gray-900">{baseSquares.toFixed(1)}</p>
-                  <p className="text-xs text-gray-400">squares</p>
+                  <p className="text-xs text-gray-600">squares</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Waste Factor</p>
+                  <p className="text-sm text-gray-700 mb-1">Waste Factor</p>
                   <p className="text-2xl font-bold text-amber-600">+{effectiveWastePercent}%</p>
-                  <p className="text-xs text-gray-400">{wasteSquares.toFixed(1)} squares</p>
+                  <p className="text-xs text-gray-600">{wasteSquares.toFixed(1)} squares</p>
                 </div>
                 <div className="col-span-2 md:col-span-1">
-                  <p className="text-sm text-gray-500 mb-1">Total Material</p>
+                  <p className="text-sm text-gray-700 mb-1">Total Material</p>
                   <p className="text-2xl font-bold text-indigo-600">{totalSquaresWithWaste.toFixed(1)}</p>
-                  <p className="text-xs text-gray-400">squares needed</p>
+                  <p className="text-xs text-gray-600">squares needed</p>
                 </div>
                 <div className="col-span-2 md:col-span-1">
-                  <p className="text-sm text-gray-500 mb-1">Total Sq Ft</p>
+                  <p className="text-sm text-gray-700 mb-1">Total Sq Ft</p>
                   <p className="text-2xl font-bold text-gray-700">{(totalSquaresWithWaste * 100).toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">square feet</p>
+                  <p className="text-xs text-gray-600">square feet</p>
                 </div>
               </div>
             </div>
@@ -1359,7 +1359,7 @@ export default function ProposalBuilderPage() {
                   }}
                   className="w-32 px-4 py-3 border border-gray-300 rounded-xl text-center text-lg font-semibold"
                 />
-                <span className="text-gray-500 font-medium">%</span>
+                <span className="text-gray-700 font-medium">%</span>
               </div>
             </div>
 
@@ -1383,7 +1383,7 @@ export default function ProposalBuilderPage() {
                   <span>Recommended order (bundle-rounded)</span>
                   <span className="font-semibold">{recommendedOrderSquares} squares</span>
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-700">
                   {roundedBundles} bundles ({BUNDLES_PER_SQUARE} bundles/square), rounded up from {rawBundleCount.toFixed(2)} bundles.
                 </div>
               </div>
@@ -1475,15 +1475,15 @@ export default function ProposalBuilderPage() {
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Roofing Type</h2>
-              <p className="text-gray-500 mb-6">Choose the type of roofing material for this project. Pricing will be calculated based on your selection.</p>
+              <p className="text-gray-700 mb-6">Choose the type of roofing material for this project. Pricing will be calculated based on your selection.</p>
 
               {roofingTypes.length === 0 ? (
                 <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
                   <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                   </svg>
-                  <p className="text-gray-500 mb-2">No roofing types configured</p>
-                  <p className="text-sm text-gray-400">Ask your admin to set up roofing types in Admin → Pricing & Costs</p>
+                  <p className="text-gray-700 mb-2">No roofing types configured</p>
+                  <p className="text-sm text-gray-600">Ask your admin to set up roofing types in Admin → Pricing & Costs</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1541,16 +1541,16 @@ export default function ProposalBuilderPage() {
                       </div>
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">{type.name}</h3>
                       {type.description && (
-                        <p className="text-sm text-gray-500 mb-3 line-clamp-2">{type.description}</p>
+                        <p className="text-sm text-gray-700 mb-3 line-clamp-2">{type.description}</p>
                       )}
                       <div className="flex items-baseline gap-1">
                         <span className="text-2xl font-bold" style={{ color: type.color }}>
                           ${(type.price_per_square || 0).toLocaleString()}
                         </span>
-                        <span className="text-sm text-gray-400">/square</span>
+                        <span className="text-sm text-gray-600">/square</span>
                       </div>
                       {type.default_warranty_years && (
-                        <p className="text-xs text-gray-500 mt-2">
+                        <p className="text-xs text-gray-700 mt-2">
                           {type.default_warranty_years} year warranty
                         </p>
                       )}
@@ -1572,7 +1572,7 @@ export default function ProposalBuilderPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-gray-700">Estimated Base Price</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-700">
                         {totalSquaresWithWaste.toFixed(1)} squares (incl. {effectiveWastePercent}% waste) × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
                       </p>
                     </div>
@@ -1655,7 +1655,7 @@ export default function ProposalBuilderPage() {
                             <div className="flex justify-between items-center">
                               <div>
                                 <p className="font-medium text-gray-900">{option.name}</p>
-                                <p className="text-sm text-gray-500">
+                                <p className="text-sm text-gray-700">
                                   ${(option.unit_price || 0).toLocaleString()} / {option.unit}
                                 </p>
                               </div>
@@ -1745,7 +1745,7 @@ export default function ProposalBuilderPage() {
 
                   {lineItems.filter(i => !i.is_adder).length === 0 ? (
                     <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
-                      <p className="text-gray-500 mb-4">No items added yet</p>
+                      <p className="text-gray-700 mb-4">No items added yet</p>
                       <button
                         onClick={() => setShowAddItem(true)}
                         className="px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700"
@@ -1759,7 +1759,7 @@ export default function ProposalBuilderPage() {
                         <div key={item.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
                           <div className="flex-1">
                             <p className="font-medium text-gray-900">{item.name}</p>
-                            <p className="text-sm text-gray-500">{item.category}</p>
+                            <p className="text-sm text-gray-700">{item.category}</p>
                           </div>
                           <div className="flex items-center gap-3">
                             <input
@@ -1778,7 +1778,7 @@ export default function ProposalBuilderPage() {
                               min="0"
                               step="0.1"
                             />
-                            <span className="text-gray-500 text-sm w-20">{getUnitLabel(item.unit)}</span>
+                            <span className="text-gray-700 text-sm w-20">{getUnitLabel(item.unit)}</span>
                             <span className="text-gray-900 font-medium w-24 text-right">
                               ${item.unit_price.toFixed(2)}
                             </span>
@@ -1806,7 +1806,7 @@ export default function ProposalBuilderPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">Base Project Price</h3>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-sm text-gray-700 mt-1">
                           {measurementData ? (
                             <>Based on {measurementData.total_squares?.toFixed(1) || urlSquares} squares</>
                           ) : (
@@ -1854,7 +1854,7 @@ export default function ProposalBuilderPage() {
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Add-Ons & Upgrades</h2>
-              <p className="text-gray-500 mb-4">Select additional items for this project</p>
+              <p className="text-gray-700 mb-4">Select additional items for this project</p>
               
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-6">
                 <p className="text-sm text-blue-800">
@@ -1904,9 +1904,9 @@ export default function ProposalBuilderPage() {
                         <div className="flex-1 min-w-[8rem]">
                           <span className="text-green-700 font-medium">{item.name}</span>
                           {isPercent ? (
-                            <p className="text-xs text-gray-500">{item.unit_price}% of project total</p>
+                            <p className="text-xs text-gray-700">{item.unit_price}% of project total</p>
                           ) : (
-                            <p className="text-xs text-gray-500">${item.unit_price.toLocaleString()} per {perUnitLabel(item.unit)}</p>
+                            <p className="text-xs text-gray-700">${item.unit_price.toLocaleString()} per {perUnitLabel(item.unit)}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3">
@@ -1961,7 +1961,7 @@ export default function ProposalBuilderPage() {
                               </button>
                             </div>
                           ) : !isPercent ? (
-                            <span className="text-sm text-gray-500">{item.quantity} {getUnitLabel(item.unit)}</span>
+                            <span className="text-sm text-gray-700">{item.quantity} {getUnitLabel(item.unit)}</span>
                           ) : null}
                           <span className="font-bold text-green-800 w-20 sm:w-24 text-right">
                             ${calculatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -2006,7 +2006,7 @@ export default function ProposalBuilderPage() {
                         <div className="min-w-0">
                         <p className="font-medium text-gray-900">{adder.name}</p>
                         <div className="flex items-center gap-2">
-                          <p className="text-sm text-gray-500">{adder.adder_category || adder.category}</p>
+                          <p className="text-sm text-gray-700">{adder.adder_category || adder.category}</p>
                           {needsQuantityInput(adder.unit) && !isPercent && (
                             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
                               Qty required
@@ -2024,12 +2024,12 @@ export default function ProposalBuilderPage() {
                         {isPercent ? (
                           <>
                             <p className="font-bold text-indigo-600">{adder.unit_price}%</p>
-                            <p className="text-xs text-gray-400">of project total</p>
+                            <p className="text-xs text-gray-600">of project total</p>
                           </>
                         ) : (
                           <>
                             <p className="font-bold text-indigo-600">${(adder.unit_price || 0).toLocaleString()}</p>
-                            <p className="text-xs text-gray-400">per {perUnitLabel(adder.unit)}</p>
+                            <p className="text-xs text-gray-600">per {perUnitLabel(adder.unit)}</p>
                           </>
                         )}
                       </div>
@@ -2039,7 +2039,7 @@ export default function ProposalBuilderPage() {
               </div>
 
               {adders.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-gray-700">
                   No add-ons available. Contact admin to add items.
                 </div>
               )}
@@ -2080,14 +2080,14 @@ export default function ProposalBuilderPage() {
               <div className="p-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
                   <div>
-                    <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Customer</h3>
+                    <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Customer</h3>
                     <p className="font-medium text-gray-900">{form.customer_name}</p>
                     <p className="text-gray-600">{form.customer_address}</p>
                     {form.customer_phone && <p className="text-gray-600">{formatPhone(form.customer_phone)}</p>}
                     {form.customer_email && <p className="text-gray-600">{form.customer_email}</p>}
                   </div>
                   <div className="text-right">
-                    <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Project Total</h3>
+                    <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Project Total</h3>
                     <p className="text-4xl font-bold" style={{ color: form.accent_color }}>
                       $
                       {primaryDisplayTotal.toLocaleString(undefined, {
@@ -2096,7 +2096,7 @@ export default function ProposalBuilderPage() {
                       })}
                     </p>
                     {form.financing_available && (
-                      <p className="text-gray-500 mt-1">
+                      <p className="text-gray-700 mt-1">
                         or ${displayMonthlyPayment.toFixed(2)}/mo for {form.financing_term_months} months
                       </p>
                     )}
@@ -2145,7 +2145,7 @@ export default function ProposalBuilderPage() {
                       </span>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 mt-4 pt-3 border-t">
+                  <p className="text-xs text-gray-700 mt-4 pt-3 border-t">
                     Note: Customer will only see the total investment amount. Line items and adders are not shown on the customer proposal.
                   </p>
                 </div>
@@ -2294,7 +2294,7 @@ export default function ProposalBuilderPage() {
                       className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
                       placeholder="$ Amount"
                     />
-                    <span className="flex items-center text-gray-400">or</span>
+                    <span className="flex items-center text-gray-600">or</span>
                     <input
                       type="number"
                       value={form.discount_percent}
@@ -2473,7 +2473,7 @@ export default function ProposalBuilderPage() {
                 <h2 className="text-xl font-bold text-gray-900">Add Item</h2>
                 <button
                   onClick={() => setShowAddItem(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+                  className="p-2 text-gray-600 hover:text-gray-600 rounded-lg"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -2487,10 +2487,10 @@ export default function ProposalBuilderPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                     </svg>
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No Pricebook Items</h3>
-                    <p className="text-gray-500 mb-4">
+                    <p className="text-gray-700 mb-4">
                       No items have been added to your pricebook yet.
                     </p>
-                    <p className="text-sm text-gray-400">
+                    <p className="text-sm text-gray-600">
                       Go to <span className="font-medium">Admin → Pricing & Costs → Pricebook Items</span> to add items.
                     </p>
                   </div>
@@ -2504,11 +2504,11 @@ export default function ProposalBuilderPage() {
                       >
                         <div>
                           <p className="font-medium text-gray-900">{item.name}</p>
-                          <p className="text-sm text-gray-500">{item.category}</p>
+                          <p className="text-sm text-gray-700">{item.category}</p>
                         </div>
                         <div className="text-right">
                           <p className="font-bold text-indigo-600">${(item.unit_price || 0).toLocaleString()}</p>
-                          <p className="text-xs text-gray-400">per {perUnitLabel(item.unit)}</p>
+                          <p className="text-xs text-gray-600">per {perUnitLabel(item.unit)}</p>
                         </div>
                       </button>
                     ))}
@@ -2533,7 +2533,7 @@ export default function ProposalBuilderPage() {
                       ? 'Enter Total Linear Feet'
                       : 'Enter Quantity'}
                 </h2>
-                <p className="text-gray-500 text-sm mt-1">
+                <p className="text-gray-700 text-sm mt-1">
                   {isPerSqftUnit(quantityModalItem.unit)
                     ? 'Use the actual coverage area (e.g. siding). This is separate from roof squares.'
                     : quantityModalItem.unit?.toLowerCase() === 'lf' ||
@@ -2548,11 +2548,11 @@ export default function ProposalBuilderPage() {
                   <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-xl">
                     <div>
                       <p className="font-medium text-gray-900">{quantityModalItem.name}</p>
-                      <p className="text-sm text-gray-500">{quantityModalItem.category}</p>
+                      <p className="text-sm text-gray-700">{quantityModalItem.category}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-indigo-600">${(quantityModalItem.unit_price || 0).toLocaleString()}</p>
-                      <p className="text-xs text-gray-400">per {perUnitLabel(quantityModalItem.unit)}</p>
+                      <p className="text-xs text-gray-600">per {perUnitLabel(quantityModalItem.unit)}</p>
                     </div>
                   </div>
 
@@ -2655,7 +2655,7 @@ export default function ProposalBuilderPage() {
                       ${(quantityModalItem.unit_price * quantityModalValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-700 mt-1">
                     {quantityModalValue} × ${quantityModalItem.unit_price.toLocaleString()} per {perUnitLabel(quantityModalItem.unit)}
                   </p>
                 </div>

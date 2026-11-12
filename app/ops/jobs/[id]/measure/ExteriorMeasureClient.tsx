@@ -154,7 +154,7 @@ function Field({
   return (
     <label className="block">
       <span className="text-xs font-medium text-gray-600">
-        {label}{hint && <span className="ml-1 font-normal text-gray-400">{hint}</span>}
+        {label}{hint && <span className="ml-1 font-normal text-gray-600">{hint}</span>}
       </span>
       <input
         type="number" inputMode="decimal" min="0" step={step}
@@ -420,7 +420,7 @@ export default function ExteriorMeasureClient({
             {backLabel}
           </Link>
           <h1 className="text-2xl font-bold text-gray-950">{title}</h1>
-          <p className="text-sm text-gray-500">{customerName}{addressText ? ` · ${addressText}` : ''}</p>
+          <p className="text-sm text-gray-700">{customerName}{addressText ? ` · ${addressText}` : ''}</p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <button
@@ -444,7 +444,7 @@ export default function ExteriorMeasureClient({
       {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {loading ? (
-        <div className="rounded-xl border bg-white p-6 text-sm text-gray-500">Loading…</div>
+        <div className="rounded-xl border bg-white p-6 text-sm text-gray-700">Loading…</div>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <section className="space-y-4 lg:col-span-2">
@@ -468,7 +468,7 @@ export default function ExteriorMeasureClient({
                     >
                       {status === 'scanned' && <span className={isActive ? 'text-emerald-300' : 'text-emerald-500'}>✓</span>}
                       {status === 'ready'   && <span className={isActive ? 'text-amber-300'   : 'text-amber-400'}>●</span>}
-                      {status === 'empty'   && <span className={isActive ? 'text-gray-400'    : 'text-gray-300'}>○</span>}
+                      {status === 'empty'   && <span className={isActive ? 'text-gray-400'    : 'text-gray-600'}>○</span>}
                       {side.elevation_name}
                     </button>
                   )
@@ -479,7 +479,7 @@ export default function ExteriorMeasureClient({
                     setSides((curr) => [...curr, newSide(`Side ${curr.length + 1}`, report.waste_percent)])
                     setActiveSideIdx(sides.length)
                   }}
-                  className="rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-500 hover:border-indigo-400 hover:text-indigo-600"
+                  className="rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:border-indigo-400 hover:text-indigo-600"
                 >
                   + Add side
                 </button>
@@ -519,7 +519,7 @@ export default function ExteriorMeasureClient({
                       <p className="text-base font-semibold text-gray-800">
                         Take photos of the {activeSide.elevation_name.toLowerCase()} side
                       </p>
-                      <p className="mt-1 text-sm text-gray-500 max-w-xs">
+                      <p className="mt-1 text-sm text-gray-700 max-w-xs">
                         Stand back so the whole wall fits in frame. A couple overlapping shots is fine.
                       </p>
                       <button
@@ -535,7 +535,7 @@ export default function ExteriorMeasureClient({
                       <button
                         type="button"
                         onClick={() => activeSide.id && toggleDetail(activeSide.id)}
-                        className="mt-3 text-xs text-gray-400 underline underline-offset-2 hover:text-gray-600"
+                        className="mt-3 text-xs text-gray-600 underline underline-offset-2 hover:text-gray-600"
                       >
                         I'll type the numbers in myself
                       </button>
@@ -550,7 +550,7 @@ export default function ExteriorMeasureClient({
                         <div className="flex items-center justify-between mb-2">
                           <p className="text-sm font-semibold text-gray-700">
                             {activeSide.elevation_name} photos
-                            <span className="ml-1 font-normal text-gray-400">({activeSidePhotos.length})</span>
+                            <span className="ml-1 font-normal text-gray-600">({activeSidePhotos.length})</span>
                           </p>
                           <button
                             type="button" disabled={uploading}
@@ -665,15 +665,15 @@ export default function ExteriorMeasureClient({
                           {/* Quick summary cards */}
                           <div className="grid grid-cols-2 gap-3 rounded-xl bg-gray-50 p-3 text-sm sm:grid-cols-4">
                             <div>
-                              <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Wall size</p>
+                              <p className="text-[11px] text-gray-600 font-medium uppercase tracking-wide">Wall size</p>
                               <p className="mt-0.5 font-semibold text-gray-900">{fmt(activeSide.wall_width_ft)} × {fmt(activeSide.wall_height_ft)} ft</p>
                             </div>
                             <div>
-                              <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Siding needed</p>
+                              <p className="text-[11px] text-gray-600 font-medium uppercase tracking-wide">Siding needed</p>
                               <p className="mt-0.5 font-semibold text-gray-900">{fmt(activeSideCalc.net_siding_sqft)} sqft</p>
                             </div>
                             <div>
-                              <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Windows & doors</p>
+                              <p className="text-[11px] text-gray-600 font-medium uppercase tracking-wide">Windows & doors</p>
                               <p className="mt-0.5 font-semibold text-gray-900">
                                 {activeSide.openings.length === 0
                                   ? 'None'
@@ -681,14 +681,14 @@ export default function ExteriorMeasureClient({
                               </p>
                             </div>
                             <div>
-                              <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Corners</p>
+                              <p className="text-[11px] text-gray-600 font-medium uppercase tracking-wide">Corners</p>
                               <p className="mt-0.5 font-semibold text-gray-900">{activeSide.outside_corners} out · {activeSide.inside_corners} in</p>
                             </div>
                           </div>
 
                           {/* Edit toggle */}
                           <div className="flex items-center justify-between">
-                            <p className="text-xs text-gray-400">
+                            <p className="text-xs text-gray-600">
                               {showDetail ? 'Editing measurements' : 'Something look off?'}
                             </p>
                             <button
@@ -709,7 +709,7 @@ export default function ExteriorMeasureClient({
                             <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
 
                               <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Wall size</p>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 mb-2">Wall size</p>
                                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                                   <Field label="Width" hint="(ft)" value={activeSide.wall_width_ft}  onChange={(v) => patchSide(activeSideIdx, { wall_width_ft:  v })} />
                                   <Field label="Height" hint="(ft)" value={activeSide.wall_height_ft} onChange={(v) => patchSide(activeSideIdx, { wall_height_ft: v })} />
@@ -718,7 +718,7 @@ export default function ExteriorMeasureClient({
                               </div>
 
                               <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Gable <span className="font-normal normal-case tracking-normal text-gray-400">— triangular section at the peak, if any</span></p>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 mb-1">Gable <span className="font-normal normal-case tracking-normal text-gray-600">— triangular section at the peak, if any</span></p>
                                 <div className="grid grid-cols-2 gap-3">
                                   <Field label="Gable width" hint="(ft)" value={activeSide.gable_width_ft}  onChange={(v) => patchSide(activeSideIdx, { gable_width_ft:  v })} />
                                   <Field label="Gable height" hint="(ft)" value={activeSide.gable_height_ft} onChange={(v) => patchSide(activeSideIdx, { gable_height_ft: v })} />
@@ -726,7 +726,7 @@ export default function ExteriorMeasureClient({
                               </div>
 
                               <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Eave overhang, fascia & gutters</p>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 mb-2">Eave overhang, fascia & gutters</p>
                                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                                   <Field label="Overhang depth"  hint="(ft)" value={activeSide.soffit_depth_ft}  onChange={(v) => patchSide(activeSideIdx, { soffit_depth_ft:  v })} />
                                   <Field label="Overhang run"    hint="(ft)" value={activeSide.soffit_length_ft} onChange={(v) => patchSide(activeSideIdx, { soffit_length_ft: v })} />
@@ -738,7 +738,7 @@ export default function ExteriorMeasureClient({
                               </div>
 
                               <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Corners on this side</p>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 mb-2">Corners on this side</p>
                                 <div className="grid grid-cols-2 gap-3">
                                   <Field label="Outside corners" hint="(walls meeting outward)" value={activeSide.outside_corners} step="1" onChange={(v) => patchSide(activeSideIdx, { outside_corners: v })} />
                                   <Field label="Inside corners"  hint="(walls meeting inward)"  value={activeSide.inside_corners}  step="1" onChange={(v) => patchSide(activeSideIdx, { inside_corners:  v })} />
@@ -756,7 +756,7 @@ export default function ExteriorMeasureClient({
                               {/* Windows & Doors */}
                               <div>
                                 <div className="flex items-center justify-between mb-2">
-                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Windows & doors</p>
+                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">Windows & doors</p>
                                   <button
                                     type="button"
                                     onClick={() => patchSide(activeSideIdx, { openings: [...activeSide.openings, { opening_type: 'window', label: '', quantity: 1, width_ft: 0, height_ft: 0, notes: '' }] })}
@@ -764,7 +764,7 @@ export default function ExteriorMeasureClient({
                                   >+ Add opening</button>
                                 </div>
                                 {activeSide.openings.length === 0 ? (
-                                  <p className="rounded-lg border border-dashed border-gray-200 p-3 text-sm text-gray-400">
+                                  <p className="rounded-lg border border-dashed border-gray-200 p-3 text-sm text-gray-600">
                                     None found yet — AI picks these up automatically when you measure.
                                   </p>
                                 ) : (
@@ -811,7 +811,7 @@ export default function ExteriorMeasureClient({
 
             {/* ── Options (hidden by default) ── */}
             <details className="rounded-xl border bg-white shadow-sm">
-              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-500 hover:text-gray-800">
+              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-800">
                 ⚙️ Options
               </summary>
               <div className="border-t border-gray-100 p-4 space-y-3">
@@ -845,7 +845,7 @@ export default function ExteriorMeasureClient({
                         }`}
                       >
                         <span className="block font-semibold">{t.label}</span>
-                        <span className="mt-0.5 block text-xs text-gray-500">{t.helper}</span>
+                        <span className="mt-0.5 block text-xs text-gray-700">{t.helper}</span>
                       </button>
                     ))}
                   </div>
@@ -898,24 +898,24 @@ export default function ExteriorMeasureClient({
               </div>
 
               {sidesScanned === 0 ? (
-                <p className="mt-2 text-sm text-gray-400">
+                <p className="mt-2 text-sm text-gray-600">
                   Measure each side of the house and the totals will show up here.
                 </p>
               ) : (
                 <dl className="mt-3 space-y-2 text-sm">
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Gross wall</dt>         <dd className="font-medium">{fmt(totals.gross_wall_sqft)} sqft</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Gable</dt>              <dd className="font-medium">{fmt(totals.gable_sqft)} sqft</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Openings (deducted)</dt><dd className="font-medium">−{fmt(totals.opening_deductions_sqft)} sqft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Gross wall</dt>         <dd className="font-medium">{fmt(totals.gross_wall_sqft)} sqft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Gable</dt>              <dd className="font-medium">{fmt(totals.gable_sqft)} sqft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Openings (deducted)</dt><dd className="font-medium">−{fmt(totals.opening_deductions_sqft)} sqft</dd></div>
                   <div className="flex justify-between gap-3 border-t pt-2"><dt className="font-semibold text-gray-900">Siding needed</dt> <dd className="font-semibold">{fmt(totals.net_siding_sqft)} sqft</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Waste allowance</dt>   <dd className="font-medium">{fmt(totals.waste_sqft)} sqft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Waste allowance</dt>   <dd className="font-medium">{fmt(totals.waste_sqft)} sqft</dd></div>
                   <div className="flex justify-between gap-3"><dt className="font-semibold text-gray-900">Squares of siding</dt> <dd className="font-semibold text-indigo-700">{fmt(totals.siding_squares)}</dd></div>
-                  <div className="flex justify-between gap-3 border-t pt-2"><dt className="text-gray-500">Soffit</dt>        <dd className="font-medium">{fmt(totals.soffit_sqft)} sqft</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Fascia board</dt>       <dd className="font-medium">{fmt(totals.fascia_lf)} lin ft</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Gutters</dt>            <dd className="font-medium">{fmt(totals.gutter_lf)} lin ft</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Starter strip</dt>     <dd className="font-medium">{fmt(totals.starter_strip_lf)} lin ft</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Window/door trim</dt>  <dd className="font-medium">{fmt(totals.j_channel_lf)} lin ft</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Outside corners</dt>  <dd className="font-medium">{totals.outside_corners}</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">Inside corners</dt>   <dd className="font-medium">{totals.inside_corners}</dd></div>
+                  <div className="flex justify-between gap-3 border-t pt-2"><dt className="text-gray-700">Soffit</dt>        <dd className="font-medium">{fmt(totals.soffit_sqft)} sqft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Fascia board</dt>       <dd className="font-medium">{fmt(totals.fascia_lf)} lin ft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Gutters</dt>            <dd className="font-medium">{fmt(totals.gutter_lf)} lin ft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Starter strip</dt>     <dd className="font-medium">{fmt(totals.starter_strip_lf)} lin ft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Window/door trim</dt>  <dd className="font-medium">{fmt(totals.j_channel_lf)} lin ft</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Outside corners</dt>  <dd className="font-medium">{totals.outside_corners}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-700">Inside corners</dt>   <dd className="font-medium">{totals.inside_corners}</dd></div>
                 </dl>
               )}
 
@@ -929,7 +929,7 @@ export default function ExteriorMeasureClient({
                       className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs hover:bg-gray-50 ${activeSideIdx === idx ? 'bg-gray-100 font-semibold' : ''}`}
                     >
                       <span className="text-gray-700">{side.elevation_name}</span>
-                      <span className={st === 'scanned' ? 'text-emerald-600' : st === 'ready' ? 'text-amber-500' : 'text-gray-300'}>
+                      <span className={st === 'scanned' ? 'text-emerald-600' : st === 'ready' ? 'text-amber-500' : 'text-gray-600'}>
                         {st === 'scanned' ? '✓ measured' : st === 'ready' ? '● ready to measure' : '○ no photos yet'}
                       </span>
                     </button>

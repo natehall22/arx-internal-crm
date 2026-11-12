@@ -52,7 +52,7 @@ export default function PayrollStatementView({
   savingOverrideKey,
 }: Props) {
   if (loading) {
-    return <p className="text-sm text-gray-500 py-8 text-center">Loading statement…</p>
+    return <p className="text-sm text-gray-700 py-8 text-center">Loading statement…</p>
   }
   if (error) {
     return (
@@ -63,7 +63,7 @@ export default function PayrollStatementView({
   }
   if (!statement) {
     return (
-      <p className="text-sm text-gray-500 py-8 text-center">
+      <p className="text-sm text-gray-700 py-8 text-center">
         Select a period to view the commission statement.
       </p>
     )
@@ -199,7 +199,7 @@ export default function PayrollStatementView({
       <section>
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Deals</h2>
         {deals.length === 0 ? (
-          <p className="text-sm text-gray-500 rounded-lg border border-dashed p-6 text-center">
+          <p className="text-sm text-gray-700 rounded-lg border border-dashed p-6 text-center">
             {hasNonCommissionEarnings
               ? 'No job commission payouts this period. Customer-level sit/sale and hourly earnings are shown above.'
               : 'No payout lines for this period yet. Lock the period after jobs are ready, or confirm payout lines were generated.'}
@@ -228,7 +228,7 @@ export default function PayrollStatementView({
                     <tr key={`${d.jobId}-${d.role}`} className="text-gray-900">
                       <td className="px-3 py-2">
                         <div className="font-medium">{d.customerName || '—'}</div>
-                        <div className="text-xs text-gray-500">{d.jobNumber}</div>
+                        <div className="text-xs text-gray-700">{d.jobNumber}</div>
                       </td>
                       <td className="px-3 py-2">
                         <span
@@ -356,7 +356,7 @@ function SummaryCard({
 }) {
   return (
     <div className="rounded-lg border bg-white px-4 py-3">
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      <p className="text-xs font-medium text-gray-700 uppercase tracking-wide">{label}</p>
       <p
         className={`mt-1 text-lg font-semibold tabular-nums ${highlight ? 'text-indigo-700' : 'text-gray-900'}`}
       >
@@ -369,7 +369,7 @@ function SummaryCard({
 function BreakdownChip({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border bg-white px-3 py-2">
-      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-xs text-gray-700">{label}</p>
       <p className="font-medium tabular-nums">{value}</p>
     </div>
   )

@@ -262,7 +262,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-            <p className="text-gray-500">Manage your preferences and integrations</p>
+            <p className="text-gray-700">Manage your preferences and integrations</p>
           </div>
         </div>
 
@@ -275,7 +275,7 @@ export default function SettingsPage() {
               className={`min-h-[44px] px-4 py-3 font-medium text-sm border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
                 activeTab === tab.id
                   ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-gray-700 hover:text-gray-700'
               }`}
             >
               <span>{tab.icon}</span>
@@ -294,7 +294,7 @@ export default function SettingsPage() {
                 <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                   <div>
                     <p className="font-medium text-gray-900">Enable Notifications</p>
-                    <p className="text-sm text-gray-500">Receive notifications about your activities</p>
+                    <p className="text-sm text-gray-700">Receive notifications about your activities</p>
                   </div>
                   <input
                     type="checkbox"
@@ -309,7 +309,7 @@ export default function SettingsPage() {
                     <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-900">Email Notifications</p>
-                        <p className="text-sm text-gray-500">Receive notifications via email</p>
+                        <p className="text-sm text-gray-700">Receive notifications via email</p>
                       </div>
                       <input
                         type="checkbox"
@@ -322,7 +322,7 @@ export default function SettingsPage() {
                     <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-900">Push Notifications</p>
-                        <p className="text-sm text-gray-500">Receive push notifications in browser/app</p>
+                        <p className="text-sm text-gray-700">Receive push notifications in browser/app</p>
                       </div>
                       <input
                         type="checkbox"
@@ -344,7 +344,7 @@ export default function SettingsPage() {
                           <label key={type.key} className="flex items-center justify-between p-3 border rounded-lg">
                             <div>
                               <p className="font-medium text-gray-900 text-sm">{type.label}</p>
-                              <p className="text-xs text-gray-500">{type.desc}</p>
+                              <p className="text-xs text-gray-700">{type.desc}</p>
                             </div>
                             <input
                               type="checkbox"
@@ -397,7 +397,7 @@ export default function SettingsPage() {
                     </div>
                     <button 
                       onClick={() => setCalendarMessage(null)}
-                      className="text-gray-500 hover:text-gray-700"
+                      className="text-gray-700 hover:text-gray-700"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -417,7 +417,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">Google Calendar</p>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-700">
                         {googleToken ? 'Connected' : 'Not connected'}
                       </p>
                     </div>
@@ -531,7 +531,7 @@ export default function SettingsPage() {
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-2">AI Assistant</h2>
-              <p className="text-gray-500 text-sm mb-4">
+              <p className="text-gray-700 text-sm mb-4">
                 A read-only assistant for CRM navigation and guidance — it does not edit records, send messages, or write notes on your behalf.
               </p>
 
@@ -539,7 +539,7 @@ export default function SettingsPage() {
                 <label className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-indigo-100">
                   <div>
                     <p className="font-medium text-gray-900">Enable AI Assistant</p>
-                    <p className="text-sm text-gray-500">Turn on the chat assistant for CRM navigation and workflow guidance</p>
+                    <p className="text-sm text-gray-700">Turn on the chat assistant for CRM navigation and workflow guidance</p>
                   </div>
                   <input
                     type="checkbox"
@@ -570,7 +570,7 @@ export default function SettingsPage() {
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-2">My Reports</h2>
-              <p className="text-gray-500 text-sm mb-4">
+              <p className="text-gray-700 text-sm mb-4">
                 Create and manage custom reports based on your permissions
               </p>
               
@@ -603,7 +603,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">View All Reports</p>
-                      <p className="text-sm text-gray-500">Access your reports and team dashboards</p>
+                      <p className="text-sm text-gray-700">Access your reports and team dashboards</p>
                     </div>
                   </div>
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

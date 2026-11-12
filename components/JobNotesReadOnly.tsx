@@ -46,7 +46,7 @@ export default function JobNotesReadOnly({ jobId, limit = 5 }: JobNotesReadOnlyP
   }
 
   if (notes.length === 0) {
-    return <p className="text-sm text-gray-500">No job notes yet.</p>
+    return <p className="text-sm text-gray-700">No job notes yet.</p>
   }
 
   return (
@@ -57,7 +57,7 @@ export default function JobNotesReadOnly({ jobId, limit = 5 }: JobNotesReadOnlyP
             <span className="text-sm font-medium text-gray-900">
               {note.user?.full_name || 'Unknown'}
             </span>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-700">
               {new Date(note.created_at).toLocaleDateString('en-US', { 
                 month: 'short', 
                 day: 'numeric',
@@ -68,7 +68,7 @@ export default function JobNotesReadOnly({ jobId, limit = 5 }: JobNotesReadOnlyP
           </div>
           <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.note}</p>
           {note.is_internal && (
-            <span className="inline-block mt-1 text-xs text-gray-400">Internal</span>
+            <span className="inline-block mt-1 text-xs text-gray-600">Internal</span>
           )}
         </div>
       ))}

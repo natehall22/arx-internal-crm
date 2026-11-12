@@ -763,7 +763,7 @@ export default function AdminSettingsPage() {
           <nav className="p-4 space-y-6 overflow-y-auto max-h-[calc(100vh-130px)]">
             {menuSections.map((section) => (
               <div key={section.title}>
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">
                   {section.title}
                 </h3>
                 <ul className="space-y-1">
@@ -798,7 +798,7 @@ export default function AdminSettingsPage() {
               {userRole === 'admin' && (
                 <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Company Logo</h2>
-                  <p className="text-sm text-gray-500 mb-4">
+                  <p className="text-sm text-gray-700 mb-4">
                     Upload your company logo. This will be visible to all team members and can be used on proposals and documents.
                   </p>
                   
@@ -821,7 +821,7 @@ export default function AdminSettingsPage() {
                             <svg className="w-10 h-10 text-gray-400 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
-                            <span className="text-xs text-gray-400">No logo</span>
+                            <span className="text-xs text-gray-600">No logo</span>
                           </div>
                         </div>
                       )}
@@ -855,10 +855,10 @@ export default function AdminSettingsPage() {
                           </button>
                         )}
                       </div>
-                      <p className="text-xs text-gray-500 mt-2">
+                      <p className="text-xs text-gray-700 mt-2">
                         Accepted formats: PNG, JPG, WEBP, SVG. Max size: 2MB.
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-gray-700 mt-1">
                         Recommended: Square image, at least 200x200 pixels.
                       </p>
                     </div>
@@ -880,12 +880,12 @@ export default function AdminSettingsPage() {
           {activeSection === 'reports' && (
             <div className="max-w-2xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Report Settings</h1>
-              <p className="text-gray-500 mb-6">Configure how reports display team member data.</p>
+              <p className="text-gray-700 mb-6">Configure how reports display team member data.</p>
               
               <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Role Inclusion</h2>
-                  <p className="text-sm text-gray-500 mb-4">
+                  <p className="text-sm text-gray-700 mb-4">
                     Choose which roles are included in performance reports and leaderboards.
                   </p>
                   
@@ -899,7 +899,7 @@ export default function AdminSettingsPage() {
                       />
                       <div>
                         <span className="font-medium text-gray-900">Include Admins in Reports</span>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-sm text-gray-700 mt-1">
                           When enabled, admin users will appear in performance reports, leaderboards, and sales statistics. 
                           Disable this to exclude owners/admins from team performance metrics as your company grows.
                         </p>
@@ -947,7 +947,7 @@ export default function AdminSettingsPage() {
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-700 mt-1">
                       Not used for when the prompt appears; kept for compatibility.
                     </p>
                   </div>
@@ -1007,7 +1007,7 @@ export default function AdminSettingsPage() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">Appointment Types</h1>
-                  <p className="text-gray-500 mt-1">Configure appointment types, durations, and buffer after each type.</p>
+                  <p className="text-gray-700 mt-1">Configure appointment types, durations, and buffer after each type.</p>
                 </div>
                 <button
                   onClick={() => {
@@ -1033,12 +1033,12 @@ export default function AdminSettingsPage() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Color</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Buffer after</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Color</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Name</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Duration</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Buffer after</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -1054,7 +1054,7 @@ export default function AdminSettingsPage() {
                           <div>
                             <span className="font-medium text-gray-900">{apt.name}</span>
                             {apt.description && (
-                              <p className="text-xs text-gray-500">{apt.description}</p>
+                              <p className="text-xs text-gray-700">{apt.description}</p>
                             )}
                           </div>
                         </td>
@@ -1068,7 +1068,7 @@ export default function AdminSettingsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            apt.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                            apt.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                           }`}>
                             {apt.active ? 'Active' : 'Inactive'}
                           </span>
@@ -1089,7 +1089,7 @@ export default function AdminSettingsPage() {
                                 a.id === apt.id ? { ...a, active: !a.active } : a
                               ))
                             }}
-                            className="text-gray-500 hover:text-gray-700 text-sm"
+                            className="text-gray-700 hover:text-gray-700 text-sm"
                           >
                             {apt.active ? 'Disable' : 'Enable'}
                           </button>
@@ -1215,7 +1215,7 @@ export default function AdminSettingsPage() {
                           }
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-700 mt-1">
                           Extra time after the scheduled slot end for spacing and conflict checks; feedback prompts at start time.
                         </p>
                       </div>
@@ -1307,7 +1307,7 @@ export default function AdminSettingsPage() {
           {activeSection === 'measurement-tools' && (
             <div className="max-w-2xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Measurement Tools</h1>
-              <p className="text-gray-500 mb-6">Configure roof measurement tools and integrations for your team.</p>
+              <p className="text-gray-700 mb-6">Configure roof measurement tools and integrations for your team.</p>
               
               {/* In-House Tool */}
               <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
@@ -1320,7 +1320,7 @@ export default function AdminSettingsPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900">Roof Measure</h3>
-                      <p className="text-sm text-gray-500">In-house satellite measurement tool</p>
+                      <p className="text-sm text-gray-700">In-house satellite measurement tool</p>
                     </div>
                   </div>
                   {/* On/off is the "Roof measuring" feature switch (one switch: lib/org-features.ts), owners only.
@@ -1335,7 +1335,7 @@ export default function AdminSettingsPage() {
                 </div>
                 <div className="text-sm text-gray-600 bg-gray-50 rounded-lg p-4">
                   <p className="mb-2"><strong>Features:</strong></p>
-                  <ul className="list-disc list-inside space-y-1 text-gray-500">
+                  <ul className="list-disc list-inside space-y-1 text-gray-700">
                     <li>Draw roof planes on satellite imagery</li>
                     <li>Automatic area calculation with pitch adjustment</li>
                     <li>Ridge, hip, valley, eave, and rake measurements</li>
@@ -1347,7 +1347,7 @@ export default function AdminSettingsPage() {
 
               {/* External Integrations */}
               <h2 className="text-lg font-semibold text-gray-900 mb-4">External Measurement Providers</h2>
-              <p className="text-sm text-gray-500 mb-4">
+              <p className="text-sm text-gray-700 mb-4">
                 Connect to third-party measurement services. When enabled, these options will appear in the opportunity workflow.
               </p>
               
@@ -1390,7 +1390,7 @@ export default function AdminSettingsPage() {
                         </div>
                         <div>
                           <h3 className="font-semibold text-gray-900">{provider.name}</h3>
-                          <p className="text-sm text-gray-500">{provider.description}</p>
+                          <p className="text-sm text-gray-700">{provider.description}</p>
                         </div>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer">
@@ -1531,7 +1531,7 @@ export default function AdminSettingsPage() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">Canvass Dispositions</h1>
-                  <p className="text-gray-500 mt-1">Customize the disposition types your canvassers can use when knocking doors.</p>
+                  <p className="text-gray-700 mt-1">Customize the disposition types your canvassers can use when knocking doors.</p>
                 </div>
                 <button
                   onClick={() => {
@@ -1566,12 +1566,12 @@ export default function AdminSettingsPage() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Color</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Color</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Label</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Category</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Contact</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -1591,14 +1591,14 @@ export default function AdminSettingsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            dispo.counts_as_contact ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+                            dispo.counts_as_contact ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
                           }`}>
                             {dispo.counts_as_contact ? 'Yes' : 'No'}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            dispo.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                            dispo.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                           }`}>
                             {dispo.active ? 'Active' : 'Inactive'}
                           </span>
@@ -1619,7 +1619,7 @@ export default function AdminSettingsPage() {
                                 d.id === dispo.id ? { ...d, active: !d.active } : d
                               ))
                             }}
-                            className="text-gray-500 hover:text-gray-700 text-sm"
+                            className="text-gray-700 hover:text-gray-700 text-sm"
                           >
                             {dispo.active ? 'Disable' : 'Enable'}
                           </button>
@@ -1801,7 +1801,7 @@ export default function AdminSettingsPage() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">Inspection outcomes</h1>
-                  <p className="text-gray-500 mt-1">
+                  <p className="text-gray-700 mt-1">
                     Configure the outcomes closers can select after an inspection. Control which outcomes create opportunities and which count as a &quot;Sit&quot; on the dashboard Team Stats leaderboard.
                   </p>
                 </div>
@@ -1844,13 +1844,13 @@ export default function AdminSettingsPage() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Icon</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Creates Opportunity</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Counts as Sit</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Icon</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Label</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Description</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase">Creates Opportunity</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase">Counts as Sit</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -1880,7 +1880,7 @@ export default function AdminSettingsPage() {
                             className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                               outcome.converts_to_opportunity 
                                 ? 'bg-green-100 text-green-700 hover:bg-green-200' 
-                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                           >
                             {outcome.converts_to_opportunity ? '✓ Yes' : 'No'}
@@ -1899,7 +1899,7 @@ export default function AdminSettingsPage() {
                             className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                               outcome.counts_as_sit
                                 ? 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200'
-                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                           >
                             {outcome.counts_as_sit ? '✓ Yes' : 'No'}
@@ -1907,7 +1907,7 @@ export default function AdminSettingsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            outcome.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                            outcome.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                           }`}>
                             {outcome.active ? 'Active' : 'Inactive'}
                           </span>
@@ -1928,7 +1928,7 @@ export default function AdminSettingsPage() {
                                 o.id === outcome.id ? { ...o, active: !o.active } : o
                               ))
                             }}
-                            className="text-gray-500 hover:text-gray-700 text-sm"
+                            className="text-gray-700 hover:text-gray-700 text-sm"
                           >
                             {outcome.active ? 'Disable' : 'Enable'}
                           </button>
@@ -2061,7 +2061,7 @@ export default function AdminSettingsPage() {
                         />
                         <label htmlFor="outcome-converts" className="text-sm text-gray-700">
                           <span className="font-medium">Creates Opportunity</span>
-                          <p className="text-gray-500 text-xs mt-0.5">
+                          <p className="text-gray-700 text-xs mt-0.5">
                             When selected, this outcome will automatically convert the lead to an opportunity.
                             {editingInspectionOutcome.inside_sales_handoff_enabled
                               ? ' Required for inside sales follow-up.'
@@ -2083,7 +2083,7 @@ export default function AdminSettingsPage() {
                         />
                         <label htmlFor="outcome-sit" className="text-sm text-gray-700">
                           <span className="font-medium">Counts as Sit (Team Stats)</span>
-                          <p className="text-gray-500 text-xs mt-0.5">
+                          <p className="text-gray-700 text-xs mt-0.5">
                             When a closer selects this outcome, it increments the Sits column on the dashboard leaderboard
                             for the time period when the outcome was recorded.
                           </p>
@@ -2115,7 +2115,7 @@ export default function AdminSettingsPage() {
                           />
                           <label htmlFor="outcome-inside-sales" className="flex-1 text-sm text-gray-700">
                             <span className="font-medium">Auto-send to Inside Sales</span>
-                            <p className="mt-0.5 text-xs text-gray-500">
+                            <p className="mt-0.5 text-xs text-gray-700">
                               Keep this opportunity with the current rep first, then move it into the inside sales queue after the selected number of days if it is still unresolved.
                             </p>
                           </label>
@@ -2219,7 +2219,7 @@ export default function AdminSettingsPage() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">Close outcomes</h1>
-                  <p className="text-gray-500 mt-1">
+                  <p className="text-gray-700 mt-1">
                     Configure outcomes after a close visit. These power the close feedback form and opportunity labels.
                     The &quot;Creates opportunity&quot; toggle is for consistency with inspection outcomes; it is not used
                     for close feedback (the opportunity already exists).
@@ -2270,12 +2270,12 @@ export default function AdminSettingsPage() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Icon</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Routing</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Icon</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Label</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Description</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Routing</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -2308,7 +2308,7 @@ export default function AdminSettingsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            outcome.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                            outcome.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                           }`}>
                             {outcome.active ? 'Active' : 'Inactive'}
                           </span>
@@ -2331,7 +2331,7 @@ export default function AdminSettingsPage() {
                                 o.id === outcome.id ? { ...o, active: !o.active } : o
                               ))
                             }}
-                            className="text-gray-500 hover:text-gray-700 text-sm"
+                            className="text-gray-700 hover:text-gray-700 text-sm"
                           >
                             {outcome.active ? 'Disable' : 'Enable'}
                           </button>
@@ -2463,7 +2463,7 @@ export default function AdminSettingsPage() {
                           <option value="won">Mark opportunity won</option>
                           <option value="lost">Mark opportunity lost</option>
                         </select>
-                        <p className="mt-2 text-xs text-gray-500">
+                        <p className="mt-2 text-xs text-gray-700">
                           Use this for final close results. Non-final outcomes can still route to Inside Sales below.
                         </p>
                       </div>
@@ -2492,7 +2492,7 @@ export default function AdminSettingsPage() {
                             />
                             <label htmlFor="close-outcome-inside-sales" className="flex-1 text-sm text-gray-700">
                               <span className="font-medium">Send to Inside Sales</span>
-                              <p className="mt-0.5 text-xs text-gray-500">
+                              <p className="mt-0.5 text-xs text-gray-700">
                                 If this outcome is not resolved by the selected time, keep it in the follow-up queue for Inside Sales.
                               </p>
                             </label>
@@ -2537,7 +2537,7 @@ export default function AdminSettingsPage() {
                         />
                         <label htmlFor="close-outcome-converts" className="text-sm text-gray-700">
                           <span className="font-medium">Creates opportunity</span>
-                          <p className="text-gray-500 text-xs mt-0.5">Kept for reporting compatibility; close feedback already has an opportunity.</p>
+                          <p className="text-gray-700 text-xs mt-0.5">Kept for reporting compatibility; close feedback already has an opportunity.</p>
                         </label>
                       </div>
                       <div className="flex items-center gap-3">
@@ -2682,7 +2682,7 @@ export default function AdminSettingsPage() {
                           <span className="text-xl">{categoryLabels[category].icon}</span>
                           <div>
                             <h2 className="text-lg font-semibold text-gray-900">{categoryLabels[category].label}</h2>
-                            <p className="text-sm text-gray-500">{categoryLabels[category].desc}</p>
+                            <p className="text-sm text-gray-700">{categoryLabels[category].desc}</p>
                           </div>
                         </div>
                         
@@ -2717,13 +2717,13 @@ export default function AdminSettingsPage() {
                                       
                                       {/* Use Cases - This is the key UX improvement */}
                                       <div className="space-y-1.5">
-                                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Where this is used:</p>
+                                        <p className="text-xs font-medium text-gray-700 uppercase tracking-wide">Where this is used:</p>
                                         {integration.useCases.map((useCase, idx) => (
                                           <div key={idx} className="flex items-center gap-2 text-sm">
                                             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                               integration.connected ? 'bg-green-500' : 'bg-gray-300'
                                             }`} />
-                                            <span className={integration.connected ? 'text-gray-700' : 'text-gray-500'}>
+                                            <span className={integration.connected ? 'text-gray-700' : 'text-gray-700'}>
                                               {useCase}
                                             </span>
                                           </div>
@@ -2734,7 +2734,7 @@ export default function AdminSettingsPage() {
                                       {integration.connected && integration.config?.account && (
                                         <div className="mt-3 pt-3 border-t border-gray-100">
                                           <p className="text-sm text-gray-600">
-                                            <span className="text-gray-500">Account:</span>{' '}
+                                            <span className="text-gray-700">Account:</span>{' '}
                                             <span className="font-medium">{integration.config.account}</span>
                                           </p>
                                         </div>
@@ -2796,7 +2796,7 @@ export default function AdminSettingsPage() {
 
               {/* Save Button */}
               <div className="mt-8 pt-6 border-t flex items-center justify-between">
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-700">
                   Changes are saved when you connect or disconnect integrations.
                 </p>
                 <button
@@ -2858,7 +2858,7 @@ export default function AdminSettingsPage() {
                           <h2 className="text-xl font-bold text-gray-900">
                             {editingIntegration.connected ? 'Edit' : 'Connect'} {editingIntegration.name}
                           </h2>
-                          <p className="text-sm text-gray-500">{editingIntegration.description}</p>
+                          <p className="text-sm text-gray-700">{editingIntegration.description}</p>
                         </div>
                       </div>
                     </div>
@@ -3005,7 +3005,7 @@ export default function AdminSettingsPage() {
               {/* Period Settings */}
               <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Commission Period</h2>
-                <p className="text-sm text-gray-500 mb-6">
+                <p className="text-sm text-gray-700 mb-6">
                   Configure how commission periods are calculated for your team. This affects how commissions are grouped and displayed in reports and dashboards.
                 </p>
                 
@@ -3031,7 +3031,7 @@ export default function AdminSettingsPage() {
                           <p className={`font-medium ${commissionSettings.commission_period === option.value ? 'text-indigo-700' : 'text-gray-900'}`}>
                             {option.label}
                           </p>
-                          <p className="text-xs text-gray-500 mt-1">{option.desc}</p>
+                          <p className="text-xs text-gray-700 mt-1">{option.desc}</p>
                         </button>
                       ))}
                     </div>
@@ -3053,7 +3053,7 @@ export default function AdminSettingsPage() {
                       <option value={5}>Friday</option>
                       <option value={6}>Saturday</option>
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-700 mt-1">
                       This determines when weekly and bi-weekly periods start
                     </p>
                   </div>
@@ -3068,7 +3068,7 @@ export default function AdminSettingsPage() {
                         onChange={(e) => setCommissionSettings(prev => ({ ...prev, bi_weekly_start_date: e.target.value }))}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                       />
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-gray-700 mt-1">
                         Pick a date that marks the start of a bi-weekly period (e.g., your last pay period start date)
                       </p>
                     </div>
@@ -3157,7 +3157,7 @@ export default function AdminSettingsPage() {
               </div>
               
               <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-sm text-gray-500 mb-4">
+                <p className="text-sm text-gray-700 mb-4">
                   Define the stages a project goes through from sale to completion.
                 </p>
                 <div className="space-y-2">
@@ -3174,7 +3174,7 @@ export default function AdminSettingsPage() {
                     <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                       <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }} />
                       <span className="font-medium text-gray-900 flex-1">{stage.name}</span>
-                      <button className="text-gray-400 hover:text-gray-600">
+                      <button className="text-gray-600 hover:text-gray-600">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                         </svg>
@@ -3203,7 +3203,7 @@ export default function AdminSettingsPage() {
               </div>
               
               <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-gray-500 mb-6">Define workflow stages for work orders. Drag to reorder stages.</p>
+                <p className="text-gray-700 mb-6">Define workflow stages for work orders. Drag to reorder stages.</p>
                 
                 <div className="space-y-3">
                   {workOrderStages.sort((a, b) => a.sort_order - b.sort_order).map((stage, index) => (
@@ -3224,7 +3224,7 @@ export default function AdminSettingsPage() {
                               }
                             }}
                             disabled={index === 0}
-                            className="text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                            className="text-gray-600 hover:text-gray-600 disabled:opacity-30"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -3244,7 +3244,7 @@ export default function AdminSettingsPage() {
                               }
                             }}
                             disabled={index === workOrderStages.length - 1}
-                            className="text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                            className="text-gray-600 hover:text-gray-600 disabled:opacity-30"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -3265,7 +3265,7 @@ export default function AdminSettingsPage() {
                               <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Complete</span>
                             )}
                           </h4>
-                          <div className="flex items-center gap-2 text-sm text-gray-500">
+                          <div className="flex items-center gap-2 text-sm text-gray-700">
                             {stage.notify_customer && (
                               <span className="flex items-center gap-1">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3468,7 +3468,7 @@ export default function AdminSettingsPage() {
               <h1 className="text-2xl font-bold text-gray-900 mb-6">Budgets</h1>
               
               <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-gray-500 mb-4">Set up budget tracking and cost management.</p>
+                <p className="text-gray-700 mb-4">Set up budget tracking and cost management.</p>
                 <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
                   <p className="text-sm text-amber-700">Budget tracking coming soon. This will allow you to set monthly/quarterly targets and track actual vs. projected revenue.</p>
                 </div>
@@ -3482,7 +3482,7 @@ export default function AdminSettingsPage() {
               <h1 className="text-2xl font-bold text-gray-900 mb-6">Capital</h1>
               
               <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-gray-500 mb-4">Manage capital expenditures and financing.</p>
+                <p className="text-gray-700 mb-4">Manage capital expenditures and financing.</p>
                 <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
                   <p className="text-sm text-amber-700">Capital management coming soon. Track equipment purchases, financing, and depreciation.</p>
                 </div>
@@ -3496,16 +3496,16 @@ export default function AdminSettingsPage() {
               <h1 className="text-2xl font-bold text-gray-900 mb-6">Notification Templates</h1>
               
               <div className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
-                <p className="text-gray-500">Configure email and SMS notification templates.</p>
+                <p className="text-gray-700">Configure email and SMS notification templates.</p>
                 
                 {notificationTemplates.map((template) => (
                   <div key={template.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                     <div>
                       <h3 className="font-medium text-gray-900">{template.name}</h3>
-                      <p className="text-sm text-gray-500">{template.type}</p>
+                      <p className="text-sm text-gray-700">{template.type}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`px-2 py-1 text-xs rounded-full ${template.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <span className={`px-2 py-1 text-xs rounded-full ${template.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
                         {template.active ? 'Active' : 'Inactive'}
                       </span>
                       <button 
@@ -3583,7 +3583,7 @@ export default function AdminSettingsPage() {
                           className="w-full rounded-lg border border-gray-300 px-3 py-2"
                           placeholder="Message content..."
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-700 mt-1">
                           Available variables: {'{customer_name}'}, {'{appointment_date}'}, {'{appointment_time}'}, {'{payment_amount}'}
                         </p>
                       </div>

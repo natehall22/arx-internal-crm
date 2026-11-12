@@ -197,7 +197,7 @@ export default function CreateInvoiceModal({
                   : 'Enter any amount for this invoice.'}
               </p>
               <div>
-                <label htmlFor="invoice-custom-amount" className="block text-xs font-medium text-gray-500 mb-1">
+                <label htmlFor="invoice-custom-amount" className="block text-xs font-medium text-gray-700 mb-1">
                   Amount (USD)
                 </label>
                 <input
@@ -213,7 +213,7 @@ export default function CreateInvoiceModal({
                 />
               </div>
               <div>
-                <label htmlFor="invoice-custom-desc" className="block text-xs font-medium text-gray-500 mb-1">
+                <label htmlFor="invoice-custom-desc" className="block text-xs font-medium text-gray-700 mb-1">
                   Line description (optional)
                 </label>
                 <input

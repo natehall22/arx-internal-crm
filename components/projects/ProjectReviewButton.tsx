@@ -89,14 +89,14 @@ export default function ProjectReviewButton({ projectId, jobId, initialReview }:
                 <h2 id="project-review-title" className="text-lg font-semibold text-gray-900">
                   Project review
                 </h2>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-gray-700 mt-1">
                   Capture what was sold and site realities so ops and install are aligned.
                   {jobId
                     ? ' This is saved to the project and posted as a note on the job.'
                     : ' This is saved to the project; when a job exists, it will also post to the job.'}
                 </p>
                 {parsed?.submittedAt && (
-                  <p className="text-xs text-gray-400 mt-2">
+                  <p className="text-xs text-gray-600 mt-2">
                     Last submitted{' '}
                     {new Date(parsed.submittedAt).toLocaleString(undefined, {
                       dateStyle: 'medium',
@@ -108,7 +108,7 @@ export default function ProjectReviewButton({ projectId, jobId, initialReview }:
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="text-gray-400 hover:text-gray-600 p-1"
+                className="text-gray-600 hover:text-gray-600 p-1"
                 aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

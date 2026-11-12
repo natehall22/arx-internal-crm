@@ -116,7 +116,7 @@ export default function NotificationsPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
-            <p className="text-gray-500 text-sm mt-1">
+            <p className="text-gray-700 text-sm mt-1">
               {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up!'}
             </p>
           </div>
@@ -157,7 +157,7 @@ export default function NotificationsPage() {
           {loading ? (
             <div className="p-8 text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
-              <p className="text-gray-500 mt-2">Loading notifications...</p>
+              <p className="text-gray-700 mt-2">Loading notifications...</p>
             </div>
           ) : notifications.length === 0 ? (
             <div className="p-12 text-center">
@@ -167,7 +167,7 @@ export default function NotificationsPage() {
                 </svg>
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-1">No notifications</h3>
-              <p className="text-gray-500">
+              <p className="text-gray-700">
                 {filter === 'unread' ? "You're all caught up!" : "You don't have any notifications yet."}
               </p>
             </div>
@@ -198,7 +198,7 @@ export default function NotificationsPage() {
                             {notification.title}
                           </p>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-gray-700">
                               {formatTime(notification.created_at)}
                             </span>
                             {!notification.read_at && (

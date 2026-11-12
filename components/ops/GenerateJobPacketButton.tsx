@@ -86,7 +86,7 @@ export default function GenerateJobPacketButton({ jobId }: GenerateJobPacketButt
     return (
       <button
         disabled
-        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md bg-gray-100 text-gray-400"
+        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md bg-gray-100 text-gray-600"
       >
         <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>

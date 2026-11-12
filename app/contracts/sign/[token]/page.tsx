@@ -53,7 +53,7 @@ export default async function ContractSigningPage({
           <p className="text-gray-600">
             This contract signing link has expired. Please contact {brand.name} to request a new link.
           </p>
-          <p className="text-sm text-gray-500 mt-4">
+          <p className="text-sm text-gray-700 mt-4">
             Phone: {brand.phone}<br />
             Email: {brand.email}
           </p>

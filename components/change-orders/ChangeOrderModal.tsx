@@ -216,7 +216,7 @@ export default function ChangeOrderModal({
               </h2>
               <button
                 onClick={onClose}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-gray-600 hover:text-gray-600 hover:bg-gray-100"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -355,7 +355,7 @@ export default function ChangeOrderModal({
                     Updated Total Project Cost <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-base">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700 text-base">$</span>
                     <input
                       type="number"
                       value={updatedTotal}
@@ -376,7 +376,7 @@ export default function ChangeOrderModal({
                   </label>
                   {isInsurance ? (
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-base">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700 text-base">$</span>
                       <input
                         type="number"
                         value={updatedRemaining}
@@ -450,7 +450,7 @@ export default function ChangeOrderModal({
                       style={{ color: '#000000', backgroundColor: '#ffffff' }}
                       placeholder="customer@email.com"
                     />
-                    <p className="text-sm text-gray-500 mt-2">
+                    <p className="text-sm text-gray-700 mt-2">
                       {customerEmailInput.trim()
                         ? "We'll email this link, and you'll also get a copyable link to text if you'd like."
                         : "No email? Leave this blank — you'll still get a link to copy and text after saving."}

@@ -178,11 +178,11 @@ export default function ScheduleView() {
                       : 'bg-gray-50 hover:bg-gray-100 text-gray-900'
                   }`}
                 >
-                  <p className={`text-xs ${isSelected ? 'text-indigo-200' : 'text-gray-500'}`}>
+                  <p className={`text-xs ${isSelected ? 'text-indigo-200' : 'text-gray-700'}`}>
                     {dayName}
                   </p>
                   <p className="text-lg font-bold">{dayNum}</p>
-                  <p className={`text-xs ${isSelected ? 'text-indigo-200' : 'text-gray-500'}`}>
+                  <p className={`text-xs ${isSelected ? 'text-indigo-200' : 'text-gray-700'}`}>
                     {month}
                   </p>
                 </button>

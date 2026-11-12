@@ -51,7 +51,7 @@ export default function OpsReviewBackstopList({ rows }: { rows: OpsReviewRow[] }
                 {row.jobNumber && row.address ? ' • ' : ''}
                 {row.address || ''}
               </p>
-              <p className="mt-0.5 text-xs text-gray-500">
+              <p className="mt-0.5 text-xs text-gray-700">
                 Closer: {row.repName || 'Unassigned'}
                 {row.completedAt ? ` • Completed ${new Date(row.completedAt).toLocaleDateString()}` : ''}
               </p>

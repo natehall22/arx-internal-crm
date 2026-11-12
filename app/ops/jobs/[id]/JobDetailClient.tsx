@@ -469,7 +469,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
         <div className="space-y-4">
           {/* Stage */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Claim stage</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Claim stage</label>
             <select
               value={job.insurance_stage || ''}
               onChange={e => onUpdate({ insurance_stage: e.target.value || null })}
@@ -481,7 +481,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
               ))}
             </select>
             {job.insurance_stage && (
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-600 mt-1">
                 Forecast probability: {INSURANCE_STAGES.find(s => s.value === job.insurance_stage)?.probability ?? 0}%
               </p>
             )}
@@ -490,7 +490,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
           {/* Claim info */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Claim number</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Claim number</label>
               <input
                 type="text"
                 defaultValue={job.claim_number || ''}
@@ -500,7 +500,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Insurance company</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Insurance company</label>
               <input
                 type="text"
                 defaultValue={job.insurance_company || ''}
@@ -513,10 +513,10 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
 
           {/* Payment amounts */}
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-2">Payment amounts</p>
+            <p className="text-xs font-medium text-gray-700 mb-2">Payment amounts</p>
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">ACV ($)</label>
+                <label className="block text-xs text-gray-600 mb-1">ACV ($)</label>
                 <input
                   type="number"
                   defaultValue={job.acv_amount ?? ''}
@@ -526,7 +526,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Depreciation ($)</label>
+                <label className="block text-xs text-gray-600 mb-1">Depreciation ($)</label>
                 <input
                   type="number"
                   defaultValue={job.depreciation_amount ?? ''}
@@ -536,7 +536,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Supplements ($)</label>
+                <label className="block text-xs text-gray-600 mb-1">Supplements ($)</label>
                 <input
                   type="number"
                   defaultValue={job.supplement_amount ?? ''}
@@ -547,7 +547,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
               </div>
             </div>
             {(job.acv_amount || job.depreciation_amount || job.supplement_amount) && (
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-gray-700 mt-2">
                 Total expected: ${(
                   (job.acv_amount || 0) +
                   (job.depreciation_amount || 0) +
@@ -1529,15 +1529,15 @@ export default function JobDetailClient({
               {/* Notes list */}
               <div className="border-t pt-4">
                 {loadingNotes ? (
-                  <p className="text-gray-500 text-sm">Loading notes...</p>
+                  <p className="text-gray-700 text-sm">Loading notes...</p>
                 ) : jobNotes.length === 0 ? (
-                  <p className="text-gray-500 text-sm">No notes yet</p>
+                  <p className="text-gray-700 text-sm">No notes yet</p>
                 ) : (
                   <div className="space-y-4">
                     {jobNotes.map((note) => (
                       <div key={note.id} className="border-b pb-3 last:border-b-0 last:pb-0">
                         <p className="text-sm sm:text-base text-gray-900 whitespace-pre-wrap break-words">{renderNoteWithMentions(note.note)}</p>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-700 mt-1">
                           {note.user?.full_name || 'Unknown'} • {new Date(note.created_at).toLocaleString('en-US', {
                             month: 'short',
                             day: 'numeric',
@@ -1633,7 +1633,7 @@ export default function JobDetailClient({
                   </svg>
                 </a>
               ) : (
-                <p className="text-gray-500 mt-1 text-sm">No address</p>
+                <p className="text-gray-700 mt-1 text-sm">No address</p>
               )}
 
               {orgFeatures.roofMeasure && (
@@ -1678,7 +1678,7 @@ export default function JobDetailClient({
                   <>
                     <div className="mt-3 pt-3 border-t border-gray-100 lg:hidden">
                       <div className="flex items-baseline justify-between gap-2 mb-3">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-700">
                           Job progress
                         </span>
                         <span className="text-sm font-semibold text-indigo-700 tabular-nums shrink-0">
@@ -1719,7 +1719,7 @@ export default function JobDetailClient({
                                       ? 'font-semibold text-gray-900'
                                       : isDone
                                         ? 'text-gray-800'
-                                        : 'text-gray-400'
+                                        : 'text-gray-600'
                                   }`}
                                 >
                                   {label}
@@ -1749,7 +1749,7 @@ export default function JobDetailClient({
                                     ? 'text-indigo-800 font-semibold'
                                     : i < pipelineCurrentIdx
                                       ? 'text-gray-600'
-                                      : 'text-gray-400'
+                                      : 'text-gray-600'
                                 }`}
                               >
                                 {label}
@@ -1800,7 +1800,7 @@ export default function JobDetailClient({
                     <details className="relative">
                       <summary className="list-none cursor-pointer min-h-[44px] px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 inline-flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
                         More
-                        <span className="text-gray-400">▾</span>
+                        <span className="text-gray-600">▾</span>
                       </summary>
                       <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-gray-200 bg-white shadow-lg z-20 py-1">
                         {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && !isCancelled && (
@@ -1918,7 +1918,7 @@ export default function JobDetailClient({
           {/* Mobile Assignment & Materials Summary */}
           <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-3 text-sm">
             <div>
-              <span className="text-gray-500 text-xs block">Crews</span>
+              <span className="text-gray-700 text-xs block">Crews</span>
               <span className="font-medium text-gray-900 truncate block">
                 {jobTrades.length === 0
                   ? job.assigned_sub?.company_name || 'Not assigned'
@@ -1926,7 +1926,7 @@ export default function JobDetailClient({
               </span>
             </div>
             <div>
-              <span className="text-gray-500 text-xs block">Materials</span>
+              <span className="text-gray-700 text-xs block">Materials</span>
               <span className={`font-medium ${v2 ? materialsState.color : materials.color}`}>
                 {v2 ? materialsState.label : materials.label}
                 {v2 && materialsState.detail ? ` (${materialsState.detail})` : ''}
@@ -2151,7 +2151,7 @@ export default function JobDetailClient({
                 className={`flex-none min-w-[5.75rem] min-h-[44px] px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
                   mobileTab === tab.key
                     ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    : 'border-transparent text-gray-700 hover:text-gray-700'
                 }`}
               >
                 {tab.label}
@@ -2345,7 +2345,7 @@ export default function JobDetailClient({
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-700">
                       Total contract minus the commission payroll pays on it, every job cost (Materials tab and Photos &amp; files are one list), and any lender dealer fee — admin &amp; owner only.
                     </p>
                   </div>
@@ -2373,7 +2373,7 @@ export default function JobDetailClient({
                   <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className="block">
-                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-700">
                           Payment method
                         </span>
                         <select
@@ -2391,7 +2391,7 @@ export default function JobDetailClient({
                         </select>
                       </label>
                       <label className="block">
-                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-700">
                           Proposal source
                         </span>
                         <select
@@ -2730,7 +2730,7 @@ export default function JobDetailClient({
                       View {job.installation_agreement.agreement_type === 'repair' ? 'Repair Agreement' : 'Installation Agreement'}
                     </a>
                   ) : (
-                    <div className="min-h-[44px] flex items-center gap-2 text-sm text-gray-500 mb-3">
+                    <div className="min-h-[44px] flex items-center gap-2 text-sm text-gray-700 mb-3">
                       <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>

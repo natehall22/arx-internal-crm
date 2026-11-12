@@ -354,7 +354,7 @@ export default function RolesPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
               <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
               <span>/</span>
               <span>Roles & Permissions</span>
@@ -380,7 +380,7 @@ export default function RolesPage() {
               className={`pb-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'roles'
                   ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-700 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               Custom Roles
@@ -393,7 +393,7 @@ export default function RolesPage() {
               className={`pb-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'users'
                   ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-700 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               Individual User Permissions
@@ -412,7 +412,7 @@ export default function RolesPage() {
         )}
 
         {loading ? (
-          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-700">
             Loading...
           </div>
         ) : activeTab === 'users' ? (
@@ -442,10 +442,10 @@ export default function RolesPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Additional Permissions</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Role</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Additional Permissions</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -458,7 +458,7 @@ export default function RolesPage() {
                           </div>
                           <div>
                             <p className="font-medium text-gray-900">{user.full_name || 'Unknown'}</p>
-                            <p className="text-sm text-gray-500">{user.email}</p>
+                            <p className="text-sm text-gray-700">{user.email}</p>
                           </div>
                         </div>
                       </td>
@@ -486,13 +486,13 @@ export default function RolesPage() {
                               </span>
                             ))}
                             {user.user_permissions.length > 3 && (
-                              <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">
+                              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
                                 +{user.user_permissions.length - 3} more
                               </span>
                             )}
                           </div>
                         ) : (
-                          <span className="text-gray-400 text-sm">None</span>
+                          <span className="text-gray-600 text-sm">None</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -508,7 +508,7 @@ export default function RolesPage() {
                 </tbody>
               </table>
               {filteredUsers.length === 0 && (
-                <div className="p-8 text-center text-gray-500">
+                <div className="p-8 text-center text-gray-700">
                   No users found matching your search.
                 </div>
               )}
@@ -516,13 +516,13 @@ export default function RolesPage() {
           </div>
         ) : roles.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
-            <div className="text-gray-400 mb-4">
+            <div className="text-gray-600 mb-4">
               <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-1">No custom roles yet</h3>
-            <p className="text-gray-500 mb-4">
+            <p className="text-gray-700 mb-4">
               Create custom roles to define specific permissions for different positions.
             </p>
             <button
@@ -541,15 +541,15 @@ export default function RolesPage() {
                     <div className="flex items-center gap-2">
                       <h3 className="text-lg font-semibold text-gray-900">{role.display_name}</h3>
                       {role.is_system_role && (
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">System</span>
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">System</span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-500 font-mono">{role.name}</p>
+                    <p className="text-sm text-gray-700 font-mono">{role.name}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => openEditModal(role)}
-                      className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                       title="Edit"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -559,7 +559,7 @@ export default function RolesPage() {
                     {!role.is_system_role && (
                       <button
                         onClick={() => handleDelete(role)}
-                        className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                        className="p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
                         title="Delete"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -574,7 +574,7 @@ export default function RolesPage() {
                   <p className="text-sm text-gray-600 mb-4">{role.description}</p>
                 )}
 
-                <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
+                <div className="flex items-center gap-4 text-sm text-gray-700 mb-4">
                   <span className="flex items-center gap-1">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -590,7 +590,7 @@ export default function RolesPage() {
                 </div>
 
                 <div className="border-t pt-4">
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                  <p className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-2">
                     {role.permissions.length} Permission{role.permissions.length !== 1 ? 's' : ''}
                   </p>
                   <div className="flex flex-wrap gap-1">
@@ -603,7 +603,7 @@ export default function RolesPage() {
                       </span>
                     ))}
                     {role.permissions.length > 5 && (
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
                         +{role.permissions.length - 5} more
                       </span>
                     )}
@@ -624,7 +624,7 @@ export default function RolesPage() {
                 </h2>
                 <button
                   onClick={closeModal}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -652,7 +652,7 @@ export default function RolesPage() {
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       disabled={!!editingRole}
                     />
-                    <p className="mt-1 text-xs text-gray-500">Lowercase letters, numbers, underscores only</p>
+                    <p className="mt-1 text-xs text-gray-700">Lowercase letters, numbers, underscores only</p>
                   </div>
 
                   <div>
@@ -703,7 +703,7 @@ export default function RolesPage() {
                       <option value={40}>40 - Setter</option>
                       <option value={30}>30 - Sub Contractor</option>
                     </select>
-                    <p className="mt-1 text-xs text-gray-500">Higher levels can manage lower levels</p>
+                    <p className="mt-1 text-xs text-gray-700">Higher levels can manage lower levels</p>
                   </div>
 
                   <div>
@@ -757,7 +757,7 @@ export default function RolesPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
                               <span className="font-medium text-gray-900">{category}</span>
-                              <span className="text-sm text-gray-500">
+                              <span className="text-sm text-gray-700">
                                 {selectedCount}/{categoryPerms.length}
                               </span>
                             </div>
@@ -778,7 +778,7 @@ export default function RolesPage() {
                                   e.stopPropagation()
                                   deselectAllInCategory(category)
                                 }}
-                                className="text-xs text-gray-500 hover:underline"
+                                className="text-xs text-gray-700 hover:underline"
                               >
                                 None
                               </button>
@@ -801,7 +801,7 @@ export default function RolesPage() {
                                   <div>
                                     <p className="text-sm font-medium text-gray-900">{perm.display_name}</p>
                                     {perm.description && (
-                                      <p className="text-xs text-gray-500">{perm.description}</p>
+                                      <p className="text-xs text-gray-700">{perm.description}</p>
                                     )}
                                   </div>
                                 </label>
@@ -843,7 +843,7 @@ export default function RolesPage() {
                   <h2 className="text-xl font-semibold text-gray-900">
                     Manage Permissions
                   </h2>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-700">
                     {editingUser.full_name} ({editingUser.email})
                   </p>
                 </div>
@@ -853,7 +853,7 @@ export default function RolesPage() {
                     setUserPermissions(new Set())
                     setUserCustomRoleId('')
                   }}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -876,7 +876,7 @@ export default function RolesPage() {
                     </div>
                     <div>
                       <p className="font-semibold text-gray-900">{editingUser.full_name}</p>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-700">
                         Base Role: <span className="capitalize font-medium">{editingUser.role?.replace('_', ' ')}</span>
                       </p>
                     </div>
@@ -901,7 +901,7 @@ export default function RolesPage() {
                         </option>
                       ))}
                     </select>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-gray-700">
                       Assigning a custom role gives this user all permissions defined on that role.
                     </p>
                   </div>
@@ -944,7 +944,7 @@ export default function RolesPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
                               <span className="font-medium text-gray-900">{category}</span>
-                              <span className="text-sm text-gray-500">
+                              <span className="text-sm text-gray-700">
                                 {selectedCount}/{categoryPerms.length}
                               </span>
                             </div>
@@ -965,7 +965,7 @@ export default function RolesPage() {
                                   e.stopPropagation()
                                   deselectAllUserInCategory(category)
                                 }}
-                                className="text-xs text-gray-500 hover:underline"
+                                className="text-xs text-gray-700 hover:underline"
                               >
                                 None
                               </button>
@@ -988,7 +988,7 @@ export default function RolesPage() {
                                   <div>
                                     <p className="text-sm font-medium text-gray-900">{perm.display_name}</p>
                                     {perm.description && (
-                                      <p className="text-xs text-gray-500">{perm.description}</p>
+                                      <p className="text-xs text-gray-700">{perm.description}</p>
                                     )}
                                   </div>
                                 </label>

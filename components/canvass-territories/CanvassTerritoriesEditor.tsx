@@ -748,7 +748,7 @@ export function CanvassTerritoriesEditor({
       <div className={gridClass}>
         <div className={formColClass}>
           {loading ? (
-            <div className="bg-white rounded-lg shadow p-6 text-gray-500 text-sm">
+            <div className="bg-white rounded-lg shadow p-6 text-gray-700 text-sm">
               Loading areas and users…
             </div>
           ) : (
@@ -777,7 +777,7 @@ export function CanvassTerritoriesEditor({
                         <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: t.color }} />
                         <span className="min-w-0 flex-1">
                           <span className="text-sm font-medium text-gray-900 truncate block">{t.name}</span>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-gray-700">
                             {(t.user_ids?.length ?? 0)} rep{(t.user_ids?.length ?? 0) === 1 ? '' : 's'}
                             {' · '}
                             {(t.team_ids?.length ?? 0)} team{(t.team_ids?.length ?? 0) === 1 ? '' : 's'}
@@ -787,7 +787,7 @@ export function CanvassTerritoriesEditor({
                     </li>
                   ))}
                   {territories.length === 0 && (
-                    <li className="text-sm text-gray-500">No areas yet — draw one on the map.</li>
+                    <li className="text-sm text-gray-700">No areas yet — draw one on the map.</li>
                   )}
                 </ul>
               </div>
@@ -814,7 +814,7 @@ export function CanvassTerritoriesEditor({
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Assigned reps</label>
-                  <p className="text-xs text-gray-500 mb-1.5">
+                  <p className="text-xs text-gray-700 mb-1.5">
                     Active sales-side users only (Ops dashboard users and deactivated reps are not listed).
                   </p>
                   <div className="max-h-40 overflow-y-auto border rounded p-2 space-y-1">
@@ -834,7 +834,7 @@ export function CanvassTerritoriesEditor({
                   <label className="block text-xs font-medium text-gray-700 mb-1">Assigned teams</label>
                   <div className="max-h-32 overflow-y-auto border rounded p-2 space-y-1">
                     {orgTeams.length === 0 ? (
-                      <p className="text-xs text-gray-500">No teams in this org.</p>
+                      <p className="text-xs text-gray-700">No teams in this org.</p>
                     ) : (
                       orgTeams.map((team) => (
                         <label key={team.id} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -849,7 +849,7 @@ export function CanvassTerritoriesEditor({
                     )}
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-700">
                   Use the polygon tool on the map to {selectedId ? 'replace the shape (optional)' : 'define the boundary'}.
                 </p>
                 <div className="flex flex-wrap gap-2">

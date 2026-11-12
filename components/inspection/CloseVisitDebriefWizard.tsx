@@ -140,7 +140,7 @@ export default function CloseVisitDebriefWizard({
 
   if (loading || !roleKnown) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500 text-sm">
+      <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-700 text-sm">
         Loading debrief…
       </div>
     )
@@ -291,7 +291,7 @@ export default function CloseVisitDebriefWizard({
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Close visit debrief</h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-gray-700 mt-1">
             You marked this inspection as <span className="font-medium text-gray-700">Moving to Close</span>. Fill in
             the briefing for the closer, then schedule the close appointment.
           </p>
@@ -299,7 +299,7 @@ export default function CloseVisitDebriefWizard({
         <button
           type="button"
           onClick={onFinishLater}
-          className="text-sm text-gray-500 hover:text-gray-800 underline shrink-0"
+          className="text-sm text-gray-700 hover:text-gray-800 underline shrink-0"
         >
           Finish later
         </button>
@@ -314,12 +314,12 @@ export default function CloseVisitDebriefWizard({
                   ? 'border-indigo-600 bg-indigo-600 text-white'
                   : i === currentStepIndex
                     ? 'border-indigo-600 text-indigo-600'
-                    : 'border-gray-300 text-gray-400'
+                    : 'border-gray-300 text-gray-600'
               }`}
             >
               {i < currentStepIndex ? '✓' : i + 1}
             </div>
-            <span className={`text-xs font-medium ${i === currentStepIndex ? 'text-indigo-600' : 'text-gray-400'}`}>
+            <span className={`text-xs font-medium ${i === currentStepIndex ? 'text-indigo-600' : 'text-gray-600'}`}>
               {label}
             </span>
             {i < steps.length - 1 && <div className="w-6 h-px bg-gray-200" />}
@@ -416,7 +416,7 @@ export default function CloseVisitDebriefWizard({
 
           {/* Optional detail fields */}
           <div className="border-t pt-4 space-y-4">
-            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Optional details</p>
+            <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Optional details</p>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Roof Slopes</label>
@@ -541,12 +541,12 @@ export default function CloseVisitDebriefWizard({
           <div className="p-4 bg-gray-50 border rounded-lg text-sm space-y-1">
             <p className="font-semibold text-gray-800 mb-2">Ready to submit</p>
             <p>
-              <span className="text-gray-500">Outcome: </span>
+              <span className="text-gray-700">Outcome: </span>
               <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
                 {OUTCOME_LABEL}
               </span>
             </p>
-            <p className="text-gray-500 text-xs">
+            <p className="text-gray-700 text-xs">
               Briefing complete — {uploadedPhotoCount} photo{uploadedPhotoCount !== 1 ? 's' : ''} uploaded
             </p>
             {closeScheduled && (

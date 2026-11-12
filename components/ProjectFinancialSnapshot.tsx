@@ -67,7 +67,7 @@ export default function ProjectFinancialSnapshot({
 
       <div className="grid grid-cols-3 gap-4">
         <div>
-          <div className="text-xs text-gray-500 mb-1">Contract Total</div>
+          <div className="text-xs text-gray-700 mb-1">Contract Total</div>
           <div className="text-xl font-semibold text-gray-900">
             {contractCents > 0 ? formatCurrency(contractCents) : '-'}
           </div>
@@ -76,20 +76,20 @@ export default function ProjectFinancialSnapshot({
         {jobId ? (
           <>
             <div>
-              <div className="text-xs text-gray-500 mb-1">Collected</div>
+              <div className="text-xs text-gray-700 mb-1">Collected</div>
               <div className="text-xl font-semibold text-green-600">
                 {loading ? (
-                  <span className="text-gray-400">...</span>
+                  <span className="text-gray-600">...</span>
                 ) : (
                   formatCurrency(collectedCents)
                 )}
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-500 mb-1">Remaining</div>
+              <div className="text-xs text-gray-700 mb-1">Remaining</div>
               <div className={`text-xl font-semibold ${remainingCents > 0 ? 'text-amber-600' : 'text-green-600'}`}>
                 {loading ? (
-                  <span className="text-gray-400">...</span>
+                  <span className="text-gray-600">...</span>
                 ) : (
                   formatCurrency(remainingCents)
                 )}
@@ -98,7 +98,7 @@ export default function ProjectFinancialSnapshot({
           </>
         ) : (
           <div className="col-span-2 flex items-center">
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-gray-600">
               Send to Ops to track payments
             </span>
           </div>
@@ -107,7 +107,7 @@ export default function ProjectFinancialSnapshot({
 
       {jobId && !loading && contractCents > 0 && (
         <div className="mt-4">
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+          <div className="flex items-center justify-between text-xs text-gray-700 mb-1">
             <span>Collection Progress</span>
             <span>{percentCollected}%</span>
           </div>

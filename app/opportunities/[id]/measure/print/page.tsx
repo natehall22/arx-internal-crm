@@ -82,7 +82,7 @@ export default async function OpportunityMeasurePrintPage({ params }: { params: 
             ['Corners', `${totals.inside_corners} inside / ${totals.outside_corners} outside`],
           ].map(([label, value]) => (
             <div key={label} className="rounded-lg border border-gray-200 p-3">
-              <p className="text-xs font-medium uppercase text-gray-500">{label}</p>
+              <p className="text-xs font-medium uppercase text-gray-700">{label}</p>
               <p className="mt-1 text-xl font-bold text-gray-950">{value}</p>
             </div>
           ))}
@@ -139,7 +139,7 @@ export default async function OpportunityMeasurePrintPage({ params }: { params: 
                 {elevation.openings.length > 0 && (
                   <table className="mt-3 w-full border-collapse text-sm">
                     <thead>
-                      <tr className="border-b text-left text-xs uppercase text-gray-500">
+                      <tr className="border-b text-left text-xs uppercase text-gray-700">
                         <th className="py-2">Opening</th>
                         <th className="py-2 text-right">Qty</th>
                         <th className="py-2 text-right">Size</th>

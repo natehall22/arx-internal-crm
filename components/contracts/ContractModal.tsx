@@ -287,7 +287,7 @@ export default function ContractModal({
           <div className="sticky top-0 bg-white border-b px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between z-10">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Send Agreement</h2>
-              <p className="text-sm text-gray-500">Step {step} of 4</p>
+              <p className="text-sm text-gray-700">Step {step} of 4</p>
             </div>
             <button
               onClick={onClose}
@@ -306,7 +306,7 @@ export default function ContractModal({
                 key={s}
                 className={`flex-1 py-2 text-center text-sm font-medium ${s === step ? '' : 'hidden sm:block'} ${
                   s === step ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600' :
-                  s < step ? 'text-green-600' : 'text-gray-400'
+                  s < step ? 'text-green-600' : 'text-gray-600'
                 }`}
               >
                 {s === 1 && 'Project Details'}
@@ -518,7 +518,7 @@ export default function ContractModal({
                           Project Cost *
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                           <input
                             type="number"
                           inputMode="decimal"
@@ -584,7 +584,7 @@ export default function ContractModal({
                           Project Cost (repair total) *
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                           <input
                             type="number"
                           inputMode="decimal"
@@ -707,7 +707,7 @@ export default function ContractModal({
                       Deposit (Due At Signing)
                     </label>
                     <div className="relative w-48">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                       <input
                         type="number"
                           inputMode="decimal"
@@ -867,14 +867,14 @@ export default function ContractModal({
                   <div className="p-4">
                     <h4 className="font-medium text-gray-900 mb-2">Customer & Project</h4>
                     <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div><span className="text-gray-500">Type:</span>{' '}
+                      <div><span className="text-gray-700">Type:</span>{' '}
                         {formData.agreementType === 'contingency'
                           ? 'Insurance Contingency'
                           : formData.agreementType === 'repair'
                             ? 'Repair Agreement'
                             : 'Installation Agreement'}
                       </div>
-                      <div><span className="text-gray-500">Name:</span> {formData.customerName}</div>
+                      <div><span className="text-gray-700">Name:</span> {formData.customerName}</div>
                       {creditApplies && credit && (
                         <div className="col-span-2" style={{ color: '#2c2c2a' }}>
                           <span className="font-medium">Sale credit:</span> Closer {creditUserName(credit.closerUserId)}
@@ -883,9 +883,9 @@ export default function ContractModal({
                             : ` · Setter ${credit.setterUserId ? creditUserName(credit.setterUserId) : 'none'}`}
                         </div>
                       )}
-                      <div><span className="text-gray-500">Address:</span> {formData.projectAddress}</div>
-                      <div><span className="text-gray-500">Phone:</span> {formData.customerPhone ? formatPhone(formData.customerPhone) : 'N/A'}</div>
-                      <div><span className="text-gray-500">Email:</span> {formData.customerEmail || 'N/A'}</div>
+                      <div><span className="text-gray-700">Address:</span> {formData.projectAddress}</div>
+                      <div><span className="text-gray-700">Phone:</span> {formData.customerPhone ? formatPhone(formData.customerPhone) : 'N/A'}</div>
+                      <div><span className="text-gray-700">Email:</span> {formData.customerEmail || 'N/A'}</div>
                     </div>
                   </div>
 
@@ -899,7 +899,7 @@ export default function ContractModal({
                       {formData.scopeOther && <span className="px-2 py-1 bg-gray-100 rounded">{formData.scopeOther}</span>}
                     </div>
                     {formData.agreementType === 'installation' && formData.roofingMaterial && (
-                      <p className="text-sm mt-2"><span className="text-gray-500">Material:</span> {formData.roofingMaterial}</p>
+                      <p className="text-sm mt-2"><span className="text-gray-700">Material:</span> {formData.roofingMaterial}</p>
                     )}
                   </div>
 
@@ -907,15 +907,15 @@ export default function ContractModal({
                     <div className="p-4">
                       <h4 className="font-medium text-gray-900 mb-2">Payment</h4>
                       <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div><span className="text-gray-500">Project Cost:</span> ${previewNumber(formData.projectCost).toLocaleString()}</div>
-                        <div><span className="text-gray-500">Deposit:</span> ${previewNumber(formData.depositAmount).toLocaleString()}</div>
-                        <div><span className="text-gray-500">Method:</span> {formData.paymentMethod}{formData.paymentMethod === 'finance' && formData.financeCompany && ` (${formData.financeCompany})`}</div>
+                        <div><span className="text-gray-700">Project Cost:</span> ${previewNumber(formData.projectCost).toLocaleString()}</div>
+                        <div><span className="text-gray-700">Deposit:</span> ${previewNumber(formData.depositAmount).toLocaleString()}</div>
+                        <div><span className="text-gray-700">Method:</span> {formData.paymentMethod}{formData.paymentMethod === 'finance' && formData.financeCompany && ` (${formData.financeCompany})`}</div>
                         {formData.estCompletionDate && (
-                          <div><span className="text-gray-500">Est. Completion:</span> {formData.estCompletionDate}</div>
+                          <div><span className="text-gray-700">Est. Completion:</span> {formData.estCompletionDate}</div>
                         )}
                       </div>
                       {formData.agreementType === 'repair' && formData.exclusions && (
-                        <p className="text-sm mt-2 text-gray-700"><span className="text-gray-500">Notes / exclusions:</span> {formData.exclusions}</p>
+                        <p className="text-sm mt-2 text-gray-700"><span className="text-gray-700">Notes / exclusions:</span> {formData.exclusions}</p>
                       )}
                     </div>
                   ) : (
@@ -935,7 +935,7 @@ export default function ContractModal({
                       )}
                       <div className="text-sm">
                         <div>{formData.repName}</div>
-                        <div className="text-gray-500">{formData.repTitle}</div>
+                        <div className="text-gray-700">{formData.repTitle}</div>
                       </div>
                     </div>
                   </div>

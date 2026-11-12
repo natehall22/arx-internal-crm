@@ -295,7 +295,7 @@ export default function NewWorkOrderClient({
         <div className="bg-white rounded-xl shadow-sm border">
           <div className="p-6 border-b">
             <h1 className="text-2xl font-bold text-gray-900">New Work Order</h1>
-            <p className="text-gray-500 mt-1">Create a go-back, repair, or service work order</p>
+            <p className="text-gray-700 mt-1">Create a go-back, repair, or service work order</p>
           </div>
 
           <form onSubmit={handleSubmit} className="p-6 space-y-6">
@@ -551,7 +551,7 @@ export default function NewWorkOrderClient({
                 </button>
               </div>
               {formData.materials.length === 0 ? (
-                <p className="text-sm text-gray-500">No materials added</p>
+                <p className="text-sm text-gray-700">No materials added</p>
               ) : (
                 <div className="space-y-2">
                   {formData.materials.map((material, index) => (

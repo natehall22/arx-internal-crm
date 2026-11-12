@@ -95,10 +95,35 @@ input, textarea, select {
   background-color: #ffffff;
 }
 
-/* Ensure placeholder is lighter but input text is dark */
+/* Placeholder is lighter than typed text but still readable on white (gray-500 = 4.8:1; the old gray-400 was 2.5:1).
+   Dark surfaces keep the light placeholder (gray-400 on gray-800 = 5.9:1); an input with its own white background goes back to dark. */
 input::placeholder,
 textarea::placeholder {
-  color: #9ca3af !important; /* text-gray-400 */
+  color: #6b7280 !important; /* gray-500 */
+}
+
+:is(
+  [class*="bg-gray-7"], [class*="bg-gray-8"], [class*="bg-gray-9"],
+  [class*="bg-slate-7"], [class*="bg-slate-8"], [class*="bg-slate-9"],
+  [class*="bg-zinc-7"], [class*="bg-zinc-8"], [class*="bg-zinc-9"],
+  [class*="bg-neutral-7"], [class*="bg-neutral-8"], [class*="bg-neutral-9"],
+  [class*="bg-stone-7"], [class*="bg-stone-8"], [class*="bg-stone-9"],
+  [class*="bg-black"]
+) :is(input, textarea)::placeholder,
+:is(input, textarea):is(
+  [class*="bg-gray-7"], [class*="bg-gray-8"], [class*="bg-gray-9"],
+  [class*="bg-slate-7"], [class*="bg-slate-8"], [class*="bg-slate-9"],
+  [class*="bg-zinc-7"], [class*="bg-zinc-8"], [class*="bg-zinc-9"],
+  [class*="bg-neutral-7"], [class*="bg-neutral-8"], [class*="bg-neutral-9"],
+  [class*="bg-stone-7"], [class*="bg-stone-8"], [class*="bg-stone-9"],
+  [class*="bg-black"]
+)::placeholder {
+  color: #9ca3af !important; /* gray-400, on dark surfaces only */
+}
+
+input[class*="bg-white"]::placeholder,
+textarea[class*="bg-white"]::placeholder {
+  color: #6b7280 !important;
 }
 
 /* Ensure inputs in modals/white backgrounds have dark text */

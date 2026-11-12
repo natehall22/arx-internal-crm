@@ -100,7 +100,7 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
           <h3 className="text-lg font-bold text-gray-900">Add Payment</h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-600 hover:text-gray-600"
           >
             ✕
           </button>
@@ -189,7 +189,7 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Note <span className="text-gray-400 font-normal">(optional)</span>
+              Note <span className="text-gray-600 font-normal">(optional)</span>
             </label>
             <input
               type="text"

@@ -399,7 +399,7 @@ export default function AdminProposalsPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Proposal Settings</h1>
-            <p className="text-gray-500 mt-1">Manage pricing visibility, adders, and templates</p>
+            <p className="text-gray-700 mt-1">Manage pricing visibility, adders, and templates</p>
           </div>
         </div>
 
@@ -416,7 +416,7 @@ export default function AdminProposalsPage() {
               className={`px-6 py-3 font-medium text-sm border-b-2 -mb-px ${
                 activeTab === tab.id
                   ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-gray-700 hover:text-gray-700'
               }`}
             >
               {tab.label}
@@ -435,19 +435,19 @@ export default function AdminProposalsPage() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visibility</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Is Adder</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Item</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Category</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase">Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Visibility</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-700 uppercase">Is Adder</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-700 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {pricebookItems.filter(i => i.active).map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                    <td className="px-6 py-4 text-gray-500">{item.category}</td>
+                    <td className="px-6 py-4 text-gray-700">{item.category}</td>
                     <td className="px-6 py-4 text-right text-gray-900">${item.unit_price.toFixed(2)}/{unitLabelForDisplay(item.unit)}</td>
                     <td className="px-6 py-4">
                       <select
@@ -472,7 +472,7 @@ export default function AdminProposalsPage() {
                       <div className="flex items-center justify-center gap-1">
                         <button
                           onClick={() => openEditAdder(item)}
-                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                          className="p-1.5 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded"
                           title="Edit"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -481,7 +481,7 @@ export default function AdminProposalsPage() {
                         </button>
                         <button
                           onClick={() => deleteAdder(item.id)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                          className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
                           title="Delete"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -522,7 +522,7 @@ export default function AdminProposalsPage() {
               
               {pricebookItems.filter(i => i.is_adder && i.active).length === 0 ? (
                 <div className="p-12 text-center">
-                  <p className="text-gray-500 mb-4">No adders configured yet</p>
+                  <p className="text-gray-700 mb-4">No adders configured yet</p>
                   <button
                     onClick={() => {
                       setEditingAdder(null)
@@ -541,7 +541,7 @@ export default function AdminProposalsPage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <h3 className="font-medium text-gray-900">{item.name}</h3>
-                          <p className="text-sm text-gray-500">{item.adder_category || item.category}</p>
+                          <p className="text-sm text-gray-700">{item.adder_category || item.category}</p>
                         </div>
                         <div className="flex gap-1">
                           <button
@@ -566,12 +566,12 @@ export default function AdminProposalsPage() {
                       </div>
                       {item.price_type === 'percentage' ? (
                         <p className="text-lg font-bold text-indigo-600 mt-2">
-                          {item.unit_price}% <span className="text-sm font-normal text-gray-400">of total</span>
+                          {item.unit_price}% <span className="text-sm font-normal text-gray-600">of total</span>
                         </p>
                       ) : (
                         <p className="text-lg font-bold text-indigo-600 mt-2">
                           ${(item.unit_price || 0).toFixed(2)}{' '}
-                          <span className="text-sm font-normal text-gray-400">per {unitLabelForDisplay(item.unit)}</span>
+                          <span className="text-sm font-normal text-gray-600">per {unitLabelForDisplay(item.unit)}</span>
                         </p>
                       )}
                       <div className="flex flex-wrap gap-1.5 mt-2">
@@ -585,7 +585,7 @@ export default function AdminProposalsPage() {
                             Commissionable
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-full">
                             Non-commissionable
                           </span>
                         )}
@@ -654,7 +654,7 @@ export default function AdminProposalsPage() {
                         <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Default</span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-500 mb-4">{template.description || 'No description'}</p>
+                    <p className="text-sm text-gray-700 mb-4">{template.description || 'No description'}</p>
                     <div className="flex gap-2">
                       <button
                         onClick={() => openEditTemplate(template)}
@@ -675,7 +675,7 @@ export default function AdminProposalsPage() {
 
               {templates.length === 0 && (
                 <div className="col-span-full bg-white rounded-xl shadow-sm border p-12 text-center">
-                  <p className="text-gray-500 mb-4">No templates created yet</p>
+                  <p className="text-gray-700 mb-4">No templates created yet</p>
                   <button
                     onClick={() => setShowAddTemplate(true)}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
@@ -772,7 +772,7 @@ export default function AdminProposalsPage() {
                         {adderForm.unit && !pricebookProfile.units.some((u) => u.value === adderForm.unit) && <option value={adderForm.unit}>{unitLabelForDisplay(adderForm.unit)}</option>}
                       </select>
                       {adderForm.unit === 'per_sqft' && (
-                        <p className="text-xs text-gray-500 mt-2">
+                        <p className="text-xs text-gray-700 mt-2">
                           Use for materials priced by coverage area that differs from roof size (e.g. 760 sq ft siding on a 10-square roof).
                           Reps enter square feet on the proposal; it is not tied to roof squares.
                         </p>
@@ -784,9 +784,9 @@ export default function AdminProposalsPage() {
                       <p className="text-sm font-medium text-gray-700 mb-3">Your Costs (per {unitLabelForDisplay(adderForm.unit)})</p>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">Material Cost</label>
+                          <label className="block text-xs text-gray-700 mb-1">Material Cost</label>
                           <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
                             <input
                               type="number"
                               step="0.01"
@@ -798,9 +798,9 @@ export default function AdminProposalsPage() {
                           </div>
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">Labor Cost</label>
+                          <label className="block text-xs text-gray-700 mb-1">Labor Cost</label>
                           <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
                             <input
                               type="number"
                               step="0.01"
@@ -871,14 +871,14 @@ export default function AdminProposalsPage() {
                         <div className="w-full border-t border-gray-300"></div>
                       </div>
                       <div className="relative flex justify-center text-sm">
-                        <span className="px-2 bg-white text-gray-500">or set price directly</span>
+                        <span className="px-2 bg-white text-gray-700">or set price directly</span>
                       </div>
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Selling Price (per {unitLabelForDisplay(adderForm.unit)})</label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
                         <input
                           type="number"
                           step="0.01"
@@ -888,7 +888,7 @@ export default function AdminProposalsPage() {
                           placeholder="75.00"
                         />
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-gray-700 mt-1">
                         Override the calculated price or enter directly if not using cost + markup.
                       </p>
                     </div>
@@ -905,9 +905,9 @@ export default function AdminProposalsPage() {
                         className="w-full px-4 py-2 pr-8 border border-gray-300 rounded-lg"
                         placeholder="5"
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600">%</span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-700 mt-1">
                       This adder will be calculated as a percentage of the proposal subtotal
                     </p>
                   </div>
@@ -942,7 +942,7 @@ export default function AdminProposalsPage() {
                     />
                     <div>
                       <span className="text-sm font-medium text-gray-900">Show to Customer on Proposal</span>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="text-xs text-gray-700 mt-0.5">
                         When enabled, this adder will be itemized on the customer-facing proposal. 
                         When disabled, it will only be included in the total price.
                       </p>
@@ -975,7 +975,7 @@ export default function AdminProposalsPage() {
                       />
                       <div>
                         <span className="text-sm font-medium text-gray-900">Yes - Regular Commission</span>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-700 mt-0.5">
                           This adder flows through the regular commission structure from compensation plans.
                         </p>
                       </div>
@@ -1001,7 +1001,7 @@ export default function AdminProposalsPage() {
                       />
                       <div>
                         <span className="text-sm font-medium text-gray-900">Yes - Custom Commission</span>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-700 mt-0.5">
                           Set a specific % or cap for this adder (does NOT flow through regular comp plan).
                         </p>
                       </div>
@@ -1029,7 +1029,7 @@ export default function AdminProposalsPage() {
                       />
                       <div>
                         <span className="text-sm font-medium text-gray-900">No - Not Commissionable</span>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-700 mt-0.5">
                           No commission paid on this adder (e.g., dumpsters, permits, pass-through costs).
                         </p>
                       </div>
@@ -1077,9 +1077,9 @@ export default function AdminProposalsPage() {
                               className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm"
                               placeholder="0"
                             />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">%</span>
                           </div>
-                          <p className="text-xs text-gray-500 mt-1">
+                          <p className="text-xs text-gray-700 mt-1">
                             % of this adder line&apos;s selling price for eligible managers (independent of rep
                             commission settings above).
                           </p>
@@ -1108,9 +1108,9 @@ export default function AdminProposalsPage() {
                             className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm"
                             placeholder="100"
                           />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">%</span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-700 mt-1">
                           What percentage of this adder counts toward commission (e.g., 50% means rep earns on half the value)
                         </p>
                       </div>
@@ -1120,7 +1120,7 @@ export default function AdminProposalsPage() {
                           Commission Cap (Optional)
                         </label>
                         <div className="relative w-40">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">$</span>
                           <input
                             type="number"
                             min="0"
@@ -1131,7 +1131,7 @@ export default function AdminProposalsPage() {
                             placeholder="No cap"
                           />
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-700 mt-1">
                           Maximum amount of this adder that counts toward commission. Leave empty for no cap.
                         </p>
                       </div>

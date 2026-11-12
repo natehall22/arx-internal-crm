@@ -48,7 +48,7 @@ export default function ReferredByPicker({
 
   return (
     <div>
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Referred By</p>
+      <p className="text-xs font-medium text-gray-700 uppercase tracking-wide">Referred By</p>
       {!editing ? (
         <div className="mt-0.5 text-sm text-[#2c2c2a]">
           {selected ? (

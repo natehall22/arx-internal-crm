@@ -203,7 +203,7 @@ export default function SchedulingPage() {
       <Nav />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+          <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
             <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
             <span>/</span>
             <span>Scheduling</span>
@@ -223,7 +223,7 @@ export default function SchedulingPage() {
         )}
 
         {loading ? (
-          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-700">
             Loading...
           </div>
         ) : (
@@ -241,7 +241,7 @@ export default function SchedulingPage() {
                     </span>
                   </div>
                   
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-700">
                     {isTokenExpired 
                       ? 'Your calendar connection has expired. Click "Reconnect Calendar" to restore scheduling features.'
                       : 'Your calendar is connected. The system can check your availability and create appointments.'
@@ -270,7 +270,7 @@ export default function SchedulingPage() {
                   <p className="text-gray-600">
                     Connect your Google Calendar to enable automatic scheduling. This allows:
                   </p>
-                  <ul className="text-sm text-gray-500 space-y-1 ml-4 list-disc">
+                  <ul className="text-sm text-gray-700 space-y-1 ml-4 list-disc">
                     <li>Checking your availability before scheduling appointments</li>
                     <li>Automatically creating calendar events for inspections</li>
                     <li>Respecting buffer times between appointments</li>
@@ -297,7 +297,7 @@ export default function SchedulingPage() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">Appointment Types</h2>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-700">
                     Durations and &quot;buffer after&quot; minutes here drive canvass scheduling, inspection feedback
                     timing, close scheduling (including round-robin), reschedules, and follow-ups—matching by
                     category and name. Falls back to the org default gap between appointments when unset.
@@ -319,7 +319,7 @@ export default function SchedulingPage() {
                 </h3>
                 <div className="space-y-2">
                   {appointmentTypes.filter(t => t.category === 'inspection').length === 0 ? (
-                    <p className="text-gray-400 text-sm italic">No inspection types configured</p>
+                    <p className="text-gray-600 text-sm italic">No inspection types configured</p>
                   ) : (
                     appointmentTypes.filter(t => t.category === 'inspection').map((type) => (
                       <div
@@ -333,7 +333,7 @@ export default function SchedulingPage() {
                           />
                           <div>
                             <p className="font-medium text-gray-900">{type.name}</p>
-                            <p className="text-sm text-gray-500">
+                            <p className="text-sm text-gray-700">
                               {type.duration_minutes} min
                               {(type.buffer_after_minutes ?? 0) > 0
                                 ? ` · +${type.buffer_after_minutes} min after slot`
@@ -342,13 +342,13 @@ export default function SchedulingPage() {
                             </p>
                           </div>
                           {!type.active && (
-                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded">Inactive</span>
+                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">Inactive</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => openEditModal(type)}
-                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                            className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -356,7 +356,7 @@ export default function SchedulingPage() {
                           </button>
                           <button
                             onClick={() => handleDeleteType(type.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -377,7 +377,7 @@ export default function SchedulingPage() {
                 </h3>
                 <div className="space-y-2">
                   {appointmentTypes.filter(t => t.category === 'close').length === 0 ? (
-                    <p className="text-gray-400 text-sm italic">No close types configured</p>
+                    <p className="text-gray-600 text-sm italic">No close types configured</p>
                   ) : (
                     appointmentTypes.filter(t => t.category === 'close').map((type) => (
                       <div
@@ -391,7 +391,7 @@ export default function SchedulingPage() {
                           />
                           <div>
                             <p className="font-medium text-gray-900">{type.name}</p>
-                            <p className="text-sm text-gray-500">
+                            <p className="text-sm text-gray-700">
                               {type.duration_minutes} min
                               {(type.buffer_after_minutes ?? 0) > 0
                                 ? ` · +${type.buffer_after_minutes} min after slot`
@@ -400,13 +400,13 @@ export default function SchedulingPage() {
                             </p>
                           </div>
                           {!type.active && (
-                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded">Inactive</span>
+                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">Inactive</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => openEditModal(type)}
-                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                            className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -414,7 +414,7 @@ export default function SchedulingPage() {
                           </button>
                           <button
                             onClick={() => handleDeleteType(type.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -447,7 +447,7 @@ export default function SchedulingPage() {
                           />
                           <div>
                             <p className="font-medium text-gray-900">{type.name}</p>
-                            <p className="text-sm text-gray-500">
+                            <p className="text-sm text-gray-700">
                               {type.duration_minutes} min
                               {(type.buffer_after_minutes ?? 0) > 0
                                 ? ` · +${type.buffer_after_minutes} min after slot`
@@ -456,13 +456,13 @@ export default function SchedulingPage() {
                             </p>
                           </div>
                           {!type.active && (
-                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded">Inactive</span>
+                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">Inactive</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => openEditModal(type)}
-                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                            className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -470,7 +470,7 @@ export default function SchedulingPage() {
                           </button>
                           <button
                             onClick={() => handleDeleteType(type.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -493,7 +493,7 @@ export default function SchedulingPage() {
               </p>
               
               {teams.length === 0 ? (
-                <p className="text-gray-500 italic">No teams created yet.</p>
+                <p className="text-gray-700 italic">No teams created yet.</p>
               ) : (
                 <div className="space-y-2">
                   {teams.map((team) => (
@@ -504,7 +504,7 @@ export default function SchedulingPage() {
                     >
                       <div>
                         <p className="font-medium text-gray-900">{team.name}</p>
-                        <p className="text-sm text-gray-500">Manage closer queue</p>
+                        <p className="text-sm text-gray-700">Manage closer queue</p>
                       </div>
                       <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -561,7 +561,7 @@ export default function SchedulingPage() {
                     <option value="close">Close (Closer schedules from flow cards)</option>
                     <option value="other">Other</option>
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-700 mt-1">
                     {typeForm.category === 'inspection' && 'Used when setters schedule appointments from the canvass app'}
                     {typeForm.category === 'close' && 'Used when closers schedule follow-up or close appointments from flow cards'}
                     {typeForm.category === 'other' && 'General purpose appointment type'}
@@ -603,7 +603,7 @@ export default function SchedulingPage() {
                     }
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-700 mt-1">
                     Minutes after the slot end for scheduling spacing. Inspection feedback prompts at appointment
                     start, not after this buffer. If no matching type row exists, the org default gap between
                     appointments is used instead.

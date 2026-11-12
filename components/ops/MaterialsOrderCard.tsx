@@ -153,7 +153,7 @@ export default function MaterialsOrderCard({
         </button>
         <div className="flex shrink-0 items-center gap-2">
           {loadingOverrides ? (
-            <span className="text-[11px] text-gray-500">Loading edits…</span>
+            <span className="text-[11px] text-gray-700">Loading edits…</span>
           ) : null}
           {showSheetLink ? (
             <Link
@@ -244,7 +244,7 @@ function OrderSection({
     <div className="mb-4 last:mb-0">
       <div className="mb-1.5 flex items-center gap-2">
         <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${badge}`}>{title}</span>
-        <span className="text-[11px] text-gray-500">{items.length}</span>
+        <span className="text-[11px] text-gray-700">{items.length}</span>
       </div>
       <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
         {items.map((item) => (
@@ -308,7 +308,7 @@ function OrderRow({
         </div>
         <div className="text-right shrink-0">
           {item.isEdited && item.computedQty && item.computedQty !== item.qty ? (
-            <div className="text-xs text-gray-500 line-through">{item.computedQty}</div>
+            <div className="text-xs text-gray-700 line-through">{item.computedQty}</div>
           ) : null}
           {editing ? (
             <input

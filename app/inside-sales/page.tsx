@@ -719,7 +719,7 @@ export default function InsideSalesPage() {
           )}
 
           {loading ? (
-            <div className="rounded-xl border bg-white p-8 text-center text-gray-500">Loading…</div>
+            <div className="rounded-xl border bg-white p-8 text-center text-gray-700">Loading…</div>
           ) : workItem ? (
             <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
               {renderCardBody(workItem, true)}
@@ -728,7 +728,7 @@ export default function InsideSalesPage() {
                 <button
                   type="button"
                   onClick={() => setWorkIndex((i) => Math.min(i + 1, Math.max(workQueue.length - 1, 0)))}
-                  className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-500 hover:bg-gray-50"
+                  className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Skip →
                 </button>
@@ -738,7 +738,7 @@ export default function InsideSalesPage() {
             <div className="rounded-2xl border bg-white p-8 text-center text-gray-700">
               <p className="text-lg font-semibold">Nothing to call right now. 🎉</p>
               {nextScheduled?.follow_up_at && (
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-sm text-gray-700">
                   Next scheduled call: {formatEtDateTime(nextScheduled.follow_up_at)} — {nextScheduled.customerName}
                 </p>
               )}
@@ -767,7 +767,7 @@ export default function InsideSalesPage() {
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Inside Sales</h1>
-            <p className="text-gray-500 mt-1 text-sm">Calls are ordered for you — start at the top.</p>
+            <p className="text-gray-700 mt-1 text-sm">Calls are ordered for you — start at the top.</p>
           </div>
           {upNextItems.length > 0 && (
             <button
@@ -794,7 +794,7 @@ export default function InsideSalesPage() {
             <p className="mt-1 text-2xl font-bold text-emerald-950">{counts?.neverAttempted ?? 0}</p>
           </div>
           <div className="rounded-xl border border-gray-200 bg-white p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Ready now</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-700">Ready now</p>
             <p className="mt-1 text-2xl font-bold text-gray-900">{counts?.readyToCall ?? 0}</p>
           </div>
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
@@ -829,7 +829,7 @@ export default function InsideSalesPage() {
         </div>
 
         {loading ? (
-          <div className="rounded-xl border bg-white p-8 text-center text-gray-500">Loading queue…</div>
+          <div className="rounded-xl border bg-white p-8 text-center text-gray-700">Loading queue…</div>
         ) : tabItems[activeTab].length > 0 ? (
           <div className="space-y-4">{tabItems[activeTab].map(renderRow)}</div>
         ) : (
@@ -865,7 +865,7 @@ export default function InsideSalesPage() {
                   <button
                     type="button"
                     onClick={() => setWorkIndex((i) => Math.min(i + 1, Math.max(workQueue.length - 1, 0)))}
-                    className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-500 hover:bg-gray-50"
+                    className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
                   >
                     Skip →
                   </button>
@@ -950,7 +950,7 @@ export default function InsideSalesPage() {
 
             <div className="mt-3">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Next follow-up <span className="text-gray-400 font-normal">(ET{modalMode === 'log' ? ', auto-suggested' : ''})</span>
+                Next follow-up <span className="text-gray-600 font-normal">(ET{modalMode === 'log' ? ', auto-suggested' : ''})</span>
               </label>
               {modalItem.followUpKind === 'knockback' && (
                 <div className="mb-2 flex flex-wrap gap-2">

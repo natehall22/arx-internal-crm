@@ -398,7 +398,7 @@ export default function CampaignsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
               <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
               <span>/</span>
               <span>Campaigns & Lead Sources</span>
@@ -416,7 +416,7 @@ export default function CampaignsPage() {
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'campaigns'
                   ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-700 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               Campaigns ({campaigns.length})
@@ -426,7 +426,7 @@ export default function CampaignsPage() {
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'sources'
                   ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-700 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               Lead Sources ({leadSources.length})
@@ -435,7 +435,7 @@ export default function CampaignsPage() {
         </div>
 
         {loading ? (
-          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-700">
             Loading...
           </div>
         ) : activeTab === 'campaigns' ? (
@@ -455,7 +455,7 @@ export default function CampaignsPage() {
 
             {campaigns.length === 0 ? (
               <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
-                <p className="text-gray-500 mb-4">No campaigns yet</p>
+                <p className="text-gray-700 mb-4">No campaigns yet</p>
                 <button
                   onClick={() => openCampaignModal()}
                   className="text-indigo-600 hover:text-indigo-700 font-medium"
@@ -468,13 +468,13 @@ export default function CampaignsPage() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Leads</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Budget</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CPL</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Campaign</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Source</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Leads</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Budget</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">CPL</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -483,7 +483,7 @@ export default function CampaignsPage() {
                         <td className="px-6 py-4">
                           <div className="font-medium text-gray-900">{campaign.name}</div>
                           {campaign.description && (
-                            <div className="text-sm text-gray-500 truncate max-w-xs">{campaign.description}</div>
+                            <div className="text-sm text-gray-700 truncate max-w-xs">{campaign.description}</div>
                           )}
                         </td>
                         <td className="px-6 py-4">
@@ -502,7 +502,7 @@ export default function CampaignsPage() {
                         <td className="px-6 py-4 text-sm text-gray-900">
                           {formatCurrency(campaign.budget)}
                           {campaign.spent && campaign.spent > 0 && (
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-gray-700">
                               Spent: {formatCurrency(campaign.spent)}
                             </div>
                           )}
@@ -516,7 +516,7 @@ export default function CampaignsPage() {
                             className={`px-2 py-1 text-xs rounded font-medium ${
                               campaign.is_active
                                 ? 'bg-green-100 text-green-700'
-                                : 'bg-gray-100 text-gray-500'
+                                : 'bg-gray-100 text-gray-700'
                             }`}
                           >
                             {campaign.is_active ? 'Active' : 'Inactive'}
@@ -566,7 +566,7 @@ export default function CampaignsPage() {
 
             {leadSources.length === 0 ? (
               <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
-                <p className="text-gray-500 mb-4">No lead sources configured yet</p>
+                <p className="text-gray-700 mb-4">No lead sources configured yet</p>
                 <button
                   onClick={() => openSourceModal()}
                   className="text-indigo-600 hover:text-indigo-700 font-medium"
@@ -588,12 +588,12 @@ export default function CampaignsPage() {
                           <span className={`px-2 py-1 text-xs rounded font-medium ${
                             source.is_active
                               ? 'bg-green-100 text-green-700'
-                              : 'bg-gray-100 text-gray-500'
+                              : 'bg-gray-100 text-gray-700'
                           }`}>
                             {source.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </div>
-                        <div className="mt-2 text-sm text-gray-500">
+                        <div className="mt-2 text-sm text-gray-700">
                           {source.total_leads_received} leads received
                           {source.last_lead_at && (
                             <span> • Last lead: {formatDate(source.last_lead_at)}</span>
@@ -626,7 +626,7 @@ export default function CampaignsPage() {
                     <div className="mt-4 p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-xs font-medium text-gray-500 uppercase mb-1">Webhook URL</p>
+                          <p className="text-xs font-medium text-gray-700 uppercase mb-1">Webhook URL</p>
                           <code className="text-sm text-gray-700 break-all">
                             {typeof window !== 'undefined' && `${clientLinkBase()}/api/webhooks/leads?token=${source.webhook_token}`}
                           </code>
@@ -651,17 +651,17 @@ export default function CampaignsPage() {
                     {/* Configuration summary */}
                     <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
-                        <p className="text-gray-500">Default Campaign</p>
+                        <p className="text-gray-700">Default Campaign</p>
                         <p className="font-medium">{source.campaigns?.name || 'None'}</p>
                       </div>
                       <div>
-                        <p className="text-gray-500">Auto-Assign To</p>
+                        <p className="text-gray-700">Auto-Assign To</p>
                         <p className="font-medium">
                           {source.auto_assign_user?.full_name || 'Queue'}
                         </p>
                       </div>
                       <div>
-                        <p className="text-gray-500">Webhook</p>
+                        <p className="text-gray-700">Webhook</p>
                         <p className="font-medium">{source.webhook_enabled ? 'Enabled' : 'Disabled'}</p>
                       </div>
                     </div>
@@ -682,7 +682,7 @@ export default function CampaignsPage() {
                 </h2>
                 <button
                   onClick={() => setShowCampaignModal(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -770,7 +770,7 @@ export default function CampaignsPage() {
                   <h3 className="text-sm font-medium text-gray-900 mb-3">UTM Parameters</h3>
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">utm_source</label>
+                      <label className="block text-xs text-gray-700 mb-1">utm_source</label>
                       <input
                         type="text"
                         value={campaignForm.utm_source}
@@ -780,7 +780,7 @@ export default function CampaignsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">utm_medium</label>
+                      <label className="block text-xs text-gray-700 mb-1">utm_medium</label>
                       <input
                         type="text"
                         value={campaignForm.utm_medium}
@@ -790,7 +790,7 @@ export default function CampaignsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">utm_campaign</label>
+                      <label className="block text-xs text-gray-700 mb-1">utm_campaign</label>
                       <input
                         type="text"
                         value={campaignForm.utm_campaign}
@@ -807,7 +807,7 @@ export default function CampaignsPage() {
                   <h3 className="text-sm font-medium text-gray-900 mb-3">External Campaign IDs</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Google Ads Campaign ID</label>
+                      <label className="block text-xs text-gray-700 mb-1">Google Ads Campaign ID</label>
                       <input
                         type="text"
                         value={campaignForm.google_campaign_id}
@@ -816,7 +816,7 @@ export default function CampaignsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Facebook Campaign ID</label>
+                      <label className="block text-xs text-gray-700 mb-1">Facebook Campaign ID</label>
                       <input
                         type="text"
                         value={campaignForm.facebook_campaign_id}
@@ -857,7 +857,7 @@ export default function CampaignsPage() {
                 </h2>
                 <button
                   onClick={() => setShowSourceModal(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-600 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

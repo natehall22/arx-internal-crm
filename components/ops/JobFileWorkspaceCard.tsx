@@ -965,7 +965,7 @@ export default function JobFileWorkspaceCard({
           </div>
           <PhotoQueueNotice queue={photoQueue} className="mb-3" />
           {!compact && (
-          <p className="text-xs text-gray-500 mb-3">
+          <p className="text-xs text-gray-700 mb-3">
             Upload before/progress/final photos so office and production can track the job clearly. Select multiple
             images in the file picker (Shift- or Cmd/Ctrl-click) or drag files into the area below. Click a filename to
             open the photo viewer and step through all job photos with arrow keys.
@@ -989,7 +989,7 @@ export default function JobFileWorkspaceCard({
               </p>
             )}
             {loading ? (
-              <p className="text-sm text-gray-500 p-4">Loading photos...</p>
+              <p className="text-sm text-gray-700 p-4">Loading photos...</p>
             ) : photos.length === 0 ? (
               <div className="p-4 text-sm text-gray-600">
                 <p className="mb-1">No photos yet.</p>
@@ -1259,7 +1259,7 @@ export default function JobFileWorkspaceCard({
               </p>
             )}
           </div>
-          <p className="text-xs text-gray-500 mb-3">Contracts, change orders, and supporting files.</p>
+          <p className="text-xs text-gray-700 mb-3">Contracts, change orders, and supporting files.</p>
 
           <div
             className={`rounded-lg border-2 border-dashed transition-colors ${
@@ -1278,9 +1278,9 @@ export default function JobFileWorkspaceCard({
               </p>
             )}
             {loading ? (
-              <p className="text-sm text-gray-500 p-4">Loading documents...</p>
+              <p className="text-sm text-gray-700 p-4">Loading documents...</p>
             ) : documents.length === 0 ? (
-              <div className="p-4 text-sm text-gray-500">No documents yet.</div>
+              <div className="p-4 text-sm text-gray-700">No documents yet.</div>
             ) : (
               <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
                 <table className="min-w-full text-sm">
@@ -1329,7 +1329,7 @@ export default function JobFileWorkspaceCard({
                         )}
                         <td className="px-3 py-2 text-gray-700">
                           {doc.is_protected && !canReplaceProtectedDocuments ? (
-                            <span className="text-xs text-gray-500">Restricted (protected doc)</span>
+                            <span className="text-xs text-gray-700">Restricted (protected doc)</span>
                           ) : (
                             <label className="text-sm text-indigo-700 hover:text-indigo-900 cursor-pointer">
                               {replacingDocumentId === doc.id ? 'Replacing...' : 'Replace Version'}
@@ -1400,12 +1400,12 @@ export default function JobFileWorkspaceCard({
               />
             </div>
           </div>
-          <p className="text-xs text-gray-500 mb-3">
+          <p className="text-xs text-gray-700 mb-3">
             Log labor, material, permit, and subcontractor costs here. After a line is added, attach receipts to it
             or drag files onto the table.
           </p>
           {!canSeeAmounts && (
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-gray-700 mb-3">
               Cost amounts are hidden for your role.
             </p>
           )}
@@ -1427,7 +1427,7 @@ export default function JobFileWorkspaceCard({
               </p>
             )}
             {loading ? (
-              <p className="text-sm text-gray-500 p-4">Loading costs...</p>
+              <p className="text-sm text-gray-700 p-4">Loading costs...</p>
             ) : (
               <>
               {costLines.length > 0 && (

@@ -269,7 +269,7 @@ export default function InsideSalesFollowUpDrawer({
               ) : (
                 <span>No phone on file</span>
               )}
-              <span className="text-gray-500">
+              <span className="text-gray-700">
                 {assignedToName ? ` · Assigned: ${assignedToName}` : ' · Unassigned'}
               </span>
             </p>
@@ -414,7 +414,7 @@ export default function InsideSalesFollowUpDrawer({
 
                   <div className="mt-4 rounded-lg border border-gray-200 p-4">
                     <p className="text-sm font-semibold text-gray-900">Closer briefing note</p>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-gray-700">
                       This note goes onto the scheduled inspection and the closer&apos;s calendar event.
                     </p>
                     <textarea
@@ -441,7 +441,7 @@ export default function InsideSalesFollowUpDrawer({
                                   ? 'Mark unresponsive'
                                   : 'Mark lost'}
                         </p>
-                        <button type="button" onClick={resetForm} className="text-sm text-gray-500 hover:text-gray-700">
+                        <button type="button" onClick={resetForm} className="text-sm text-gray-700 hover:text-gray-700">
                           Cancel
                         </button>
                       </div>
@@ -530,15 +530,15 @@ export default function InsideSalesFollowUpDrawer({
                             <p className="text-sm font-medium text-gray-900 capitalize">
                               {activity.type.replace(/_/g, ' ')}
                             </p>
-                            <p className="text-xs text-gray-500">{new Date(activity.created_at).toLocaleString()}</p>
+                            <p className="text-xs text-gray-700">{new Date(activity.created_at).toLocaleString()}</p>
                           </div>
                           <p className="mt-1 text-sm text-gray-700">{activity.body || '—'}</p>
-                          <p className="mt-1 text-xs text-gray-500">{author || 'Unknown user'}</p>
+                          <p className="mt-1 text-xs text-gray-700">{author || 'Unknown user'}</p>
                         </div>
                       )
                     })
                   ) : (
-                    <p className="text-sm text-gray-500">No follow-up activity yet.</p>
+                    <p className="text-sm text-gray-700">No follow-up activity yet.</p>
                   )}
                 </div>
               </div>
