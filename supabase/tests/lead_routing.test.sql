@@ -1,4 +1,4 @@
--- Minimal schema + migration 202611230010, then assertions. Run by run-lead-routing.sh (drops schema public).
+-- Minimal schema + migration 202611230020, then assertions. Run by run-lead-routing.sh (drops schema public).
 DROP SCHEMA public CASCADE; CREATE SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 DO $$ BEGIN CREATE ROLE service_role; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -9,9 +9,9 @@ CREATE TABLE users (id uuid PRIMARY KEY, org_id uuid, active boolean DEFAULT tru
 CREATE TABLE leads (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
 CREATE TABLE lead_sources (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
 CREATE TABLE notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, type text, data jsonb);
-\i supabase/migrations/202611230010_lead_intake.sql
+\i supabase/migrations/202611230020_lead_intake.sql
 -- idempotent re-run:
-\i supabase/migrations/202611230010_lead_intake.sql
+\i supabase/migrations/202611230020_lead_intake.sql
 
 INSERT INTO orgs VALUES ('11111111-1111-4111-8111-111111111111', '{}'), ('22222222-2222-4222-8222-222222222222', '{}');
 INSERT INTO users VALUES

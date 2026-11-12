@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DB test for lead routing (migration 202611230010): sequential rules + 30 concurrent callers sharing one pointer.
+# DB test for lead routing (migration 202611230020): sequential rules + 30 concurrent callers sharing one pointer.
 # Needs a THROWAWAY local Postgres 16+; drops schema public. Never point it at Supabase.
 #   ALLOW_SCHEMA_RESET=1 PGHOST=/tmp/pg PGPORT=55432 PGUSER=postgres supabase/tests/run-lead-routing.sh
 set -euo pipefail

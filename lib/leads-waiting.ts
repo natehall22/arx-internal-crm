@@ -3,7 +3,8 @@
  * and by the hourly reminder cron.
  *
  * A lead is untouched when ALL of:
- * - it came in (channel 'inbound' — website forms, webhooks; never canvass pins) and its status is still 'new',
+ * - it came in by a website form / webhook (channel 'inbound') or was typed in by hand (channel empty), and its status is still 'new'.
+ *   Canvass pins are told apart by `canvass_disposition` (set on every pin) and by a door-knock `source`; they have their own flow.
  * - no call / text / email / visit has been logged on it (activities, the same contact kinds as lib/customer-contact.ts),
  * - and N hours have passed since it arrived or was last handed to a new owner (`ownership_reassigned_at`), whichever is later.
  * N is the company's own (Settings → Lead routing, default 24) in plain hours — business hours are not modelled. Only leads
@@ -14,6 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { CONTACT_KINDS } from '@/lib/customer-contact'
 import { LEADS_WAITING_WINDOW_DAYS, readLeadIntakeSettings } from '@/lib/lead-intake'
+import { CANVASS_DOOR_SOURCES } from '@/lib/canvass-lead-attribution'
 import { resolveCompanyRecipient } from '@/lib/company-recipient'
 import type { Queue } from '@/lib/today'
 
@@ -70,7 +72,8 @@ export async function listUntouchedLeads(
     .from('leads')
     .select('id, homeowner_name, source, service_requested, owner_user_id, created_at, ownership_reassigned_at', { count: 'exact' })
     .eq('org_id', orgId)
-    .eq('channel', 'inbound')
+    .or('channel.eq.inbound,channel.is.null')
+    .is('canvass_disposition', null)
     .eq('status', 'new')
     .lte('created_at', newest)
     .gte('created_at', oldest)
@@ -79,12 +82,13 @@ export async function listUntouchedLeads(
   if (opts.ownerUserId) q = q.eq('owner_user_id', opts.ownerUserId)
   let res = await q
   if (res.error && /service_requested/.test(res.error.message ?? '')) {
-    // Migration 202611230010 not applied yet: the same list without the service column.
+    // Migration 202611230020 not applied yet: the same list without the service column.
     let again = admin
       .from('leads')
       .select('id, homeowner_name, source, owner_user_id, created_at, ownership_reassigned_at', { count: 'exact' })
       .eq('org_id', orgId)
-      .eq('channel', 'inbound')
+      .or('channel.eq.inbound,channel.is.null')
+    .is('canvass_disposition', null)
       .eq('status', 'new')
       .lte('created_at', newest)
       .gte('created_at', oldest)
@@ -94,7 +98,7 @@ export async function listUntouchedLeads(
     res = (await again) as unknown as typeof res
   }
   if (res.error) throw res.error
-  const rows = ((res.data ?? []) as unknown as Array<Partial<WaitingLead> & { id: string; created_at: string }>).map((r) => ({
+  let rows = ((res.data ?? []) as unknown as Array<Partial<WaitingLead> & { id: string; created_at: string }>).map((r) => ({
     service_requested: null,
     homeowner_name: null,
     source: null,
@@ -102,6 +106,7 @@ export async function listUntouchedLeads(
     ownership_reassigned_at: null,
     ...r,
   })) as WaitingLead[]
+  rows = rows.filter((r) => !(r.source && CANVASS_DOOR_SOURCES.has(r.source)))
   if (rows.length === 0) return { leads: [], capped: false }
 
   const { data: contacts, error } = await admin

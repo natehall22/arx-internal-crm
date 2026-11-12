@@ -37,12 +37,13 @@ describe('the rule', () => {
 })
 
 describe('listUntouchedLeads', () => {
-  test('inbound, still new, past N, no call/text/email/visit logged — this company only', async () => {
+  test('inbound or hand-typed (not canvass pins), still new, past N, no call/text/email/visit logged — this company only', async () => {
     const db = make(
       [
         lead('old'), lead('fresh', { created_at: ago(3) }),
         lead('called'), lead('noted'), lead('moved', { status: 'contacted' }),
-        lead('canvass', { channel: 'outbound' }), lead('other', { org_id: OTHER }), lead('ancient', { created_at: ago(24 * 40) }),
+        lead('callcenter', { channel: 'outbound' }), lead('typed', { channel: null, source: 'Referral' }),
+        lead('pin', { channel: null, source: 'door_to_door' }), lead('pin2', { channel: null, source: 'Website', canvass_disposition: 'not_home' }), lead('other', { org_id: OTHER }), lead('ancient', { created_at: ago(24 * 40) }),
         lead('deletedcall'),
       ],
       [
@@ -51,7 +52,7 @@ describe('listUntouchedLeads', () => {
         { id: 'a3', org_id: ORG, lead_id: 'deletedcall', type: 'call', deleted_at: ago(1) },
       ]
     )
-    expect(ids(await listUntouchedLeads(db.client as never, ORG, 24, NOW)).sort()).toEqual(['deletedcall', 'noted', 'old'])
+    expect(ids(await listUntouchedLeads(db.client as never, ORG, 24, NOW)).sort()).toEqual(['deletedcall', 'noted', 'old', 'typed'])
   })
   test('one person\'s leads only', async () => {
     const db = make([lead('mine'), lead('theirs', { owner_user_id: 'u2' })])

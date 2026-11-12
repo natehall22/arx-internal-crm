@@ -8,7 +8,7 @@ import { normalizeService, readLeadIntakeSettings, readRouting, readServiceOptio
 import { resolveCompanyRecipient, type CompanyRecipient } from '@/lib/company-recipient'
 
 /**
- * Whose turn is it? One SQL call (`lead_routing_next`, migration 202611230010) locks the pointer row, picks the next ACTIVE
+ * Whose turn is it? One SQL call (`lead_routing_next`, migration 202611230020) locks the pointer row, picks the next ACTIVE
  * person of this company after the last one handed a lead, and stores it — so two leads arriving together never share a
  * turn. Returns null when nobody in the list can take a lead, or when the function isn't there yet (migration not applied):
  * the caller then uses the fallback, so a lead is never dropped.

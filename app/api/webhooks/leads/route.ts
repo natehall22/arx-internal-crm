@@ -60,7 +60,7 @@ type LeadSourceConfig = {
   is_active: boolean
 }
 
-// `*` on purpose: the routing column only exists after migration 202611230010, and a named column that is missing
+// `*` on purpose: the routing column only exists after migration 202611230020, and a named column that is missing
 // would make every token look invalid.
 const LEAD_SOURCE_COLUMNS = '*'
 
