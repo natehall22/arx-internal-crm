@@ -13,6 +13,7 @@ import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import NeedsYouList from '@/components/ops/NeedsYouList'
 import CheckupList from '@/components/checkups/CheckupList'
 import MoveFromJobber from '@/components/jobber-import/MoveFromJobber'
+import MoveSignedDocuments from '@/components/signed-import/MoveSignedDocuments'
 import { HARNESS_CHECKUPS } from '@/e2e/fixtures'
 import { HARNESS_CREW_DAY, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
 import JobClockCard from '@/components/time/JobClockCard'
@@ -555,6 +556,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'move-from-jobber':
     case 'move-from-jobber-done':
       return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Move from Jobber</h1><MoveFromJobber /></div>
+    case 'move-signed-docs':
+      return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Move signed documents</h1><MoveSignedDocuments /></div>
     case 'custom-fields-admin':
       return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Custom fields</h1><CustomFieldsClient /></div>
     case 'customer-records': {

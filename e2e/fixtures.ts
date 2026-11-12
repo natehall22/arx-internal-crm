@@ -856,6 +856,31 @@ export const HARNESS_JOBBER_DONE = {
   reviewPlans: [{ planId: 'p1', customerId: 'c1', name: 'Weekly lawn maintenance', review: ['How often was worked out from 31 visits in Jobber — check it.', 'Tax is off — turn it on if this service is taxable.'] }],
 }
 
+// Move signed documents (components/signed-import/MoveSignedDocuments.tsx): files added and read, one matched, one to pick, one not finished.
+export const HARNESS_SIGNED_RUN = { id: '66666666-2222-3333-4444-555555555555', status: 'draft', created_at: '2026-11-11T14:00:00Z' }
+const signedMatch = (customerId: string | null, how: string | null, candidates: Array<{ id: string; name: string }>) => ({ customerId, how, candidates })
+export const HARNESS_SIGNED_STATE = {
+  run: HARNESS_SIGNED_RUN,
+  indexFiles: [{ id: 'x1', name: 'envelopes-2026.csv', row_count: 212 }],
+  progress: { total: 214, pending: 214, done: 0, failed: 0, skipped: 0, undone: 0, kept: 0 },
+  provider: '',
+  summary: null,
+  review: {
+    ready: true, unfinished: 0, unread: 0, duplicates: [{ name: 'Smith roof contract.pdf', title: 'Smith roof contract' }],
+    groups: [
+      { key: 'env:ENV-12345678', title: 'Jane Smith — Roof replacement agreement', fileNames: ['Jane Smith Roof replacement agreement.pdf', 'Certificate.pdf'], certificates: 1, completedOn: '2025-06-03', provider: 'docusign', notCompleted: false, match: signedMatch('c1', 'exact', [{ id: 'c1', name: 'Jane Smith' }]), pick: null, signers: ['Jane Smith'] },
+      { key: 'env:ENV-22222222', title: 'Wakulla HOA — Repair agreement', fileNames: ['Wakulla HOA repair.pdf'], certificates: 0, completedOn: null, provider: null, notCompleted: false, match: signedMatch(null, null, []), pick: null, signers: [] },
+      { key: 'env:ENV-33333333', title: 'J. Smith — Change order', fileNames: ['J Smith change order.pdf'], certificates: 0, completedOn: '2025-07-01', provider: 'docusign', notCompleted: false, match: signedMatch('c1', 'close', [{ id: 'c1', name: 'Jane Smith' }, { id: 'c3', name: 'John Smith' }]), pick: null, signers: [] },
+      { key: 'env:ENV-44444444', title: 'Declined by signer', fileNames: ['declined.pdf'], certificates: 0, completedOn: null, provider: null, notCompleted: true, match: signedMatch(null, null, []), pick: null, signers: [] },
+    ],
+  },
+}
+export const HARNESS_SIGNED_HELD = {
+  ready: true,
+  customers: [{ id: 'c1', name: 'Jane Smith' }, { id: 'c2', name: 'Wakulla HOA' }],
+  groups: [{ key: 'held:1', title: 'Pat Jones — Roof agreement', documentIds: ['d1'], fileNames: ['Pat Jones roof.pdf'], completedOn: '2025-02-10', source: 'docusign', signers: ['Pat Jones'], match: { customerId: null, how: null, candidates: [] } }],
+}
+
 // Hours to bill (components/billing/HoursToBill.tsx): a grading job with two clocked days + a running one, a per-hour plan visit
 // with no clock time, and a billed day whose invoice was voided.
 const HB_LABOR = { itemId: 'pb-labor', name: 'Grading labor', rateCents: 6500, taxable: false }

@@ -88,6 +88,15 @@ export function buildCustomerDocumentStoragePath(args: {
   return `${args.orgId}/customers/${args.customerId}/documents/${finalName}`
 }
 
+/**
+ * A signed document brought over from another signing tool (Move signed documents). It lives under the company's
+ * `imports/` folder, NOT a customer folder: the customer is only known after the owner confirms the match, and
+ * `documents.storage_path` never changes, so the same path serves a document that is still waiting for a customer.
+ */
+export function buildImportedDocumentStoragePath(args: { orgId: string; documentId: string; filename: string }) {
+  return `${args.orgId}/imports/${buildStoredFileName(args.documentId, args.filename)}`
+}
+
 export function buildCostAttachmentStoragePath(args: {
   orgId: string
   jobId: string

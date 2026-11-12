@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -197,6 +197,16 @@ const SCREENS: Screen[] = [
   },
     states: [
       { name: 'file-match', run: async (p) => { await p.setInputFiles('input[type=file]', { name: 'Jane Smith - Contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') }); await p.waitForSelector('text=Add 1 file to customers') } },
+    ] },
+  { name: 'move-signed-docs', path: '/dev-harness/move-signed-docs', ready: 'text=2. Check who each one belongs to', mock: async (p) => {
+    await p.route(/\/api\/admin\/import\/signed-docs$/, (route) => route.fulfill(json({ ready: true, runs: [HARNESS_SIGNED_RUN] })))
+    await p.route(/\/api\/admin\/import\/signed-docs\/[^/]+$/, (route) => route.fulfill(json(route.request().method() === 'POST' ? { customers: [{ id: 'c1', name: 'Jane Smith' }, { id: 'c2', name: 'Wakulla HOA' }] } : HARNESS_SIGNED_STATE)))
+    // Later routes win in Playwright, so the specific one is registered last.
+    await p.route(/\/api\/admin\/import\/signed-docs\/held$/, (route) => route.fulfill(json(HARNESS_SIGNED_HELD)))
+  },
+    states: [
+      { name: 'pick-someone-else', run: async (p) => { await p.getByLabel('Customer for Wakulla HOA — Repair agreement').selectOption({ label: 'Someone else…' }); await p.waitForSelector('[role=dialog] >> text=Wakulla HOA') } },
+      { name: 'how-to-export', run: async (p) => { await p.getByText('How do I get these files out?').click(); await p.waitForSelector('text=Manage → select the completed envelopes') } },
     ] },
   { name: 'custom-fields-admin', path: '/dev-harness/custom-fields-admin', ready: 'text=Payment terms', mock: async (p) => {
     await p.route('**/api/admin/custom-fields', (route) => route.fulfill(json(HARNESS_CUSTOM_FIELDS)))

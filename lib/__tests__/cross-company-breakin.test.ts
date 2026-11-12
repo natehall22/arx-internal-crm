@@ -230,7 +230,27 @@ const jobberRuns = (status: string) => (seed: Record<string, Row[]>) => {
   for (const r of seed.import_runs ?? []) Object.assign(r, { status, checked_at: '2026-11-11T12:00:00Z', summary: { nothingToImport: false } })
   for (const r of seed.import_run_items ?? []) Object.assign(r, { status: status === 'importing' ? 'pending' : 'done', action: 'create', kind: 'customer', rank: 3, seq: 1, target_table: 'customers', applied: {} })
 }
+const signedRuns = (status: string) => (seed: Record<string, Row[]>) => {
+  for (const r of seed.import_runs ?? []) Object.assign(r, { source: 'signed_docs', status, checked_at: '2026-11-11T12:00:00Z', summary: {} })
+  for (const r of seed.import_run_items ?? []) Object.assign(r, { status: status === 'importing' ? 'pending' : 'done', action: 'create', kind: 'document', rank: 3, seq: 1, target_table: 'documents', applied: {}, payload: { name: 'a.pdf', sha256: 'a'.repeat(64), uploaded: true, read: true } })
+}
 const FIXTURES: Record<string, Variant[]> = {
+  'POST /api/admin/import/signed-docs/[runId]': [
+    () => ({ body: { action: 'register', files: [{ name: 'bravo.pdf', dir: '', origin: '', size: 100, sha256: 'b'.repeat(64) }] } }),
+    (id, ref) => ({ body: { action: 'confirm', itemIds: [ref] } }),
+    () => ({ body: { action: 'addIndex', name: 'envelopes.csv', text: 'Envelope ID,Recipient Email\nENV-12345678,bravo@example.com\n' } }),
+    (id, ref) => ({ body: { action: 'removeIndex', fileId: ref } }),
+    () => ({ body: { action: 'dropUnfinished' } }),
+    () => ({ body: { action: 'provider', value: 'docusign' } }),
+    () => ({ body: { action: 'customers' } }),
+    () => ({ body: { action: 'read' } }),
+    () => ({ body: { action: 'match', at: 0 } }),
+    (id, ref) => ({ body: { action: 'picks', picks: { 'env:ENV-12345678': ref } } }),
+    () => ({ body: { action: 'discard' } }),
+    withSeed(() => ({ body: { action: 'import' } }), signedRuns('importing')),
+    withSeed(() => ({ body: { action: 'undo' } }), signedRuns('done')),
+  ],
+  'POST /api/admin/import/signed-docs/held': [(id, ref) => ({ body: { assignments: [{ customerId: ref, documentIds: [ref] }] } })],
   'POST /api/admin/import/jobber/[runId]': [
     () => ({ body: { action: 'addFile', name: 'clients.csv', text: 'J-ID,Display Name\n2_2,Bravo Client\n' } }),
     (id, ref) => ({ body: { action: 'removeFile', fileId: ref } }),
