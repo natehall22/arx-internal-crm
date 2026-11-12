@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Mobile checks (e2e/mobile.spec.ts): every new/changed screen at iPhone SE and iPhone 13 sizes.
+ * Mobile checks (e2e/mobile.spec.ts): every new/changed screen at iPhone SE, iPhone 13 and Pixel 7 (Android) sizes.
  * Runs against a local dev server with NO Supabase env (middleware lets it through) and mocked /api calls.
  * npm run test:mobile
  */
@@ -16,6 +16,7 @@ export default defineConfig({
   projects: [
     { name: 'iphone-se', use: { ...devices['iPhone SE'], viewport: { width: 375, height: 667 }, browserName: 'chromium' } },
     { name: 'iphone-13', use: { ...devices['iPhone 13'], browserName: 'chromium' } },
+    { name: 'pixel-7', use: { ...devices['Pixel 7'] } },
   ],
   webServer: {
     command: 'NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:9 NEXT_PUBLIC_SUPABASE_ANON_KEY=harness-anon-key npx next dev -p 3111',

@@ -2,6 +2,7 @@
 
 import type { PinStormSummary } from '../lib/weather-overlay'
 import StormCard from './StormCard'
+import { useBackToClose } from '../lib/useBackToClose'
 
 interface Props {
   summary: PinStormSummary
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function StormPeekSheet({ summary, onDropPin, onClose }: Props) {
+  useBackToClose(true, onClose)
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center">
       <button

@@ -186,6 +186,9 @@ export default function CanvassPage() {
   useEffect(() => {
     loadData()
 
+    // Ask the browser not to evict the offline queue under storage pressure. Best effort, silent.
+    navigator.storage?.persist?.()?.catch(() => {})
+
     if (!('serviceWorker' in navigator)) return
 
     const onControllerChange = () => {
@@ -616,6 +619,7 @@ export default function CanvassPage() {
     if (position) {
       handleMapClick(position.lat, position.lng)
     } else {
+      if (geoError) alert(geoError)
       requestPermission()
     }
   }
@@ -668,7 +672,7 @@ export default function CanvassPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-dvh flex items-center justify-center bg-gray-100">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Loading...</p>
@@ -678,7 +682,7 @@ export default function CanvassPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
+    <div className="h-dvh flex flex-col bg-gray-100">
       {/* Header */}
       <header className="bg-indigo-600 text-white px-4 py-3 flex items-center justify-between safe-area-top">
         <div className="flex items-center gap-3">

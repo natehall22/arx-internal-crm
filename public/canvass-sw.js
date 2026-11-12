@@ -1,4 +1,4 @@
-const CACHE_NAME = 'canvass-v2';
+const CACHE_NAME = 'canvass-v3';
 const OFFLINE_URL = '/canvass/offline';
 
 // Assets to cache immediately on install
@@ -150,7 +150,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || 'New notification',
     icon: '/canvass-icons/icon-192.png',
-    badge: '/canvass-icons/icon-72.png',
+    badge: '/canvass-icons/icon-192.png',
     vibrate: [100, 50, 100],
     data: {
       url: data.url || '/canvass',

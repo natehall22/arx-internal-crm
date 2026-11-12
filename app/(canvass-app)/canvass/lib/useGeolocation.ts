@@ -30,7 +30,7 @@ export function useGeolocation(options?: PositionOptions) {
 
   const defaultOptions: PositionOptions = {
     enableHighAccuracy: true,
-    timeout: 10000,
+    timeout: 20000,
     maximumAge: 0,
     ...options,
   }
@@ -52,32 +52,37 @@ export function useGeolocation(options?: PositionOptions) {
   }, [])
 
   const handleError = useCallback((err: GeolocationPositionError) => {
-    let errorMessage = 'Unable to get location'
-    
+    let errorMessage = 'Could not get your location. Check that Location is turned on for your phone, then try again.'
+
     switch (err.code) {
       case err.PERMISSION_DENIED:
-        errorMessage = 'Location permission denied'
+        errorMessage =
+          'Location is blocked. iPhone: Settings → Privacy & Security → Location Services → Safari Websites (or the Canvass app). ' +
+          'Android: tap the lock icon next to the address → Permissions → Location → Allow.'
         break
       case err.POSITION_UNAVAILABLE:
-        errorMessage = 'Location unavailable'
+        errorMessage =
+          'No GPS signal. Make sure Location is turned on in your phone settings and step away from buildings or walls, then try again.'
         break
       case err.TIMEOUT:
-        errorMessage = 'Location request timed out'
+        errorMessage = 'Finding your location is taking too long. Step outside or move to an open spot, then try again.'
         break
     }
 
-    setState((prev) => ({
-      ...prev,
-      error: errorMessage,
-      loading: false,
-    }))
+    setState((prev) => {
+      // A slow GPS fix is not a lost one: keep the last known position and say nothing.
+      if (err.code === err.TIMEOUT && prev.position) {
+        return { ...prev, loading: false }
+      }
+      return { ...prev, error: errorMessage, loading: false }
+    })
   }, [])
 
   const requestPermission = useCallback(() => {
     if (!navigator.geolocation) {
       setState((prev) => ({
         ...prev,
-        error: 'Geolocation not supported',
+        error: 'This phone or browser cannot share its location. Try Chrome (Android) or Safari (iPhone).',
         loading: false,
       }))
       return

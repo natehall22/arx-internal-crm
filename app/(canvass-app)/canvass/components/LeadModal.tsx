@@ -5,6 +5,7 @@ import { getInspectionSubmitCooldownRemainingMs } from '../lib/inspectionSubmitC
 import type { CanvassPin } from '../page'
 import { lookupPinStorm, type WeatherContext } from '../lib/weather-overlay'
 import StormCard from './StormCard'
+import { useBackToClose } from '../lib/useBackToClose'
 
 // Disposition config from admin settings
 interface DispositionConfig {
@@ -74,6 +75,7 @@ export default function LeadModal({
   dispositions: dispositionsProp = [],
   weatherContext = null,
 }: Props) {
+  useBackToClose(true, onClose)
   const pinLat = pin?.lat ?? location?.lat
   const pinLng = pin?.lng ?? location?.lng
   const stormSummary = useMemo(() => {
@@ -311,7 +313,7 @@ export default function LeadModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col animate-slide-up">
+      <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90dvh] overflow-hidden flex flex-col animate-slide-up">
         {/* Header */}
         <div className="px-4 py-3 border-b flex items-center justify-between bg-gray-50">
           <h2 className="font-semibold text-lg">
@@ -593,6 +595,7 @@ export default function LeadModal({
                 </label>
                 <input
                   type="text"
+                  autoComplete="given-name"
                   value={formData.first_name}
                   onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
                   className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -605,6 +608,7 @@ export default function LeadModal({
                 </label>
                 <input
                   type="text"
+                  autoComplete="family-name"
                   value={formData.last_name}
                   onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
                   className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -619,6 +623,8 @@ export default function LeadModal({
               </label>
               <input
                 type="tel"
+                autoComplete="tel"
+                inputMode="tel"
                 value={formData.phone}
                 onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                 className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -632,6 +638,8 @@ export default function LeadModal({
               </label>
               <input
                 type="email"
+                autoComplete="email"
+                inputMode="email"
                 value={formData.email}
                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                 className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
