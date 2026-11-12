@@ -20,11 +20,16 @@ jest.mock('@/lib/org-brand', () => ({ getDocumentBrand: async () => ({ name: 'Ac
 jest.mock('@/lib/company-host-server', () => ({ getRequestHostFence: async () => ({ kind: 'open' }) }))
 process.env.SIGNING_TOKEN_SECRET = 'test-secret'
 
-import { GET as list } from '@/app/api/signing/requests/route'
-import { GET as detail } from '@/app/api/signing/requests/[id]/route'
-import { GET as file } from '@/app/api/signing/requests/[id]/file/route'
-import { POST as bulk } from '@/app/api/signing/templates/[id]/bulk/route'
+import { GET as listRaw } from '@/app/api/signing/requests/route'
+import { GET as detailRaw } from '@/app/api/signing/requests/[id]/route'
+import { GET as fileRaw } from '@/app/api/signing/requests/[id]/file/route'
+import { POST as bulkRaw } from '@/app/api/signing/templates/[id]/bulk/route'
 
+type H = (r: NextRequest, c?: any) => Promise<Response>
+const list = listRaw as unknown as H
+const detail = detailRaw as unknown as H
+const file = fileRaw as unknown as H
+const bulk = bulkRaw as unknown as H
 const FUTURE = '2999-01-01T00:00:00.000Z'
 const req = (url = 'http://x/y', body?: unknown) => new NextRequest(url, body ? { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } } : undefined)
 function seed(settings: Record<string, unknown>, extra: Record<string, any[]> = {}) {
