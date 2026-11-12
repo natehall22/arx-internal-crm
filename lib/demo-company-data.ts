@@ -32,6 +32,7 @@ export const DEMO_FEATURES: Readonly<Partial<Record<OrgFeature, boolean>>> = Obj
   customerMessages: true,
   customerPortal: true,
   quoteApproval: true,
+  areaMeasure: true,
   onlinePayments: true, // Stripe TEST keys only: a live key shows the card as not set up (lib/online-payments/accounts.ts)
   texting: true, // test adapter + a 555 number
   aiConnector: true,
