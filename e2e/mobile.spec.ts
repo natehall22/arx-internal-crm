@@ -522,6 +522,25 @@ const SCREENS: Screen[] = [
   { name: 'quickbooks-settings', path: '/dev-harness/quickbooks-settings', ready: 'text=Needs to be reconnected', mock: async (p) => {
     await p.route('**/api/admin/quickbooks', (route) => route.fulfill(json({ featureOn: true, configured: true, status: 'needs_reconnect', companyName: 'Sample Lawn Care LLC', environment: 'production', reason: 'QuickBooks stopped accepting this connection. Please reconnect.', expiresSoon: false })))
     } },
+  { name: 'quickbooks-mapping', path: '/dev-harness/quickbooks-mapping', ready: 'text=What goes where in QuickBooks', mock: async (p) => {
+    const pick = (id: string, name: string) => ({ id, name })
+    await p.route('**/api/admin/quickbooks/mapping', (route) => route.fulfill(json({
+      settings: { startDate: null, invoiceMode: 'per_job', income: { defaultItemId: null, byTrade: {} }, tax: { mode: 'none', taxCodeId: null, rateMap: {} }, depositToAccountId: null, receivablesAccountId: null, bills: { enabled: true, expenseAccountId: null, classId: null }, vendors1099: [], confirmedAt: null, confirmedBy: null },
+      suggested: { income: { defaultItemId: '5', byTrade: {} }, depositToAccountId: '35' },
+      lists: { country: 'US', items: [{ ...pick('5', 'Roofing Sales'), type: 'Service' }], incomeAccounts: [], depositAccounts: [{ ...pick('35', 'Undeposited Funds'), subType: null }], receivableAccounts: [pick('84', 'Accounts Receivable')], expenseAccounts: [pick('70', 'Subcontractors')], taxCodes: [], classes: [], customTxnNumbers: null, unreadable: [] },
+      problems: [{ field: 'startDate', message: 'Pick the date QuickBooks sending starts.' }],
+      crmRates: [], vendors: [{ id: 'v1', name: 'Acme Roofing Supply' }], tradeSlugs: [], preview: { invoices: 3, payments: 2, bills: 1 }, today: '2026-11-12',
+    })))
+  } },
+  { name: 'quickbooks-activity', path: '/dev-harness/quickbooks-activity', ready: 'text=QuickBooks activity', mock: async (p) => {
+    await p.route('**/api/admin/quickbooks/activity**', (route) => route.fulfill(json({
+      counts: { sent: 1, waiting: 0, needs_you: 1, skipped: 0, working: 0 },
+      items: [
+        { id: 'a1', state: 'needs_you', title: 'Send invoice 26-0001 for Pat Homeowner', when: '2026-11-11T15:00:00Z', message: 'QuickBooks already has someone named Pat Homeowner who does not match. Rename one of them in QuickBooks, then press Retry.', code: '6240', attempts: 1, nextAttemptAt: null, qbType: null, qbId: null, qbUrl: null, canAct: true },
+        { id: 'a2', state: 'sent', title: 'Send payment for Pat Homeowner', when: '2026-11-11T14:00:00Z', message: null, code: null, attempts: 1, nextAttemptAt: null, qbType: 'Payment', qbId: '9', qbUrl: 'https://app.qbo.intuit.com/app/recvpayment?txnId=9', canAct: false },
+      ],
+    })))
+  } },
   { name: 'quote-page', path: '/dev-harness/quote-page', ready: 'text=Optional extras — tick what you want',
     states: [{ name: 'option-ticked', run: async (p) => { await p.getByText('Driveway pressure wash').click(); await p.waitForTimeout(200) } }] },
   { name: 'quote-page-approved', path: '/dev-harness/quote-page-approved', ready: 'text=Approved — thank you!' },

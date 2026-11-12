@@ -110,6 +110,8 @@ import PortalHomeView from '@/components/portal/PortalHomeView'
 import PortalSignIn from '@/components/portal/PortalSignIn'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import QuickBooksCard from '@/components/admin/QuickBooksCard'
+import QuickBooksMappingCard from '@/components/admin/QuickBooksMappingCard'
+import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import QuoteClient from '@/components/quotes/QuoteClient'
 import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
@@ -624,6 +626,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <PayClient token="harness-pay-token-harness-pay-token-harness" view={{ ...HARNESS_PAY_VIEW, kind: 'save_card', state: 'save_card', invoice: null, cardOnFile: 'Visa •••• 4242' }} returned={false} />
     case 'quickbooks-settings':
       return <div className="mx-auto max-w-2xl p-4"><QuickBooksCard /></div>
+    case 'quickbooks-mapping':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksMappingCard /></div>
+    case 'quickbooks-activity':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksActivityCard /></div>
     case 'online-payments-settings':
       return <div className="mx-auto max-w-2xl p-4"><OnlinePaymentsCard /></div>
     case 'quote-page':
