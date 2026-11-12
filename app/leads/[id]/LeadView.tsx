@@ -697,6 +697,7 @@ export default async function LeadView({
             await sendSetterEmail({
               to: setterTo,
               recipientUserId: effectiveSetterId,
+              orgId: profile.org_id,
               setterName: ownerNameRow?.full_name,
               subject: `🚀 ${freshLead.homeowner_name || 'Customer'} Inspection Set 🚀`,
               introHtml: `<p style="color:#374151;">Your inspection has been scheduled. Here are the details:</p>`,

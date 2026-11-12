@@ -128,7 +128,7 @@ export async function sendCloserBriefingEmail(params: {
   /** When set, email is skipped if this CRM user is disabled. */
   recipientUserId?: string | null
   /** The sending company: a demo company's mail is logged, never sent. */
-  orgId?: string | null
+  orgId: string | null
   closerName: string | null
   customerName: string
   address: string

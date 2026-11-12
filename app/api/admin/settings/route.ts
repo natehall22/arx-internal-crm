@@ -170,9 +170,9 @@ export async function PATCH(request: NextRequest) {
       const parsed = parseOrgFeaturesPatch(data)
       if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
       // A demo company can never switch on QuickBooks or AI changes (lib/demo-org.ts).
-      if (await isDemoOrg(adminClient, profile.org_id)) {
-        const locked = demoLockedFeatureIn(parsed.set)
-        if (locked) return NextResponse.json({ error: demoRefusalText(locked === 'quickbooks' ? 'quickbooks' : 'ai_writes') }, { status: 409 })
+      const locked = demoLockedFeatureIn(parsed.set)
+      if (locked && (await isDemoOrg(adminClient, profile.org_id, { failClosed: true }))) {
+        return NextResponse.json({ error: demoRefusalText(locked === 'quickbooks' ? 'quickbooks' : 'ai_writes') }, { status: 409 })
       }
       const { error } = await mergeOrgSettings(adminClient, profile.org_id, parsed.set, { path: [ORG_FEATURES_SETTINGS_KEY] })
       if (error) return NextResponse.json({ error }, { status: 400 })

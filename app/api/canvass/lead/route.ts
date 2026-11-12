@@ -16,11 +16,10 @@ import {
 } from '@/lib/google-calendar'
 import { hasBufferedConflict, existingBuffersForAppointment } from '@/lib/scheduling-buffer'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
-import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { inspectionLocalWallClockToUtcIso } from '@/lib/inspection-local-wall-clock'
-import { pickValidEmail } from '@/lib/setter-email'
+import { getMailTransport, pickValidEmail } from '@/lib/setter-email'
 import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
@@ -79,17 +78,6 @@ function formatScheduledAppointmentInsertError(dbMessage: string): string {
   return `Could not save the appointment (${dbMessage})`
 }
 
-function getMailTransport(sendingOrgId?: string | null) {
-  return createGuardedTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  }, sendingOrgId)
-}
 
 // Helper to get valid access token (refresh if needed)
 async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {

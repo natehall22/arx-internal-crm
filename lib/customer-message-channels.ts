@@ -33,6 +33,8 @@ export type SendOutcome =
   | { ok: false; permanent: boolean; unknown?: boolean; /** Texts: the carrier says the person already opted out there. */ optedOut?: boolean; error: string }
 
 export type SendOptions = {
+  /** The sending company (required: a demo company's mail is logged, never sent — lib/demo-org-mail.ts). */
+  orgId: string
   /** The company's own sender: its name and email (never a product / other company's fallback). */
   from: { name: string; address: string }
   replyTo: string | null
@@ -92,7 +94,7 @@ export const emailChannel: MessageChannelSender = {
   },
   async send(to, m, opts) {
     try {
-      const info = await getMailTransport().sendMail({
+      const info = await getMailTransport(opts.orgId).sendMail({
         from: opts.from,
         messageId: opts.messageId,
         to,

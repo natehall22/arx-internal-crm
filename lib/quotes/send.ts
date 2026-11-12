@@ -29,7 +29,7 @@ async function send(admin: SupabaseClient, orgId: string, to: string, build: (co
   const m = build(id.company)
   const { html, text } = renderCustomerEmail({ company: id.company, heading: m.heading, paragraphs: m.paragraphs, rows: m.rows, button: m.button, footnote: m.footnote, preheader: m.paragraphs[0] })
   const domain = id.from.address.split('@')[1] ?? 'localhost'
-  const out = await emailChannel.send(addr, { subject: m.subject, html, text, sms: '' }, { from: id.from, replyTo: id.company.email || null, messageId: `<quote-${randomUUID()}@${domain}>`, unsubscribeUrl: null, unsubscribePostUrl: null })
+  const out = await emailChannel.send(addr, { subject: m.subject, html, text, sms: '' }, { orgId, from: id.from, replyTo: id.company.email || null, messageId: `<quote-${randomUUID()}@${domain}>`, unsubscribeUrl: null, unsubscribePostUrl: null })
   return out.ok ? { ok: true } : { ok: false, error: out.error }
 }
 

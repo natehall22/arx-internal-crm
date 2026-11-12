@@ -1,6 +1,6 @@
-import { createGuardedTransport } from '@/lib/demo-org-mail'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { getMailTransport } from '@/lib/setter-email'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { orgAppUrl } from '@/lib/company-links'
 import { sendPushToUserBackground } from '@/lib/push-apns'
@@ -73,12 +73,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
     if (!process.env.SMTP_HOST) return
     const link = `${await orgAppUrl(input.orgId)}${path}`
     const { data: users } = await admin.from('users').select('id, email, full_name').in('id', rows.map((r) => r.userId))
-    const transporter = createGuardedTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    }, input.orgId)
+    const transporter = getMailTransport(input.orgId)
     await Promise.allSettled(
       rows.map((r) => {
         const u = (users ?? []).find((x) => x.id === r.userId)

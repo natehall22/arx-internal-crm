@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { action?: string }
 
   if (body.action === 'connect') {
-    if (await isDemoOrg(a.admin, orgId)) return NextResponse.json({ error: demoRefusalText('quickbooks') }, { status: 409 })
+    if (await isDemoOrg(a.admin, orgId, { failClosed: true })) return NextResponse.json({ error: demoRefusalText('quickbooks') }, { status: 409 })
     const features = await loadOrgFeatures(a.admin, orgId)
     if (!features.quickbooks) return NextResponse.json({ error: 'Turn on QuickBooks in the feature switches first' }, { status: 409 })
     const cfg = quickBooksConfig()

@@ -2,11 +2,10 @@ import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
-import { sendSetterEmail } from '@/lib/setter-email'
+import { getMailTransport, sendSetterEmail } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import {
   fetchOrgAppointmentTypesFromTable,
@@ -173,17 +172,6 @@ async function upsertPendingInspectionPrompt(
   }
 }
 
-function getMailTransport(sendingOrgId?: string | null) {
-  return createGuardedTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  }, sendingOrgId)
-}
 
 export async function POST(request: NextRequest) {
   try {

@@ -236,7 +236,13 @@ export async function loadSendContext(
   const autoOn = (!sms || features.customerMessages) && anyMessageOn(settings, channelId)
   if (purpose === 'auto' && !autoOn) return { ok: false, reason: sms && !features.customerMessages ? 'feature_off' : 'all_off' }
   // A demo company runs the whole pipeline but only logs the message (lib/demo-org.ts).
-  const channel = (await isDemoSenderOrg(admin, orgId)) ? demoSuppressedChannel(channelSender(channelId)) : channelSender(channelId)
+  let demo: boolean
+  try {
+    demo = await isDemoSenderOrg(admin, orgId)
+  } catch {
+    return { ok: false, reason: 'not_ready' } // cannot tell whether this is a demo company: send nothing, record nothing
+  }
+  const channel = demo ? demoSuppressedChannel(channelSender(channelId)) : channelSender(channelId)
   if (!channel.available()) return { ok: false, reason: sms ? 'sms_not_ready' : 'no_email' }
   if (!linkSecret()) return { ok: false, reason: 'no_link_secret' }
   if (!(await customerMessagesReady(admin, orgId))) return { ok: false, reason: 'not_ready' }
@@ -528,6 +534,7 @@ export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent'
   let rendered = built.render(links, prepared)
   if (sms) rendered = await finalizeText(ctx, row, built.to, rendered)
   const out = await ctx.channel.send(built.to, rendered, {
+    orgId: ctx.orgId,
     from: ctx.from,
     replyTo: ctx.replyTo,
     messageId: messageIdFor(ctx, row.id),
@@ -1356,7 +1363,7 @@ export async function sendCustomerReply(
     } catch {
       /* keep localhost */
     }
-    const out = await channel.send(to as string, rendered, { from: id.from, replyTo: ctx.replyTo, messageId: `<cr-${activityId}@${host}>`, unsubscribeUrl: null, unsubscribePostUrl: null })
+    const out = await channel.send(to as string, rendered, { orgId, from: id.from, replyTo: ctx.replyTo, messageId: `<cr-${activityId}@${host}>`, unsubscribeUrl: null, unsubscribePostUrl: null })
     return out.ok ? 'sent' : 'failed'
   } catch (e) {
     console.error('[customer-messages] reply email failed', { orgId, e })

@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   const op = await loadOnlinePayments(a.admin, orgId)
   if (body.action === 'connect') {
     if (!op.featureOn) return NextResponse.json({ error: 'Turn on Online payments in the feature switches first' }, { status: 409 })
-    if (stripeKeyIsLive() && (await isDemoOrg(a.admin, orgId))) return NextResponse.json({ error: demoRefusalText('stripe_live') }, { status: 409 })
+    if (stripeKeyIsLive() && (await isDemoOrg(a.admin, orgId, { failClosed: true }))) return NextResponse.json({ error: demoRefusalText('stripe_live') }, { status: 409 })
     if (!op.configured) return NextResponse.json({ error: 'Online payments are not set up on this server yet (Stripe keys)' }, { status: 503 })
     const base = await orgAppUrl(orgId)
     try {

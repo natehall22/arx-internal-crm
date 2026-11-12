@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getMailTransport } from '@/lib/setter-email'
 import { orgAppUrl } from '@/lib/company-links'
 import { createClient } from '@/lib/supabase/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
-import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { SERVICE_VISIT_TYPE } from '@/lib/service-plans'
 
@@ -243,15 +243,7 @@ export async function POST(
         (await isUserActiveForTransactionalEmail(serviceClient, pmUserId))
       ) {
         try {
-          const transporter = createGuardedTransport({
-            host: process.env.SMTP_HOST,
-            port: parseInt(process.env.SMTP_PORT || '587'),
-            secure: process.env.SMTP_SECURE === 'true',
-            auth: {
-              user: process.env.SMTP_USER,
-              pass: process.env.SMTP_PASS,
-            },
-          }, workOrder.org_id)
+          const transporter = getMailTransport(workOrder.org_id)
 
           const appUrl = await orgAppUrl(workOrder.org_id)
 

@@ -6,10 +6,10 @@
  * becomes a change order through lib/change-orders-remote.ts (the EXISTING change-order system, signed by the customer on
  * the existing signing page). Choosing for the customer in person (office) goes through the same `chooseSelection`.
  */
+import { getMailTransport } from '@/lib/setter-email'
 import { signingTokenOf } from '@/lib/signing-tokens'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
-import { createGuardedTransport } from '@/lib/demo-org-mail'
 
 import { createRemoteChangeOrder } from '@/lib/change-orders-remote'
 import { orgAppUrl } from '@/lib/company-links'
@@ -213,7 +213,7 @@ export async function sendSelection(
     try {
       const brand = await getDocumentBrand(admin, ctx.orgId)
       const mail = buildSelectionRequestEmail({ brand, customerName: ctx.contact.name, item: cur.item as string, link, dueDate: (cur.due_date as string | null) ?? null, repName: ctx.userName || brand.name })
-      const transporter = createGuardedTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: false, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } }, ctx.orgId)
+      const transporter = getMailTransport(ctx.orgId, { secure: false })
       await transporter.sendMail({ from: getCrmEmailFrom(), to: ctx.contact.email, subject: mail.subject, text: mail.text, html: mail.html })
       emailed = true
     } catch (e) {

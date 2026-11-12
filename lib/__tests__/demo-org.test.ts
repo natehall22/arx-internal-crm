@@ -2,8 +2,18 @@
 import { allRecipientsReserved, assertDemoOrg, clearDemoOrgCache, demoLockedFeatureIn, guardReservedRecipients, isDemoOrg, isReservedMailDomain } from '@/lib/demo-org'
 import { demoSuppressedChannel, channelSender } from '@/lib/customer-message-channels'
 
+// serves both reads: the demo list (`.eq('is_demo', true)`) and the one-company read (`.eq('id', …).maybeSingle()`)
 function orgClient(row: Record<string, unknown> | null, error: { message: string; code?: string } | null = null) {
-  return { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row, error }) }) }) }) } as never
+  return {
+    from: () => ({
+      select: () => ({
+        eq: (col: string) =>
+          col === 'is_demo'
+            ? Promise.resolve({ data: error ? null : row?.is_demo === true ? [{ id: 'o1' }] : [], error })
+            : { maybeSingle: async () => ({ data: row, error }) },
+      }),
+    }),
+  } as never
 }
 
 describe('demo org flag', () => {
@@ -82,7 +92,7 @@ describe('demoSuppressedChannel', () => {
 
 describe('mail is decided on the SENDING org', () => {
   const T = 1_000_000
-  const { isDemoSenderOrg, clearDemoSenderCache } = jest.requireActual('@/lib/demo-org') as typeof import('@/lib/demo-org')
+  const { isDemoSenderOrg, clearDemoOrgCache: clearDemoSenderCache, DemoStatusUnknownError, calendarSendUpdates } = jest.requireActual('@/lib/demo-org') as typeof import('@/lib/demo-org')
   type Mode = { ids?: string[]; fail?: boolean; failOne?: boolean }
   const makeClient = (mode: Mode) => {
     const reads = { list: 0, one: 0 }
@@ -145,9 +155,28 @@ describe('mail is decided on the SENDING org', () => {
     expect(await isDemoSenderOrg(down, 'arx', T + 61_000)).toBe(false)
   })
 
-  it('never managed to read the list and cannot check the company: fail closed', async () => {
+  it('status unknown (cold cache, both reads fail): THROWS, so the caller fails normally and nothing is recorded as sent', async () => {
     const down = makeClient({ fail: true, failOne: true }).client
-    expect(await isDemoSenderOrg(down, 'whoever', T)).toBe(true)
+    await expect(isDemoSenderOrg(down, 'whoever', T)).rejects.toBeInstanceOf(DemoStatusUnknownError)
+    const sent: unknown[] = []
+    const t = guardReservedRecipients({ sendMail: async (m: unknown) => (sent.push(m), { messageId: 'real' }) }, () => isDemoSenderOrg(down, 'arx', T))
+    await expect(t.sendMail({ to: 'x@gmail.com', subject: 's' })).rejects.toBeInstanceOf(DemoStatusUnknownError)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('one cache, two answers to an unknown status: settings locks fail closed only when asked, calendar invites go quiet', async () => {
+    const { isDemoOrg } = jest.requireActual('@/lib/demo-org') as typeof import('@/lib/demo-org')
+    const down = makeClient({ fail: true, failOne: true }).client
+    expect(await isDemoOrg(down, 'arx')).toBe(false)
+    clearDemoSenderCache()
+    expect(await isDemoOrg(down, 'arx', { failClosed: true })).toBe(true)
+    clearDemoSenderCache()
+    expect(await calendarSendUpdates(down, 'arx', 'all')).toBe('none')
+    const ok = makeClient({ ids: ['demo1'] }).client
+    clearDemoSenderCache()
+    expect(await calendarSendUpdates(ok, 'demo1', 'all')).toBe('none')
+    expect(await calendarSendUpdates(ok, 'arx', 'all')).toBe('all')
+    expect(await calendarSendUpdates(ok, 'arx', 'none')).toBe('none')
   })
 
   it('no raw nodemailer transport outside the guarded factory; the factory and push use the sending-org check', () => {
@@ -169,22 +198,29 @@ describe('mail is decided on the SENDING org', () => {
     expect(fs.readFileSync('lib/customer-messages-db.ts', 'utf8')).toMatch(/isDemoSenderOrg/)
   })
 
-  it('company-owned send paths pass the sending org to the mail door', () => {
+  it('EVERY getMailTransport call names its org (no allow-list), and only the factories open a transport', () => {
     const fs = require('fs') as typeof import('fs')
-    // every getMailTransport() call outside these public / org-less callers must name the sending org
-    const allowed = new Set(['lib/public-estimate-lead.ts', 'lib/customer-message-channels.ts', 'app/api/trial-signup/route.ts'])
-    const bare: string[] = []
     const path = require('path') as typeof import('path')
+    const bare: string[] = []
+    const raw: string[] = []
     const walk = (d: string) => {
       for (const e of fs.readdirSync(d, { withFileTypes: true })) {
         if (e.name === 'node_modules' || e.name === '.next' || e.name === '__tests__' || e.name.startsWith('.')) continue
         const f = path.join(d, e.name)
         if (e.isDirectory()) walk(f)
-        else if (/\.(ts|tsx)$/.test(e.name) && /getMailTransport\(\)/.test(fs.readFileSync(f, 'utf8')) && !allowed.has(path.relative(process.cwd(), f))) bare.push(path.relative(process.cwd(), f))
+        else if (/\.(ts|tsx)$/.test(e.name)) {
+          const src = fs.readFileSync(f, 'utf8')
+          const rel = path.relative(process.cwd(), f)
+          if (/getMailTransport\(\s*\)/.test(src)) bare.push(rel)
+          if (/createGuardedTransport\(/.test(src) && !['lib/demo-org-mail.ts', 'lib/setter-email.ts'].includes(rel)) raw.push(rel)
+        }
       }
     }
-    for (const d of ['app', 'lib']) walk(d)
+    for (const d of ['app', 'lib', 'components', 'scripts']) if (fs.existsSync(d)) walk(d)
     expect(bare).toEqual([])
+    expect(raw).toEqual([])
+    const channels = fs.readFileSync('lib/customer-message-channels.ts', 'utf8')
+    expect(channels).toMatch(/getMailTransport\(opts\.orgId\)/)
   })
 })
 

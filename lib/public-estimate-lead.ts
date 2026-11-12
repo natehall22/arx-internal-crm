@@ -1,5 +1,5 @@
-import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { orgAppUrl } from '@/lib/company-links'
+import { getMailTransport } from '@/lib/setter-email'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   getPublicEstimateDisclaimerForPath,
@@ -215,17 +215,6 @@ export function buildHomeownerManualDesignEmailContent(options: {
   return { subject, text, html }
 }
 
-function getMailTransport() {
-  return createGuardedTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  })
-}
 
 async function insertLeadWithSchemaFallback(
   adminClient: AdminClient,
@@ -1343,7 +1332,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
         pricePerSquare,
         disclaimer,
       })
-      await getMailTransport().sendMail({
+      await getMailTransport(getPublicEstimateOrgId()).sendMail({
         from: getCrmEmailFrom(),
         to: Array.from(emailRecipients).join(', '),
         subject: alert.subject,
@@ -1589,7 +1578,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
         if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
           throw new Error('SMTP not configured')
         }
-        await getMailTransport().sendMail({
+        await getMailTransport(getPublicEstimateOrgId()).sendMail({
           from: getCrmEmailFrom(),
           to: email,
           subject,

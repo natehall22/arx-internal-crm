@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getMailTransport } from '@/lib/setter-email'
 import { orgAppUrl } from '@/lib/company-links'
 import { timingSafeEqual } from 'node:crypto'
-import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { profileAllowedOnThisDeployment } from '@/lib/auth'
 import { deploymentOrgId } from '@/lib/company-host'
 import { escapeHtml } from '@/lib/html'
@@ -43,17 +43,6 @@ export async function OPTIONS(request: NextRequest) {
 // This endpoint receives leads from external sources (websites, forms, etc.)
 // It can be called with an API key for authentication
 
-function getMailTransport(sendingOrgId?: string | null) {
-  return createGuardedTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  }, sendingOrgId)
-}
 
 type LeadSourceConfig = {
   id: string

@@ -75,6 +75,7 @@ import {
   halfDayStartMinutes,
   installDaysOrDefault,
 } from '@/lib/job-trades'
+import { calendarSendUpdates } from '@/lib/demo-org'
 import { DEFAULT_ORG_TRADES, loadOrgTrades, tradeLabel, type Trade } from '@/lib/org-trades'
 
 /**
@@ -476,7 +477,7 @@ export async function syncInstallToCalendar(
         // A PATCH that switches an all-day event to a timed one (1 day → ½ day)
         // is accepted by Google as long as start and end change together, which
         // `buildInstallEvent` always sends.
-        await updateCalendarEvent(token, eventId, event, calendarId, INSTALL_SEND_UPDATES)
+        await updateCalendarEvent(token, eventId, event, calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
       } catch (e) {
         // The event is gone — somebody deleted it out of Google directly. Without
         // this, the stale id is retried forever and the trade's sync is wedged.
@@ -486,7 +487,7 @@ export async function syncInstallToCalendar(
       }
     }
     if (!eventId) {
-      const created = await createCalendarEvent(token, withoutClearedTimeFields(event), calendarId, INSTALL_SEND_UPDATES)
+      const created = await createCalendarEvent(token, withoutClearedTimeFields(event), calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
       eventId = created?.id ?? null
       if (!eventId) {
         const message = 'Google Calendar accepted the event but returned no id.'
@@ -554,7 +555,7 @@ export async function removeInstallFromCalendar(
         trade.install_calendar_id || defaultCalendarId,
         // The sub is an attendee — cancelling without telling them means a crew
         // drives to a job that is no longer theirs.
-        INSTALL_SEND_UPDATES
+        await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES)
       )
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e)

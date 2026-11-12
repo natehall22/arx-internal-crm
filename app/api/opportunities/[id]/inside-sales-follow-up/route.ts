@@ -1,3 +1,4 @@
+import { calendarSendUpdates } from '@/lib/demo-org'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -350,8 +351,8 @@ async function pushAdjusterMeetingToGoogle(
       getAccessToken: (userId) => getValidAccessToken(adminClient, userId),
       getTimezone: (userId) => getTimezoneForUser(adminClient, userId),
       formatLocal: formatCalendarLocal,
-      createEvent: (token, event, calendarId, sendUpdates) =>
-        createCalendarEvent(token, event, calendarId, sendUpdates),
+      createEvent: async (token, event, calendarId, sendUpdates) =>
+        createCalendarEvent(token, event, calendarId, await calendarSendUpdates(adminClient, orgId, sendUpdates)),
       updateEvent: (token, eventId, event) => updateCalendarEvent(token, eventId, event),
       getUserEmail: async (userId) => {
         const { data } = await adminClient

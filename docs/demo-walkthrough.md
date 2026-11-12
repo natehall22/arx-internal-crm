@@ -21,7 +21,7 @@ Setup before the call: `npm run seed:company -- --demo --apply` (add `--reset` t
 - The company's own words: plans, prices, seasons, fields and trades are all settings, not code.
 - Nothing is lost on a switch: Move from Jobber brings customers, properties, plans and invoice history over.
 - What is NOT in the demo on purpose: QuickBooks (not connected), a live card processor, a real text number, AI changes. Texting and the AI connector exist; here they are test / read-only.
-- Email never leaves the demo: every company-owned send (customer, signing, invoice, supplier order, payroll, alerts) is logged only. Two mail paths take no company and are not reachable from a demo login: the public website estimate (`lib/public-estimate-lead.ts`, a visitor form on the company's public site) and trial sign-up (`app/api/trial-signup/route.ts`, a public marketing form).
+- Email never leaves the demo: every send carries its company, and a demo company's mail (customer, signing, quote, invoice, supplier order, payroll, alerts, the public website estimate) is logged only, as are its Google Calendar invites. The one mail path that belongs to no company is trial sign-up (`app/api/trial-signup/route.ts`, a public marketing form no demo login can reach).
 
 ## Resetting
 `npm run seed:company -- --demo --reset --apply` wipes only the demo company (it refuses any company without the demo flag) and rebuilds it with fresh logins. Without `--apply` it only says what it would do.

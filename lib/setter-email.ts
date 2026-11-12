@@ -5,8 +5,12 @@ import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 export { pickValidEmail } from '@/lib/email-address'
 export { getCrmEmailFrom }
 
-/** `sendingOrgId` = the company the mail is sent for: a demo company's mail is logged, never sent. */
-export function getMailTransport(sendingOrgId?: string | null) {
+/**
+ * THE one way to open an SMTP connection. `sendingOrgId` = the company the mail is sent for (required: a demo company's mail is
+ * logged, never sent); null only for the two public marketing forms that belong to no company. `extra` overrides SMTP options
+ * (daily logs / selections pin `secure: false`; employee agreements add timeouts) — the same values they had before.
+ */
+export function getMailTransport(sendingOrgId: string | null, extra: { secure?: boolean; connectionTimeout?: number; greetingTimeout?: number; socketTimeout?: number } = {}) {
   return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -15,6 +19,7 @@ export function getMailTransport(sendingOrgId?: string | null) {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    ...extra,
   }, sendingOrgId)
 }
 
@@ -28,7 +33,7 @@ export async function sendSetterEmail(params: {
   /** When set, email is skipped if this CRM user is disabled. */
   recipientUserId?: string | null
   /** The sending company (a demo company's mail is logged, never sent). */
-  orgId?: string | null
+  orgId: string | null
   setterName?: string | null
   subject: string
   introHtml: string

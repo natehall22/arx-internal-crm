@@ -22,35 +22,80 @@ export function demoLockedFeatureIn(set: Partial<Record<string, boolean>>): OrgF
 }
 
 const CACHE_MS = 60_000
-const cache = new Map<string, { at: number; demo: boolean }>()
+const demoSet: { at: number; ids: Set<string>; loaded: boolean } = { at: 0, ids: new Set(), loaded: false }
 
 /** Test hook: forget what was read. */
 export function clearDemoOrgCache(): void {
-  cache.clear()
+  demoSet.at = 0
+  demoSet.ids = new Set()
+  demoSet.loaded = false
+}
+
+/** The demo status could not be read (nothing cached, the database failed): nobody can say whether this company is a demo. */
+export class DemoStatusUnknownError extends Error {
+  constructor(orgId: string) {
+    super(`could not tell whether company ${orgId} is a demo company`)
+    this.name = 'DemoStatusUnknownError'
+  }
+}
+
+export type DemoStatus = 'demo' | 'not_demo' | 'unknown'
+
+/**
+ * THE one demo check and its one cache. One read of the (tiny) set of demo companies per 60 s serves every caller in the
+ * process, so a normal company costs no extra query. A failed read keeps the last known set (a demo stays a demo, another
+ * company is unaffected) and retries in 60 s; a process that has never read it falls back to a one-company read; if that fails
+ * too the answer is 'unknown'. A missing column (migration not applied) is 'not_demo'.
+ */
+export async function demoStatusOf(admin: SupabaseClient, orgId: string | null | undefined, now = Date.now()): Promise<DemoStatus> {
+  if (!orgId) return 'not_demo'
+  if (now - demoSet.at > CACHE_MS) {
+    try {
+      const { data, error } = await admin.from('orgs').select('id').eq('is_demo', true)
+      if (error) {
+        if (isMissingColumn(error, 'is_demo')) {
+          demoSet.ids = new Set()
+          demoSet.loaded = true
+        } else console.error('[demo-org] could not list demo companies', error.message)
+      } else {
+        demoSet.ids = new Set(((data as { id: string }[] | null) ?? []).map((r) => r.id))
+        demoSet.loaded = true
+      }
+    } catch (e) {
+      console.error('[demo-org] demo company list failed', e)
+    }
+    demoSet.at = now
+  }
+  if (demoSet.ids.has(orgId)) return 'demo'
+  if (demoSet.loaded) return 'not_demo'
+  try {
+    const { data, error } = await admin.from('orgs').select('is_demo').eq('id', orgId).maybeSingle()
+    if (error) return isMissingColumn(error, 'is_demo') ? 'not_demo' : 'unknown'
+    return (data as { is_demo?: boolean } | null)?.is_demo === true ? 'demo' : 'not_demo'
+  } catch {
+    return 'unknown'
+  }
 }
 
 /**
- * Is this company a demo? Cached 60 s per company. Never throws: a read error or a missing column is "not a demo" (the
- * flag only ever ADDS restrictions; the destructive reset re-reads it itself, uncached, in `assertDemoOrg`).
+ * Is this company a demo? For settings locks. When the status cannot be read: `failClosed` answers true (use it ONLY on the
+ * dangerous switches — QuickBooks, a live Stripe key, a real texting number); the default answers false so ordinary saves
+ * and reads of a normal company never break.
  */
-export async function isDemoOrg(admin: SupabaseClient, orgId: string | null | undefined, now = Date.now()): Promise<boolean> {
-  if (!orgId) return false
-  const hit = cache.get(orgId)
-  if (hit && now - hit.at < CACHE_MS) return hit.demo
-  try {
-    const { data, error } = await admin.from('orgs').select('is_demo').eq('id', orgId).maybeSingle()
-    if (error) {
-      if (!isMissingColumn(error, 'is_demo')) console.error('[demo-org] could not read is_demo', { orgId, error: error.message })
-      cache.set(orgId, { at: now, demo: false })
-      return false
-    }
-    const demo = (data as { is_demo?: boolean } | null)?.is_demo === true
-    cache.set(orgId, { at: now, demo })
-    return demo
-  } catch (e) {
-    console.error('[demo-org] is_demo read failed', e)
-    return false
-  }
+export async function isDemoOrg(admin: SupabaseClient, orgId: string | null | undefined, opts: { failClosed?: boolean } = {}): Promise<boolean> {
+  const st = await demoStatusOf(admin, orgId)
+  return st === 'demo' || (st === 'unknown' && opts.failClosed === true)
+}
+
+/**
+ * Is this the SENDING company a demo? (mail, push, customer messages) Decided on the sending org, never on who the message
+ * is for. THROWS `DemoStatusUnknownError` when the status is unknown so the caller's normal failure handling runs — nothing
+ * is sent and nothing is recorded as sent; only a confirmed demo company gets the log-only "success".
+ */
+export async function isDemoSenderOrg(admin: SupabaseClient, orgId: string | null | undefined, now = Date.now()): Promise<boolean> {
+  const st = await demoStatusOf(admin, orgId, now)
+  if (st === 'unknown') throw new DemoStatusUnknownError(String(orgId))
+  return st === 'demo'
 }
 
 /** Pure: is this Supabase URL a database on this machine (localhost / 127.x / ::1 / *.local / the docker host)? */
@@ -107,49 +152,13 @@ export function allRecipientsReserved(...fields: unknown[]): boolean {
   return clean.length > 0 && clean.every(isReservedMailDomain)
 }
 
-const demoSet: { at: number; ids: Set<string>; loaded: boolean } = { at: 0, ids: new Set(), loaded: false }
-
-/** Test hook. */
-export function clearDemoSenderCache(): void {
-  demoSet.at = 0
-  demoSet.ids = new Set()
-  demoSet.loaded = false
-}
-
 /**
- * Is this the SENDING company a demo? Decided on the sending org, never on who the mail is for. One read of the (tiny) set of
- * demo companies per 60 s serves every send in the process, so a normal company's mail costs no extra query. When that read
- * fails the last known set is used (a demo stays blocked, a normal company is unaffected); only a process that has NEVER
- * managed to read it falls back to a one-company check, and if that fails too, it answers "demo" (fail closed).
+ * Google Calendar's `sendUpdates` for one company: a demo company's invites are never emailed (Google would mail every
+ * attendee). Unknown status also answers 'none' — no invite emails is the safe side, and the event itself is still written.
  */
-export async function isDemoSenderOrg(admin: SupabaseClient, orgId: string | null | undefined, now = Date.now()): Promise<boolean> {
-  if (!orgId) return false
-  if (now - demoSet.at > CACHE_MS) {
-    try {
-      const { data, error } = await admin.from('orgs').select('id').eq('is_demo', true)
-      if (error) {
-        if (isMissingColumn(error, 'is_demo')) {
-          demoSet.ids = new Set()
-          demoSet.loaded = true
-        } else console.error('[demo-org] could not list demo companies', error.message)
-      } else {
-        demoSet.ids = new Set(((data as { id: string }[] | null) ?? []).map((r) => r.id))
-        demoSet.loaded = true
-      }
-    } catch (e) {
-      console.error('[demo-org] demo company list failed', e)
-    }
-    demoSet.at = now // on failure keep the old set, retry in 60 s
-  }
-  if (demoSet.ids.has(orgId)) return true
-  if (demoSet.loaded) return false
-  try {
-    const { data, error } = await admin.from('orgs').select('is_demo').eq('id', orgId).maybeSingle()
-    if (error) return !isMissingColumn(error, 'is_demo')
-    return (data as { is_demo?: boolean } | null)?.is_demo === true
-  } catch {
-    return true
-  }
+export async function calendarSendUpdates<T extends 'all' | 'externalOnly' | 'none'>(admin: SupabaseClient, orgId: string | null | undefined, wanted: T): Promise<T | 'none'> {
+  if (wanted === 'none') return 'none'
+  return (await demoStatusOf(admin, orgId)) === 'not_demo' ? wanted : 'none'
 }
 
 /**

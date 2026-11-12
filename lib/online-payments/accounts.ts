@@ -83,7 +83,7 @@ export async function loadOnlinePayments(admin: SupabaseClient, orgId: string): 
   ])
   const settings = readOnlinePaymentSettings((org as { online?: unknown } | null)?.online ?? {})
   // A demo company never charges through a LIVE key (lib/demo-org.ts): test keys only.
-  const configured = stripeConfigured() && !(stripeKeyIsLive() && (await isDemoOrg(admin, orgId)))
+  const configured = stripeConfigured() && !(stripeKeyIsLive() && (await isDemoOrg(admin, orgId, { failClosed: true })))
   const ready =
     features.onlinePayments && configured && !!account && account.status === 'active' && account.charges_enabled && account.livemode === stripeKeyIsLive()
   return { featureOn: features.onlinePayments, configured, settings, account, ready }

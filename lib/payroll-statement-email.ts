@@ -104,7 +104,7 @@ export async function sendPayrollStatementEmail(input: {
   linkOrg: AppUrlOrg
   attachPdf?: boolean
   /** The paying company: a demo company's mail is logged, never sent. */
-  orgId?: string | null
+  orgId: string | null
 }): Promise<{ statementUrl: string; pdfAttached: boolean }> {
   if (!process.env.SMTP_HOST) {
     throw new Error('SMTP is not configured')

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createGuardedTransport } from '@/lib/demo-org-mail'
+import { getMailTransport } from '@/lib/setter-email'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { escapeHtml } from '@/lib/html'
 
@@ -41,15 +41,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Company name is required' }, { status: 400 })
     }
 
-    const transporter = createGuardedTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    })
+    const transporter = getMailTransport(null)
 
     const subject = `🚀 New Trial Signup: ${companyName}`
 

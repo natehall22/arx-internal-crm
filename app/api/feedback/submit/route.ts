@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createGuardedTransport } from '@/lib/demo-org-mail'
+import { getMailTransport } from '@/lib/setter-email'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveCompanyInboxEmail } from '@/lib/company-recipient'
@@ -52,15 +52,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Your company has no office email set up to receive feedback' }, { status: 503 })
     }
 
-    const transporter = createGuardedTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    }, auth.profile.org_id)
+    const transporter = getMailTransport(auth.profile.org_id)
 
     const isBug = type === 'bug'
     const isUrgent = isBug && severity === 'urgent'
