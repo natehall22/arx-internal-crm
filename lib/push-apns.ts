@@ -220,11 +220,14 @@ export async function sendPushToUser(
 
     const admin = createServiceClient()
     // A demo company never pushes to a real device (logged only).
+    // org-scope-ok: looks up the user's own company from their id, to decide whether the company is a demo
     const { data: owner } = await admin.from('users').select('org_id').eq('id', userId).maybeSingle()
-    if (await isDemoOrg(admin, (owner as { org_id?: string } | null)?.org_id)) {
+    const ownerOrgId = (owner as { org_id?: string } | null)?.org_id ?? null
+    if (await isDemoOrg(admin, ownerOrgId)) {
       console.info('[demo] push for a demo company was not sent', { userId, title })
       return
     }
+    // org-scope-ok: tokens are keyed by the user id; the user's company is not always known here
     const { data: tokens, error } = await admin
       .from('mobile_device_tokens')
       .select('id, device_token, environment')
