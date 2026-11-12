@@ -43,3 +43,9 @@ export function adjustmentsLabel(adjustments: ReadonlyArray<{ kind: string }> | 
   const parts = [hasMin && 'Weekly minimum', hasAdv && 'Advances', hasFix && 'Fixes'].filter(Boolean) as string[]
   return parts.length === 0 ? 'Fixes' : parts.join(' & ')
 }
+
+/** The signed amount the server stores: Add money = +, Take money back = −. Pure. */
+export function signedFixAmount(dir: 'add' | 'take' | null, amount: string): number {
+  const n = Math.abs(Number(amount))
+  return dir === 'take' ? -n : n
+}

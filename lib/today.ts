@@ -16,7 +16,8 @@ import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { SERVICE_VISIT_TYPE, SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
 import { loadVisits } from '@/lib/service-plans-db'
-import { loadUnpaidServiceInvoices } from '@/lib/service-billing-db'
+import { jobsPaidInFull } from '@/lib/job-collection-db'
+import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 
 export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
@@ -269,10 +270,16 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string): Promi
     base().eq('status', 'complete').order('sale_date', { ascending: true }).limit(LIST_CAP),
   ])
   ;[toSchedule, toOrder, awaiting].forEach(ok)
+  // Finished jobs not yet collected: the same paid-in-full rule as everywhere (lib/job-collection.ts), so a job whose money is
+  // all in never sits here even if its status was not moved on. Works for any job-based company, no service-plans needed.
+  const finished = (awaiting.data ?? []) as JobRow[]
+  const paid = await jobsPaidInFull(admin, orgId, finished.map((j) => j.id))
+  const owing = finished.filter((j) => !paid.has(j.id))
+  const owingCount = Math.max(0, (awaiting.count ?? 0) - (finished.length - owing.length))
   return [
     jobQueue('jobs-to-schedule', 'Jobs to schedule', (toSchedule.data ?? []) as JobRow[], toSchedule.count ?? 0, 'Every sold job has an install date.'),
     jobQueue('orders-to-send', 'Orders to send', (toOrder.data ?? []) as JobRow[], toOrder.count ?? 0, 'Materials are ordered on every open job.'),
-    jobQueue('awaiting-payment', 'Finished, waiting on payment', (awaiting.data ?? []) as JobRow[], awaiting.count ?? 0, 'Nothing is waiting on payment.'),
+    jobQueue('awaiting-payment', 'Finished, waiting on payment', owing, owingCount, 'Nothing is waiting on payment.'),
   ]
 }
 
@@ -504,16 +511,17 @@ export async function loadServiceVisitQueues(admin: SupabaseClient, orgId: strin
 }
 
 /**
- * Unpaid service invoices (invoices without a job, lib/service-billing-db.ts): sent, still owing, oldest due first. Id
- * 'unpaid-invoices' = the lawn profile's reserved Today card. `money` adds the amount owed to each line and the title
+ * THE unpaid card (lib/service-billing-db.ts loadUnpaidInvoices): every sent invoice still owing — a job's or a service
+ * customer's, one paid rule (invoicePaidCents) — oldest due first. Replaced 'Finished, waiting on payment' (a job-status
+ * list that also showed paid-up jobs); a finished job never invoiced is on Billing → Ready to bill.
+ * Id 'unpaid-invoices' = the one Today card for money owed. `money` adds the amount owed to each line and the title
  * count; without it (the morning email, anyone without invoice access) a row is the invoice number and how late it is.
  * Email-safe: `ref`/`note` carry no customer name; the on-screen title does. Null-safe before migration 202611110060.
- * Job invoices (roofing / projects) stay on 'Finished, waiting on payment' — one card per kind of money owed.
  */
 export async function loadUnpaidInvoicesQueue(admin: SupabaseClient, orgId: string, now = new Date(), opts: { money?: boolean; cap?: number } = {}): Promise<Queue> {
   const cap = opts.cap ?? LIST_CAP
   const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
-  const loaded = await loadUnpaidServiceInvoices(admin, orgId)
+  const loaded = await loadUnpaidInvoices(admin, orgId)
   const rows = loaded?.rows ?? []
   const dayNumber = (ymd: string) => Math.floor(Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10)) / 86_400_000)
   return {
@@ -527,7 +535,7 @@ export async function loadUnpaidInvoicesQueue(admin: SupabaseClient, orgId: stri
       const late = due ? dayNumber(today) - dayNumber(due) : 0
       const when = !due ? 'no due date' : late > 0 ? `${late} day${late === 1 ? '' : 's'} overdue` : late === 0 ? 'due today' : `due ${formatDateShort(due)}`
       const note = [opts.money ? `${formatCents(r.balanceCents)} owed` : null, when].filter(Boolean).join(' · ')
-      return { id: r.id, title: r.customerName, detail: note, href: `/invoices/${r.id}/print`, ref: `Invoice ${r.invoiceNumber}`, note }
+      return { id: r.id, title: r.customerName, detail: note, href: `/invoices/${r.id}/print`, ref: r.jobNumber ? `Job ${r.jobNumber} · Invoice ${r.invoiceNumber}` : `Invoice ${r.invoiceNumber}`, note }
     }),
   }
 }

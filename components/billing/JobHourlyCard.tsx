@@ -106,7 +106,7 @@ export default function JobHourlyCard({ jobId }: { jobId: string }) {
           {s.rateChoices.length === 0 ? <p className="text-sm">Add a price-book item priced “per hour” (e.g. Grading labor) to use as the rate.</p> : null}
           {s.fromQuote?.lines.length ? <p className="text-sm">Quote: {s.fromQuote.lines.map((l) => `${l.name} ${hoursLabel(l.hours)} h`).join(' · ')}</p> : null}
           {s.canBill ? (
-            <a className="inline-flex min-h-tap items-center self-start font-semibold text-brand-800 underline" href="/ops/schedule?view=hours">
+            <a className="inline-flex min-h-tap items-center self-start font-semibold text-brand-800 underline" href="/billing?view=hours">
               Open Hours to bill
             </a>
           ) : null}

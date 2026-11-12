@@ -450,6 +450,35 @@ async function invoiceForPayment(ctx: HandlerCtx, table: 'production_jobs' | 'jo
   return (await syncInvoice(ctx, inv)).qb
 }
 
+/**
+ * "Undo payment" (lib/job-payment-undo.ts): the office entered a payment by mistake and took it back. The reversal row (key
+ * `undo:<original id>`) carries this event; QuickBooks VOIDS the original Payment (Intuit's `operation=void` on Payment: the
+ * amount goes to 0 and the invoice re-opens) — it is not a refund, so no RefundReceipt. Idempotent: an already-voided Payment
+ * is done. An original that was never sent has nothing to void (and paymentHandler skips it, see `undone`).
+ * UNVERIFIED against Intuit's live API: void semantics and the "Voided" PrivateNote marker (docs/quickbooks-sync.md).
+ */
+const paymentVoided: EventHandler = async (ctx, row) => {
+  if (row.entity_table !== 'job_payments') return badEvent(row)
+  const p = await loadPayment(ctx.admin, ctx.orgId, row.entity_id)
+  if (!p) return needsYou('not_found', 'This payment is no longer in the CRM.')
+  // org-scope-ok: the reversal row was just verified in this company by loadPayment (via its job)
+  const { data } = await ctx.admin.from('job_payments').select('idempotency_key').eq('id', row.entity_id).maybeSingle()
+  const key = String((data as { idempotency_key?: string | null } | null)?.idempotency_key ?? '')
+  if (!key.startsWith('undo:')) return badEvent(row)
+  const originalId = key.slice('undo:'.length)
+  const link = await ctx.links.get('job_payments', originalId, 'Payment')
+  if (!link) return { kind: 'skipped', code: 'not_in_quickbooks', message: 'The payment that was undone was never sent to QuickBooks, so there is nothing to void.' }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const cur = must(await ctx.client.read<QbObject>('Payment', link.qb_id))
+    if (/^Voided/i.test(String(cur.PrivateNote ?? '')) && qbCents(cur.TotalAmt) === 0) return { kind: 'done', qbType: 'Payment', qbId: link.qb_id }
+    const r = await ctx.client.void<QbObject>('Payment', { Id: String(cur.Id), SyncToken: String(cur.SyncToken ?? '0') }, requestIdFor(ctx.orgId, `pay-void:${originalId}`, { st: cur.SyncToken }))
+    if (!r.ok && r.kind === 'stale' && attempt === 0) continue
+    must(r)
+    return { kind: 'done', qbType: 'Payment', qbId: link.qb_id }
+  }
+  return { kind: 'needs_you', code: '5010', message: 'This payment kept changing in QuickBooks while we tried to void it. Press Retry.' }
+}
+
 const paymentHandler = (refund: 'auto' | 'disputed'): EventHandler => async (ctx, row) => {
   if (row.entity_table !== 'job_payments') return badEvent(row)
   const p = await loadPayment(ctx.admin, ctx.orgId, row.entity_id)
@@ -463,6 +492,12 @@ const paymentHandler = (refund: 'auto' | 'disputed'): EventHandler => async (ctx
   const sentAs = isRefund ? 'RefundReceipt' : 'Payment'
   const sent = await ctx.links.get('job_payments', p.id, sentAs)
   if (sent) return { kind: 'done', qbType: sentAs, qbId: sent.qb_id }
+  // Undone before it was ever sent: the office took it back (Undo payment), so it is never created in QuickBooks.
+  if (!isRefund && p.jobId) {
+    // org-scope-ok: p.jobId was verified in this company by loadPayment
+    const { data: undone } = await ctx.admin.from('job_payments').select('id').eq('job_id', p.jobId).eq('idempotency_key', `undo:${p.id}`).maybeSingle()
+    if (undone) return { kind: 'skipped', code: 'undone', message: 'This payment was undone in the CRM before it was sent.' }
+  }
 
   const job = p.jobId ? await loadJob(ctx.admin, ctx.orgId, p.jobId) : null
   const customerRef = await customerRefFor(ctx, { jobId: p.jobId, customerId: p.customerId ?? job?.customerId ?? null })
@@ -564,6 +599,7 @@ export const HANDLERS: Record<string, EventHandler> = {
   'payment.recorded': paymentHandler('auto'),
   'payment.refunded': paymentHandler('auto'),
   'payment.disputed': paymentHandler('disputed'),
+  'payment.voided': paymentVoided,
   'bill.recorded': billRecorded,
   'bill.voided': billVoided,
 }

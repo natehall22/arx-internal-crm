@@ -1,4 +1,3 @@
-import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { roundMoney } from '@/lib/money'
 import { EMPTY_JOB_COST_SUMMARY, jobDirectCost, type JobCostSummary } from '@/lib/job-cost-ledger'
 
@@ -19,6 +18,8 @@ export type JobEconomicsSummary = {
   netProfit: number
   jobsInMonth: number
   jobsMissingCostData: number
+  /** Jobs payroll could not price (no base / nobody credited): LEFT OUT of every total above, never counted as $0 commission. */
+  jobsMissingCommission: number
 }
 
 function money(value: number | string | null | undefined): number {
@@ -39,32 +40,37 @@ function jobDirectCosts(job: JobEconomicsRow, costs: JobCostSummary): number {
   return jobDirectCost(costs, job.dealer_fee_amount)
 }
 
-function jobCommissions(job: JobEconomicsRow): number {
-  const snapshot = buildCommissionPayrollSnapshot({
-    commission_comp_base: money(job.commission_comp_base) || null,
-    commission_pre_tax_subtotal: money(job.commission_pre_tax_subtotal) || null,
-    sale_amount: money(job.sale_amount) || null,
-    dealer_fee_amount: money(job.dealer_fee_amount) || null,
-  })
-  return snapshot.poolCap ?? 0
+/** Commission cost = what payroll paid / computes (lib/job-commission-actual.ts), never the 18% pool cap. Unpriced = 0 and counted. */
+function jobCommissions(job: JobEconomicsRow, commissions: ReadonlyMap<string, { cents: number } | null>): number {
+  const c = commissions.get(job.id)
+  return c ? c.cents / 100 : 0
 }
 
 export function summarizeJobEconomics(
   jobs: JobEconomicsRow[],
-  costsByJob: Map<string, JobCostSummary>
+  costsByJob: Map<string, JobCostSummary>,
+  commissionByJob: ReadonlyMap<string, { cents: number } | null> = new Map()
 ): JobEconomicsSummary {
   let totalSale = 0
   let totalCosts = 0
   let totalCommissions = 0
   let jobsMissingCostData = 0
+  let jobsMissingCommission = 0
 
   for (const job of jobs) {
+    // A job payroll can't price is "missing", not $0 commission: it stays out of the profit totals and is counted.
+    if (!commissionByJob.get(job.id)) {
+      jobsMissingCommission += 1
+      const costsOf = costsByJob.get(job.id) ?? EMPTY_JOB_COST_SUMMARY
+      if (costsOf.lineCount === 0) jobsMissingCostData += 1
+      continue
+    }
     const sale = money(job.sale_amount)
     const costs = costsByJob.get(job.id) ?? EMPTY_JOB_COST_SUMMARY
     if (costs.lineCount === 0) jobsMissingCostData += 1
 
     const direct = jobDirectCosts(job, costs)
-    const commissions = jobCommissions(job)
+    const commissions = jobCommissions(job, commissionByJob)
     totalSale += sale
     totalCosts += direct + commissions
     totalCommissions += commissions
@@ -77,6 +83,7 @@ export function summarizeJobEconomics(
     netProfit: roundMoney(totalSale - totalCosts),
     jobsInMonth: jobs.length,
     jobsMissingCostData,
+    jobsMissingCommission,
   }
 }
 

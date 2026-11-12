@@ -364,8 +364,8 @@ export const HARNESS_LEADS = {
   pagination: { page: 1, limit: 50, total: 2, totalPages: 1, hasMore: false },
 }
 export const HARNESS_PROFIT_ROWS = [
-  { id: 'j1', jobNumber: '26-0041', lastName: 'Gaines', customerName: 'Ashley Gaines', address: '1423 Maple Ridge Dr, Concord NC', saleDate: '2026-10-01', saleAmount: 18400, financeCost: 0, commissionable: 18400, materials: 6100, labor: 4060, misc: 0, totalExpenses: 10160, setter: 920, closer: 1288, sales: 1104, opp: 1656, grossProfit: 5480, grossPercent: 29.78, ownerDraw: 1096, perOwner: 274, netProfit: 4384, netPercent: 23.8, notes: 'Dumpster on the street', status: 'Deposit Received', unreviewed: true },
-  { id: 'j2', jobNumber: '26-0038', lastName: 'Cox', customerName: 'Bill Cox', address: '88 Oak Ave, Kannapolis NC', saleDate: '2026-09-12', saleAmount: 16325, financeCost: 900, commissionable: 15425, materials: 5200, labor: 4060, misc: 200, totalExpenses: 9460, setter: 771, closer: 1080, sales: 925, opp: 1469, grossProfit: 2410, grossPercent: 14.8, ownerDraw: 482, perOwner: 120, netProfit: 1928, netPercent: 11.8, notes: null, status: 'Reconciled & Closed', unreviewed: false },
+  { id: 'j1', jobNumber: '26-0041', lastName: 'Gaines', customerName: 'Ashley Gaines', address: '1423 Maple Ridge Dr, Concord NC', saleDate: '2026-10-01', saleAmount: 18400, financeCost: 0, commissionBase: 18400, materials: 6100, labor: 4060, misc: 0, totalExpenses: 10160, commission: 2760, commissionNote: 'pays next week', grossProfit: 5480, grossPercent: 29.78, notes: 'Dumpster on the street', status: 'Deposit Received', unreviewed: true },
+  { id: 'j2', jobNumber: '26-0038', lastName: 'Cox', customerName: 'Bill Cox', address: '88 Oak Ave, Kannapolis NC', saleDate: '2026-09-12', saleAmount: 16325, financeCost: 900, commissionBase: 16325, materials: 5200, labor: 4060, misc: 200, totalExpenses: 9460, commission: 4100, commissionNote: 'paid', grossProfit: 2765, grossPercent: 16.94, notes: null, status: 'Reconciled & Closed', unreviewed: false },
 ]
 
 export const HARNESS_APPOINTMENTS = {

@@ -132,6 +132,19 @@ export function buildProviderExport(args: {
   return { filename: `${provider}-pay-week-ending-${ymd}.csv`, csv: lines.join('\n') + '\n', people: paid.length, total: week.totals.amount, missing }
 }
 
+/** What the company pays through: a provider's file, or 'csv' = the plain CSV (Other). */
+export type ExportChoice = ExportProvider | 'csv'
+export const EXPORT_CHOICES: ExportChoice[] = ['gusto', 'adp', 'csv']
+
+/** The company's choice (`settings.payrollExport.provider`, owners set it). Null until one is picked: nothing is assumed. Pure; tolerant of anything stored. */
+export function readExportProvider(settings: unknown): ExportChoice | null {
+  const raw = settings && typeof settings === 'object' ? ((settings as Record<string, unknown>)[PAYROLL_EXPORT_SETTINGS_KEY] as Record<string, unknown> | undefined) : undefined
+  const p = raw?.provider
+  return p === 'gusto' || p === 'adp' || p === 'csv' ? p : null
+}
+
+export const EXPORT_PROVIDER_LABEL: Record<ExportChoice, string> = { gusto: 'Gusto', adp: 'ADP', csv: 'Other (CSV)' }
+
 const treatment = (v: unknown, d: AdvanceTreatment): AdvanceTreatment => (v === 'reduce_earnings' || v === 'deduction' ? v : d)
 
 /** The saved export settings, tolerant of anything stored. Pure. */

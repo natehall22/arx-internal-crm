@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { formatCurrency } from '@/lib/job-payments'
 import { PAYMENT_TYPE_LABELS, PAYMENT_METHOD_LABELS } from '@/lib/types/job-payments'
 import { toast } from '@/components/ui/toast'
+import { CUSTOMER_PAYMENT_METHODS, CUSTOMER_PAYMENT_METHOD_LABELS, type CustomerPaymentMethod } from '@/lib/invoice-lines'
 
 interface AvailablePayment {
   id: string
@@ -31,6 +32,13 @@ export default function ApplyPaymentModal({
   const [balance, setBalance] = useState({ total_cents: 0, applied_cents: 0, balance_cents: 0 })
   const [selectedPayment, setSelectedPayment] = useState<string>('')
   const [applyAmount, setApplyAmount] = useState('')
+  // Record a payment received now: the job payment and its application to this invoice in one step (PATCH record_payment).
+  const [recAmount, setRecAmount] = useState('')
+  const [recDay, setRecDay] = useState(new Date().toISOString().split('T')[0])
+  const [recMethod, setRecMethod] = useState<CustomerPaymentMethod>('check')
+  const [recNote, setRecNote] = useState('')
+  const [recKey] = useState(() => Math.random().toString(36).slice(2) + Date.now().toString(36))
+  const [recording, setRecording] = useState(false)
 
   useEffect(() => {
     const loadData = async () => {
@@ -40,6 +48,7 @@ export default function ApplyPaymentModal({
           const data = await response.json()
           setAvailablePayments(data.available_payments || [])
           setBalance(data.balance)
+          setRecAmount(((data.balance?.balance_cents ?? 0) / 100).toFixed(2))
         }
       } catch (error) {
         console.error('Error loading payment data:', error)
@@ -103,6 +112,30 @@ export default function ApplyPaymentModal({
     }
   }
 
+  const handleRecord = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const cents = Math.round(parseFloat(recAmount) * 100)
+    if (!Number.isFinite(cents) || cents <= 0) return toast.error('Enter the amount paid')
+    if (cents > balance.balance_cents) return toast.error(`That is more than the invoice balance of ${formatCurrency(balance.balance_cents)}`)
+    setRecording(true)
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'record_payment', amount_cents: cents, paid_at: recDay, method: recMethod, note: recNote || null, idempotency_key: recKey }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (response.ok) {
+        toast.success('Payment saved')
+        onApplied()
+      } else {
+        toast.error(body.error || 'Could not save the payment')
+      }
+    } finally {
+      setRecording(false)
+    }
+  }
+
   const handleSelectPayment = (paymentId: string) => {
     setSelectedPayment(paymentId)
     const payment = availablePayments.find(p => p.id === paymentId)
@@ -116,7 +149,7 @@ export default function ApplyPaymentModal({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-900">Apply Payment to Invoice</h3>
+          <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
@@ -146,16 +179,39 @@ export default function ApplyPaymentModal({
               </div>
             </div>
 
-            {availablePayments.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <p>No available payments to apply.</p>
-                <p className="text-sm mt-2">Record a payment on this job first.</p>
-              </div>
-            ) : (
+            {balance.balance_cents > 0 ? (
+              <form onSubmit={handleRecord} className="space-y-3 mb-6">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm font-medium text-gray-900">
+                    Amount paid ($)
+                    <input type="text" inputMode="decimal" value={recAmount} onChange={(e) => setRecAmount(e.target.value)} className="mt-1 w-full min-h-[44px] px-3 py-2 border border-gray-300 rounded-lg text-base text-gray-900" required />
+                  </label>
+                  <label className="block text-sm font-medium text-gray-900">
+                    Day paid
+                    <input type="date" value={recDay} onChange={(e) => setRecDay(e.target.value)} className="mt-1 w-full min-h-[44px] px-3 py-2 border border-gray-300 rounded-lg text-base text-gray-900" required />
+                  </label>
+                </div>
+                <label className="block text-sm font-medium text-gray-900">
+                  How paid
+                  <select value={recMethod} onChange={(e) => setRecMethod(e.target.value as CustomerPaymentMethod)} className="mt-1 w-full min-h-[44px] px-3 py-2 border border-gray-300 rounded-lg text-base text-gray-900">
+                    {CUSTOMER_PAYMENT_METHODS.map((m) => <option key={m} value={m}>{CUSTOMER_PAYMENT_METHOD_LABELS[m]}</option>)}
+                  </select>
+                </label>
+                <label className="block text-sm font-medium text-gray-900">
+                  Note (check number…)
+                  <input type="text" value={recNote} maxLength={500} onChange={(e) => setRecNote(e.target.value)} className="mt-1 w-full min-h-[44px] px-3 py-2 border border-gray-300 rounded-lg text-base text-gray-900" />
+                </label>
+                <button type="submit" disabled={recording} className="w-full min-h-[44px] px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
+                  {recording ? 'Saving...' : 'Save payment'}
+                </button>
+              </form>
+            ) : null}
+
+            {availablePayments.length === 0 ? null : (
               <form onSubmit={handleApply} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Payment
+                    Or use money already on the job
                   </label>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {availablePayments.map((payment) => (

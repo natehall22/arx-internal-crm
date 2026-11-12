@@ -11,7 +11,7 @@ const CARDS = [
   'JobTradesCard', 'FinalPhotosCard', 'SupplierOrdersCard', 'MaterialsOrderCard', 'JobMaterialsCard', 'SoldScopeCard', 'JobRoofingBrief',
   'OperationsSnapshotCard', 'JobFileWorkspaceCard', 'JobPaymentsCard', 'JobInvoicesCard', 'JobWorkOrdersCard', 'ChangeOrdersSection',
   'InsuranceCard', 'PayrollAttributionEditor', 'JobDocumentsBanner', 'JobRunSheetRow', 'JobCustomerRow', 'JobTabsBar', 'JobQuickLinks',
-  'SettledExternallyCard', 'JobReadyToPayBanner', 'JobPayrollSentBanner', 'CompleteJobModal',
+  'SettledExternallyCard', 'JobReadyToPayBanner', 'CompleteJobModal',
 ]
 
 describe('job page parity', () => {

@@ -9,6 +9,7 @@ import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import { jobDirectCost, ledgerSummaryFor, loadJobCostLedger, type JobCostLedger } from '@/lib/job-cost-ledger'
+import { COMMISSION_SOURCE_LABEL, jobProfitCents, loadJobCommissions, type JobCommission } from '@/lib/job-commission-actual'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -31,6 +32,7 @@ type JobRow = {
   sale_date: string | null
   completed_at: string | null
   dealer_fee_amount?: number | string | null
+  commission_comp_base?: number | string | null
   internal_notes?: string | null
   allow_close_with_balance?: boolean | null
   close_balance_by?: string | null
@@ -115,6 +117,7 @@ export default async function AdminJobProfitTrackerPage({
         sale_date,
         completed_at,
         dealer_fee_amount,
+        commission_comp_base,
         internal_notes,
         allow_close_with_balance,
         close_balance_by,
@@ -179,17 +182,27 @@ export default async function AdminJobProfitTrackerPage({
   let ledger: JobCostLedger = new Map()
   // Sales tax billed on invoices is owed on top of the sale amount (lib/job-invoice-tax.ts); 0 for most jobs.
   let invoiceTaxByJob = new Map<string, JobInvoiceFacts>()
+  // Commission = what payroll paid, or computes for the job (lib/job-commission-actual.ts) — never a percentage typed here.
+  let commissions = new Map<string, JobCommission>()
+  let commissionError = false
 
   if (jobIds.length > 0) {
-    const [loadedLedger, { data: payments }, loadedInvoiceTax] = await Promise.all([
+    const [loadedLedger, { data: payments }, loadedInvoiceTax, loadedCommissions] = await Promise.all([
       loadJobCostLedger(supabase, profile.org_id, jobIds),
       supabase
         .from('job_payments')
         .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds),
       loadJobInvoiceFacts(supabase, jobIds),
+      loadJobCommissions(supabase, profile.org_id, jobIds).catch((e) => {
+        // Payroll could not price the unpaid jobs: said out loud below, never shown as $0.
+        commissionError = true
+        console.error('job profit tracker: commissions failed', e)
+        return new Map<string, JobCommission>()
+      }),
     ])
     ledger = loadedLedger
+    commissions = loadedCommissions
     invoiceTaxByJob = loadedInvoiceTax
 
     for (const payment of (payments || []) as PaymentLine[]) {
@@ -205,7 +218,8 @@ export default async function AdminJobProfitTrackerPage({
     // A time & materials job's revenue is what it was invoiced (issued invoices, tax out), not its estimate.
     const saleAmount = facts?.timeAndMaterials ? facts.issuedPreTaxCents / 100 : moneyValue(job.sale_amount)
     const financeCost = moneyValue(job.dealer_fee_amount)
-    const commissionableAmount = Math.max(0, saleAmount - financeCost)
+    // The commission base is the stored one (signed contract + change orders, sales tax out; the dealer fee is never deducted).
+    const commissionBase = moneyValue(job.commission_comp_base)
     const costs = ledgerSummaryFor(ledger, job.id)
     const hasUnreviewedCostLines = costs.hasUnreviewed
     const materials = costs.materials
@@ -216,16 +230,10 @@ export default async function AdminJobProfitTrackerPage({
     // one-ledger change it was only subtracted on jobs that happened to carry a mirrored
     // "Lender / dealer fee" cost line, so older financed jobs overstated profit.
     const directCost = jobDirectCost(costs, financeCost)
-    const setterCommission = commissionableAmount * 0.05
-    const closerCommission = commissionableAmount * 0.07
-    const salesCommission = commissionableAmount * 0.06
-    const opp = saleAmount * 0.09
-    const grossProfit = saleAmount - directCost - salesCommission - opp
-    const grossProfitPercent = saleAmount > 0 ? (grossProfit / saleAmount) * 100 : null
-    const ownerDraw = grossProfit * 0.2
-    const ownerDrawPerOwner = ownerDraw / 4
-    const netProfit = grossProfit - ownerDraw
-    const netPercent = saleAmount > 0 ? (netProfit / saleAmount) * 100 : null
+    const commission = commissions.get(job.id) ?? null
+    const profit = jobProfitCents({ saleCents: Math.round(saleAmount * 100), directCostCents: Math.round(directCost * 100), commissionCents: commission?.cents ?? null })
+    const grossProfit = profit ? profit.profitCents / 100 : null
+    const grossProfitPercent = profit?.percent ?? null
     const collected = (collectedCentsByJob.get(job.id) || 0) / 100
     // The one paid-in-full rule (lib/job-collection.ts): sale amount + invoice tax, or — billed by the hour — what was
     // invoiced (tax included), and never paid while hours are still being billed.
@@ -256,21 +264,15 @@ export default async function AdminJobProfitTrackerPage({
       lastName: lastNameFor(customerName),
       saleAmount,
       financeCost,
-      commissionableAmount,
+      commissionBase,
       materials,
       labor,
       misc,
       totalExpenses,
-      setterCommission,
-      closerCommission,
-      salesCommission,
-      opp,
+      commission: commission ? commission.cents / 100 : null,
+      commissionNote: commission ? COMMISSION_SOURCE_LABEL[commission.source] : null,
       grossProfit,
       grossProfitPercent,
-      ownerDraw,
-      ownerDrawPerOwner,
-      netProfit,
-      netPercent,
       collected,
       balance,
       trackerStatus,
@@ -283,12 +285,13 @@ export default async function AdminJobProfitTrackerPage({
       acc.contract += row.saleAmount
       acc.finance += row.financeCost
       acc.expenses += row.totalExpenses
-      acc.gross += row.grossProfit
-      acc.net += row.netProfit
+      if (row.commission == null) acc.unpriced += 1
+      else acc.commission += row.commission
+      if (row.grossProfit != null) acc.gross += row.grossProfit
       acc.balance += row.balance
       return acc
     },
-    { contract: 0, finance: 0, expenses: 0, gross: 0, net: 0, balance: 0 }
+    { contract: 0, finance: 0, expenses: 0, commission: 0, gross: 0, balance: 0, unpriced: 0 }
   )
 
   return (
@@ -305,8 +308,7 @@ export default async function AdminJobProfitTrackerPage({
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Job Profit Tracker</h1>
             <p className="mt-2 max-w-3xl text-sm text-gray-600">
-              Read-only admin view modeled after the ARX Tracker sheet. It uses existing CRM job financials,
-              cost lines, and payments; no Google Sheet data is changed.
+              Read-only. Commission is what payroll paid, or will pay, on each job; costs come from the job cost list.
             </p>
           </div>
 
@@ -387,7 +389,7 @@ export default async function AdminJobProfitTrackerPage({
             { label: 'Finance costs', value: totals.finance, className: 'border-indigo-200 bg-indigo-50 text-indigo-950' },
             { label: 'Expenses', value: totals.expenses, className: 'border-amber-200 bg-amber-50 text-amber-950' },
             { label: sourceFilter === 'call_center' ? 'Call Center Gross Profit' : 'Gross profit', value: totals.gross, className: 'border-emerald-200 bg-emerald-50 text-emerald-950' },
-            { label: 'Net profit', value: totals.net, className: 'border-teal-200 bg-teal-50 text-teal-950' },
+            { label: 'Commission', value: totals.commission, className: 'border-teal-200 bg-teal-50 text-teal-950' },
           ].map((item) => (
             <div key={item.label} className={`rounded-lg border px-4 py-3 shadow-sm ${item.className}`}>
               <div className="text-xs font-medium uppercase tracking-wide opacity-70">{item.label}</div>
@@ -397,6 +399,17 @@ export default async function AdminJobProfitTrackerPage({
             </div>
           ))}
         </div>
+
+        {commissionError && (
+          <p className="mb-4 text-sm font-semibold" style={{ color: '#7f1d1d' }}>
+            Payroll could not be reached, so jobs that are not paid yet show no commission or profit. Try again in a minute.
+          </p>
+        )}
+        {totals.unpriced > 0 && (
+          <p className="mb-4 text-sm text-gray-900">
+            {totals.unpriced} {totals.unpriced === 1 ? 'job is' : 'jobs are'} not priced by payroll yet (no sale price or nobody credited), so {totals.unpriced === 1 ? 'it is' : 'they are'} left out of commission and profit.
+          </p>
+        )}
 
         <JobProfitTable
           rows={rows.map((r) => ({
@@ -409,21 +422,15 @@ export default async function AdminJobProfitTrackerPage({
             saleAmount: r.saleAmount,
             billedSoFar: r.billedSoFar,
             financeCost: r.financeCost,
-            commissionable: r.commissionableAmount,
+            commissionBase: r.commissionBase,
             materials: r.materials,
             labor: r.labor,
             misc: r.misc,
             totalExpenses: r.totalExpenses,
-            setter: r.setterCommission,
-            closer: r.closerCommission,
-            sales: r.salesCommission,
-            opp: r.opp,
+            commission: r.commission,
+            commissionNote: r.commissionNote,
             grossProfit: r.grossProfit,
             grossPercent: r.grossProfitPercent,
-            ownerDraw: r.ownerDraw,
-            perOwner: r.ownerDrawPerOwner,
-            netProfit: r.netProfit,
-            netPercent: r.netPercent,
             notes: r.job.internal_notes ?? null,
             status: r.trackerStatus,
             unreviewed: r.hasUnreviewedCostLines,

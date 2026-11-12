@@ -31,6 +31,7 @@
     "solar-permits:solar-api": "tsx --env-file=.env.local scripts/solar-permits/solar-api-pilot.ts",
     "solar-permits:candidates": "tsx --env-file=.env.local scripts/solar-permits/solar-candidates.ts",
     "solar-permits:ingest-candidates": "tsx --env-file=.env.local scripts/solar-permits/ingest-candidates.ts",
+    "test:money": "bash scripts/test-money.sh",
     "test:mobile": "playwright test",
     "gates": "bash scripts/gates.sh",
     "seed:company": "tsx --env-file=.env.local scripts/seed-company.ts",

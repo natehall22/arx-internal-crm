@@ -6,6 +6,7 @@ import type { BudgetRow, BudgetState, BudgetView } from '@/lib/cost-codes'
 import type { CostCode } from '@/lib/cost-codes'
 import { toast } from '@/components/ui/toast'
 import { ymdLabel } from '@/lib/ymd-label'
+import AddCostSheet from '@/components/ops/AddCostSheet'
 import { api, btnGhost, btnPrimary, Card, inputCls, money, Pill, type Tone } from './ui'
 
 type History = { id: string; cost_code: string; old_amount: number | null; new_amount: number; reason: string | null; changed_at: string; changed_by_name: string | null }
@@ -22,7 +23,7 @@ function pillText(r: Pick<BudgetRow, 'budget' | 'variance' | 'state'>): string {
 /**
  * Budget vs actual by cost code. Budget = what the contractor planned per code (editable, every change kept); actual = the
  * job's cost ledger (the same lines the Financials card uses); variance = budget − actual. Green = under, amber = within 10%
- * of the budget, red = over. "+ Add a cost" writes through the existing cost-lines route with the code.
+ * of the budget, red = over. "+ Add a cost" opens the shared AddCostSheet (the one cost writer) with the code picker.
  */
 export default function BudgetCard({ jobId, onLedgerMutated, canEditCodes }: { jobId: string; onLedgerMutated?: () => void; canEditCodes?: boolean }) {
   const [p, setP] = useState<Payload | null>(null)
@@ -32,7 +33,6 @@ export default function BudgetCard({ jobId, onLedgerMutated, canEditCodes }: { j
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [adding, setAdding] = useState(false)
-  const [cost, setCost] = useState({ code: '', description: '', amount: '' })
   const [showHistory, setShowHistory] = useState(false)
   const [codesOpen, setCodesOpen] = useState(false)
 
@@ -57,18 +57,6 @@ export default function BudgetCard({ jobId, onLedgerMutated, canEditCodes }: { j
     setReason('')
     void load()
   }
-  async function addCost() {
-    if (!cost.code) return toast.error('Pick a cost code')
-    setBusy(true)
-    const r = await api(`/api/ops/jobs/${jobId}/cost-lines`, { method: 'POST', body: JSON.stringify({ cost_code: cost.code, description: cost.description, amount: cost.amount }) })
-    setBusy(false)
-    if (!r.ok) return toast.error(r.data.error || 'Could not add the cost')
-    setCost({ code: cost.code, description: '', amount: '' })
-    setAdding(false)
-    onLedgerMutated?.()
-    void load()
-  }
-
   const labelFor = (code: string) => view.rows.find((r) => r.code === code)?.label ?? codes.find((c) => c.code === code)?.label ?? code
 
   return (
@@ -78,7 +66,7 @@ export default function BudgetCard({ jobId, onLedgerMutated, canEditCodes }: { j
       subtitle="Budget is your plan. Actual is the job’s cost lines."
       action={
         p.canEdit ? (
-          <button type="button" className={btnGhost} onClick={() => setAdding((a) => !a)} aria-expanded={adding}>
+          <button type="button" className={btnGhost} onClick={() => setAdding(true)}>
             + Add a cost
           </button>
         ) : null
@@ -96,21 +84,16 @@ export default function BudgetCard({ jobId, onLedgerMutated, canEditCodes }: { j
       </div>
 
       {adding ? (
-        <div className="mb-3 space-y-2 rounded-lg border border-[#d6d3ca] p-3">
-          <label className="block text-sm font-semibold text-[#2c2c2a]">Cost code
-            <select className={`${inputCls} mt-1`} value={cost.code} onChange={(e) => setCost({ ...cost, code: e.target.value })}>
-              <option value="">Pick one…</option>
-              {codes.filter((c) => c.active).map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm font-semibold text-[#2c2c2a]">What was it?
-            <input className={`${inputCls} mt-1`} value={cost.description} onChange={(e) => setCost({ ...cost, description: e.target.value })} placeholder="Lumber from yard" />
-          </label>
-          <label className="block text-sm font-semibold text-[#2c2c2a]">Amount
-            <input className={`${inputCls} mt-1`} inputMode="decimal" value={cost.amount} onChange={(e) => setCost({ ...cost, amount: e.target.value })} placeholder="0.00" />
-          </label>
-          <button type="button" className={`${btnPrimary} w-full`} disabled={busy} onClick={() => void addCost()}>Add cost</button>
-        </div>
+        <AddCostSheet
+          jobId={jobId}
+          costCodes={codes}
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false)
+            onLedgerMutated?.()
+            void load()
+          }}
+        />
       ) : null}
 
       <ul className="divide-y divide-[#e5e3dc]" data-testid="budget-rows">

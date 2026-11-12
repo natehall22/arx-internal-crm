@@ -10,7 +10,6 @@ import {
   addInvoiceItem,
   updateInvoiceItem,
   deleteInvoiceItem,
-  finalizeAndSendInvoice,
   voidInvoice,
   duplicateInvoiceAsDraft,
   recordCustomerInvoicePayment,
@@ -18,6 +17,7 @@ import {
   type CustomerPaymentMethod,
 } from '@/lib/invoices'
 import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
+import { recordJobInvoicePayment } from '@/lib/job-invoice-payment'
 import { loadInvoiceOnlineSummary } from '@/lib/online-payments/summary'
 import type { JobInvoice } from '@/lib/types/invoices'
 import { defaultTaxRates } from '@/lib/sales-tax'
@@ -50,9 +50,9 @@ export async function GET(
     const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
     // Taxable box on lines only when this company charges sales tax with rates (lib/sales-tax.ts).
     const salesTax = await loadOrgSalesTax(adminClient, profile.org_id)
-    // canMarkPaid: invoices without a job are paid right on the invoice (record_payment); job invoices use job payments.
+    // canMarkPaid: every invoice is paid right on the invoice (record_payment); a job invoice also records the job payment.
     const online = await loadInvoiceOnlineSummary(adminClient, profile.org_id, params.invoiceId)
-    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0, canMarkPaid: !invoiceCheck.job_id, online })
+    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0, canMarkPaid: true, online })
 
   } catch (error) {
     console.error('Error in GET /api/invoices/[invoiceId]:', error)
@@ -147,31 +147,34 @@ export async function PATCH(
 
       case 'send': {
         const { email } = body
-        // An invoice without a job (recurring service) is really emailed to the customer (lib/invoice-email.ts); a job
-        // invoice keeps its original behaviour (marked sent, nothing emailed).
-        if (!invoiceCheck.job_id) {
-          const current = await getInvoiceWithDetails(adminClient, params.invoiceId)
-          if (!current) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-          // With online payments on: a card on file is charged first (autopay) and the email carries a pay link.
-          const sent = await sendCustomerInvoiceOnline(adminClient, profile.org_id, current as JobInvoice, typeof email === 'string' ? email : null, profile.id)
-          if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: sent.status })
-          return NextResponse.json({ success: true, invoice: sent.invoice })
-        }
-        if (!email) {
-          return NextResponse.json({ error: 'email required' }, { status: 400 })
-        }
-        const invoice = await finalizeAndSendInvoice(adminClient, params.invoiceId, email)
+        // Really emailed to the customer (lib/invoice-email.ts, the company's own From), for a job invoice and a service
+        // invoice alike. With online payments on the email carries a pay link (and a card on file is charged first for an
+        // invoice without a job). Email first, status second: a failed send leaves the invoice as it was.
+        const current = await getInvoiceWithDetails(adminClient, params.invoiceId)
+        if (!current) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
+        const sent = await sendCustomerInvoiceOnline(adminClient, profile.org_id, current as JobInvoice, typeof email === 'string' ? email : null, profile.id)
+        if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: sent.status })
         // Issued now: a time & materials job's commission base counts it (drafts don't).
-        await resyncBase()
-        return NextResponse.json({ success: true, invoice })
+        if (invoiceCheck.job_id) await resyncBase()
+        return NextResponse.json({ success: true, invoice: sent.invoice })
       }
 
       case 'record_payment': {
-        // "Mark paid" on an invoice without a job — the one payment writer (a card processor's webhook will use it too).
-        if (invoiceCheck.job_id) {
-          return NextResponse.json({ error: 'Record job payments on the job' }, { status: 400 })
-        }
+        // "Mark paid": a job invoice records the job payment AND applies it here in one step; an invoice without a job uses the customer-invoice writer.
         const { amount_cents, paid_at, method, note } = body
+        if (invoiceCheck.job_id) {
+          const done = await recordJobInvoicePayment(adminClient, profile.org_id, { id: params.invoiceId, job_id: invoiceCheck.job_id, status: invoiceCheck.status }, {
+            amountCents: Number(amount_cents),
+            paidAt: typeof paid_at === 'string' ? paid_at : '',
+            method: ((CUSTOMER_PAYMENT_METHODS as readonly string[]).includes(method) ? method : '') as CustomerPaymentMethod,
+            note: typeof note === 'string' ? note : null,
+            createdBy: profile.id,
+            idempotencyKey: typeof body.idempotency_key === 'string' && body.idempotency_key ? `invoice-pay:${params.invoiceId}:${body.idempotency_key}`.slice(0, 120) : null,
+          })
+          if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status })
+          const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId) // recordJobPayment already re-syncs a time & materials commission base
+          return NextResponse.json({ success: true, invoice })
+        }
         const result = await recordCustomerInvoicePayment(adminClient, profile.org_id, params.invoiceId, {
           amountCents: Number(amount_cents),
           paidAt: typeof paid_at === 'string' ? paid_at : '',

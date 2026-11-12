@@ -24,6 +24,7 @@ import JobClockCard from '@/components/time/JobClockCard'
 import JobHourlyCard from '@/components/billing/JobHourlyCard'
 import { loadJobCatchUpSettings, loadJobCatchUps } from '@/lib/job-catch-up-db'
 import type { JobCatchUpResult } from '@/lib/job-catch-up'
+import { getOrgBrand } from '@/lib/org-brand'
 
 interface PageProps {
   params: { id: string }
@@ -593,6 +594,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
 
   // Industry profile (lib/org-profile.ts): its feature map is the same rule getOrgFeatures used; its words paint first time.
   const orgProfile = await loadOrgProfile(createServiceClient(), profile.org_id)
+  const orgBrand = await getOrgBrand(createServiceClient(), profile.org_id)
 
   // The company's own job fields (Settings → Custom fields). Nothing loads or renders for a company without any.
   let detailsSlot: React.ReactNode = null
@@ -649,6 +651,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
       userRole={profile.role}
       canViewProfitability={canViewJobFinancials}
       canViewReportFinancials={hasFinancials(await resolveEffectivePermissionNames(admin, authUser.id, profile))}
+      companyShortName={orgBrand.shortName || orgBrand.name}
       canDeleteProductionJob={canDeleteProductionJob}
       canEditJobs={canEditJobs}
       canViewJobBilling={canViewJobBilling}

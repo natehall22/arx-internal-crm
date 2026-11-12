@@ -733,7 +733,7 @@ async function queueInvoiceForQuickBooks(supabase: SupabaseClient, invoice: { id
  * Finalize and send an invoice.
  * Sets status to 'sent', records sent_at and email.
  * PDF generation is handled separately via the /api/invoices/[id]/pdf endpoint.
- * Email sending is not implemented here. Issuing queues the invoice for QuickBooks (every-invoice mode; docs/quickbooks-sync.md).
+ * This only ISSUES the invoice (status, dates, who it went to); the email itself is lib/invoice-email.ts (sendCustomerInvoice), which calls this. Issuing queues the invoice for QuickBooks (every-invoice mode; docs/quickbooks-sync.md).
  */
 export async function finalizeAndSendInvoice(
   supabase: SupabaseClient,
@@ -785,8 +785,6 @@ export async function finalizeAndSendInvoice(
     throw new Error(`Failed to send invoice: ${error?.message || 'Unknown error'}`)
   }
 
-  // TODO: Integrate with email service to actually send the invoice
-  console.log(`[STUB] Invoice ${updated.invoice_number} sent to ${email}`)
   await queueInvoiceForQuickBooks(supabase, updated, 'invoice.upserted')
 
   return updated as JobInvoice

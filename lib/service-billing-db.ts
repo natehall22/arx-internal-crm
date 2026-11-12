@@ -12,6 +12,7 @@ import { isUsableCustomerEmail } from '@/lib/invoice-document'
 import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
 import { createServiceInvoiceFromLines } from '@/lib/invoices'
 import { invoicePaidCents } from '@/lib/invoice-lines'
+import { jobCollections } from '@/lib/job-collection-db'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import type { SalesTaxSettings } from '@/lib/sales-tax'
 import {
@@ -341,6 +342,9 @@ export type UnpaidServiceInvoice = {
   invoiceNumber: string
   customerId: string
   customerName: string
+  /** Set on a job invoice (roofing / projects); null on a recurring-service invoice. */
+  jobId: string | null
+  jobNumber: string | null
   dueAt: string | null
   issuedAt: string | null
   balanceCents: number
@@ -351,11 +355,11 @@ export const UNPAID_INVOICES_READ_CAP = 500
 export const UNPAID_INVOICES_MAX_PAGES = 10
 
 /**
- * Invoices without a job (recurring service) that were SENT and still owe money: status sent / partially_paid and a
+ * Invoices (a job's or a recurring-service customer's) that were SENT and still owe money: status sent / partially_paid and a
  * balance above zero by the one paid rule (invoicePaidCents, so paid-before-import counts). Draft and void never count.
  * Oldest due first. Null before migration 202611110060 (no customer invoices exist yet).
  */
-export async function loadUnpaidServiceInvoices(admin: SupabaseClient, orgId: string): Promise<{ rows: UnpaidServiceInvoice[]; capped: boolean } | null> {
+export async function loadUnpaidInvoices(admin: SupabaseClient, orgId: string): Promise<{ rows: UnpaidServiceInvoice[]; capped: boolean } | null> {
   // Page through the sent invoices and keep only those still owing, so settled-but-still-"sent" ones can never push a real
   // one past the read cap. Read at most UNPAID_INVOICES_MAX_PAGES pages; `capped` says there may be more.
   const open: Array<{ i: JobInvoice; balance: number }> = []
@@ -368,7 +372,6 @@ export async function loadUnpaidServiceInvoices(admin: SupabaseClient, orgId: st
     const { data, error } = await orgDb(admin, orgId)
       .from('job_invoices')
       .select('*')
-      .is('job_id', null)
       .in('status', ['sent', 'partially_paid'])
       .order('created_at', { ascending: true })
       .order('id')
@@ -381,20 +384,41 @@ export async function loadUnpaidServiceInvoices(admin: SupabaseClient, orgId: st
     const applied = await loadAppliedCents(admin, invoices.map((i) => i.id))
     for (const i of invoices) {
       const balance = i.total_cents - invoicePaidCents(i, applied.get(i.id) ?? 0)
-      if (balance > 0 && i.customer_id) open.push({ i, balance })
+      if (balance > 0) open.push({ i, balance })
     }
     if (invoices.length < UNPAID_INVOICES_READ_CAP) break
   }
+  // A job invoice is never owed more than its JOB still owes by the one rule (lib/job-collection.ts): money recorded on the job
+  // is often never applied to the invoice, so its own balance reads too high (or open on a collected job). Paid in full -> gone;
+  // otherwise capped at the job's remaining balance. Applies to every user of this list.
+  const collections = await jobCollections(admin, orgId, Array.from(new Set(open.map((x) => x.i.job_id).filter((id): id is string => !!id))))
+  for (let k = open.length - 1; k >= 0; k--) {
+    const c = open[k].i.job_id ? collections.get(open[k].i.job_id as string) : null
+    if (!c || (c.missingSaleAmount && !c.paidInFull)) continue // no sale amount on file: nothing to cap against
+    if (c.paidInFull || c.remainingCents <= 0) open.splice(k, 1)
+    else open[k].balance = Math.min(open[k].balance, c.remainingCents)
+  }
   // Oldest due first, no due date last (sorted here so it never depends on the database's null ordering).
   open.sort((x, y) => (x.i.due_at ?? '9999').localeCompare(y.i.due_at ?? '9999') || x.i.created_at.localeCompare(y.i.created_at))
-  const names = await loadCustomers(admin, orgId, Array.from(new Set(open.map((x) => x.i.customer_id as string))))
+  // A job invoice names its customer through the job (customer_id on the invoice itself is only set without a job).
+  const jobIds = Array.from(new Set(open.map((x) => x.i.job_id).filter((id): id is string => !!id)))
+  const jobFacts = new Map<string, { customerId: string | null; jobNumber: string | null }>()
+  for (const part of chunks(jobIds)) {
+    const { data, error } = await orgDb(admin, orgId).from('production_jobs').select('id, customer_id, job_number').in('id', part)
+    if (error) throw new Error(`billing: read invoice jobs: ${error.message}`)
+    for (const j of (data ?? []) as Array<{ id: string; customer_id: string | null; job_number: string | null }>) jobFacts.set(j.id, { customerId: j.customer_id, jobNumber: j.job_number })
+  }
+  const customerOf = (i: JobInvoice) => (i.job_id ? jobFacts.get(i.job_id)?.customerId : i.customer_id) ?? null
+  const names = await loadCustomers(admin, orgId, Array.from(new Set(open.map((x) => customerOf(x.i)).filter((id): id is string => !!id))))
   return {
     capped,
     rows: open.map(({ i, balance }) => ({
       id: i.id,
       invoiceNumber: i.invoice_number,
-      customerId: i.customer_id as string,
-      customerName: names[i.customer_id as string]?.name ?? 'Customer',
+      customerId: customerOf(i) ?? '',
+      jobId: i.job_id ?? null,
+      jobNumber: i.job_id ? jobFacts.get(i.job_id)?.jobNumber ?? null : null,
+      customerName: names[customerOf(i) ?? '']?.name ?? 'Customer',
       dueAt: i.due_at ?? null,
       issuedAt: i.issued_at ?? null,
       balanceCents: balance,

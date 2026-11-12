@@ -98,6 +98,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Money',
     children: [
       { href: '/my-pay', label: 'My pay', show: (c) => c.permsReady && c.flags.payWeek && c.flags.earnsPay },
+      { href: '/billing', label: 'Billing', show: gated('money:record') },
       { href: '/admin/payroll', label: 'Payroll', show: (c) => c.permsReady && c.flags.isPayrollAdmin },
       // Default-OFF switch: shown only once the features have loaded and say on (never on a missing map).
       { href: '/admin/time', label: 'Time', show: (c) => c.permsReady && c.flags.isPayrollAdmin && c.features?.timeTracking === true },

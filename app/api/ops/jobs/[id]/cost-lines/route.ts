@@ -86,8 +86,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 }
 
 /**
- * POST — the ONE way a cost gets onto a job. Materials card "+ Job Cost" and the Photos & files
- * "+ Add cost line" both call this. (`/api/jobs/[id]/product-orders` was deleted 2026-10-21.)
+ * POST — the ONE way a cost gets onto a job. Materials card "+ Add a cost" (the shared AddCostSheet) and the Photos & files
+ * "+ Add a cost" both call this. (`/api/jobs/[id]/product-orders` was deleted 2026-10-21.)
  *
  * Body: { description, amount, cost_type?, supplier?, credit? }. `credit: true` stores a return
  * or refund as a negative amount; a raw negative amount is still rejected as a likely typo.

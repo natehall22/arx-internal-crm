@@ -65,9 +65,10 @@ export default async function TodayPage() {
   const commissionWaiting = kind === 'owner' ? await loadCommissionChangesWaitingQueue(admin, profile.org_id).catch((e) => { console.error('today: commission changes failed', e); return null }) : null
   // Customer emails switched on but the company's name / email / postal address is missing: nothing goes out (owners fix it).
   const messagesBlocked = kind === 'owner' && orgProfile.features.customerMessages ? await loadCustomerMessagesBlockedQueue(admin, profile.org_id).catch((e) => { console.error('today: customer messages check failed', e); return null }) : null
-  // Unpaid service invoices (servicePlans on): people who invoice (money:record) or see financials; amounts shown to those same people.
-  const invoicesOn = (kind === 'ops' || kind === 'owner') && orgProfile.features.servicePlans && (hasFinancials(perms) || (await canBillService(admin, profile)).bill)
-  const unpaidInvoices = invoicesOn ? await loadUnpaidInvoicesQueue(admin, profile.org_id, new Date(), { money: true }).catch((e) => { console.error('today: unpaid invoices failed', e); return unpaidInvoicesFailedQueue() }) : null
+  // The one unpaid card (job and service invoices): ops / owners see it; amounts only for people who invoice (money:record) or see financials.
+  const invoicesOn = kind === 'ops' || kind === 'owner'
+  const invoiceMoney = invoicesOn && (hasFinancials(perms) || (await canBillService(admin, profile)).bill)
+  const unpaidInvoices = invoicesOn ? await loadUnpaidInvoicesQueue(admin, profile.org_id, new Date(), { money: invoiceMoney }).catch((e) => { console.error('today: unpaid invoices failed', e); return unpaidInvoicesFailedQueue() }) : null
   // QuickBooks connection needs a person (reconnect): owners only, only while the switch is on.
   const quickBooksQueue = kind === 'owner' && orgProfile.features.quickbooks ? await loadQuickBooksNeedsYouQueue(admin, profile.org_id).catch((e) => { console.error('today: quickbooks check failed', e); return null }) : null
   // QuickBooks: records the CRM could not send without a person (Retry / Skip on Settings → QuickBooks).

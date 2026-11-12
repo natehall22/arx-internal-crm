@@ -151,7 +151,7 @@ export async function enqueuePaymentRecorded(
     method: string
     payer: string
   },
-  eventType: 'payment.recorded' | 'payment.refunded' | 'payment.disputed' = 'payment.recorded'
+  eventType: 'payment.recorded' | 'payment.refunded' | 'payment.disputed' | 'payment.voided' = 'payment.recorded'
 ): Promise<void> {
   await enqueueIntegrationEvent(supabase, {
     orgId,
