@@ -75,7 +75,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const loaded = await loadSupplierOrderContext(admin, orgId, params.id)
   if (loaded.ok) {
     const nameOf = (id: string) => loaded.ctx.suppliers.find((s) => s.id === id)?.name ?? 'the supplier'
-    const current = Array.from(new Set(sourcingFor(loaded.ctx).lines.filter((l) => l.trade === trade && l.vendorId).map((l) => l.vendorId as string)))
+    const current = Array.from(new Set(sourcingFor(loaded.ctx).lines.filter((l) => l.trade === trade && l.vendorId && !l.vendorOverrideId && !l.sourceOverride).map((l) => l.vendorId as string)))
     const blocked = [...current, ...(vendorId ? [vendorId] : [])].find((id) => vendorHasLiveOrder(loaded.ctx, id))
     if (blocked) return NextResponse.json({ error: `This order already went to ${nameOf(blocked)} — cancel it first` }, { status: 409 })
   }

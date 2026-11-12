@@ -410,6 +410,20 @@ export type SupplierOrderRecord = {
   receivedAt: string | null
 }
 
+/**
+ * ONE rule for "something may already be at this supplier" (card switch, dropdown, PATCH, rollup, cancel):
+ * a sent PO, or any send attempt that is not 'failed' (sending / unknown / sent-but-unrecorded / a
+ * cancellation). A CANCELLED order is live again only when a non-failed send is newer than the cancellation.
+ */
+export function orderIsLive(order: SupplierOrderRecord, sends: { supplierOrderId: string; status: string; createdAt: string }[]): boolean {
+  const attempts = sends.filter((s) => s.supplierOrderId === order.id && s.status !== 'failed')
+  if (order.status === 'cancelled') {
+    const since = order.lastSentAt ? Date.parse(order.lastSentAt) : NaN
+    return attempts.some((s) => Number.isNaN(since) || Date.parse(s.createdAt) > since)
+  }
+  return order.status === 'sent' || attempts.length > 0
+}
+
 export type SupplierCardState = 'not_sent' | 'sent' | 'changed' | 'needs_cancellation' | 'cancelled'
 
 export function supplierCardState(group: SupplierGroup | null, order: SupplierOrderRecord | null): SupplierCardState {
@@ -439,6 +453,8 @@ export function materialsOrderRollup(args: {
   sourcing: SourcingResult
   orders: SupplierOrderRecord[]
   trades: TradeContext[]
+  /** Send attempts on this job; lets a line-less draft with a live send count as needing a cancellation. */
+  sends?: { supplierOrderId: string; status: string; createdAt: string }[]
 }): MaterialsRollup {
   const parts: RollupPart[] = []
   const orderByVendor = new Map(args.orders.map((o) => [o.vendorId, o]))
@@ -463,7 +479,7 @@ export function materialsOrderRollup(args: {
   }
   const groupVendorIds = new Set(args.sourcing.supplierGroups.map((g) => g.supplier.id))
   for (const o of args.orders) {
-    if (o.status === 'sent' && !groupVendorIds.has(o.vendorId)) {
+    if ((o.status === 'sent' || (o.status === 'draft' && orderIsLive(o, args.sends ?? []))) && !groupVendorIds.has(o.vendorId)) {
       parts.push({ label: `PO ${o.poNumber}`, covered: false, detail: 'Nothing left on this order — email a cancellation' })
     }
   }
@@ -509,6 +525,8 @@ export function decideSend(args: {
   lastSend: LastSend
   now: Date
   timeZone: string
+  /** The order is still a draft but a send attempt that is not 'failed' exists (it may be at the supplier). */
+  draftHasLiveSend?: boolean
 }): SendDecision {
   const { order, now } = args
   const when = (iso: string) => fmtWhen(iso, now, args.timeZone)
@@ -523,6 +541,7 @@ export function decideSend(args: {
   }
 
   if (args.requested === 'cancellation') {
+    if (order && order.status === 'draft' && args.draftHasLiveSend) return { ok: true, kind: 'cancellation', revision: order.revision, confirmMessage: null }
     if (!order || order.status === 'draft') return { ok: false, message: 'This order has not been sent, so there is nothing to cancel.' }
     if (order.status === 'cancelled') {
       return {

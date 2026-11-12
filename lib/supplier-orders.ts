@@ -28,6 +28,7 @@ import {
   installerChangeWarnings,
   isMaterialSource,
   materialsOrderRollup,
+  orderIsLive,
   nextPoLetter,
   nonPoLabel,
   orderSubject,
@@ -392,7 +393,7 @@ export function sourcingFor(ctx: SupplierOrderContext): SourcingResult {
 export function vendorHasLiveOrder(ctx: Pick<SupplierOrderContext, 'orders' | 'sends'>, vendorId: string): boolean {
   const order = ctx.orders.find((o) => o.vendorId === vendorId)
   if (!order) return false
-  return order.status === 'sent' || ctx.sends.some((s) => s.supplierOrderId === order.id && s.status !== 'failed')
+  return orderIsLive(order, ctx.sends)
 }
 
 export type SupplierCard = {
@@ -415,7 +416,7 @@ export type SupplierCard = {
    * `options` = active suppliers with no live order on this job (so a switch never reopens a live PO).
    * A sent order is a cancellation flow, never a switch.
    */
-  supplierPick: { trades: { trade: string; source: MaterialSource | null }[]; options: { id: string; name: string }[] } | null
+  supplierPick: { trades: { trade: string; source: MaterialSource | null; hadOverride: boolean }[]; options: { id: string; name: string }[] } | null
 }
 
 export type SupplierOrdersView = {
@@ -455,12 +456,13 @@ export function defaultDeliveryDate(scheduledDate: string | null, today: Date): 
 
 export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = new Date()): SupplierOrdersView {
   const sourcing = sourcingFor(ctx)
-  const rollup = materialsOrderRollup({ sourcing, orders: ctx.orders, trades: ctx.trades })
+  const rollup = materialsOrderRollup({ sourcing, orders: ctx.orders, trades: ctx.trades, sends: ctx.sends })
   const orderByVendor = new Map(ctx.orders.map((o) => [o.vendorId, o]))
   const supplierById = new Map(ctx.suppliers.map((s) => [s.id, s]))
   const jobCancelled = ctx.jobStatus === 'cancelled'
 
   const tradeSource = new Map(ctx.tradeOverrides.map((t) => [t.trade, t.source]))
+  const tradeVendor = new Map(ctx.tradeOverrides.map((t) => [t.trade, t.vendorId]))
   const pickOptions = ctx.suppliers.filter((s) => s.active && !vendorHasLiveOrder(ctx, s.id)).map((s) => ({ id: s.id, name: s.name }))
   const cards: SupplierCard[] = sourcing.supplierGroups.map((g) => {
     const order = orderByVendor.get(g.supplier.id) ?? null
@@ -483,7 +485,7 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
       lastSentTo: order?.lastSentTo ?? null,
       receivedAt: order?.receivedAt ?? null,
       canCancel: order?.status === 'sent',
-      supplierPick: switchable ? { trades: g.trades.map((trade) => ({ trade, source: tradeSource.get(trade) ?? null })), options: pickOptions } : null,
+      supplierPick: switchable ? { trades: g.trades.map((trade) => ({ trade, source: tradeSource.get(trade) ?? null, hadOverride: !!tradeVendor.get(trade) })), options: pickOptions } : null,
     }
   })
   // POs already sent to a supplier that no longer has any lines (moved, excluded, source changed).
@@ -640,7 +642,8 @@ export function buildSupplierOrderPreview(
 
   const latest = ctx.sends.find((s) => s.supplierOrderId === order?.id && (s.status === 'sent' || s.status === 'unknown')) ?? null
   const lastSend: LastSend = latest ? { status: latest.status as 'sent' | 'unknown', kind: latest.kind, at: latest.sentAt ?? latest.createdAt, to: latest.toEmail } : null
-  const decision = decideSend({ requested: req.requested, order, contentHash, lastSend, now, timeZone: DEFAULT_TIMEZONE })
+  const draftHasLiveSend = !!order && order.status === 'draft' && orderIsLive(order, ctx.sends)
+  const decision = decideSend({ requested: req.requested, order, contentHash, lastSend, now, timeZone: DEFAULT_TIMEZONE, draftHasLiveSend })
   if (!decision.ok) blockers.push(decision.message)
 
   const kind: SendKind = decision.ok ? decision.kind : isCancel ? 'cancellation' : 'order'
@@ -1075,7 +1078,7 @@ export async function executeSupplierOrderSend(
     lastSentAt: sentAt,
     lastSentTo: preview.email.to,
   })
-  const rollup = materialsOrderRollup({ sourcing: sourcingFor(ctx), orders: updatedOrders, trades: ctx.trades })
+  const rollup = materialsOrderRollup({ sourcing: sourcingFor(ctx), orders: updatedOrders, trades: ctx.trades, sends: ctx.sends })
 
   let materialsMarkedOrdered = false
   if (!isCancel && rollup.allCovered && !warning) {
@@ -1117,7 +1120,7 @@ export async function refreshMaterialsOrderedFromSuppliers(
 ): Promise<{ rollup: MaterialsRollup | null; changed: boolean }> {
   const loaded = await loadSupplierOrderContext(admin, orgId, jobId)
   if (!loaded.ok) return { rollup: null, changed: false }
-  const rollup = materialsOrderRollup({ sourcing: sourcingFor(loaded.ctx), orders: loaded.ctx.orders, trades: loaded.ctx.trades })
+  const rollup = materialsOrderRollup({ sourcing: sourcingFor(loaded.ctx), orders: loaded.ctx.orders, trades: loaded.ctx.trades, sends: loaded.ctx.sends })
   if (!rollup.allCovered) return { rollup, changed: false }
   const r = await markMaterialsOrdered({ orgId, jobId })
   return { rollup, changed: r.changed }
@@ -1217,7 +1220,7 @@ function orderFromRow(o: Record<string, unknown>): SupplierOrderRecord {
 
 /** The job's one materials answer, from its supplier orders (stored status only as the fallback). */
 export function materialsStateForContext(ctx: SupplierOrderContext, stored: string | null) {
-  const rollup = materialsOrderRollup({ sourcing: sourcingFor(ctx), orders: ctx.orders, trades: ctx.trades })
+  const rollup = materialsOrderRollup({ sourcing: sourcingFor(ctx), orders: ctx.orders, trades: ctx.trades, sends: ctx.sends })
   return deriveMaterialsState({
     stored,
     suppliers: { rollup, sentOrders: ctx.orders.filter((o) => o.status === 'sent').map((o) => ({ receivedAt: o.receivedAt })) },

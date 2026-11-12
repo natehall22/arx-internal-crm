@@ -19,6 +19,7 @@ jest.mock('@/lib/supplier-orders', () => ({
 import { NextRequest } from 'next/server'
 
 import { PATCH } from '@/app/api/ops/jobs/[id]/supplier-orders/route'
+import { decideSend } from '@/lib/material-sourcing'
 import { buildSupplierOrdersView, vendorHasLiveOrder, type SendRecord, type SupplierOrderContext } from '@/lib/supplier-orders'
 import type { OrderLine, SupplierOrderRecord, SupplierRecord, TradeOverride } from '@/lib/material-sourcing'
 
@@ -83,13 +84,13 @@ describe('which cards offer the switch', () => {
     const view = buildSupplierOrdersView(ctx())
     expect(view.cards).toHaveLength(1)
     expect(view.cards[0].supplierName).toBe('ABC Supply')
-    expect(view.cards[0].supplierPick).toEqual({ trades: [{ trade: 'roofing', source: null }, { trade: 'gutters', source: null }], options: [{ id: 'v-abc', name: 'ABC Supply' }, { id: 'v-qxo', name: 'QXO' }] })
+    expect(view.cards[0].supplierPick).toEqual({ trades: [{ trade: 'roofing', source: null, hadOverride: false }, { trade: 'gutters', source: null, hadOverride: false }], options: [{ id: 'v-abc', name: 'ABC Supply' }, { id: 'v-qxo', name: 'QXO' }] })
     expect(view.suppliers.map((s) => s.name)).toEqual(['ABC Supply', 'QXO'])
   })
 
   it('keeps a trade-level source so the PATCH does not erase it', () => {
     const view = buildSupplierOrdersView(ctx({ tradeOverrides: [{ trade: 'roofing', source: 'supplier', vendorId: null }] }))
-    expect(view.cards[0].supplierPick?.trades).toContainEqual({ trade: 'roofing', source: 'supplier' })
+    expect(view.cards[0].supplierPick?.trades).toContainEqual({ trade: 'roofing', source: 'supplier', hadOverride: false })
   })
 
   it.each([
@@ -105,6 +106,39 @@ describe('which cards offer the switch', () => {
   it('a card holding a line with its own supplier is plain text; the other card still offers it', () => {
     const v = buildSupplierOrdersView(ctx({ lines: [line('shingles', 'roofing', { vendorOverrideId: 'v-qxo' }), line('gutter', 'gutters')] }))
     expect(Object.fromEntries(v.cards.map((c) => [c.supplierName, c.supplierPick !== null]))).toEqual({ QXO: false, 'ABC Supply': true })
+  })
+
+  it('M1: a cancelled order can be re-pointed unless a newer non-failed send exists', () => {
+    const cancelled = order({ status: 'cancelled', lastSentAt: '2026-11-02T10:00:00Z' })
+    const cancelSend = send('sent', { id: 's9', kind: 'cancellation', createdAt: '2026-11-02T09:59:50Z', sentAt: '2026-11-02T10:00:00Z' })
+    const v = buildSupplierOrdersView(ctx({ orders: [cancelled], sends: [send('sent', { createdAt: '2026-11-01T10:00:00Z' }), cancelSend] }))
+    expect(v.cards[0].supplierPick).not.toBeNull()
+    const newer = buildSupplierOrdersView(ctx({ orders: [cancelled], sends: [cancelSend, send('unknown', { id: 's10', createdAt: '2026-11-03T08:00:00Z' })] }))
+    expect(newer.cards[0].supplierPick).toBeNull()
+    const failedNewer = buildSupplierOrdersView(ctx({ orders: [cancelled], sends: [cancelSend, send('failed', { id: 's11', createdAt: '2026-11-03T08:00:00Z' })] }))
+    expect(failedNewer.cards[0].supplierPick).not.toBeNull()
+  })
+
+  it('M2: a cancellation is allowed on a draft with a live send (unknown keeps the second yes)', () => {
+    const base = { requested: 'cancellation' as const, contentHash: 'h', now: new Date('2026-11-03T12:00:00Z'), timeZone: 'America/New_York' }
+    const draft = order({ status: 'draft' })
+    expect(decideSend({ ...base, order: draft, lastSend: null })).toMatchObject({ ok: false })
+    expect(decideSend({ ...base, order: draft, lastSend: null, draftHasLiveSend: true })).toEqual({ ok: true, kind: 'cancellation', revision: 0, confirmMessage: null })
+    const unknown = decideSend({ ...base, order: draft, lastSend: { status: 'unknown', kind: 'order', at: '2026-11-03T11:00:00Z', to: 'a@abc.test' }, draftHasLiveSend: true })
+    expect(unknown).toMatchObject({ ok: true, kind: 'cancellation' })
+    expect((unknown as { confirmMessage: string | null }).confirmMessage).toMatch(/may not have finished/)
+  })
+
+  it('Low 3: a line-less draft with a live send counts in the rollup as needing a cancellation', () => {
+    const live = buildSupplierOrdersView(ctx({ lines: [], orders: [order({ status: 'draft' })], sends: [send('sending')] }))
+    expect(live.rollup.parts).toEqual([expect.objectContaining({ covered: false, detail: expect.stringMatching(/email a cancellation/) })])
+    const dead = buildSupplierOrdersView(ctx({ lines: [], orders: [order({ status: 'draft' })], sends: [send('failed')] }))
+    expect(dead.rollup.parts).toEqual([])
+  })
+
+  it('Low 2: supplierPick says which trades had their own supplier before', () => {
+    const v = buildSupplierOrdersView(ctx({ tradeOverrides: [{ trade: 'roofing', source: null, vendorId: 'v-abc' }] }))
+    expect(v.cards[0].supplierPick?.trades).toEqual([{ trade: 'roofing', source: null, hadOverride: true }, { trade: 'gutters', source: null, hadOverride: false }])
   })
 
   it('H1: a draft whose only send FAILED can switch; any other send attempt blocks it', () => {
@@ -173,6 +207,15 @@ describe('PATCH then regroup', () => {
     expect(res.status).toBe(409)
     // a failed-only send does not block
     loadCtx.mockResolvedValue({ ok: true, ctx: ctx({ orders: [order({})], sends: [send('failed')] }) })
+    expect((await patch({ trade: 'roofing', material_source: null, vendor_id: 'v-qxo' })).status).toBe(200)
+    expect(upserts).toHaveLength(1)
+  })
+
+  it('Low 1: a line with its own supplier does not make the trade look live', async () => {
+    const { admin, upserts } = fakeAdmin({ 'v-qxo': { org_id: 'org' } })
+    createServiceClient.mockReturnValue(admin)
+    loadCtx.mockResolvedValue({ ok: true, ctx: ctx({ lines: [line('shingles', 'roofing', { vendorOverrideId: 'v-qxo' })], orders: [order({})], sends: [send('unknown')] }) })
+    // roofing's only line is bought from QXO by its own override; ABC's live order is about something else.
     expect((await patch({ trade: 'roofing', material_source: null, vendor_id: 'v-qxo' })).status).toBe(200)
     expect(upserts).toHaveLength(1)
   })

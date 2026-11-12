@@ -137,7 +137,7 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
   const switchSupplier = async (card: SupplierCard, vendorId: string) => {
     if (!card.supplierPick || vendorId === card.vendorId) return
     setSwitching(card.vendorId)
-    const patch = async (trade: string, source: string | null, to: string) => {
+    const patch = async (trade: string, source: string | null, to: string | null) => {
       try {
         const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders`, {
           method: 'PATCH',
@@ -151,7 +151,7 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
       }
     }
     try {
-      const done: { trade: string; source: string | null }[] = []
+      const done: { trade: string; source: string | null; hadOverride: boolean }[] = []
       let failed: string | null = null
       for (const t of card.supplierPick.trades) {
         failed = await patch(t.trade, t.source, vendorId)
@@ -161,7 +161,7 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
       if (failed) {
         // Put back what already moved so the card is never split across two suppliers.
         let restored = true
-        for (const t of done) if (await patch(t.trade, t.source, card.vendorId)) restored = false
+        for (const t of done) if (await patch(t.trade, t.source, t.hadOverride ? card.vendorId : null)) restored = false
         setError(restored ? failed : 'Supplier only partly changed — pick again')
       } else {
         setError(null)
