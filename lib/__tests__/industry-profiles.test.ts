@@ -105,7 +105,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
 
   it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing + customer messages on', () => {
     expect(lawn.id).toBe('lawn_landscape')
-    expect(lawn.storedVersion).toBe(4)
+    expect(lawn.storedVersion).toBe(5)
     for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval' || k === 'areaMeasure'])
   })
 
