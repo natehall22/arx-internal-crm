@@ -97,19 +97,80 @@ export function allRecipientsReserved(...fields: unknown[]): boolean {
   return clean.length > 0 && clean.every(isReservedMailDomain)
 }
 
+/** Every address in nodemailer `to`/`cc`/`bcc` fields, lower-cased and bare. */
+export function recipientAddresses(...fields: unknown[]): string[] {
+  const out: string[] = []
+  const walk = (v: unknown) => {
+    if (!v) return
+    if (typeof v === 'string') out.push(...v.split(','))
+    else if (Array.isArray(v)) v.forEach(walk)
+    else if (typeof v === 'object' && typeof (v as { address?: unknown }).address === 'string') out.push((v as { address: string }).address)
+  }
+  fields.forEach(walk)
+  return out.map((s) => s.trim().toLowerCase().replace(/^.*</, '').replace(/>.*$/, '')).filter((a) => a.includes('@'))
+}
+
+const demoIdsCache: { at: number; ids: string[] } = { at: 0, ids: [] }
+
+/** Test hook. */
+export function clearDemoRecipientCache(): void {
+  demoIdsCache.at = 0
+  demoIdsCache.ids = []
+}
+
 /**
- * Wrap a mail transport so mail addressed ONLY to reserved example addresses is logged and dropped (never handed to the
- * mail server). Everything else passes through untouched. Demo companies use only such addresses.
+ * Does ANY of these addresses belong to a person in a demo company (a user, customer or lead stored in a demo org)? This is
+ * how the mail door knows the org without every caller passing it: even a real address typed into a demo customer is found
+ * here, so a demo company never emails anyone for real. Fail-open on a read error (a real company's mail must not stop),
+ * but a missing column / no demo companies is a plain "no".
  */
-export function guardReservedRecipients<T extends { sendMail: (...args: any[]) => any }>(transport: T): T {
+export async function anyRecipientInDemoOrg(admin: SupabaseClient, addresses: string[], now = Date.now()): Promise<boolean> {
+  if (addresses.length === 0) return false
+  try {
+    if (now - demoIdsCache.at > CACHE_MS) {
+      const { data, error } = await admin.from('orgs').select('id').eq('is_demo', true)
+      if (error) {
+        demoIdsCache.ids = []
+        demoIdsCache.at = now
+        if (!isMissingColumn(error, 'is_demo')) console.error('[demo-org] could not list demo companies', error.message)
+        return false
+      }
+      demoIdsCache.ids = ((data as { id: string }[] | null) ?? []).map((r) => r.id)
+      demoIdsCache.at = now
+    }
+    if (demoIdsCache.ids.length === 0) return false
+    for (const table of ['users', 'customers', 'leads']) {
+      const { data, error } = await admin.from(table).select('id').in('org_id', demoIdsCache.ids).in('email', addresses).limit(1)
+      if (!error && (data?.length ?? 0) > 0) return true
+    }
+    return false
+  } catch (e) {
+    console.error('[demo-org] recipient check failed', e)
+    return false
+  }
+}
+
+/**
+ * Wrap a mail transport so mail that belongs to a demo company is logged and dropped (never handed to the mail server):
+ * addressed only to reserved example addresses, OR to any address stored in a demo org (`isDemoRecipient`). Everything else
+ * passes through untouched.
+ */
+export function guardReservedRecipients<T extends { sendMail: (...args: any[]) => any }>(
+  transport: T,
+  isDemoRecipient?: (addresses: string[]) => Promise<boolean>
+): T {
   if (!transport || typeof transport.sendMail !== 'function') return transport
   return new Proxy(transport, {
     get(target, prop, receiver) {
       if (prop !== 'sendMail') return Reflect.get(target, prop, receiver)
-      return (message: Record<string, unknown>, ...rest: unknown[]) => {
-        if (message && allRecipientsReserved(message.to, message.cc, message.bcc)) {
-          console.info('[demo] mail to a reserved example address was not sent', { to: message.to, subject: message.subject })
-          return Promise.resolve({ messageId: `demo-suppressed`, accepted: [], rejected: [], response: 'suppressed (reserved example address)' })
+      return async (message: Record<string, unknown>, ...rest: unknown[]) => {
+        const suppressed =
+          !!message &&
+          (allRecipientsReserved(message.to, message.cc, message.bcc) ||
+            (isDemoRecipient ? await isDemoRecipient(recipientAddresses(message.to, message.cc, message.bcc)) : false))
+        if (suppressed) {
+          console.info('[demo] mail for a demo company was not sent', { to: message.to, subject: message.subject })
+          return { messageId: 'demo-suppressed', accepted: [], rejected: [], response: 'suppressed (demo company)' }
         }
         return target.sendMail(message, ...rest)
       }

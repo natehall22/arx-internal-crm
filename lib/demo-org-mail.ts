@@ -5,8 +5,9 @@
  */
 import nodemailer from 'nodemailer'
 
-import { guardReservedRecipients } from '@/lib/demo-org'
+import { anyRecipientInDemoOrg, guardReservedRecipients } from '@/lib/demo-org'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export function createGuardedTransport(options: Parameters<typeof nodemailer.createTransport>[0]) {
-  return guardReservedRecipients(nodemailer.createTransport(options))
+  return guardReservedRecipients(nodemailer.createTransport(options), (addresses) => anyRecipientInDemoOrg(createServiceClient(), addresses))
 }

@@ -506,27 +506,50 @@ async function quotesStep(ctx: Ctx) {
     const paid = await recordJobPayment(admin, { orgId, jobId: job.id, paidAt: addDaysYmd(ctx.today, -q.daysAgo + 1), amountCents: depositCents, paymentType: 'deposit', method: 'card', payer: 'homeowner', note: 'Sample deposit', createdBy: ownerId })
     if (!paid.ok) throw new Error(paid.error)
     await applyPaymentToInvoice(admin, orgId, inv.id, paid.payment.id, depositCents, ownerId)
-    unwrap(
-      await db.from('quote_approvals').insert({
-        proposal_id: prop.id,
-        opportunity_id: oppId,
-        link_id: link.id,
-        typed_name: c.name,
-        approved_at: sentAt,
-        approved_ip: '203.0.113.10',
-        selected_item_ids: [],
-        snapshot: { proposalNumber: `Q-${String(n).padStart(4, '0')}`, title: q.title, customer: { name: c.name, address: p.address_line1 }, terms: 'Sample terms.', lines: [], declinedIds: [], taxLines: [], taxableCents: 0, legacyTax: false, deposit: { mode: 'percent', percent: 25, cents: depositCents } },
-        subtotal_cents: money(total),
-        discount_cents: 0,
-        tax_cents: 0,
-        total_cents: money(total),
-        deposit_cents: depositCents,
-        job_id: job.id,
-        deposit_invoice_id: inv.id,
-        finalized_at: sentAt,
-      }),
+    const addressText = `${p.address_line1}, ${p.city}, ${p.state} ${p.zip}`
+    const snapLines = q.lines.map((l, i) => ({ id: `demo-${q.key}-${i}`, name: l.name, quantity: l.qty, unit: l.unit, optional: l.optional === true, chosen: !l.optional || l.defaultOn === true, cents: Math.round(l.qty * l.price * 100) }))
+    const approval = unwrap(
+      await db
+        .from('quote_approvals')
+        .insert({
+          proposal_id: prop.id,
+          opportunity_id: oppId,
+          link_id: link.id,
+          typed_name: c.name,
+          approved_at: sentAt,
+          approved_ip: '203.0.113.10',
+          selected_item_ids: [],
+          snapshot: { proposalNumber: `Q-${String(n).padStart(4, '0')}`, title: q.title, customer: { name: c.name, address: addressText }, terms: 'Sample terms (fictional demo company).', lines: snapLines, declinedIds: [], taxLines: [], taxableCents: 0, legacyTax: false, deposit: { mode: 'percent', percent: q.depositPercent ?? 0, cents: depositCents } },
+          subtotal_cents: money(total),
+          discount_cents: 0,
+          tax_cents: 0,
+          total_cents: money(total),
+          deposit_cents: depositCents,
+          job_id: job.id,
+          deposit_invoice_id: inv.id,
+          finalized_at: sentAt,
+        })
+        .select('*')
+        .single(),
       'quote approval'
-    )
+    ) as Row
+    // The signed agreement + its PDF, through the real quote-approval PDF path (a completed contract also counts as a sale
+    // for every report, like a real online approval). A PDF failure is reported, never fatal.
+    const contract = unwrap(
+      await db
+        .from('order_form_contracts')
+        .insert({ agreement_type: 'installation', opportunity_id: oppId, proposal_id: prop.id, customer_name: c.name, customer_email: c.email, customer_phone: c.phone, project_address: addressText, project_cost: money(total) / 100, payment_method: 'other', deposit_amount: depositCents / 100, notes: `Approved online (quote Q-${String(n).padStart(4, '0')}) by ${c.name}.`, status: 'completed', created_by: ownerId, quote_approval_id: approval.id })
+        .select('id')
+        .single(),
+      'approved-quote contract'
+    ) as Row
+    unwrap(await db.from('quote_approvals').update({ contract_id: contract.id }).eq('id', approval.id), 'approval contract link')
+    try {
+      const { storeApprovalPdf } = await import('@/lib/quotes/pdf')
+      await storeApprovalPdf(admin, orgId, { ...(approval as object), contract_id: contract.id } as never, contract.id as string, { name: c.name, address: addressText })
+    } catch (e) {
+      ctx.report.skipped.push(`approved quote PDF not made: ${e instanceof Error ? e.message : String(e)}`)
+    }
   }
   return `${ctx.data.quotes.length} quotes (one sent with optional items, one approved with a paid deposit, one expired)`
 }

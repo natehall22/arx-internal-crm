@@ -79,3 +79,64 @@ describe('demoSuppressedChannel', () => {
     info.mockRestore()
   })
 })
+
+describe('every mail path is suppressed for a demo company, unchanged for others', () => {
+  const { anyRecipientInDemoOrg, clearDemoRecipientCache, recipientAddresses } = jest.requireActual('@/lib/demo-org') as typeof import('@/lib/demo-org')
+  // orgs -> demo ids; users/customers/leads -> rows whose email is in `known` and org is demo
+  const client = (demoIds: string[], known: Record<string, string[]>) =>
+    ({
+      from: (table: string) => {
+        if (table === 'orgs') return { select: () => ({ eq: async () => ({ data: demoIds.map((id) => ({ id })), error: null }) }) }
+        return {
+          select: () => ({
+            in: (_c: string, orgs: string[]) => ({
+              in: (_e: string, emails: string[]) => ({
+                limit: async () => ({ data: emails.some((e) => (known[table] ?? []).includes(e)) && orgs.length ? [{ id: 'x' }] : [], error: null }),
+              }),
+            }),
+          }),
+        }
+      },
+    }) as never
+
+  beforeEach(() => clearDemoRecipientCache())
+
+  it('a real address stored in a demo org is suppressed; the same address elsewhere is not', async () => {
+    const sent: unknown[] = []
+    const info = jest.spyOn(console, 'info').mockImplementation(() => undefined)
+    const demoT = guardReservedRecipients({ sendMail: async (m: unknown) => (sent.push(m), { messageId: 'real' }) }, (a) =>
+      anyRecipientInDemoOrg(client(['demo1'], { customers: ['prospect@gmail.com'] }), a)
+    )
+    expect((await demoT.sendMail({ to: 'Prospect <prospect@gmail.com>', subject: 's' })).messageId).toBe('demo-suppressed')
+    expect(sent).toHaveLength(0)
+    clearDemoRecipientCache()
+    const realT = guardReservedRecipients({ sendMail: async (m: unknown) => (sent.push(m), { messageId: 'real' }) }, (a) =>
+      anyRecipientInDemoOrg(client([], {}), a)
+    )
+    expect((await realT.sendMail({ to: 'prospect@gmail.com', subject: 's' })).messageId).toBe('real')
+    expect(sent).toHaveLength(1)
+    info.mockRestore()
+  })
+
+  it('recipientAddresses normalizes every shape', () => {
+    expect(recipientAddresses('A <a@x.com>, b@y.com', [{ address: 'C@z.com' }], undefined)).toEqual(['a@x.com', 'b@y.com', 'c@z.com'])
+  })
+
+  it('no raw nodemailer transport exists outside the guarded factory, and the factory wires the org check', () => {
+    const fs = require('fs') as typeof import('fs')
+    const path = require('path') as typeof import('path')
+    const hits: string[] = []
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name === '.next' || e.name === '__tests__' || e.name.startsWith('.')) continue
+        const f = path.join(d, e.name)
+        if (e.isDirectory()) walk(f)
+        else if (/\.(ts|tsx)$/.test(e.name) && /nodemailer\.createTransport|\bcreateTransport\(/.test(fs.readFileSync(f, 'utf8'))) hits.push(path.relative(process.cwd(), f))
+      }
+    }
+    for (const d of ['app', 'lib', 'components', 'scripts']) if (fs.existsSync(d)) walk(d)
+    expect(hits).toEqual(['lib/demo-org-mail.ts'])
+    expect(fs.readFileSync('lib/demo-org-mail.ts', 'utf8')).toMatch(/anyRecipientInDemoOrg/)
+    expect(fs.readFileSync('lib/push-apns.ts', 'utf8')).toMatch(/isDemoOrg/)
+  })
+})

@@ -2,6 +2,7 @@ import http2 from 'http2'
 import { SignJWT, importPKCS8 } from 'jose'
 import { waitUntil } from '@vercel/functions'
 import { createServiceClient } from '@/lib/supabase/service'
+import { isDemoOrg } from '@/lib/demo-org'
 
 /**
  * APNs sender for ARX Sales (com.arx.ARX-Sales).
@@ -218,6 +219,12 @@ export async function sendPushToUser(
     if (!jwt) return
 
     const admin = createServiceClient()
+    // A demo company never pushes to a real device (logged only).
+    const { data: owner } = await admin.from('users').select('org_id').eq('id', userId).maybeSingle()
+    if (await isDemoOrg(admin, (owner as { org_id?: string } | null)?.org_id)) {
+      console.info('[demo] push for a demo company was not sent', { userId, title })
+      return
+    }
     const { data: tokens, error } = await admin
       .from('mobile_device_tokens')
       .select('id, device_token, environment')
