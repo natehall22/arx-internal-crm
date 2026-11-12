@@ -1,5 +1,9 @@
 -- Signing engine PR3: send ANY PDF for signature (placed fields, several signers in order, reusable templates, bulk send).
--- Additive only. Apply AFTER 202611200010 (signing engine) and BEFORE the code that uses it. Nothing here touches a contract or change order.
+-- Additive only. Apply AFTER 202611200010 (signing engine).
+-- Order vs the code: apply this BEFORE deploying the PR3 code. It only adds tables and WIDENS one check, so the code already running is unaffected
+-- (it never writes 'signature-request'), while the new /signing screens and /api/signing/requests|templates routes need these tables and would
+-- fail on a missing one. Applying it after the code just leaves those new screens erroring until it lands; nothing existing breaks either way.
+-- Nothing here touches a contract or change order.
 
 -- An envelope can now be about a signature request too.
 ALTER TABLE public.signing_envelopes DROP CONSTRAINT IF EXISTS signing_envelopes_doc_kind_check;
