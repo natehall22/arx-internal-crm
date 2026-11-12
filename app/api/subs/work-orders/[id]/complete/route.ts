@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { SERVICE_VISIT_TYPE } from '@/lib/service-plans'
 
@@ -243,7 +243,7 @@ export async function POST(
         (await isUserActiveForTransactionalEmail(serviceClient, pmUserId))
       ) {
         try {
-          const transporter = nodemailer.createTransport({
+          const transporter = createGuardedTransport({
             host: process.env.SMTP_HOST,
             port: parseInt(process.env.SMTP_PORT || '587'),
             secure: process.env.SMTP_SECURE === 'true',

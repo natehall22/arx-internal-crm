@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
@@ -6,7 +6,7 @@ export { pickValidEmail } from '@/lib/email-address'
 export { getCrmEmailFrom }
 
 export function getMailTransport() {
-  return nodemailer.createTransport({
+  return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     secure: process.env.SMTP_SECURE === 'true',

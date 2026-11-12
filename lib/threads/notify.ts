@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
@@ -73,7 +73,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
     if (!process.env.SMTP_HOST) return
     const link = `${await orgAppUrl(input.orgId)}${path}`
     const { data: users } = await admin.from('users').select('id, email, full_name').in('id', rows.map((r) => r.userId))
-    const transporter = nodemailer.createTransport({
+    const transporter = createGuardedTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',

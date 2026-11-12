@@ -12,7 +12,7 @@ import {
   type SaleCreditChange,
 } from '@/lib/deal-sale-credit'
 import { isSuperAdmin } from '@/lib/super-admin'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildContractReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
@@ -259,7 +259,7 @@ export async function POST(request: NextRequest) {
 
     if (customerEmail) {
       try {
-        const transporter = nodemailer.createTransport({
+        const transporter = createGuardedTransport({
           host: process.env.SMTP_HOST,
           port: Number(process.env.SMTP_PORT || 587),
           secure: false,

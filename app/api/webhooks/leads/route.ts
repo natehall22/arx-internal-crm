@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { orgAppUrl } from '@/lib/company-links'
 import { timingSafeEqual } from 'node:crypto'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { profileAllowedOnThisDeployment } from '@/lib/auth'
 import { deploymentOrgId } from '@/lib/company-host'
 import { escapeHtml } from '@/lib/html'
@@ -44,7 +44,7 @@ export async function OPTIONS(request: NextRequest) {
 // It can be called with an API key for authentication
 
 function getMailTransport() {
-  return nodemailer.createTransport({
+  return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     secure: process.env.SMTP_SECURE === 'true',

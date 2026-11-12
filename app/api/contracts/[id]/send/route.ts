@@ -4,7 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 export async function POST(
@@ -37,7 +37,7 @@ export async function POST(
 
   const signingUrl = `${await orgAppUrl(contract.org_id)}/contracts/${contract.token}`
 
-  const transporter = nodemailer.createTransport({
+  const transporter = createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: false,

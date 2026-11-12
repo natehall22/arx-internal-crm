@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { orgAppUrl } from '@/lib/company-links'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
@@ -216,7 +216,7 @@ export function buildHomeownerManualDesignEmailContent(options: {
 }
 
 function getMailTransport() {
-  return nodemailer.createTransport({
+  return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     secure: process.env.SMTP_SECURE === 'true',

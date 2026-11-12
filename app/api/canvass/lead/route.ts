@@ -16,7 +16,7 @@ import {
 } from '@/lib/google-calendar'
 import { hasBufferedConflict, existingBuffersForAppointment } from '@/lib/scheduling-buffer'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { inspectionLocalWallClockToUtcIso } from '@/lib/inspection-local-wall-clock'
@@ -80,7 +80,7 @@ function formatScheduledAppointmentInsertError(dbMessage: string): string {
 }
 
 function getMailTransport() {
-  return nodemailer.createTransport({
+  return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     secure: process.env.SMTP_SECURE === 'true',

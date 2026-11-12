@@ -2,7 +2,7 @@ import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
@@ -174,7 +174,7 @@ async function upsertPendingInspectionPrompt(
 }
 
 function getMailTransport() {
-  return nodemailer.createTransport({
+  return createGuardedTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     secure: process.env.SMTP_SECURE === 'true',

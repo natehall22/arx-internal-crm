@@ -5,7 +5,7 @@
  * (signed PDF, sale amount + commission base sync). Nothing here changes the job's money: an unsigned change order is not
  * binding, so the sync stays in the signing route.
  */
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgAppUrl } from '@/lib/company-links'
@@ -105,7 +105,7 @@ export async function createRemoteChangeOrder(admin: SupabaseClient, input: Remo
   let emailed = false
   if (input.customerEmail) {
     try {
-      const transporter = nodemailer.createTransport({
+      const transporter = createGuardedTransport({
         host: process.env.SMTP_HOST,
         port: Number(process.env.SMTP_PORT || 587),
         secure: false,

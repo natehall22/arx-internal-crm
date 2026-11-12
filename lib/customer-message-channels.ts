@@ -138,6 +138,23 @@ export const smsChannel: MessageChannelSender = {
 
 const CHANNELS: Record<MessageChannel, MessageChannelSender> = { email: emailChannel, sms: smsChannel }
 
+/**
+ * A DEMO company's channel (lib/demo-org.ts): the same pipeline (claim, caps, quiet hours, the send log) runs, but the
+ * message is only LOGGED — nothing is mailed or texted, so the log screens fill in like a real company's. Always
+ * "available" (a demo copy needs no mail server or carrier).
+ */
+export function demoSuppressedChannel(base: MessageChannelSender): MessageChannelSender {
+  return {
+    channel: base.channel,
+    available: () => true,
+    addressFor: (r) => base.addressFor(r),
+    async send(to, m, opts) {
+      console.info('[demo] suppressed outbound message', { channel: base.channel, to, subject: m.subject, messageId: opts.messageId })
+      return { ok: true, providerId: `demo-suppressed:${opts.messageId}`, ...(base.channel === 'sms' ? { segments: countSegments(m.sms).segments, costMicros: 0 } : {}) }
+    },
+  }
+}
+
 export function channelSender(c: MessageChannel): MessageChannelSender {
   return CHANNELS[c]
 }

@@ -22,7 +22,8 @@ import { createHash, createHmac } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { tryOrgAppUrl } from '@/lib/company-links'
-import { channelSender, normalizeEmail, type MessageChannelSender } from '@/lib/customer-message-channels'
+import { isDemoOrg } from '@/lib/demo-org'
+import { demoSuppressedChannel, channelSender, normalizeEmail, type MessageChannelSender } from '@/lib/customer-message-channels'
 import { suppressAddress, suppressionOf, type SuppressionReason } from '@/lib/customer-message-suppressions'
 import { smsWords } from '@/lib/sms/compliance'
 import { recordConsent } from '@/lib/sms/consent'
@@ -234,7 +235,8 @@ export async function loadSendContext(
   const settings = messageSettingsOf(o.settings)
   const autoOn = (!sms || features.customerMessages) && anyMessageOn(settings, channelId)
   if (purpose === 'auto' && !autoOn) return { ok: false, reason: sms && !features.customerMessages ? 'feature_off' : 'all_off' }
-  const channel = channelSender(channelId)
+  // A demo company runs the whole pipeline but only logs the message (lib/demo-org.ts).
+  const channel = (await isDemoOrg(admin, orgId)) ? demoSuppressedChannel(channelSender(channelId)) : channelSender(channelId)
   if (!channel.available()) return { ok: false, reason: sms ? 'sms_not_ready' : 'no_email' }
   if (!linkSecret()) return { ok: false, reason: 'no_link_secret' }
   if (!(await customerMessagesReady(admin, orgId))) return { ok: false, reason: 'not_ready' }

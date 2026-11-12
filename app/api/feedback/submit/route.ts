@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveCompanyInboxEmail } from '@/lib/company-recipient'
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Your company has no office email set up to receive feedback' }, { status: 503 })
     }
 
-    const transporter = nodemailer.createTransport({
+    const transporter = createGuardedTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587'),
       secure: process.env.SMTP_SECURE === 'true',

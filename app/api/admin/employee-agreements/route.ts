@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'crypto'
 import { orgAppUrl } from '@/lib/company-links'
 import { getOrgBrand } from '@/lib/org-brand'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
@@ -39,7 +39,7 @@ function errorResponse(error: unknown) {
 async function sendAgreementEmail(input: { to: string; name: string; roleName: string; effectiveDate: string; token: string; appUrl: string; companyName: string }) {
   if (!process.env.SMTP_HOST) throw new Error('smtp_not_configured')
   const url = `${input.appUrl}/comp-agreements/sign/${input.token}`
-  const transport = nodemailer.createTransport({
+  const transport = createGuardedTransport({
     host: process.env.SMTP_HOST, port: parseInt(process.env.SMTP_PORT || '587', 10), secure: process.env.SMTP_SECURE === 'true',
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }, connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 60_000,
   })

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { customerSignedDocLinkForPage, customerSignedDocUrl } from '@/lib/files/files-object'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildContractSignedEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
@@ -126,7 +126,7 @@ async function sendEmail(
   html: string
 ): Promise<boolean> {
   try {
-    const transporter = nodemailer.createTransport({
+    const transporter = createGuardedTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT || 587),
       secure: false,

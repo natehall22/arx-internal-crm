@@ -6,7 +6,7 @@
  * job has coordinates (best effort, 4 s, never blocks the log).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 
 import { buildDailyLogSummaryEmail } from '@/lib/contracts/customer-emails'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
@@ -101,7 +101,7 @@ export async function sendDailyLogSummary(admin: SupabaseClient, args: { orgId: 
   const dateLabel = ymdLabel(log.log_date, { long: true })
   const mail = buildDailyLogSummaryEmail({ brand, customerName: contact.name, dateLabel, address: contact.address, note: log.note || 'Work continued on your project today.', weather: log.weather, photoCount: (log.photo_ids ?? []).length, repName: args.senderName || brand.name })
   try {
-    const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: false, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } })
+    const transporter = createGuardedTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: false, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } })
     await transporter.sendMail({ from: getCrmEmailFrom(), to: contact.email, subject: mail.subject, text: mail.text, html: mail.html })
   } catch (e) {
     console.error('[daily log] summary email failed', e)

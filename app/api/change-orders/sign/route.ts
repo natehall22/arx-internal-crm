@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
-import nodemailer from 'nodemailer'
+import { createGuardedTransport } from '@/lib/demo-org-mail'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildChangeOrderSignedEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
 
     if (changeOrder.customer_email) {
       try {
-        const transporter = nodemailer.createTransport({
+        const transporter = createGuardedTransport({
           host: process.env.SMTP_HOST,
           port: Number(process.env.SMTP_PORT || 587),
           secure: false,
