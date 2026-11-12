@@ -102,6 +102,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Customers sign in with a link emailed to them and see their own visits, invoices, quotes, shared documents and plan, pay, and message you. Nothing internal is ever shown.',
     defaultOn: false,
   },
+  areaMeasure: {
+    label: 'Measure yard (lawn & bed areas)',
+    description: 'Draw lawns, beds, cut-outs and edging on the satellite photo of a property to get square feet, acres, feet of edging and an estimate of mulch or pine straw. Saved to the customer or lead with the older measurements kept.',
+    defaultOn: false,
+  },
   quoteApproval: {
     label: 'Online quote approval',
     description: 'Send customers a quote link: they tick the optional items, watch the total and tax update, approve with their name, and pay a deposit by card. An approved quote becomes the signed sale.',

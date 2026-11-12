@@ -2,6 +2,7 @@ import CustomFieldsCard from '@/components/custom-fields/CustomFieldsCard'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import CustomerDocumentsCard from '@/components/customer-file/CustomerDocumentsCard'
 import PropertiesCard from '@/components/customer-file/PropertiesCard'
+import YardMeasureCard from '@/components/area-measure/YardMeasureCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import { loadCustomerDocuments } from '@/lib/customer-documents'
@@ -12,7 +13,7 @@ import { createServiceClient } from '@/lib/supabase/service'
  * A customer's own records on the Customer File (server components; data from lib/customer-file/customer-extras.ts).
  * Every card renders nothing — or one small "add" link for people who may edit — when the company doesn't use it.
  */
-export function CustomerRecords({ customerId, extras }: { customerId: string; extras: CustomerExtras }) {
+export function CustomerRecords({ customerId, extras, opportunityId }: { customerId: string; extras: CustomerExtras; opportunityId?: string | null }) {
   return (
     <>
       <CustomFieldsCard entity="customer" recordId={customerId} definitions={extras.customerFields} initialValues={extras.customerValues} canEdit={extras.access.edit} title="Customer details" />
@@ -24,6 +25,9 @@ export function CustomerRecords({ customerId, extras }: { customerId: string; ex
         accessNotes={extras.access.accessNotes}
         propertyFields={extras.propertyFields}
       />
+      {extras.areaMeasure ? (
+        <YardMeasureCard customerId={customerId} opportunityId={opportunityId} rows={extras.areaMeasure.rows} properties={extras.propertyOptions} canMeasure={extras.areaMeasure.canMeasure} />
+      ) : null}
       {extras.servicePlans ? <ServicePlansCard customerId={customerId} /> : null}
       {/* Service invoices (no job): only billing staff see it — the card hides itself on 403 (lib/service-billing-access.ts). */}
       {extras.servicePlans ? <CustomerInvoicesCard customerId={customerId} /> : null}

@@ -65,6 +65,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('quickbooks' in set || remove.includes('quickbooks'))) return { error: 'quickbooks is saved at path [quickbooks]' }
   // Quote approval (deposit default, link life, terms) is only ever written at path ['quoteApproval'] (owners, /api/admin/quote-approval).
   if (path.length === 0 && ('quoteApproval' in set || remove.includes('quoteApproval'))) return { error: 'quoteApproval is saved at path [quoteApproval]' }
+  // Measure yard materials settings (mulch depth, pine straw coverage) are only ever written at path ['areaMeasure'] (owners, /api/area-measure/settings).
+  if (path.length === 0 && ('areaMeasure' in set || remove.includes('areaMeasure'))) return { error: 'areaMeasure is saved at path [areaMeasure]' }
   // Signing choices (consent step, reminders, copies) are only ever written at path ['signing'] (owners, /api/admin/signing).
   if (path.length === 0 && ('signing' in set || remove.includes('signing'))) return { error: 'signing is saved at path [signing]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }

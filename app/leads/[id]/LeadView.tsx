@@ -11,6 +11,7 @@ import LeadReferralInfo from '@/components/LeadReferralInfo'
 import DeleteLeadButton from '@/components/DeleteLeadButton'
 import CreateOpportunityFromLeadButton from '@/components/leads/CreateOpportunityFromLeadButton'
 import LocationMap from '@/components/LocationMap'
+import LeadYardMeasure from '@/components/area-measure/LeadYardMeasure'
 import { 
   createCalendarEvent, 
   deleteCalendarEvent, 
@@ -887,6 +888,9 @@ export default async function LeadView({
             </div>
           )}
         </div>
+
+        {/* Yard measurement: lawn & landscape companies only (renders nothing otherwise). */}
+        <LeadYardMeasure profile={profile as never} leadId={params.id} />
 
         {/* Referral Info - shows if source is referral */}
         <div className="mb-6">

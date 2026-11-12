@@ -62,6 +62,69 @@ async function mockJob0037(page: Page) {
   await page.route('**/api/ops/jobs/*/run-sheet/email', (route) => route.fulfill(json({ recipients: [{ email: 'sparky@example.test', name: 'Sparky Roofing LLC' }] })))
 }
 
+/**
+ * Measure yard: Google Maps is replaced by a tiny stand-in served for the maps script. A click on the map div is a tap
+ * (1 px = 0.000001 degree); computeArea / computeLength are planar maths on the same numbers, so areas are checkable.
+ * Markers are listed on window.__yardMarkers so a test can "drag" one.
+ */
+const YARD_MAPS_STUB = `(function () {
+  class LatLng { constructor(a, b) { this._a = a; this._b = b } lat() { return this._a } lng() { return this._b } }
+  const ll = (p) => (p instanceof LatLng ? p : new LatLng(p.lat, p.lng))
+  class Base { constructor(o) { this.o = o || {}; this.l = {} } addListener(n, f) { (this.l[n] = this.l[n] || []).push(f); return { remove() {} } } emit(n, e) { (this.l[n] || []).forEach((f) => f(e)) } setMap(m) { this.map = m } }
+  class Map extends Base {
+    constructor(div, o) { super(o); this.c = ll(o.center); div.style.background = '#556b2f'; const self = this
+      div.addEventListener('click', (ev) => { const r = div.getBoundingClientRect(); const dx = ev.clientX - r.left - r.width / 2; const dy = ev.clientY - r.top - r.height / 2
+        self.emit('click', { latLng: new LatLng(self.c.lat() - dy * 1e-6, self.c.lng() + dx * 1e-6) }) }) }
+    getCenter() { return this.c } setCenter(c) { this.c = ll(c) } setZoom() {} fitBounds() {}
+  }
+  class Marker extends Base { constructor(o) { super(o); this.map = o.map; window.__yardMarkers = window.__yardMarkers || []; window.__yardMarkers.push(this) } setMap(m) { this.map = m; if (!m) window.__yardMarkers = (window.__yardMarkers || []).filter((x) => x !== this) } }
+  class Poly extends Base {}
+  class Bounds { extend() {} }
+  class Geocoder { geocode(req, cb) { cb([{ geometry: { location: new LatLng(30.2, -84.3) } }], 'OK') } }
+  const M = 111320
+  const xy = (p) => { const q = ll(p); return [q.lng() * M * Math.cos((q.lat() * Math.PI) / 180), q.lat() * M] }
+  window.google = { maps: { Map, Marker, Polygon: Poly, Polyline: Poly, LatLng, LatLngBounds: Bounds, Geocoder, SymbolPath: { CIRCLE: 0 },
+    geometry: { spherical: {
+      computeArea(path) { const pts = path.map(xy); let a = 0; for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; a += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1] } return Math.abs(a) / 2 },
+      computeLength(path) { const pts = path.map(xy); let d = 0; for (let i = 1; i < pts.length; i++) d += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return d },
+    } } } }
+})()`
+
+async function mockYardMaps(page: Page) {
+  await page.route('https://maps.googleapis.com/maps/api/js**', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: YARD_MAPS_STUB }))
+}
+
+/** Tap the corners of a square (px) on the fake map, starting at (x, y). */
+async function tapSquare(page: Page, x: number, y: number, size: number) {
+  const map = page.getByTestId('yard-map')
+  for (const [dx, dy] of [[0, 0], [size, 0], [size, size], [0, size]]) await map.click({ position: { x: x + dx, y: y + dy } })
+}
+
+async function drawShape(page: Page, label: string, x: number, y: number, size: number) {
+  await page.getByRole('button', { name: label, exact: true }).click()
+  await tapSquare(page, x, y, size)
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+}
+
+const sqftOf = (text: string) => Number((text.match(/([\d,]+) sq ft/) ?? [])[1]?.replace(/,/g, '') ?? NaN)
+
+/** Last POST body the save route was sent (the mock answers 201). */
+async function captureYardSave(page: Page) {
+  const sent: unknown[] = []
+  await page.route('**/api/area-measure', async (route) => {
+    if (route.request().method() === 'POST') {
+      sent.push(route.request().postDataJSON())
+      return route.fulfill(json({ measurement: { id: 'm9' } }, 201))
+    }
+    return route.fulfill(json({ rows: [] }))
+  })
+  return sent
+}
+
+const yardScreenMock = async (p: Page) => {
+  await mockYardMaps(p)
+}
+
 type Screen = { name: string; path: string; ready: string; mock?: (page: Page) => Promise<void>; states?: Array<{ name: string; run: (page: Page) => Promise<void> }> }
 
 const SCREENS: Screen[] = [
@@ -635,6 +698,74 @@ const SCREENS: Screen[] = [
       { name: 'advances', run: async (p) => { await p.waitForSelector('text=still owed'); await p.getByRole('button', { name: 'Record an advance' }).click(); await p.waitForSelector('text=Take it back') } },
       { name: 'schedule-sheet', run: async (p) => { await p.getByRole('button', { name: 'Change', exact: true }).first().click(); await p.getByLabel('Week starts on').selectOption('1'); await p.waitForSelector('text=First week on it') } },
     ] },
+  { name: 'area-measure', path: '/dev-harness/area-measure', ready: '[data-testid=yard-map]', mock: yardScreenMock,
+    states: [
+      { name: 'draw-lawn', run: async (p) => {
+        await p.getByRole('button', { name: '+ Lawn', exact: true }).click()
+        await p.getByTestId('yard-map').click({ position: { x: 60, y: 60 } })
+        await p.getByTestId('yard-map').click({ position: { x: 260, y: 60 } })
+        await p.waitForSelector('text=2 points')
+        await p.getByTestId('yard-map').click({ position: { x: 260, y: 220 } })
+        await p.waitForSelector('[data-testid=yard-live]')
+        const live = sqftOf(await p.getByTestId('yard-live').innerText())
+        if (!(live > 1000)) throw new Error(`live area looks wrong: ${live}`)
+        await p.getByRole('button', { name: 'Done', exact: true }).click()
+        await p.waitForSelector('[data-testid=yard-totals] >> text=Lawn')
+        const totals = sqftOf(await p.getByTestId('yard-totals').innerText())
+        if (Math.abs(totals - live) > 1) throw new Error(`total ${totals} should equal the shape ${live}`)
+      } },
+      { name: 'undo-last-point', run: async (p) => {
+        await p.getByRole('button', { name: '+ Lawn', exact: true }).click()
+        for (const [x, y] of [[50, 50], [200, 50], [200, 200]]) await p.getByTestId('yard-map').click({ position: { x, y } })
+        await p.getByRole('button', { name: 'Undo point' }).click()
+        await p.waitForSelector('text=2 points. Keep tapping.')
+      } },
+      { name: 'cutout-comes-out-of-lawn', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 240)
+        const lawn = sqftOf(await p.getByTestId('yard-totals').innerText())
+        await drawShape(p, '+ Cut-out', 100, 100, 60)
+        await p.waitForSelector('text=Lawn (after cut-outs)')
+        const net = sqftOf(await p.getByTestId('yard-totals').innerText())
+        if (!(net < lawn)) throw new Error(`cut-out did not reduce the lawn: ${lawn} -> ${net}`)
+      } },
+      { name: 'bed-materials-and-save', run: async (p) => {
+        const sent = await captureYardSave(p)
+        await drawShape(p, '+ Lawn', 40, 40, 240)
+        await drawShape(p, '+ Bed', 60, 60, 108)
+        await p.waitForSelector('[data-testid=yard-materials] >> text=est.')
+        const mat = await p.getByTestId('yard-materials').innerText()
+        if (!/Mulch: est\. [\d.]+ cu yd at 3 in/.test(mat) || !/Pine straw: est\. \d+ bales? at 50 sq ft per bale/.test(mat)) throw new Error(`materials text: ${mat}`)
+        await p.getByRole('button', { name: 'Save measurement' }).click()
+        await p.waitForSelector('[data-testid=yard-save-msg] >> text=Saved')
+        const body = sent[0] as { customerId: string; shapes: Array<{ type: string }> }
+        if (body.customerId !== 'cust-1' || body.shapes.length !== 2) throw new Error(`bad save body ${JSON.stringify(body).slice(0, 200)}`)
+      } },
+      { name: 'drag-a-point', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 200)
+        await p.waitForSelector('text=Drag the round points')
+        const before = sqftOf(await p.getByTestId('yard-totals').innerText())
+        await p.evaluate(() => {
+          const g = (window as any).google.maps
+          const m = (window as any).__yardMarkers[1]
+          const c = m.o.position
+          m.emit('dragend', { latLng: new g.LatLng(c.lat, c.lng + 0.0002) })
+        })
+        await p.waitForFunction((b) => { const t = document.querySelector('[data-testid=yard-totals]')?.textContent ?? ''; const n = Number((t.match(/([\d,]+) sq ft/) ?? [])[1]?.replace(/,/g, '')); return n > b + 100 }, before)
+      } },
+      { name: 'owner-changes-numbers', run: async (p) => {
+        await p.route('**/api/area-measure/settings', (route) => route.fulfill(json({ settings: { mulchDepthIn: 4, strawSqftPerBale: 40 }, canEdit: true })))
+        await drawShape(p, '+ Bed', 60, 60, 108)
+        await p.getByRole('button', { name: 'Change mulch and pine straw numbers' }).click()
+        await p.getByLabel('Mulch depth (inches)').fill('4')
+        await p.getByLabel('Pine straw: sq ft per bale').fill('40')
+        await p.getByRole('button', { name: 'Save for the company' }).click()
+        await p.waitForSelector('text=Saved for the whole company.')
+        await p.waitForSelector('[data-testid=yard-materials] >> text=at 4 in deep')
+      } },
+    ] },
+  { name: 'area-measure-readonly', path: '/dev-harness/area-measure-readonly', ready: 'text=Open this from a customer or lead to save it.', mock: yardScreenMock },
+  { name: 'yard-card', path: '/dev-harness/yard-card', ready: '[data-testid=yard-card]',
+    states: [{ name: 'older-open', run: async (p) => { await p.getByText('Older measurements (1)').click(); await p.waitForSelector('text=lawn 11,800 sq ft') } }] },
 ]
 
 /** Interactive elements a thumb has to hit. Inline text links inside a sentence are exempt. */

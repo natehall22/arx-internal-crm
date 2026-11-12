@@ -1041,3 +1041,9 @@ export const HARNESS_PUBLIC_SELECTION = {
   chosenLabel: null,
   signingUrl: null,
 }
+
+/** Saved yard measurements for the Customer File card: Home has two (newest + one older), Rental on Oak has none. */
+export const HARNESS_YARD_ROWS = [
+  { id: 'm2', customer_id: 'cust-1', property_id: 'p1', opportunity_id: null, lead_id: null, address_text: '1 Harness Way', lat: 30.176, lng: -84.375, shapes: [], lawn_sqft: 12400, bed_sqft: 1080, cutout_sqft: 2600, line_feet: 340, totals: { materials: { mulchCuYd: 10, strawBales: 22, mulchDepthIn: 3, strawSqftPerBale: 50 } }, settings: { mulchDepthIn: 3, strawSqftPerBale: 50 }, created_by: 'u1', created_at: '2026-11-10T15:00:00Z' },
+  { id: 'm1', customer_id: 'cust-1', property_id: 'p1', opportunity_id: null, lead_id: null, address_text: '1 Harness Way', lat: 30.176, lng: -84.375, shapes: [], lawn_sqft: 11800, bed_sqft: 900, cutout_sqft: 2600, line_feet: 300, totals: {}, settings: {}, created_by: 'u1', created_at: '2026-06-02T15:00:00Z' },
+]

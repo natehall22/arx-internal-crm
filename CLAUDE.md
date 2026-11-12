@@ -527,6 +527,30 @@ Budget vs actual, selections & allowances, job schedule stages, daily log. Migra
 - **Daily log:** `job_daily_logs`; photos are ordinary job photos tagged `daily_log` (staff via `/api/ops/jobs/[id]/photos/*`, crews via `/api/crew/[token]/photos/*`); weather from NWS (rounded coordinates, best effort).
 - **Known Redundancy additions (2026-11-12):** (29) browser-side photo upload steps exist in `lib/job-photo-queue.ts` (offline queue), `lib/visit-photo-upload.ts` (now also `uploadTaggedPhotos`) and the crew page's own `uploadOne` — fold the crew page onto the shared steps when touched. (30) Selections and the Change order form both need a rep signature image; the form draws one, selections draw the typed name (`lib/typed-signature.ts`) — one signature helper would be safer. **Pre-launch legal list (2026-11-12):** a selection's rep signature is the sender's typed name, applied at SEND time to a change order whose amount is not known yet (the card now says "up to $X"); counsel should confirm that is an acceptable rep signature before other companies use it. **Review fixes (2026-11-12):** the selection change order builds on `currentContractTotal` (`lib/job-commission-base.ts`, signed contract + SIGNED change orders, same loader as the sale sync); `POST /api/change-orders/create` and the project-tools routes refuse field roles (`resolveSalesDocAccessBarred`) because the service-client insert skips the field-role RLS deny; a chosen overage whose change order expired can be re-sent or cancelled (the unsigned one is set `voided`, its token cleared; the job and project pages skip `voided`); daily-log date and selection due dates use the company's clock (`orgTodayYmd`); `/s/[token]` and `/api/public/selections` 404 when the switch is off.
 
+## Measure yard — lawn & landscape area measuring (2026-11-12)
+Switch `areaMeasure` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape profile ON, profile version 4; ARX unchanged). Migration
+`202611230020_area_measurements.sql` (NOT applied; apply before the code). A **separate tool**: `/tools/area-measure`, `components/area-measure/*`,
+`lib/area-measure.ts` (pure rules), `lib/area-measure-db.ts` (access + the ONE writer), `/api/area-measure` (+ `/settings`).
+- **HARD RULE (owner): the roof measuring tool does not change.** `app/tools/roof-measure/`, `lib/lidar/*`, `lib/roof-measure*`, detect-roof and the instant
+  estimate are never edited and never imported by this tool. `lib/__tests__/area-measure-roof-isolation.test.ts` fails on an import from those paths and (on branch
+  `feat/area-measure`) on any diff that touches them. `roof_measurements` is roof-specific (squares, ridges, pitch ...) so it is NOT reused: new table `area_measurements`.
+- **Shapes** lawn / bed / cut-out / line, each with an optional name, drawn by tapping points on the satellite map (undo last point, Done, drag the round handles to
+  adjust). Areas come from Google `computeArea` / `computeLength` in the browser (`lib/google-maps-client.ts`); the server bounds them and **recomputes every total**
+  with `computeTotals` — request totals are ignored. **Cut-outs subtract from the TOTAL of the type they "take from" (lawn by default, or beds), never clipped against one
+  shape** (true polygon overlap needs clipping; a wrong clip silently misprices) — floored at 0.
+- **Bed materials ("est." everywhere):** mulch cu yd = sq ft x depth / 12 / 27; pine straw = whole bales, rounded up. Company numbers `orgs.settings.areaMeasure`
+  {mulchDepthIn, strawSqftPerBale}, owners only, ONE writer `saveAreaMeasureSettings` (mergeOrgSettings path ['areaMeasure']; the generic settings save strips it).
+  Defaults (3 in, 50 sq ft per bale) live ONLY in `AREA_MEASURE_DEFAULTS`. The numbers used are saved with each measurement.
+- **History:** every save is a NEW row; the app never updates or deletes them. Newest per property = current; "Re-measure" opens the newest to adjust, "Start from scratch" blank.
+  Card on the Customer File overview (`YardMeasureCard`, via `CustomerExtras.areaMeasure`) and on the Prospect File lead page (`LeadYardMeasure`).
+- **Access:** same as the record it hangs off (`resolveCustomerAccess`, `canOpenDeal`, lead owner / company-wide); field roles (setters, canvassers, inside sales,
+  pricing-barred) may look but never save. A reference from another company is 404.
+- **Pricing hook (not built, on purpose):** a price-book "size option" (feat/price-sheet) would read `lawn_sqft` / `bed_sqft` / `line_feet` of the newest row
+  (`GET /api/area-measure?property_id=` → `latest`). Nothing here depends on that branch.
+- **Known Redundancy (41):** the app has NO shared Google Maps loader — four screens inject their own `<script>` (`LocationMap`, `CanvassTerritoriesEditor`, the canvass map,
+  the roof measure page, which is off limits). `lib/google-maps-client.ts` is the one loader for new map screens; move the other copies onto it when touched.
+- **Not built:** adding / removing a point on a finished shape (drag only), per-lawn cut-out overlap, a Measure yard entry in the main menu (it opens from the customer or lead).
+
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
 

@@ -7,6 +7,9 @@
 import { notFound } from 'next/navigation'
 import { useState } from 'react'
 
+import AreaMeasureClient from '@/components/area-measure/AreaMeasureClient'
+import YardMeasureCard from '@/components/area-measure/YardMeasureCard'
+import { HARNESS_YARD_ROWS } from '@/e2e/fixtures'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
@@ -413,7 +416,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false }} />
         </div>
       )
     case 'org-profile':
@@ -713,6 +716,44 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <CustomFieldsCard entity="customer" recordId="cust-2" definitions={[]} initialValues={{}} canEdit />
           <PropertiesCard customerId="cust-2" initial={[{ ...(HARNESS_PROPERTIES[1] as Property), label: null, customer_id: 'cust-2' }]} ready canEdit accessNotes propertyFields={[]} />
           <CustomerDocumentsCard customerId="cust-2" initial={[]} canUpload properties={[]} />
+        </div>
+      )
+    case 'area-measure':
+      return (
+        <AreaMeasureClient
+          address="1 Harness Way, Crawfordville, FL"
+          lat={30.176}
+          lng={-84.375}
+          refs={{ customerId: 'cust-1', propertyId: null, opportunityId: null, leadId: null }}
+          forLabel="Pat Lee"
+          canSave
+          cannotSaveReason={null}
+          settings={{ mulchDepthIn: 3, strawSqftPerBale: 50 }}
+          canEditSettings
+          backHref="/dev-harness/yard-card"
+          mapsApiKey="harness-key"
+        />
+      )
+    case 'area-measure-readonly':
+      return (
+        <AreaMeasureClient
+          address={null}
+          lat={null}
+          lng={null}
+          refs={{ customerId: null, propertyId: null, opportunityId: null, leadId: null }}
+          forLabel={null}
+          canSave={false}
+          cannotSaveReason="Open this from a customer or lead to save it."
+          settings={{ mulchDepthIn: 3, strawSqftPerBale: 50 }}
+          canEditSettings={false}
+          backHref="/dev-harness/yard-card"
+          mapsApiKey="harness-key"
+        />
+      )
+    case 'yard-card':
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <YardMeasureCard customerId="cust-1" opportunityId="opp-1" rows={HARNESS_YARD_ROWS as never} properties={[{ id: 'p1', name: 'Home' }, { id: 'p2', name: 'Rental on Oak' }]} canMeasure />
         </div>
       )
     case 'job-setup':

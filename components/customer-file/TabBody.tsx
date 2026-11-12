@@ -132,7 +132,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
         </CardContent>
       </Card>
 
-      {extras && <CustomerRecords customerId={customer.id} extras={extras} />}
+      {extras && <CustomerRecords customerId={customer.id} extras={extras} opportunityId={dealId} />}
 
       {showPortal && <PortalAccessCard customerId={customer.id} hasEmail={!!customer.email} {...(await loadPortalAccessState(admin, ctx.viewer.orgId, customer.id))} />}
 
