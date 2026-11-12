@@ -173,6 +173,7 @@ export async function registerFiles(
 
   const results: RegisterResult[] = []
   const seen = new Set<string>()
+  const dupes: Record<string, { name: string; title: string | null }> = {}
   for (const f of clean) {
     if (f.refused) {
       results.push({ sha256: f.sha256, state: 'refused', reason: f.refused })
@@ -185,6 +186,7 @@ export async function registerFiles(
     seen.add(f.sha256)
     if (existingDocs.has(f.sha256)) {
       results.push({ sha256: f.sha256, state: 'duplicate', title: existingDocs.get(f.sha256) ?? null })
+      dupes[f.sha256] = { name: f.name.slice(0, 160), title: existingDocs.get(f.sha256) ?? null }
       continue
     }
     const had = existingItems.get(`file:${f.sha256}`)
@@ -234,12 +236,25 @@ export async function registerFiles(
     results.push({ sha256: f.sha256, state: 'upload', itemId: item.id, documentId: item.payload.documentId, storagePath: item.payload.storagePath, bucket: FILES_BUCKET, token: signed.token })
   }
 
-  // What the ZIP held that was not a PDF (names + reasons) is kept on the run for the summary — capped.
-  if (Array.isArray(skipped) && skipped.length) {
-    const summary = ((run.summary ?? {}) as unknown as Record<string, unknown>)
-    const prev = Array.isArray(summary.skipped) ? (summary.skipped as unknown[]) : []
-    const add = (skipped as Array<Record<string, unknown>>).slice(0, 100).map((s) => ({ name: String(s.path ?? s.name ?? '').slice(0, 160), reason: String(s.reason ?? '').slice(0, 120) }))
-    const next = { ...summary, skipped: [...prev, ...add].slice(0, 300), skippedCount: Number(summary.skippedCount ?? prev.length) + (skipped as unknown[]).length }
+  // What the ZIP held that was not a PDF (names + reasons) and which files were already on file are kept on the run for the
+  // summary — capped, and keyed so adding the same ZIP again counts nothing twice.
+  const hasSkipped = Array.isArray(skipped) && skipped.length > 0
+  if (hasSkipped || Object.keys(dupes).length) {
+    const summary = (run.summary ?? {}) as unknown as Record<string, unknown>
+    const next: Record<string, unknown> = { ...summary }
+    if (hasSkipped) {
+      const prev = Array.isArray(summary.skipped) ? (summary.skipped as Array<{ name: string; reason: string }>) : []
+      const add = (skipped as Array<Record<string, unknown>>).slice(0, 100).map((s) => ({ name: String(s.path ?? s.name ?? '').slice(0, 160), reason: String(s.reason ?? '').slice(0, 120) }))
+      const have = new Set(prev.map((p) => `${p.name}|${p.reason}`))
+      const fresh = add.filter((a) => !have.has(`${a.name}|${a.reason}`))
+      next.skipped = [...prev, ...fresh].slice(0, 300)
+      next.skippedCount = Number(summary.skippedCount ?? prev.length) + fresh.length
+    }
+    if (Object.keys(dupes).length) {
+      const prev = (summary.dupes && typeof summary.dupes === 'object' ? summary.dupes : {}) as Record<string, unknown>
+      const merged = { ...prev, ...dupes }
+      next.dupes = Object.fromEntries(Object.entries(merged).slice(0, 500))
+    }
     await db.from('import_runs').update({ summary: next }).eq('id', run.id).eq('status', 'draft')
     run.summary = next as never
   }
@@ -506,7 +521,8 @@ export async function reviewGroups(admin: SupabaseClient, orgId: string, run: Ru
   const rank = (g: ReviewGroup) => (g.notCompleted ? 3 : g.match.customerId ? (g.match.how === 'close' ? 1 : 2) : 0)
   groups.sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title))
   const matchedCount = matched.length
-  const duplicates = all.filter((i) => i.status === 'skipped' && i.payload.note).map((i) => ({ name: i.payload.name, title: i.payload.note ?? null })).slice(0, 100)
+  const dupes = ((run.summary ?? {}) as unknown as { dupes?: Record<string, { name: string; title: string | null }> }).dupes ?? {}
+  const duplicates = Object.values(dupes).slice(0, 100)
   return { groups, ready: unfinished === 0 && unread === 0 && matchedCount === live.length && live.length > 0, unfinished, unread, duplicates }
 }
 
@@ -650,7 +666,7 @@ export async function importBatch(admin: SupabaseClient, orgId: string, userId: 
     }
     await db
       .from('import_run_items')
-      .update({ status: out.status, target_table: out.target_table ?? null, target_id: out.target_id ?? null, applied: out.applied ?? null, error: out.error ? out.error.slice(0, 500) : null, done_at: new Date().toISOString() })
+      .update({ status: out.status, ...(out.status === 'skipped' ? { action: 'skip' } : {}), target_table: out.target_table ?? null, target_id: out.target_id ?? null, applied: out.applied ?? null, error: out.error ? out.error.slice(0, 500) : null, done_at: new Date().toISOString() })
       .eq('id', item.id)
       .eq('status', 'working')
   }
@@ -660,7 +676,7 @@ export async function importBatch(admin: SupabaseClient, orgId: string, userId: 
   return { ok: true, progress, finished }
 }
 
-export type SignedSummary = { added: number; certificates: number; waiting: number; duplicates: number; leftOut: number; failed: Array<{ name: string; error: string }>; notPdf: Array<{ name: string; reason: string }>; notPdfCount: number }
+export type SignedSummary = { added: number; certificates: number; waiting: number; /** files that were already in the company's documents (found at the door or at import) */ duplicates: number; leftOut: number; failed: Array<{ name: string; error: string }>; notPdf: Array<{ name: string; reason: string }>; notPdfCount: number }
 
 export async function signedSummary(admin: SupabaseClient, orgId: string, run: RunRow): Promise<SignedSummary> {
   const items = await loadItems(admin, orgId, run.id)
@@ -678,6 +694,7 @@ export async function signedSummary(admin: SupabaseClient, orgId: string, run: R
     } else if (i.status === 'failed') s.failed.push({ name: i.payload.name, error: i.error ?? 'Could not be saved' })
   }
   const skipped = ((run.summary ?? {}) as unknown as Record<string, unknown>)
+  s.duplicates += Object.keys((skipped.dupes && typeof skipped.dupes === 'object' ? skipped.dupes : {}) as Record<string, unknown>).length
   s.notPdf = (Array.isArray(skipped.skipped) ? skipped.skipped : []).slice(0, 50) as SignedSummary['notPdf']
   s.notPdfCount = Number(skipped.skippedCount ?? s.notPdf.length)
   s.failed = s.failed.slice(0, 50)
