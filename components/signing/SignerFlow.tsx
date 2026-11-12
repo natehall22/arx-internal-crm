@@ -124,17 +124,25 @@ export default function SignerFlow({
           renderOverlay={(page) => fields.filter((f) => f.page === page).map((f) => {
             const isMine = f.mine
             const ok = isMine && filled(f)
+            const box = { left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` }
+            if (!isMine) {
+              // Someone else's field: shown, never a tap target.
+              return (
+                <div key={f.id} aria-label={`${FIELD_LABELS[f.kind]} for ${f.roleLabel}`} className="absolute flex items-center overflow-hidden rounded-sm border-2 border-dashed border-gray-500 bg-gray-100/70 px-1 text-sm font-semibold leading-none text-black" style={box}>
+                  <FieldFace f={f} isMine={false} signature={signature} initials={initials} value={values[f.id]} printName={printName} today={today} />
+                </div>
+              )
+            }
             return (
               <button
                 key={f.id}
                 type="button"
                 data-sf={f.id}
                 data-field={f.id}
-                disabled={!isMine}
-                aria-label={`${FIELD_LABELS[f.kind]}${isMine ? (ok ? ' (done)' : f.required ? ' (needed)' : ' (optional)') : ` for ${f.roleLabel}`}`}
-                onClick={() => isMine && open(f)}
-                className={`absolute flex items-center overflow-hidden rounded-sm border-2 px-1 text-left text-sm font-semibold leading-none text-black ${!isMine ? 'border-dashed border-gray-500 bg-gray-100/70' : ok ? 'border-green-700 bg-green-100/60' : 'border-amber-600 bg-amber-100/80'} ${current === f.id ? 'ring-4 ring-black' : ''}`}
-                style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`, minHeight: 24 }}
+                aria-label={`${FIELD_LABELS[f.kind]}${ok ? ' (done)' : f.required ? ' (needed)' : ' (optional)'}`}
+                onClick={() => open(f)}
+                className={`absolute flex items-center overflow-hidden rounded-sm border-2 px-1 text-left text-sm font-semibold leading-none text-black ${ok ? 'border-green-700 bg-green-100/60' : 'border-amber-600 bg-amber-100/80'} ${current === f.id ? 'ring-4 ring-black' : ''}`}
+                style={{ ...box, minHeight: 44, minWidth: 44 }}
               >
                 <FieldFace f={f} isMine={isMine} signature={signature} initials={initials} value={values[f.id]} printName={printName} today={today} />
               </button>
