@@ -397,6 +397,13 @@ export type SupplierCard = {
   /** When the materials arrived; null = not marked received. */
   receivedAt: string | null
   canCancel: boolean
+  /**
+   * Set only when the person may switch this card's supplier with one tap: nothing live at the supplier
+   * (never sent, or cancelled), the job is open, no line has its own supplier/source override, and there is
+   * somewhere to switch to. `trades` = what the PATCH must be sent for (each with the source to keep).
+   * A sent order is a cancellation flow, never a switch.
+   */
+  supplierPick: { trades: { trade: string; source: MaterialSource | null }[] } | null
 }
 
 export type SupplierOrdersView = {
@@ -441,8 +448,15 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
   const supplierById = new Map(ctx.suppliers.map((s) => [s.id, s]))
   const jobCancelled = ctx.jobStatus === 'cancelled'
 
+  const tradeSource = new Map(ctx.tradeOverrides.map((t) => [t.trade, t.source]))
+  const activeSupplierCount = ctx.suppliers.filter((s) => s.active).length
   const cards: SupplierCard[] = sourcing.supplierGroups.map((g) => {
     const order = orderByVendor.get(g.supplier.id) ?? null
+    const switchable =
+      !jobCancelled &&
+      activeSupplierCount > 1 &&
+      (!order || order.status === 'draft' || order.status === 'cancelled') &&
+      g.lines.every((l) => !l.vendorOverrideId && !l.sourceOverride)
     const channel = supplierChannelProblem(g.supplier, snapshotLines(g.lines))
     return {
       vendorId: g.supplier.id,
@@ -456,6 +470,7 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
       lastSentTo: order?.lastSentTo ?? null,
       receivedAt: order?.receivedAt ?? null,
       canCancel: order?.status === 'sent',
+      supplierPick: switchable ? { trades: g.trades.map((trade) => ({ trade, source: tradeSource.get(trade) ?? null })) } : null,
     }
   })
   // POs already sent to a supplier that no longer has any lines (moved, excluded, source changed).
@@ -474,6 +489,7 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
       lastSentTo: o.lastSentTo,
       receivedAt: o.receivedAt,
       canCancel: o.status === 'sent',
+      supplierPick: null,
     })
   }
 

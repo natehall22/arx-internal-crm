@@ -178,7 +178,24 @@ const SCREENS: Screen[] = [
       { name: 'vendor-bill', run: async (p) => { await p.getByRole('button', { name: 'Add vendor bill' }).click(); await p.waitForSelector('role=dialog[name="Add vendor bill"]') } },
     ] },
   { name: 'supplier-orders', path: '/dev-harness/supplier-orders', ready: 'text=Supplier orders',
-    states: [{ name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Send order to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } }] },
+    states: [
+      { name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Send order to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } },
+      // One tap: pick another supplier -> one PATCH per trade on the card, never a send, no extra screen.
+      { name: 'switch-supplier', run: async (p) => {
+        const calls: string[] = []
+        await p.route('**/api/ops/jobs/*/supplier-orders**', (route) => {
+          const r = route.request()
+          if (r.method() === 'PATCH') { calls.push(`PATCH ${r.postData()}`); return route.fulfill(json({ ok: true })) }
+          if (r.method() === 'POST') calls.push('POST')
+          return route.fallback()
+        })
+        const pick = p.getByLabel('Supplier', { exact: true }).first()
+        await pick.selectOption({ label: 'City Electric Supply' })
+        await p.waitForTimeout(300)
+        if (calls.filter((c) => c.startsWith('PATCH')).length !== 2 || calls.includes('POST')) throw new Error(`unexpected calls: ${calls.join(' | ')}`)
+        if (await p.getByRole('dialog').count()) throw new Error('a dialog opened after switching the supplier')
+      } },
+    ] },
   { name: 'reports-home', path: '/dev-harness/reports-home', ready: 'text=Performance at a glance' },
   { name: 'reports-explore', path: '/dev-harness/reports-explore', ready: 'text=Sales by closer',
     states: [
