@@ -114,7 +114,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const result = data as CancelResult
 
   // QuickBooks: a cancelled sale's invoice is voided there (void keeps the record; never deleted). Never blocks the cancel.
-  await enqueueRecordEvent(adminClient, profile.org_id, { eventType: 'invoice.voided', table: 'production_jobs', id: result.job_id })
+  await enqueueRecordEvent(adminClient, profile.org_id, { eventType: 'invoice.voided', table: 'production_jobs', id: result.job_id, version: Date.now() })
 
   // Take every booked crew off the schedule, exactly as unassign does for one:
   // clear its date/length/sub, kill its crew photo link, and remove its Google
@@ -188,5 +188,7 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
   if (error) return rpcErrorResponse(error, 'Failed to undo cancellation')
 
   const result = data as { job_id: string; contracts_restored: number }
+  // QuickBooks: the voided invoice cannot be un-voided there, so the restored sale is sent again as a new invoice (never blocks the undo).
+  await enqueueRecordEvent(adminClient, profile.org_id, { eventType: 'invoice.upserted', table: 'production_jobs', id: result.job_id, version: Date.now() })
   return NextResponse.json({ jobId: result.job_id, contractsRestored: result.contracts_restored })
 }

@@ -217,6 +217,9 @@ export async function syncInvoice(ctx: HandlerCtx, inv: CrmInvoice): Promise<{ q
     // Not an error: the sale amount posts; the extra tax is surfaced so the bookkeeper adds it.
   }
   const customerRef = await customerRefFor(ctx, { jobId: inv.jobId, customerId: inv.customerId })
+  const prior = await ctx.links.get(sourceCrmTable(inv), inv.source.id, 'Invoice')
+  // The CRM voided this invoice earlier (job cancelled, then restored). QuickBooks cannot un-void: send the sale again as a NEW invoice.
+  if (prior && prior.sent_total_cents === 0) return reissueAfterVoid(ctx, inv, customerRef)
   let body: Record<string, unknown>
   try {
     body = buildInvoiceBody(inv, { settings: s, customerRef })
@@ -282,7 +285,9 @@ export async function syncInvoice(ctx: HandlerCtx, inv: CrmInvoice): Promise<{ q
       await adopt(ctx, table, id, 'Invoice', cur, { fingerprint: fp, sentTotalCents: curTotal })
       return { qb: cur, warning: extraTaxWarning(inv), unchanged: false }
     }
-    const r = await ctx.client.update<QbObject>('Invoice', { ...body, Id: String(cur.Id), SyncToken: String(cur.SyncToken ?? '0'), sparse: true }, requestIdFor(ctx.orgId, `inv-upd:${id}:${cur.SyncToken}`, facts))
+    // The document number never changes after the first send (a reissued invoice carries a -R number).
+    const { DocNumber: _keep, ...updateBody } = body
+    const r = await ctx.client.update<QbObject>('Invoice', { ...updateBody, Id: String(cur.Id), SyncToken: String(cur.SyncToken ?? '0'), sparse: true }, requestIdFor(ctx.orgId, `inv-upd:${id}:${cur.SyncToken}`, facts))
     if (!r.ok && r.kind === 'stale' && attempt === 0) {
       known = null
       adopted = false
@@ -294,6 +299,39 @@ export async function syncInvoice(ctx: HandlerCtx, inv: CrmInvoice): Promise<{ q
     return { qb: obj, warning: totalWarning(inv, total) ?? extraTaxWarning(inv), unchanged: false }
   }
   return needsYou('5010', `Invoice ${inv.docNumber} kept changing in QuickBooks while we tried to update it. Press Retry.`)
+}
+
+/** A voided-by-us invoice is sent again as a new QuickBooks invoice numbered "<number>-R" (then -R2 ...). */
+async function reissueAfterVoid(ctx: HandlerCtx, inv: CrmInvoice, customerRef: string): Promise<{ qb: QbObject; warning: { code: string; message: string } | null; unchanged: boolean }> {
+  const s = ctx.settings
+  const table = sourceCrmTable(inv)
+  const id = inv.source.id
+  const marker = crmMarker('inv', id)
+  const fp = fingerprintOf(invoiceFacts(inv, customerRef, s))
+  for (let n = 1; n <= 6; n++) {
+    const alt = { ...inv, docNumber: `${inv.docNumber.slice(0, 18)}-R${n > 1 ? n : ''}` }
+    let body: Record<string, unknown>
+    try {
+      body = buildInvoiceBody(alt, { settings: s, customerRef })
+    } catch (e) {
+      if (e instanceof BuildError) return needsYou(e.code, e.message)
+      throw e
+    }
+    const found = must(await ctx.client.query<QbObject>('Invoice', `DocNumber = ${qbQuoteLocal(String(body.DocNumber))}`, { max: 10 }))
+    const ours = found.find((r) => String(r.PrivateNote ?? '').includes(marker) && !/^Voided/i.test(String(r.PrivateNote ?? '')))
+    if (ours) {
+      await adopt(ctx, table, id, 'Invoice', ours, { fingerprint: fp, sentTotalCents: qbCents(ours.TotalAmt) })
+      return { qb: ours, warning: totalWarning(inv, qbCents(ours.TotalAmt)) ?? extraTaxWarning(inv), unchanged: false }
+    }
+    if (found.length > 0) continue
+    const made = await ctx.client.create<QbObject>('Invoice', body, requestIdFor(ctx.orgId, `inv:${id}`, invoiceFacts(alt, customerRef, s)))
+    if (!made.ok && made.kind === 'duplicate_number') continue
+    const obj = must(made)
+    const total = qbCents(obj.TotalAmt)
+    await adopt(ctx, table, id, 'Invoice', obj, { fingerprint: fp, sentTotalCents: total })
+    return { qb: obj, warning: totalWarning(inv, total) ?? extraTaxWarning(inv), unchanged: false }
+  }
+  return needsYou('6210', `Could not find a free document number to send invoice ${inv.docNumber} again. Fix the numbers in QuickBooks, then press Retry.`)
 }
 
 function extraTaxWarning(inv: CrmInvoice): { code: string; message: string } | null {
@@ -311,7 +349,8 @@ async function voidQbInvoice(ctx: HandlerCtx, table: string, id: string, label: 
     const r = await ctx.client.void<QbObject>('Invoice', { Id: String(cur.Id), SyncToken: String(cur.SyncToken ?? '0') }, requestIdFor(ctx.orgId, `inv-void:${id}`, { st: cur.SyncToken }))
     if (!r.ok && r.kind === 'stale' && attempt === 0) continue
     must(r)
-    await ctx.links.put({ crmTable: table, crmId: id, qbType: 'Invoice', qbId: link.qb_id, syncToken: null, sentTotalCents: 0 })
+    // sent_total 0 = "voided by the CRM"; the fingerprint is cleared so a later upsert (undo-cancel) is never skipped as unchanged.
+    await ctx.links.put({ crmTable: table, crmId: id, qbType: 'Invoice', qbId: link.qb_id, syncToken: null, sentTotalCents: 0, fingerprint: null })
     return { kind: 'done', qbType: 'Invoice', qbId: link.qb_id }
   }
   return { kind: 'needs_you', code: '5010', message: `${label} kept changing in QuickBooks while we tried to void it. Press Retry.` }
@@ -334,11 +373,17 @@ export function jobInvoicedBySale(mode: QbSettings['invoiceMode'], job: Pick<Crm
   return mode === 'per_job' && !job.timeAndMaterials
 }
 
+/** The invoice mode applies to NEW jobs: a job whose sale invoice is already in QuickBooks keeps its one invoice if the company switches style later. */
+async function soldAsOneInvoice(ctx: HandlerCtx, job: Pick<CrmJob, 'id' | 'timeAndMaterials'>): Promise<boolean> {
+  if (jobInvoicedBySale(ctx.settings.invoiceMode, job)) return true
+  return !job.timeAndMaterials && !!(await ctx.links.get('production_jobs', job.id, 'Invoice'))
+}
+
 const invoiceUpserted: EventHandler = async (ctx, row) => {
   if (row.entity_table === 'production_jobs') {
     const job = await loadJob(ctx.admin, ctx.orgId, row.entity_id)
     if (!job) return needsYou('not_found', 'This job is no longer in the CRM.')
-    if (!jobInvoicedBySale(ctx.settings.invoiceMode, job)) return { kind: 'skipped', code: 'mode', message: 'This job is invoiced by its CRM invoices, not by one sale invoice.' }
+    if (!(await soldAsOneInvoice(ctx, job))) return { kind: 'skipped', code: 'mode', message: 'This job is invoiced by its CRM invoices, not by one sale invoice.' }
     if (job.status === 'cancelled') return { kind: 'skipped', code: 'cancelled', message: 'The job was cancelled.' }
     const inv = await loadJobSaleInvoice(ctx.admin, ctx.orgId, row.entity_id)
     if (!inv) return needsYou('not_found', 'This job is no longer in the CRM.')
@@ -352,7 +397,7 @@ const invoiceUpserted: EventHandler = async (ctx, row) => {
     if (!inv) return needsYou('not_found', 'This invoice is no longer in the CRM.')
     if (inv.jobId) {
       const job = await loadJob(ctx.admin, ctx.orgId, inv.jobId)
-      if (job && jobInvoicedBySale(ctx.settings.invoiceMode, job)) return { kind: 'skipped', code: 'one_invoice_per_job', message: 'This job is invoiced once for its sale amount.' }
+      if (job && (await soldAsOneInvoice(ctx, job))) return { kind: 'skipped', code: 'one_invoice_per_job', message: 'This job is invoiced once for its sale amount.' }
     }
     if (inv.draft) return { kind: 'skipped', code: 'draft', message: 'Drafts are not sent.' }
     if (inv.voided) return voidQbInvoice(ctx, 'job_invoices', row.entity_id, `Invoice ${inv.docNumber}`)
@@ -365,6 +410,16 @@ const invoiceUpserted: EventHandler = async (ctx, row) => {
 
 const invoiceVoided: EventHandler = async (ctx, row) => {
   if (row.entity_table !== 'production_jobs' && row.entity_table !== 'job_invoices') return badEvent(row)
+  // State-based like every handler: if the job was restored (or the invoice is no longer void) since this was queued, do not void.
+  if (row.entity_table === 'production_jobs') {
+    const job = await loadJob(ctx.admin, ctx.orgId, row.entity_id)
+    if (!job) return needsYou('not_found', 'This job is no longer in the CRM.')
+    if (job.status !== 'cancelled') return { kind: 'skipped', code: 'not_cancelled', message: 'The job is not cancelled any more, so its invoice stays.' }
+  } else {
+    const inv = await loadCrmInvoice(ctx.admin, ctx.orgId, row.entity_id)
+    if (!inv) return needsYou('not_found', 'This invoice is no longer in the CRM.')
+    if (!inv.voided) return { kind: 'skipped', code: 'not_void', message: 'The invoice is not void any more, so it stays.' }
+  }
   return voidQbInvoice(ctx, row.entity_table, row.entity_id, 'This invoice')
 }
 
@@ -399,6 +454,12 @@ const paymentHandler = (refund: 'auto' | 'disputed'): EventHandler => async (ctx
   const customerRef = await customerRefFor(ctx, { jobId: p.jobId, customerId: p.customerId ?? job?.customerId ?? null })
 
   if (isRefund) {
+    // A voided invoice turns its payment into a customer credit in QuickBooks; a RefundReceipt on top would cut income a second time.
+    const oneInvoice = !!job && (await soldAsOneInvoice(ctx, job))
+    const voidedTargets = await Promise.all((job && oneInvoice ? [{ t: 'production_jobs', id: job.id }] : p.applications.map((a) => ({ t: 'job_invoices', id: a.invoiceId }))).map((x) => ctx.links.get(x.t, x.id, 'Invoice')))
+    if ((job && job.status === 'cancelled') || voidedTargets.some((l) => l && l.sent_total_cents === 0)) {
+      return needsYou('refund_after_void', 'This refund is for a sale that was cancelled, so its invoice is voided in QuickBooks and the customer’s payment now sits there as a credit. To record the refund: in QuickBooks open the customer, find that credit and refund it. The CRM does not post a second refund (it would count the money back twice). When that is done, press Skip.')
+    }
     const body = buildRefundReceiptBody({ ...p, amountCents: Math.abs(p.amountCents) }, { settings: s, customerRef, disputed: row.event_type === 'payment.disputed' })
     const ours = await findOurs(ctx, 'RefundReceipt', crmMarker('ref', p.id), [`CustomerRef = ${qbQuoteLocal(customerRef)}`])
     if (ours) {
@@ -412,7 +473,7 @@ const paymentHandler = (refund: 'auto' | 'disputed'): EventHandler => async (ctx
 
   // Which invoice(s) does it pay? One sale invoice per job (roofing), else the CRM invoices it was applied to.
   const targets: Array<{ table: 'production_jobs' | 'job_invoices'; id: string; cents: number }> = []
-  if (job && jobInvoicedBySale(s.invoiceMode, job)) targets.push({ table: 'production_jobs', id: job.id, cents: p.amountCents })
+  if (job && (await soldAsOneInvoice(ctx, job))) targets.push({ table: 'production_jobs', id: job.id, cents: p.amountCents })
   else for (const a of p.applications) if (a.appliedCents > 0) targets.push({ table: 'job_invoices', id: a.invoiceId, cents: a.appliedCents })
   const applications: PaymentApplication[] = []
   let remaining = p.amountCents

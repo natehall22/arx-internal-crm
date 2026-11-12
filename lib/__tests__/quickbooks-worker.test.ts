@@ -489,16 +489,78 @@ describe('refunds, voids, bills, service invoices', () => {
   it('cancelling a job VOIDS its QuickBooks invoice (kept, zeroed); a job never sent has nothing to void; nothing is ever deleted', async () => {
     const w = makeWorld([{ id: A }])
     const { jid } = w.seeds[0].ids
+    ;(w.fake.tables.production_jobs as any[])[0].status = 'cancelled'
     await w.enqueue(A, 'invoice.voided', 'production_jobs', jid)
     expect((await w.run(A)).skipped).toBe(1)
+    ;(w.fake.tables.production_jobs as any[])[0].status = 'sold'
     await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 1070000)
     await w.run(A)
+    ;(w.fake.tables.production_jobs as any[])[0].status = 'cancelled'
     await w.enqueue(A, 'invoice.voided', 'production_jobs', jid)
     await w.run(A)
     const inv = w.companies[A].all('Invoice')[0]
     expect(inv.TotalAmt).toBe(0)
     expect(inv.PrivateNote).toMatch(/^Voided/)
     expect(w.companies[A].calls.filter((c) => c.op === 'void')).toHaveLength(1)
+    expect(w.companies[A].all('Invoice')).toHaveLength(1)
+  })
+
+  it('cancel -> undo-cancel: the voided invoice is replaced by ONE new live invoice (-R number); a stale void for a restored job does nothing', async () => {
+    const w = makeWorld([{ id: A }])
+    const { jid } = w.seeds[0].ids
+    const jobs = w.fake.tables.production_jobs as any[]
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 1070000)
+    await w.run(A)
+    jobs[0].status = 'cancelled'
+    await w.enqueue(A, 'invoice.voided', 'production_jobs', jid, 1)
+    await w.run(A)
+    jobs[0].status = 'sold'
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 2)
+    const r = await w.run(A)
+    expect(r.done).toBe(1)
+    const live = w.companies[A].all('Invoice').filter((i) => cents(i.TotalAmt) > 0)
+    expect(live).toHaveLength(1)
+    expect(live[0].DocNumber).toBe('26-0001-R')
+    expect(cents(live[0].TotalAmt)).toBe(1070000)
+    // a second cancel + undo cycle: still exactly one live invoice
+    jobs[0].status = 'cancelled'
+    await w.enqueue(A, 'invoice.voided', 'production_jobs', jid, 3)
+    await w.run(A)
+    jobs[0].status = 'sold'
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 4)
+    await w.run(A)
+    expect(w.companies[A].all('Invoice').filter((i) => cents(i.TotalAmt) > 0)).toHaveLength(1)
+    // a void that was queued before the job was restored is dropped, not applied
+    await w.enqueue(A, 'invoice.voided', 'production_jobs', jid, 5)
+    await w.run(A)
+    expect(w.companies[A].all('Invoice').filter((i) => cents(i.TotalAmt) > 0)).toHaveLength(1)
+    expect(w.outbox().find((o) => o.idempotency_key.endsWith(':invoice.voided:v5'))).toMatchObject({ status: 'skipped' })
+  })
+
+  it('a refund on a cancelled (voided) sale does NOT post a Refund Receipt: Needs you with the credit steps', async () => {
+    const w = makeWorld([{ id: A }])
+    const { jid } = w.seeds[0].ids
+    const jobs = w.fake.tables.production_jobs as any[]
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', jid, 1070000)
+    await w.run(A)
+    jobs[0].status = 'cancelled'
+    await w.enqueue(A, 'invoice.voided', 'production_jobs', jid, 1)
+    await w.run(A)
+    ;(w.fake.tables.job_payments as any[]).push({ id: 'ref-2', job_id: jid, org_id: null, paid_at: '2026-11-09', amount_cents: -25000, method: 'card' })
+    await w.enqueue(A, 'payment.refunded', 'job_payments', 'ref-2')
+    await w.run(A)
+    expect(w.companies[A].all('RefundReceipt')).toHaveLength(0)
+    expect(w.outbox().find((o) => o.entity_id === 'ref-2')).toMatchObject({ status: 'failed', error_kind: 'needs_you', error_code: 'refund_after_void' })
+  })
+
+  it('switching to every-invoice mode: a job whose sale invoice is already in QuickBooks keeps its one invoice', async () => {
+    const s = seed(A)
+    const w = makeWorld([{ id: A, s }], { job_invoices: [{ id: 'inv-j', org_id: A, job_id: s.ids.jid, customer_id: s.ids.cid, invoice_number: 'INV-1', status: 'sent', issued_at: '2026-11-07', total_cents: 1000, tax_cents: 0 }], job_invoice_items: [{ id: 'x', invoice_id: 'inv-j', description: 'Deposit', qty: 1, unit_price_cents: 1000, line_total_cents: 1000, sort_order: 0 }] })
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', s.ids.jid, 1070000)
+    await w.run(A)
+    ;((w.fake.tables.orgs as any[])[0].settings.quickbooks as any).invoiceMode = 'per_invoice'
+    await w.enqueue(A, 'invoice.upserted', 'job_invoices', 'inv-j')
+    expect((await w.run(A)).skipped).toBe(1)
     expect(w.companies[A].all('Invoice')).toHaveLength(1)
   })
 
