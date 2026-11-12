@@ -14,7 +14,7 @@ import {
 import { formatCurrency } from '@/lib/job-payments'
 import AddPaymentModal from './AddPaymentModal'
 import { toast } from '@/components/ui/toast'
-import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { undoRefusal, undoKey } from '@/lib/job-payment-undo-rules'
 
 interface JobPaymentsCardProps {
   jobId: string
@@ -53,22 +53,35 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
     onPaymentChange?.()
   }
 
-  const handleDeletePayment = async (paymentId: string) => {
-    if (!(await confirmDialog({ title: 'Delete this payment?', destructive: true }))) return
+  const [undoing, setUndoing] = useState<JobPayment | null>(null)
+  const [reason, setReason] = useState('')
+  const [undoBusy, setUndoBusy] = useState(false)
+  const undone = new Set((summary?.payments ?? []).map((p) => p.idempotency_key).filter((k): k is string => !!k && k.startsWith('undo:')))
+  const canUndo = (p: JobPayment) => !undone.has(undoKey(p.id)) && !undoRefusal(p)
 
+  const submitUndo = async () => {
+    if (!undoing || !reason.trim()) return
+    setUndoBusy(true)
     try {
-      const response = await fetch(`/api/ops/jobs/${jobId}/payments/${paymentId}`, {
-        method: 'DELETE',
+      const response = await fetch(`/api/ops/jobs/${jobId}/payments/${undoing.id}/undo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() }),
       })
       if (response.ok) {
+        setUndoing(null)
+        setReason('')
         loadPayments()
         onPaymentChange?.()
       } else {
-        toast.error('Failed to delete payment')
+        const data = await response.json().catch(() => ({}))
+        toast.error(data.error || 'Could not undo this payment')
       }
     } catch (error) {
-      console.error('Error deleting payment:', error)
-      toast.error('Failed to delete payment')
+      console.error('Error undoing payment:', error)
+      toast.error('Could not undo this payment')
+    } finally {
+      setUndoBusy(false)
     }
   }
 
@@ -155,13 +168,14 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
                       })}
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDeletePayment(payment.id)}
-                    className="min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-400 hover:text-red-600"
-                    title="Delete payment"
-                  >
-                    ✕
-                  </button>
+                  {canUndo(payment) && (
+                    <button
+                      onClick={() => setUndoing(payment)}
+                      className="min-h-[44px] px-3 text-sm font-medium text-red-700"
+                    >
+                      Undo payment
+                    </button>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
                   <span className="px-2 py-1 bg-white rounded text-gray-700">
@@ -222,13 +236,14 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
                       {payment.note || '—'}
                     </td>
                     <td className="py-2 text-right">
-                      <button
-                        onClick={() => handleDeletePayment(payment.id)}
-                        className="text-gray-600 hover:text-red-600 text-xs"
-                        title="Delete payment"
-                      >
-                        ✕
-                      </button>
+                      {canUndo(payment) && (
+                        <button
+                          onClick={() => setUndoing(payment)}
+                          className="min-h-[44px] px-2 text-sm font-medium text-red-700 hover:underline"
+                        >
+                          Undo payment
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -239,6 +254,39 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
       ) : (
         <div className="text-center py-6 text-gray-600 text-sm">
           No payments recorded
+        </div>
+      )}
+
+      {undoing && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-t-2xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-2xl">
+            <h3 className="text-lg font-semibold text-gray-900">Undo this {formatCurrency(undoing.amount_cents)} payment?</h3>
+            <p className="mt-1 text-sm text-gray-900">
+              The payment stays on the list with a matching minus line, so the history is kept. The balance comes back.
+            </p>
+            <label className="mt-3 block text-sm font-medium text-gray-900" htmlFor="undo-reason">Why?</label>
+            <input
+              id="undo-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={300}
+              placeholder="Check bounced, entered on the wrong job…"
+              className="mt-1 w-full min-h-[44px] rounded-lg border border-gray-400 px-3 text-base text-gray-900"
+              autoFocus
+            />
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button onClick={() => { setUndoing(null); setReason('') }} className="min-h-[44px] rounded-lg border border-gray-400 px-4 text-gray-900">
+                Keep it
+              </button>
+              <button
+                onClick={submitUndo}
+                disabled={undoBusy || !reason.trim()}
+                className="min-h-[44px] rounded-lg bg-red-700 px-4 font-medium text-white disabled:opacity-50"
+              >
+                {undoBusy ? 'Undoing…' : 'Undo payment'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -455,7 +455,8 @@ export async function syncReversals(admin: SupabaseClient, account: PaymentAccou
  * Was this job's money already counted for pay? Collected / complete, or its commission is in a payroll week that is
  * locked or paid. Returns the plain reason, or null. (Reading the payroll tables is best effort: a failure = not known.)
  */
-async function jobAlreadyPaidOut(admin: SupabaseClient, orgId: string, jobId: string): Promise<string | null> {
+/** Why a job's money is already settled in pay (an approved payroll week / collected), or null. Also used by "Undo payment" (lib/job-payment-undo.ts). */
+export async function jobAlreadyPaidOut(admin: SupabaseClient, orgId: string, jobId: string): Promise<string | null> {
   const { data: job } = await orgDb(admin, orgId).from('production_jobs').select('status').eq('id', jobId).maybeSingle()
   const status = (job as { status?: string } | null)?.status
   // org-scope-ok: jobId is this company's job (its invoice was found in orgId); snapshots hang off it
