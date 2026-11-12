@@ -276,7 +276,7 @@ describe('goals economics reads the same ledger', () => {
         { description: DEALER_FEE_COST_LINE_DESCRIPTION, amount: 500, cost_type: 'misc' },
       ])],
     ])
-    const s = summarizeJobEconomics(jobs, costs)
+    const s = summarizeJobEconomics(jobs, costs, new Map([['a', { cents: 0 }], ['b', { cents: 0 }]]))
     expect(s.jobsMissingCostData).toBe(1)
     // 3000 materials + 500 dealer fee (once) + commissions
     expect(s.totalCosts - s.totalCommissions).toBe(3500)
