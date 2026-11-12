@@ -84,6 +84,9 @@ it('B4 a payment taken back out (Undo payment): CRM collected == QuickBooks paym
   expect(res.status).toBe(200)
   await qb.run(co.id)
   const crm = cents(sql<any>(`select coalesce(sum(amount_cents),0)::int as total from job_payments where job_id='${deal.jobId}'`)[0].total) / 100
-  const inQb = qb.company(co.id).all('Payment').reduce((t, p) => t + cents(p.TotalAmt), 0)
+  // QuickBooks holds money taken back as a RefundReceipt: net money in = Payments - RefundReceipts.
+  const c = qb.company(co.id)
+  const inQb = c.all('Payment').reduce((t, p) => t + cents(p.TotalAmt), 0) - c.all('RefundReceipt').reduce((t, p) => t + cents(p.TotalAmt), 0)
+  expect(c.all('RefundReceipt')).toHaveLength(1)
   agree('payments after Undo payment (cents)', { 'CRM job_payments': crm, QuickBooks: inQb, 'rpt_jobs.collected': cents(rptJob(deal.jobId)?.collected) })
 })
