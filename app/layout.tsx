@@ -54,9 +54,9 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: 'cover',
+  // Android Chrome: the keyboard shrinks the page, so fixed bottom bars sit above it instead of behind it.
+  interactiveWidget: 'resizes-content',
   themeColor: '#4f46e5',
 }
 
