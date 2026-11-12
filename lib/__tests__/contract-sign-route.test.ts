@@ -8,6 +8,7 @@ import { createFakeDb } from '@/lib/test-helpers/fake-db'
 let db: ReturnType<typeof createFakeDb>
 const uploads: string[] = []
 let uploadFails = false
+let downloadFails = false
 /** Make the next write(s) to a table fail: { table, op, when(patch/row), times }. */
 let failRules: Array<{ table: string; op: 'update' | 'insert'; when?: (v: any) => boolean; times: number }> = []
 function failing(): any {
@@ -43,7 +44,7 @@ jest.mock('@/lib/supabase/service', () => ({
           if (!path.includes('/signing/')) uploads.push(path)
           return { error: null }
         },
-        download: async () => ({ data: new Blob(['%PDF-fake']), error: null }),
+        download: async () => (downloadFails ? { data: null, error: { message: 'down' } } : { data: new Blob(['%PDF-fake']), error: null }),
       }),
     },
   }),
@@ -97,6 +98,7 @@ beforeEach(() => {
   failRules = []
   uploads.length = 0
   uploadFails = false
+  downloadFails = false
   generate.mockClear()
   sendMail.mockClear()
   seed()
@@ -362,6 +364,15 @@ describe('quote approval contracts', () => {
 
 
 describe('signing engine on the contract route', () => {
+  it('a failing evidence step never holds the sale hostage: the contract still finishes', async () => {
+    downloadFails = true
+    const res = await post(good())
+    expect(res.status).toBe(200)
+    const row = db.tables.order_form_contracts[0]
+    expect(row.status).toBe('completed')
+    expect(row.signing_finalized_at).toBeTruthy()
+    expect(sendMail).toHaveBeenCalledTimes(1)
+  })
   it('refuses a signature without consent when the company requires it', async () => {
     ;(db.tables as any).orgs = [{ id: ORG, settings: { signing: { consentStep: true } } }]
     const res = await post(good())

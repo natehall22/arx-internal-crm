@@ -904,7 +904,9 @@ async function finishSignedContract(
     }
 
     // Everything done → finished for good; anything missing is retried by the next call on this link (see CLAUDE.md).
-    const required = ['void_older', 'pdf', 'engine', 'project', 'signed_note', 'customer_email', ...(isContingency ? [] : ['sale_notice'])]
+    // `engine` (hash, certificate, filing) is attempted above and retried while the link is still being finished, but it never holds the
+    // sale hostage: a signed contract finishes without it, and staff can "Make certificate" later from the signing status.
+    const required = ['void_older', 'pdf', 'project', 'signed_note', 'customer_email', ...(isContingency ? [] : ['sale_notice'])]
     if (required.every((k) => done(k))) {
       await supabase
         .from('order_form_contracts')

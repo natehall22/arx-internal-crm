@@ -203,6 +203,20 @@ export function seedForRoute(seed: Record<string, Row[]>, routePath: string) {
     for (const r of seed.import_runs ?? []) Object.assign(r, { status: 'draft', mapping: {}, options: {}, summary: null, checked_at: null })
     for (const r of seed.import_run_files ?? []) Object.assign(r, { kind: 'clients', headers: ['J-ID', 'Display Name'], rows: [['1_1', 'Pat']], row_count: 1, date_evidence: null, parsed: null, parsed_at: null })
   }
+  // Signing engine: both companies have a PENDING contract and change order (unexpired link, customer email), an envelope
+  // for each, and decline switched on, so the staff actions (resend/extend/void), the public viewed/decline routes and the
+  // settings route reach a real record instead of stopping at "not open".
+  if (/^\/api\/(signing|admin\/signing)(\/|$)/.test(routePath)) {
+    const open = { status: 'pending_customer', token_expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), customer_email: 'customer@example.test', customer_name: 'Pat' }
+    for (const t of ['order_form_contracts', 'job_change_orders']) for (const r of seed[t] ?? []) Object.assign(r, open)
+    for (const r of seed.orgs ?? []) r.settings = { ...(r.settings as object), signing: { declineEnabled: true, consentStep: true } }
+    const envs: Row[] = []
+    for (const kind of ['contract', 'change-order']) {
+      const table = kind === 'contract' ? 'order_form_contracts' : 'job_change_orders'
+      for (const r of seed[table] ?? []) envs.push({ id: `${r.id}-env-${kind}`, org_id: r.org_id, doc_kind: kind, doc_id: r.id, provider: 'native', status: 'sent', signers: [], documents: [], fields: [], sent_at: A_STAMP, reminder_count: 0, created_at: A_STAMP, updated_at: A_STAMP })
+    }
+    seed.signing_envelopes = envs
+  }
   // Time clock: both companies' crews clock in, and their crew_members rows are leads (lib/time-tracking-db.ts).
   if (/\/clock$/.test(routePath)) {
     for (const r of seed.sub_contractors ?? []) Object.assign(r, { tracks_time: true, active: true })

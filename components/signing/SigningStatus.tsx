@@ -115,7 +115,7 @@ export default function SigningStatus({ kind, id, refreshKey = 0 }: { kind: 'con
           </div>
         </div>
       )}
-      {s.status === 'completed' && s.pdfSha256 && <p className="mt-2 break-all text-xs text-[#4b5563]">SHA-256 {s.pdfSha256}</p>}
+      {s.status === 'completed' && s.pdfSha256 && <p className="mt-2 break-all text-sm text-[#4b5563]">SHA-256 {s.pdfSha256}</p>}
     </div>
   )
 }
