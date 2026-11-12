@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import PdfPages from '@/components/signing/PdfPages'
 import { supplierDisplayState, type MaterialsState } from '@/lib/job-materials-state'
 import type { SupplierOrdersView, SupplierCard, SupplierOrderPreview } from '@/lib/supplier-orders'
 
@@ -323,11 +324,9 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
                 />
               </label>
               {preview.hasPdf && (
-                <iframe
-                  title="Purchase order preview"
-                  src={`/api/ops/jobs/${jobId}/supplier-orders/preview?vendorId=${open.vendorId}&kind=${open.kind}&deliveryDate=${deliveryDate}&format=pdf`}
-                  className="h-[50dvh] w-full rounded border border-[#d3d1c7]"
-                />
+                <div aria-label="Purchase order preview" className="h-[50dvh] w-full overflow-y-auto rounded border border-[#d3d1c7] bg-[#f1efe8] p-2">
+                  <PdfPages source={`/api/ops/jobs/${jobId}/supplier-orders/preview?vendorId=${open.vendorId}&kind=${open.kind}&deliveryDate=${deliveryDate}&format=pdf`} />
+                </div>
               )}
               {preview.blockers.map((b) => (
                 <p key={b} className="text-sm text-[#a32d2d]">{b}</p>

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import MaterialsOrderCard from '@/components/ops/MaterialsOrderCard'
+import PdfPages from '@/components/signing/PdfPages'
 import {
   RUN_SHEET_FIELD_KEYS,
   type ClientJobRunSheet,
@@ -66,7 +67,7 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
 
   const crewPdfUrl = `/api/ops/jobs/${sheet.jobId}/run-sheet/pdf`
   const supplierPdfUrl = `/api/ops/jobs/${sheet.jobId}/material-order/pdf`
-  const previewUrl = `${preview === 'crew' ? crewPdfUrl : supplierPdfUrl}?v=${previewKey}#toolbar=0&navpanes=0`
+  const previewUrl = `${preview === 'crew' ? crewPdfUrl : supplierPdfUrl}?v=${previewKey}`
 
   // Quantity saves come from MaterialsOrderCard; refresh whichever sheet is showing.
   useEffect(() => {
@@ -340,12 +341,13 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
                 Refresh
               </button>
             </div>
-            <iframe
-              key={`${preview}-${previewKey}`}
-              src={previewUrl}
-              title={`${preview === 'crew' ? 'Crew run sheet' : 'Supplier order sheet'} preview for job ${sheet.jobNumber}`}
-              className="h-[900px] w-full rounded-lg border border-[#d6d4ce] bg-white lg:h-[calc(100%-2rem)]"
-            />
+            <div
+              role="region"
+              aria-label={`${preview === 'crew' ? 'Crew run sheet' : 'Supplier order sheet'} preview for job ${sheet.jobNumber}`}
+              className="h-[900px] w-full overflow-y-auto rounded-lg border border-[#d6d4ce] bg-[#f1efe8] p-2 lg:h-[calc(100%-2rem)]"
+            >
+              <PdfPages key={`${preview}-${previewKey}`} source={previewUrl} />
+            </div>
           </div>
         </div>
       </div>
