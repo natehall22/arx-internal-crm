@@ -5,6 +5,7 @@ import { ensureCheckups } from '@/lib/checkups'
 import { notifyPayWeekReady } from '@/lib/payroll-approve-link'
 import { retryDueCommissionChanges } from '@/lib/payroll-commission-change'
 import { ensureServiceVisits } from '@/lib/service-plans-db'
+import { runCrewIncentives } from '@/lib/crew-incentives-db'
 import { runAutopayRetries } from '@/lib/online-payments/autopay'
 import { autoCloseForgotten } from '@/lib/time-tracking-db'
 import { getBlastSendDate, runClaimedBlast, type BlastResult } from '@/lib/email-blast-ledger'
@@ -87,6 +88,11 @@ export async function GET(request: NextRequest) {
         console.error(`[cron/morning-update] service visits failed for org ${orgId}:`, error)
       })
     }
+    // Crew incentives (lawn_landscape companies that turned them on; any other company returns before reading a visit): bonus
+    // lines proposed onto the open pay week, pending until an owner approves them. Idempotent.
+    await runCrewIncentives(admin, orgId, { now }).catch((error) => {
+      console.error(`[cron/morning-update] crew incentives failed for org ${orgId}:`, error)
+    })
     // Commission changes that couldn't be written yet (an approval was running, the new pay week isn't on, or an
     // unexpected database error): retried every morning (lib/payroll-commission-change.ts; nothing waiting = one empty
     // read). Not behind the hourly billing switch: pay already owed must not stop because the switch was turned off.

@@ -10,6 +10,7 @@ import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { loadClockState } from '@/lib/time-tracking-db'
 import { createServiceClient } from '@/lib/supabase/service'
 import { readCustomerMessageSettings } from '@/lib/customer-messages'
+import { loadScoreboard } from '@/lib/crew-incentives-db'
 import CrewDayList from './CrewDayList'
 
 export const dynamic = 'force-dynamic'
@@ -56,8 +57,14 @@ export default async function CrewDayPage({ params }: { params: { token: string 
   const onTheWay =
     (await isOrgFeatureOn(crew.orgId, 'customerMessages')) &&
     readCustomerMessageSettings(((await admin.from('orgs').select('cm:settings->customerMessages').eq('id', crew.orgId).maybeSingle()).data as { cm?: unknown } | null)?.cm).onTheWay
+  // Crew incentives: this crew's own bonuses (null unless a lawn_landscape company turned them on).
+  const scoreboard = await loadScoreboard(admin, crew.orgId, { subId: crew.subId }).catch((e) => {
+    console.error('[crew-day] scoreboard failed', e)
+    return null
+  })
   return (
     <CrewDayList
+      scoreboard={scoreboard}
       token={params.token}
       onTheWay={onTheWay}
       crewName={crew.crewName}

@@ -1041,3 +1041,29 @@ export const HARNESS_PUBLIC_SELECTION = {
   chosenLabel: null,
   signingUrl: null,
 }
+
+// Crew incentives (lawn_landscape): the owner's rules card and a crew's scoreboard.
+export const HARNESS_CREW_INCENTIVES = {
+  settings: {
+    enabled: true,
+    doneRight: { on: true, amount: 10, split: 'even', holdDays: 3, minPhotos: 1 },
+    beatTime: { on: true, mode: 'percent', amount: 0, percent: 50, ratePerHour: 40, split: 'full' },
+    review: { on: true, amount: 25, split: 'even' },
+    weeklyTarget: { on: true, basis: 'visits', target: 12, amount: 60, split: 'even' },
+    deduction: { on: true, amount: 15, split: 'even' },
+  },
+}
+export const HARNESS_CREW_SCOREBOARD = {
+  weekEnding: '2026-11-18',
+  crews: [
+    {
+      subId: 'sub-1',
+      name: 'Green Team',
+      target: { basis: 'visits', goal: 12, done: 7, percent: 58, hit: false, amount: 60 },
+      people: [
+        { userId: 'u1', name: 'Maria Lopez', earned: 15, pending: 22.5, isMe: true },
+        { userId: 'u2', name: 'Chris Walker', earned: 15, pending: -7.5, isMe: false },
+      ],
+    },
+  ],
+}

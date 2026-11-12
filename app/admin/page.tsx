@@ -25,6 +25,7 @@ import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
+import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSettingsCard'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { canEditCheckupSettings } from '@/lib/checkups-settings'
 import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
@@ -44,6 +45,7 @@ export default async function SettingsPage() {
   const groups = visibleSettingsGroups({
     features,
     terms: orgProfile.terms,
+    profileId: orgProfile.id,
     canCost: ['admin', 'operations'].includes(profile.role),
     canPayroll: ['admin', 'owner', 'operations'].includes(profile.role),
     canSuperuser: ['admin', 'owner'].includes(profile.role),
@@ -86,6 +88,8 @@ export default async function SettingsPage() {
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}
           {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
+          {/* Owners of a lawn_landscape company: automatic crew bonus rules (lib/crew-incentives.ts). Nobody else sees it. */}
+          {orgProfile.id === 'lawn_landscape' && canEditFeatures ? <CrewIncentivesSettingsCard /> : null}
           {/* Owners, when the company bills by the hour: rounding, minimums, drive time (lib/hourly-billing.ts). */}
           {features.hourlyBilling && canEditFeatures ? <HourlyBillingSettingsCard /> : null}
           {/* Owners, when the company sends quote links: default deposit, link life, terms (lib/quotes/settings.ts). */}

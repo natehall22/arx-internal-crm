@@ -5,6 +5,7 @@ import { servicePlanRouteAuth } from '@/lib/service-plans-access'
 import { crewDayLinkSubIds, ensureServiceVisits, loadVisitsPage } from '@/lib/service-plans-db'
 import { addDaysYmd, daysBetweenYmd, isYmd, ymdInZone } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
+import { loadCrewIncentivesState, loadVisitMarks } from '@/lib/crew-incentives-db'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +36,13 @@ export async function GET(request: Request) {
     orgDb(ctx.admin, ctx.orgId).from('sub_contractors').select('id, company_name, phone').eq('active', true).order('company_name'),
     crewDayLinkSubIds(ctx.admin, ctx.orgId),
   ])
+  // Crew incentives (lawn_landscape companies that turned them on): the staff marks shown on each finished visit. Absent otherwise.
+  const incentivesOn = ctx.access.edit && (await loadCrewIncentivesState(ctx.admin, ctx.orgId)).active
+  const incentiveMarks = incentivesOn
+    ? await loadVisitMarks(ctx.admin, ctx.orgId, page.visits.filter((v) => v.status === 'completed').map((v) => v.id)).catch(() => ({}))
+    : null
   return NextResponse.json({
+    ...(incentiveMarks ? { incentiveMarks } : {}),
     today,
     from,
     to,

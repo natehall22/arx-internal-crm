@@ -67,6 +67,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('quoteApproval' in set || remove.includes('quoteApproval'))) return { error: 'quoteApproval is saved at path [quoteApproval]' }
   // Signing choices (consent step, reminders, copies) are only ever written at path ['signing'] (owners, /api/admin/signing).
   if (path.length === 0 && ('signing' in set || remove.includes('signing'))) return { error: 'signing is saved at path [signing]' }
+  // Crew incentive rules (lawn_landscape only) are only ever written at path ['crewIncentives'] (owners, /api/admin/crew-incentives).
+  if (path.length === 0 && ('crewIncentives' in set || remove.includes('crewIncentives'))) return { error: 'crewIncentives is saved at path [crewIncentives]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

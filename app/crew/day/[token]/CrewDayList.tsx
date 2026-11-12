@@ -8,6 +8,8 @@ import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
 import { useClock, usePresence, type ClockState } from '@/components/time/useClock'
+import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
+import type { Scoreboard } from '@/lib/crew-incentives-db'
 
 export type CrewDayVisit = {
   id: string
@@ -49,6 +51,7 @@ export default function CrewDayList({
   visits: initial,
   clock: initialClock = null,
   onTheWay = false,
+  scoreboard = null,
 }: {
   token: string
   crewName: string
@@ -59,6 +62,8 @@ export default function CrewDayList({
   clock?: ClockState | null
   /** The company emails the customer when the crew taps "On my way" (Settings → Customer messages). */
   onTheWay?: boolean
+  /** This crew's bonuses this week (only when the company turned crew incentives on; never another crew's). */
+  scoreboard?: Scoreboard | null
 }) {
   const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(initial)
   const [busy, setBusy] = useState<string | null>(null)
@@ -444,6 +449,11 @@ export default function CrewDayList({
             )
           })}
         </ol>
+        {scoreboard ? (
+          <div className="mt-4">
+            <CrewScoreboardCard data={scoreboard} />
+          </div>
+        ) : null}
       </div>
     </main>
   )
