@@ -233,7 +233,7 @@ export async function syncInvoice(ctx: HandlerCtx, inv: CrmInvoice): Promise<{ q
   const customerRef = await customerRefFor(ctx, { jobId: inv.jobId, customerId: inv.customerId })
   const prior = await ctx.links.get(sourceCrmTable(inv), inv.source.id, 'Invoice')
   // The CRM voided this invoice earlier (job cancelled, then restored). QuickBooks cannot un-void: send the sale again as a NEW invoice.
-  if (prior && prior.sent_total_cents === 0) return reissueAfterVoid(ctx, inv, customerRef)
+  if (prior && prior.sent_total_cents === 0) return reissueAfterVoid(ctx, inv, customerRef, prior.qb_id)
   let body: Record<string, unknown>
   try {
     body = buildInvoiceBody(inv, { settings: s, customerRef })
@@ -316,7 +316,7 @@ export async function syncInvoice(ctx: HandlerCtx, inv: CrmInvoice): Promise<{ q
 }
 
 /** A voided-by-us invoice is sent again as a new QuickBooks invoice numbered "<number>-R" (then -R2 ...). */
-async function reissueAfterVoid(ctx: HandlerCtx, inv: CrmInvoice, customerRef: string): Promise<{ qb: QbObject; warning: { code: string; message: string } | null; unchanged: boolean }> {
+async function reissueAfterVoid(ctx: HandlerCtx, inv: CrmInvoice, customerRef: string, voidedQbId: string): Promise<{ qb: QbObject; warning: { code: string; message: string } | null; unchanged: boolean }> {
   const s = ctx.settings
   const table = sourceCrmTable(inv)
   const id = inv.source.id
@@ -335,7 +335,8 @@ async function reissueAfterVoid(ctx: HandlerCtx, inv: CrmInvoice, customerRef: s
     const ours = found.find((r) => String(r.PrivateNote ?? '').includes(marker) && !/^Voided/i.test(String(r.PrivateNote ?? '')))
     if (ours) {
       await adopt(ctx, table, id, 'Invoice', ours, { fingerprint: fp, sentTotalCents: qbCents(ours.TotalAmt) })
-      return { qb: ours, warning: totalWarning(inv, qbCents(ours.TotalAmt)) ?? extraTaxWarning(inv), unchanged: false }
+      const lost = await reapplyPayments(ctx, inv, voidedQbId, ours)
+      return { qb: ours, warning: lost ?? totalWarning(inv, qbCents(ours.TotalAmt)) ?? extraTaxWarning(inv), unchanged: false }
     }
     if (found.length > 0) continue
     const made = await ctx.client.create<QbObject>('Invoice', body, requestIdFor(ctx.orgId, `inv:${id}`, invoiceFacts(alt, customerRef, s)))
@@ -343,9 +344,56 @@ async function reissueAfterVoid(ctx: HandlerCtx, inv: CrmInvoice, customerRef: s
     const obj = must(made)
     const total = qbCents(obj.TotalAmt)
     await adopt(ctx, table, id, 'Invoice', obj, { fingerprint: fp, sentTotalCents: total })
-    return { qb: obj, warning: totalWarning(inv, total) ?? extraTaxWarning(inv), unchanged: false }
+    const lost = await reapplyPayments(ctx, inv, voidedQbId, obj)
+    return { qb: obj, warning: lost ?? totalWarning(inv, total) ?? extraTaxWarning(inv), unchanged: false }
   }
   return needsYou('6210', `Could not find a free document number to send invoice ${inv.docNumber} again. Fix the numbers in QuickBooks, then press Retry.`)
+}
+
+/**
+ * Voiding a paid invoice leaves each payment in QuickBooks as an unapplied credit on the customer (QuickBooks community: "the payment stays
+ * on record ... leaves a credit on the customer's account"). When the sale is reissued, the payments the CRM already sent are applied to the
+ * NEW invoice, so its balance is what the CRM says is still owed. A Payment update replaces its Line list (Intuit: full update, omitted
+ * writable fields become null), so the existing lines to other invoices are sent back unchanged. Idempotent: a payment already applied to the new
+ * invoice is left alone; a stale SyncToken is re-read once. Returns a plain-words warning (steps included) when one could not be applied.
+ */
+async function reapplyPayments(ctx: HandlerCtx, inv: CrmInvoice, voidedQbId: string, fresh: QbObject): Promise<{ code: string; message: string } | null> {
+  const newId = String(fresh.Id)
+  const ids: string[] = []
+  if (inv.source.table === 'production_jobs') {
+    // org-scope-ok: the job was loaded in this company; its payments are read by job id (job payments carry no org_id of their own)
+    const { data } = await ctx.admin.from('job_payments').select('id, amount_cents').eq('job_id', inv.source.id)
+    for (const r of (data ?? []) as Array<{ id: string; amount_cents: number }>) if (Number(r.amount_cents) > 0) ids.push(r.id)
+  } else {
+    // org-scope-ok: the invoice was loaded in this company
+    const { data } = await ctx.admin.from('invoice_payments').select('job_payment_id, applied_cents').eq('invoice_id', inv.source.id)
+    for (const r of (data ?? []) as Array<{ job_payment_id: string; applied_cents: number }>) if (Number(r.applied_cents) > 0) ids.push(r.job_payment_id)
+  }
+  const problems: string[] = []
+  let owes = qbCents(fresh.Balance ?? fresh.TotalAmt)
+  for (const pid of Array.from(new Set(ids))) {
+    const link = await ctx.links.get('job_payments', pid, 'Payment')
+    if (!link) continue // not sent yet: it will apply to the live invoice when it is sent
+    let done = false
+    for (let attempt = 0; attempt < 2 && !done; attempt++) {
+      const read = await ctx.client.read<QbObject>('Payment', link.qb_id)
+      if (!read.ok) { if (attempt === 1 || !isRetryable(read.kind)) problems.push(`payment ${link.qb_id}`); continue }
+      const cur = read.value
+      const lines = ((cur.Line ?? []) as Array<{ Amount?: number; LinkedTxn?: Array<{ TxnId?: string }> }>)
+      if (lines.some((l) => l.LinkedTxn?.some((x) => String(x.TxnId) === newId))) { done = true; break } // already applied to the new invoice
+      const keep = lines.filter((l) => !l.LinkedTxn?.some((x) => String(x.TxnId) === voidedQbId))
+      const used = keep.reduce((t, l) => t + qbCents(l.Amount), 0)
+      const apply = Math.min(qbCents(cur.TotalAmt) - used, owes)
+      if (apply <= 0) { done = true; break }
+      const { MetaData: _m, UnappliedAmt: _u, sparse: _s, ...rest } = cur as Record<string, unknown>
+      const body = { ...rest, Id: String(cur.Id), SyncToken: String(cur.SyncToken ?? '0'), Line: [...keep, { Amount: apply / 100, LinkedTxn: [{ TxnId: newId, TxnType: 'Invoice' }] }] }
+      const r = await ctx.client.update<QbObject>('Payment', body, requestIdFor(ctx.orgId, `pay-reapply:${pid}:${newId}`, { st: cur.SyncToken, apply }))
+      if (r.ok) { owes -= apply; done = true } else if (!(r.kind === 'stale' && attempt === 0)) { problems.push(`payment ${link.qb_id}`); break }
+    }
+    if (!done && !problems.some((x) => x.includes(link.qb_id))) problems.push(`payment ${link.qb_id}`)
+  }
+  if (problems.length === 0) return null
+  return { code: 'payments_not_reapplied', message: `Invoice ${inv.docNumber} was sent again as ${String(fresh.DocNumber ?? '')} after the sale was restored, but the customer's earlier ${problems.join(', ')} could not be moved onto it automatically (QuickBooks left it as a credit on the customer). In QuickBooks open the customer, choose Receive payment, tick ${String(fresh.DocNumber ?? 'the new invoice')} and apply the credit, then press Skip here.` }
 }
 
 function extraTaxWarning(inv: CrmInvoice): { code: string; message: string } | null {

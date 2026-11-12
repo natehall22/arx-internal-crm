@@ -57,6 +57,7 @@ export class FakeQbCompany {
 
   private recompute(entity: string, o: QbObject) {
     if (entity === 'Invoice') {
+      if (/^Voided/i.test(String(o.PrivateNote ?? ''))) return // a voided invoice stays zero
       const total = this.total('Invoice', o)
       o.TotalAmt = total / 100
       const paid = this.all('Payment').reduce((t, p) => t + ((p.Line ?? []) as any[]).filter((l) => l.LinkedTxn?.some((x: any) => x.TxnId === o.Id)).reduce((a, l) => a + Math.round(Number(l.Amount) * 100), 0), 0)
@@ -131,6 +132,7 @@ export class FakeQbCompany {
           o.SyncToken = String(Number(o.SyncToken) + 1)
           delete (o as Record<string, unknown>).sparse
           self.recompute(entity, o)
+          if (entity === 'Payment') for (const inv of self.all('Invoice')) self.recompute('Invoice', inv)
           const res: QbResult<QbObject> = { ok: true, value: structuredClone(o), intuitTid: null }
           self.seen.set(requestId, res)
           return res as QbResult<T>
@@ -146,6 +148,8 @@ export class FakeQbCompany {
           o.TotalAmt = 0
           o.Balance = 0
           o.PrivateNote = `Voided ${o.PrivateNote ?? ''}`.trim()
+          // Like QuickBooks: voiding a paid invoice leaves each payment on the customer as an unapplied credit (its link to the invoice is dropped).
+          if (entity === 'Invoice') for (const p of self.all('Payment')) p.Line = ((p.Line ?? []) as any[]).filter((l) => !l.LinkedTxn?.some((x: any) => x.TxnId === ref.Id))
           return { ok: true, value: structuredClone(o) as T, intuitTid: null }
         })
       },

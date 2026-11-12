@@ -287,8 +287,7 @@ describe('cancel, undo, refund (a second job that has not been installed)', () =
 })
 
 describe('cancel then undo with the deposit still held', () => {
-  // FINDING: undo-cancel reissues the invoice as <number>-R but the deposit stays linked to the voided one.
-  it.failing('A12 the customer deposit follows the job: QuickBooks payments applied to the LIVE invoice == CRM collected', async () => {
+  it('A12 the customer deposit follows the job: QuickBooks payments applied to the LIVE invoice == CRM collected', async () => {
     const d3 = await seedSignedRoofingJob(co, { n: 3, contractTotal: 12000, salesTax: 0, customerName: 'Terry Third', email: 'terry@example.test' })
     await syncJobSaleAndCommissionBase(admin(), { orgId: co.id, jobId: d3.jobId })
     await recordJobPayment(admin(), { orgId: co.id, jobId: d3.jobId, paidAt: '2026-11-10', amountCents: 400000, paymentType: 'deposit', method: 'check', payer: 'homeowner', createdBy: null })
