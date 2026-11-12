@@ -95,9 +95,14 @@ input, textarea, select {
   background-color: #ffffff;
 }
 
-/* Pinch-zoom is allowed, so iOS zooms any focused field under 16px: beat Tailwind's text-sm/text-xs on phones. */
+/* Pinch-zoom is allowed, so iOS zooms any focused field under 16px. Raise only the fields Tailwind made small
+   (text-xs / text-sm / text-ui-sm / text-[9..15px]); inputs meant to be big (typed signature, code entry) keep their size. */
 @media (max-width: 767px) {
-  input, select, textarea {
+  :is(input, select, textarea):is(
+    [class*="text-xs"], [class*="text-sm"], [class*="text-ui-sm"],
+    [class*="text-[9px]"], [class*="text-[10px]"], [class*="text-[11px]"], [class*="text-[12px]"],
+    [class*="text-[13px]"], [class*="text-[14px]"], [class*="text-[15px]"]
+  ) {
     font-size: 16px !important;
   }
 }

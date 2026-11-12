@@ -167,4 +167,15 @@ describe('SignaturePad pointer input + sharp backing store', () => {
     expect(onChange).not.toHaveBeenCalled()
     expect(container.textContent).toContain('Sign here')
   })
+
+  it('a stale image load never draws or marks ink after the value changed or was cleared', () => {
+    const loads: Array<() => void> = []
+    ;(window as any).Image = class { onload?: () => void; set src(_: string) { loads.push(() => this.onload?.()) } }
+    const { container, rerender } = render(<SignaturePad value={PNG} onChange={() => {}} />)
+    rerender(<SignaturePad value={null} onChange={() => {}} />) // cleared before the first image loaded
+    ;(ctx.drawImage as jest.Mock).mockClear()
+    loads.forEach((l) => l())
+    expect(ctx.drawImage).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('Sign here')
+  })
 })

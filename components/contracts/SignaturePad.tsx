@@ -92,6 +92,7 @@ export default function SignaturePad({
   // `value`; clearing + async-redrawing that echo would wipe a fast second stroke (an i-dot) before the image loads.
   useEffect(() => {
     if (value && value === lastEmittedRef.current) return
+    let cancelled = false
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -111,12 +112,14 @@ export default function SignaturePad({
     } else {
       const img = new Image()
       img.onload = () => {
+        if (cancelled) return // the value changed or was cleared while this loaded
         ctx.drawImage(img, 0, 0, width, height)
         inkRef.current = true
         setHasSignature(true)
       }
       img.src = value
     }
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
