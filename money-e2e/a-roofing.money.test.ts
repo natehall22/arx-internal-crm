@@ -13,7 +13,7 @@ import { buildPaySheet } from '@/lib/payroll-pay-sheet'
 import { addJobCostLine, jobDirectCost, resolveVendorId } from '@/lib/job-cost-ledger'
 import { recordPoBill } from '@/lib/purchase-orders-db'
 import { summarizeJobEconomics } from '@/lib/goals-job-economics'
-import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
+import { jobProfitCents, loadJobCommissions } from '@/lib/job-commission-actual'
 import { rptCosts } from './readers'
 import { POST as cancelPOST, DELETE as uncancelDELETE } from '@/app/api/ops/jobs/[id]/cancel/route'
 import { agree, jobPageMoney, opsBoardJob, portalJobMoney, qbSale, rptJob, rptPayments } from './readers'
@@ -209,10 +209,10 @@ it('A8 costs: manual lines + a supplier PO bill + the dealer-fee mirror line -> 
     'rpt_job_costs rows (non-fee) + dealer fee': rptCosts(deal.jobId).filter((r) => r.description !== 'Lender / dealer fee').reduce((t, r) => t + cents(r.amount), 0) + dealerFee,
     'by hand: lines + dealer fee': lines + dealerFee,
   })
-  const econ = summarizeJobEconomics([{ id: deal.jobId, sale_amount: j.sale_amount, sale_date: j.sale_date, created_at: j.created_at, dealer_fee_amount: j.dealer_fee_amount, commission_comp_base: j.commission_comp_base }], new Map([[deal.jobId, page.cost]]))
-  const poolCap = buildCommissionPayrollSnapshot(j).poolCap!
-  const cardProfit = cents(j.sale_amount) - cents(jobDirectCost(page.cost, j.dealer_fee_amount)) - Math.round(poolCap * 100)
-  agree('job profit (cents) - Financials card formula vs goals economics', { 'Financials card (sale - direct - pool cap)': cardProfit, 'goals-job-economics netProfit': cents(econ.netProfit) })
+  const commission = (await loadJobCommissions(db, co.id, [deal.jobId])).get(deal.jobId) ?? null
+  const econ = summarizeJobEconomics([{ id: deal.jobId, sale_amount: j.sale_amount, sale_date: j.sale_date, created_at: j.created_at, dealer_fee_amount: j.dealer_fee_amount, commission_comp_base: j.commission_comp_base }], new Map([[deal.jobId, page.cost]]), new Map([[deal.jobId, commission]]))
+  const cardProfit = jobProfitCents({ saleCents: cents(j.sale_amount), directCostCents: cents(jobDirectCost(page.cost, j.dealer_fee_amount)), commissionCents: commission?.cents ?? null })?.profitCents ?? null
+  agree('job profit (cents) - Financials card formula vs goals economics', { 'Financials card (sale - direct - payroll commission)': cardProfit, 'goals-job-economics netProfit': cents(econ.netProfit) })
   agree('profit before commission (cents)', { 'rpt_jobs.profit_before_commission': cents(rj.profit_before_commission), 'sale - dealer fee - ledger lines': cents(j.sale_amount) - dealerFee - lines })
 })
 
@@ -307,10 +307,10 @@ describe('cancel then undo with the deposit still held', () => {
   })
 })
 
-describe('known disagreements (it.failing = a real bug today; flip to it when the product is fixed)', () => {
+describe('known disagreements (were it.failing; fixed on feat/money-simple, now normal tests)', () => {
   // FINDING D1: the report view ignores invoice tax that the job page, ops board and payroll eligibility all add to what is owed.
   // supabase/migrations/202610220010_reporting_views.sql:37 (rpt_jobs.balance_due = sale_amount - collected) vs lib/job-collection.ts (invoiceTaxCents) via lib/job-payments.ts:47.
-  it.failing('D1 invoice tax: rpt_jobs.balance_due == the job page remaining balance (paid-in-full)', async () => {
+  it('D1 invoice tax: rpt_jobs.balance_due == the job page remaining balance (paid-in-full)', async () => {
     const d4 = await seedSignedRoofingJob(co, { n: 4, contractTotal: 10000, salesTax: 0, customerName: 'Dana Fourth', email: 'dana@example.test' })
     await syncJobSaleAndCommissionBase(admin(), { orgId: co.id, jobId: d4.jobId })
     await must(admin().from('job_invoices').insert({ org_id: co.id, job_id: d4.jobId, invoice_number: `${d4.jobNumber}-X1`, status: 'sent', issued_at: '2026-11-10', subtotal_cents: 1000000, taxable_subtotal_cents: 500000, tax_cents: 35000, total_cents: 1035000 }).select('id').single(), 'invoice with tax')
@@ -324,10 +324,11 @@ describe('known disagreements (it.failing = a real bug today; flip to it when th
 
   // FINDING D2: the Financials card and goals economics subtract the 18% pool CAP as commission cost; payroll pays what the plans say (7% closer + 5% setter here).
   // app/ops/jobs/[id]/JobDetailClient.tsx:1374 and lib/goals-job-economics.ts:49 (poolCap) vs lib/payroll-pay-week.ts (actual lines).
-  it.failing('D2 commission cost on the job: Financials card / goals economics == what payroll actually paid', async () => {
+  it('D2 commission cost on the job: Financials card / goals economics == what payroll actually paid', async () => {
     const j = (await admin().from('production_jobs').select('*').eq('id', deal.jobId).single()).data as any
-    const poolCap = Math.round(buildCommissionPayrollSnapshot(j).poolCap! * 100)
+    const card = (await loadJobCommissions(admin(), co.id, [deal.jobId])).get(deal.jobId)
+    const econ = summarizeJobEconomics([{ id: deal.jobId, sale_amount: j.sale_amount, sale_date: j.sale_date, created_at: j.created_at }], new Map(), new Map([[deal.jobId, card ?? null]]))
     const paid = cents(sql<any>(`select coalesce(sum(net_amount),0) n from payroll_payout_lines where job_id='${deal.jobId}'`)[0].n)
-    agree('commission cost of the job (cents)', { 'Financials card / goals economics (pool cap)': poolCap, 'payroll_payout_lines actually paid': paid })
+    agree('commission cost of the job (cents)', { 'Financials card (payroll commission)': card?.cents ?? -1, 'goals economics totalCommissions': cents(econ.totalCommissions), 'payroll_payout_lines actually paid': paid })
   })
 })

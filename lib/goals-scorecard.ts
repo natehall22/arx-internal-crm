@@ -15,6 +15,7 @@ import {
   type ForecastResult,
   type GoalCoverage,
 } from '@/lib/goals-forecast'
+import { loadJobCommissions } from '@/lib/job-commission-actual'
 import { summarizeJobEconomics, type JobEconomicsRow } from '@/lib/goals-job-economics'
 import { loadJobCostLedger, type JobCostSummary } from '@/lib/job-cost-ledger'
 import {
@@ -419,7 +420,8 @@ export async function buildScorecardPayload(
     for (const [jobId, entry] of Array.from(ledger.entries())) costsByJob.set(jobId, entry.summary)
   }
 
-  const economics = summarizeJobEconomics(jobs, costsByJob)
+  const commissionByJob = jobIds.length > 0 ? await loadJobCommissions(supabase, orgId, jobIds).catch((e) => { console.error('goals economics: commissions failed', e); return new Map() }) : new Map()
+  const economics = summarizeJobEconomics(jobs, costsByJob, commissionByJob)
 
   const leadIds = new Set<string>()
   for (const set of sets) if (set.lead_id) leadIds.add(set.lead_id)

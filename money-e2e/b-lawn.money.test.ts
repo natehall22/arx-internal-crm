@@ -10,7 +10,7 @@ import { agree, jobPageMoney, opsBoardJob, rptJob } from './readers'
 import { signInAs } from './auth-mock'
 import { recordJobPayment } from '@/lib/job-payment-record'
 import { approveHours } from '@/lib/hourly-billing-db'
-import { DELETE as deletePayment } from '@/app/api/ops/jobs/[id]/payments/[paymentId]/route'
+import { POST as undoPayment } from '@/app/api/ops/jobs/[id]/payments/[paymentId]/undo/route'
 
 jest.mock('@/lib/auth', () => require('./auth-mock').mockAuthModule())
 
@@ -72,19 +72,18 @@ it('B3 QuickBooks, every-invoice mode: ONE invoice = the CRM invoice incl. tax; 
 
 // FINDING B2b: for a time-and-materials job the report view still owes the ESTIMATE ($520 - collected), not the hours billed.
 // supabase/migrations/202610220010_reporting_views.sql:37 (rpt_jobs.balance_due = sale_amount - collected) vs lib/job-collection.ts (timeAndMaterialsInvoicedCents).
-it.failing('B2b time-and-materials: rpt_jobs.balance_due == the job page remaining balance', async () => {
+it('B2b time-and-materials: rpt_jobs.balance_due == the job page remaining balance', async () => {
   const page = await jobPageMoney(deal.jobId)
   agree('balance due on a time-and-materials job (cents)', { 'job page remaining': page.summary.remaining_cents, 'rpt_jobs.balance_due': cents(rptJob(deal.jobId)?.balance_due) })
 })
 
-// FINDING B4: the payments route hard-deletes a payment row; QuickBooks already holds it, and no event tells QuickBooks.
-// app/api/ops/jobs/[id]/payments/[paymentId]/route.ts:43 (.delete()) vs lib/job-payment-record.ts:17 ("a payment is never edited or deleted").
-it.failing('B4 a payment taken back out (Delete payment): CRM collected == QuickBooks payments, and the job is not paid in full', async () => {
+// B4 (was a hard delete QuickBooks never heard about): Undo payment is a negative payment through recordJobPayment, so QuickBooks gets a refund event.
+it('B4 a payment taken back out (Undo payment): CRM collected == QuickBooks payments, and the job is not paid in full', async () => {
   const pay = await must(admin().from('job_payments').select('id').eq('job_id', deal.jobId).limit(1).single(), 'payment')
-  const res = await deletePayment(new Request('http://x', { method: 'DELETE' }), { params: { id: deal.jobId, paymentId: (pay as any).id } })
+  const res = await undoPayment(new Request('http://x', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'money-e2e: customer check bounced' }) }), { params: { id: deal.jobId, paymentId: (pay as any).id } })
   expect(res.status).toBe(200)
   await qb.run(co.id)
   const crm = cents(sql<any>(`select coalesce(sum(amount_cents),0)::int as total from job_payments where job_id='${deal.jobId}'`)[0].total) / 100
   const inQb = qb.company(co.id).all('Payment').reduce((t, p) => t + cents(p.TotalAmt), 0)
-  agree('payments after Delete payment (cents)', { 'CRM job_payments': crm, QuickBooks: inQb, 'rpt_jobs.collected': cents(rptJob(deal.jobId)?.collected) })
+  agree('payments after Undo payment (cents)', { 'CRM job_payments': crm, QuickBooks: inQb, 'rpt_jobs.collected': cents(rptJob(deal.jobId)?.collected) })
 })
