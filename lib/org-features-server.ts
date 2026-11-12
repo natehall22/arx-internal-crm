@@ -9,6 +9,7 @@ import { notFound } from 'next/navigation'
 import { NextResponse } from 'next/server'
 
 import { DEFAULT_ORG_FEATURES, loadOrgFeatures, ORG_FEATURE_DEFS, type OrgFeature, type OrgFeatures } from '@/lib/org-features'
+import { DEMO_LOCKED_FEATURES, isDemoOrg } from '@/lib/demo-org'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /** React's per-request memo where it exists (the Next server runtime); a plain call elsewhere (jest). */
@@ -24,7 +25,10 @@ export const getOrgFeatures = perRequest(async (orgId: string | null | undefined
     console.error('getOrgFeatures: no database client, using defaults', e)
     return { ...DEFAULT_ORG_FEATURES }
   }
-  return loadOrgFeatures(client, orgId)
+  const features = await loadOrgFeatures(client, orgId)
+  // A demo company can never have these on, whatever is stored (lib/demo-org.ts).
+  if (await isDemoOrg(client, orgId)) for (const k of DEMO_LOCKED_FEATURES) features[k] = false
+  return features
 })
 
 export async function isOrgFeatureOn(orgId: string | null | undefined, feature: OrgFeature): Promise<boolean> {

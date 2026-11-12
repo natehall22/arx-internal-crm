@@ -6,6 +6,7 @@
  * number registered by hand in the carrier's portal is entered by the owner ("Connect your number"); texting only runs
  * while `status = 'active'`.
  */
+import { demoRefusalText, isDemoOrg } from '@/lib/demo-org'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { formatE164, normalizeUsPhone } from '@/lib/sms/phone'
@@ -152,6 +153,8 @@ export async function saveRegistration(admin: SupabaseClient, orgId: string, set
  * wizard exists.
  */
 export async function connectNumber(admin: SupabaseClient, orgId: string, rawNumber: string, userId: string | null): Promise<{ ok: true; e164: string } | { ok: false; error: string }> {
+  // A demo company never gets a real number: its texts are only logged (lib/demo-org.ts).
+  if (await isDemoOrg(admin, orgId)) return { ok: false, error: demoRefusalText('texting_number') }
   const e164 = normalizeUsPhone(rawNumber)
   if (!e164) return { ok: false, error: 'That doesn’t look like a US phone number.' }
   const now = new Date().toISOString()

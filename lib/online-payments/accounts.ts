@@ -12,6 +12,7 @@
  * so refunds and late webhooks still find the company. Connecting again resumes the same account unless Stripe says the
  * platform lost access (they removed us), in which case a new account is started.
  */
+import { isDemoOrg } from '@/lib/demo-org'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgFeatures } from '@/lib/org-features'
@@ -81,7 +82,8 @@ export async function loadOnlinePayments(admin: SupabaseClient, orgId: string): 
     loadLiveAccount(admin, orgId).catch(() => null),
   ])
   const settings = readOnlinePaymentSettings((org as { online?: unknown } | null)?.online ?? {})
-  const configured = stripeConfigured()
+  // A demo company never charges through a LIVE key (lib/demo-org.ts): test keys only.
+  const configured = stripeConfigured() && !(stripeKeyIsLive() && (await isDemoOrg(admin, orgId)))
   const ready =
     features.onlinePayments && configured && !!account && account.status === 'active' && account.charges_enabled && account.livemode === stripeKeyIsLive()
   return { featureOn: features.onlinePayments, configured, settings, account, ready }
