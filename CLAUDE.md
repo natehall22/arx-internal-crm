@@ -529,7 +529,7 @@ Budget vs actual, selections & allowances, job schedule stages, daily log. Migra
 
 ## Measure yard — lawn & landscape area measuring (2026-11-12)
 Switch `areaMeasure` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape profile ON, profile version 4; ARX unchanged). Migration
-`202611230040_area_measurements.sql` (NOT applied; apply before the code). A **separate tool**: `/tools/area-measure`, `components/area-measure/*`,
+`202611230040_area_measurements.sql` (NOT applied; apply before the code). A **separate tool**: `/tools/area-measure`, `components/area-measure/*`, Server re-measures every shape from its points (`polygonAreaSqft`/`pathLengthFeet` in `lib/area-measure.ts`, a port of Google computeArea/computeLength) and refuses a browser value >2% off or a self-crossing outline. Deleting a lead/deal/property never trips the owner CHECK (BEFORE DELETE triggers clear the id or delete a row with no other parent); a customer with measurements cannot be deleted (RESTRICT). A customer's list also includes rows saved on its leads and deals (`loadAreaMeasurements`). DB test: `supabase/tests/run-area-measurements.sh`.
 `lib/area-measure.ts` (pure rules), `lib/area-measure-db.ts` (access + the ONE writer), `/api/area-measure` (+ `/settings`).
 - **HARD RULE (owner): the roof measuring tool does not change.** `app/tools/roof-measure/`, `lib/lidar/*`, `lib/roof-measure*`, detect-roof and the instant
   estimate are never edited and never imported by this tool. `lib/__tests__/area-measure-roof-isolation.test.ts` fails on an import from those paths and (on branch

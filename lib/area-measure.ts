@@ -6,8 +6,10 @@
  *   bed     flower beds and landscaping        (sq ft; gets a mulch / pine straw estimate)
  *   cutout  a house, driveway, pool ...        (sq ft; taken OUT of the lawn total or the bed total)
  *   line    edging, fence, borders             (feet)
- * and an optional name. The screen measures each shape with Google's `geometry.spherical.computeArea` / `computeLength`
- * (lib/google-maps-client.ts) and sends the values; everything below works from those values.
+ * and an optional name. The screen measures each shape live with Google's `geometry.spherical.computeArea` /
+ * `computeLength` (lib/google-maps-client.ts). The SERVER never trusts those numbers: it re-measures every shape from its
+ * points with the JS port of the same formula below (`polygonAreaSqft`, `pathLengthFeet`), stores its own value, and
+ * refuses a request whose value is more than 2% off. Totals are always `computeTotals` over the server's values.
  *
  * CUT-OUTS — what we chose: a cut-out is subtracted from the TOTAL of the type it "takes from" (Lawn by default, or Beds),
  * never clipped against one particular lawn shape. A true polygon overlap needs polygon clipping (a house outline that
@@ -68,6 +70,96 @@ export const CUBIC_FEET_PER_CUBIC_YARD = 27
 export const sqmToSqft = (sqm: number): number => sqm * SQFT_PER_SQM
 export const metersToFeet = (m: number): number => m * FEET_PER_METER
 export const sqftToAcres = (sqft: number): number => sqft / SQFT_PER_ACRE
+
+// ---- geodesic measuring (server-side port of Google's spherical.computeArea / computeLength) ----
+/** Google's default radius: the WGS84 equatorial radius in metres, the sphere `computeArea` / `computeLength` use. */
+export const EARTH_RADIUS_M = 6378137
+
+const toRad = (deg: number): number => (deg * Math.PI) / 180
+
+/** Spherical area (square metres) of a closed polygon: Google's `computeArea` (signed polar-triangle sum, absolute value). */
+export function polygonAreaSqm(points: readonly LatLngPoint[], radius: number = EARTH_RADIUS_M): number {
+  const n = points.length
+  if (n < 3) return 0
+  const polarTriangleArea = (tan1: number, lng1: number, tan2: number, lng2: number): number => {
+    const deltaLng = lng1 - lng2
+    const t = tan1 * tan2
+    return 2 * Math.atan2(t * Math.sin(deltaLng), 1 + t * Math.cos(deltaLng))
+  }
+  const last = points[n - 1]
+  let prevTanLat = Math.tan((Math.PI / 2 - toRad(last.lat)) / 2)
+  let prevLng = toRad(last.lng)
+  let total = 0
+  for (const p of points) {
+    const tanLat = Math.tan((Math.PI / 2 - toRad(p.lat)) / 2)
+    const lng = toRad(p.lng)
+    total += polarTriangleArea(tanLat, lng, prevTanLat, prevLng)
+    prevTanLat = tanLat
+    prevLng = lng
+  }
+  return Math.abs(total * radius * radius)
+}
+
+/** Great-circle distance in metres between two points: Google's `computeDistanceBetween`. */
+export function distanceMeters(a: LatLngPoint, b: LatLngPoint, radius: number = EARTH_RADIUS_M): number {
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 2 * Math.asin(Math.min(1, Math.sqrt(h))) * radius
+}
+
+/** Length in metres of an open path: Google's `computeLength`. */
+export function pathLengthMeters(points: readonly LatLngPoint[], radius: number = EARTH_RADIUS_M): number {
+  let total = 0
+  for (let i = 1; i < points.length; i++) total += distanceMeters(points[i - 1], points[i], radius)
+  return total
+}
+
+export const polygonAreaSqft = (points: readonly LatLngPoint[]): number => sqmToSqft(polygonAreaSqm(points))
+export const pathLengthFeet = (points: readonly LatLngPoint[]): number => metersToFeet(pathLengthMeters(points))
+
+export const LINES_CROSS_MESSAGE = 'Lines cross — redraw'
+
+/**
+ * Does a closed outline cross itself (a bow-tie, a figure 8)? Two edges that are not neighbours may not touch. Works in a flat
+ * local frame (metres around the shape), which is exact enough for a yard. A repeated point or a touching vertex counts, so
+ * "redraw" is the safe answer: a self-crossing outline has no single area, and Google's number for it is not the yard's.
+ */
+export function polygonSelfIntersects(points: readonly LatLngPoint[]): boolean {
+  const n = points.length
+  if (n < 4) return false
+  const lat0 = points.reduce((a, p) => a + p.lat, 0) / n
+  const kx = Math.cos(toRad(lat0)) * EARTH_RADIUS_M * (Math.PI / 180)
+  const ky = EARTH_RADIUS_M * (Math.PI / 180)
+  const xy = points.map((p) => ({ x: p.lng * kx, y: p.lat * ky }))
+  const orient = (a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): number => {
+    const v = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+    return Math.abs(v) < 1e-9 ? 0 : v > 0 ? 1 : -1
+  }
+  const onSeg = (a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): boolean =>
+    Math.min(a.x, b.x) - 1e-9 <= c.x && c.x <= Math.max(a.x, b.x) + 1e-9 && Math.min(a.y, b.y) - 1e-9 <= c.y && c.y <= Math.max(a.y, b.y) + 1e-9
+  const crosses = (a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }, d: { x: number; y: number }): boolean => {
+    const o1 = orient(a, b, c)
+    const o2 = orient(a, b, d)
+    const o3 = orient(c, d, a)
+    const o4 = orient(c, d, b)
+    if (o1 !== o2 && o3 !== o4) return true
+    return (o1 === 0 && onSeg(a, b, c)) || (o2 === 0 && onSeg(a, b, d)) || (o3 === 0 && onSeg(c, d, a)) || (o4 === 0 && onSeg(c, d, b))
+  }
+  for (let i = 0; i < n; i++) {
+    const a = xy[i]
+    const b = xy[(i + 1) % n]
+    for (let j = i + 1; j < n; j++) {
+      // neighbours share a vertex by design
+      if (j === i + 1 || (i === 0 && j === n - 1)) continue
+      if (crosses(a, b, xy[j], xy[(j + 1) % n])) return true
+    }
+  }
+  return false
+}
+
+/** The browser's own number may differ from ours by rounding only: more than this fraction (or 1 sq ft / 1 ft on a tiny shape) is refused. */
+export const MEASURE_TOLERANCE = 0.02
 
 // ---- company settings (defaults live HERE, once) ----
 export const AREA_MEASURE_SETTINGS_KEY = 'areaMeasure'
@@ -239,8 +331,9 @@ const ID_PATTERN = /^[A-Za-z0-9_-]{1,40}$/
 /**
  * A browser's shape list → clean shapes, or the first plain-words problem. Nothing is trusted: types, names, point
  * counts, coordinate ranges and measured values are all checked; `takesFrom` is kept only on cut-outs; the id is kept
- * only when it is a safe short token. The measured sqft / feet come from the browser (Google's computeArea) — they are
- * bounded here, and the TOTALS are always recomputed from them with `computeTotals`, never taken from the request.
+ * only when it is a safe short token. The sqft / feet are MEASURED HERE from the points (`polygonAreaSqft`, `pathLengthFeet`,
+ * a port of Google's computeArea / computeLength) and the server's value is stored; the browser's value is optional and
+ * refused when more than 2% off. An outline that crosses itself is refused. The TOTALS are `computeTotals` over those.
  */
 export function parseShapesInput(input: unknown): { shapes: AreaShape[] } | { error: string } {
   if (!Array.isArray(input)) return { error: 'Shapes must be a list' }
@@ -276,17 +369,29 @@ export function parseShapesInput(input: unknown): { shapes: AreaShape[] } | { er
     const shape: AreaShape = { id: typeof raw.id === 'string' && ID_PATTERN.test(raw.id) && !seen.has(raw.id) ? raw.id : `s${i + 1}`, type: t, name, points }
     seen.add(shape.id)
     if (isPolygonType(t)) {
-      const sqft = raw.sqft
-      if (typeof sqft !== 'number' || !Number.isFinite(sqft) || sqft < 0 || sqft > AREA_LIMITS.maxSqft) return { error: `Shape ${i + 1}: the area is not a valid number` }
-      shape.sqft = round(sqft, 1)
+      if (polygonSelfIntersects(points)) return { error: `Shape ${i + 1}: ${LINES_CROSS_MESSAGE}` }
+      // The SERVER's measurement is the one stored. The browser's (Google's) is optional and only checked against it.
+      const serverSqft = polygonAreaSqft(points)
+      if (serverSqft > AREA_LIMITS.maxSqft) return { error: `Shape ${i + 1}: the area is not a valid number` }
+      if (raw.sqft !== undefined && raw.sqft !== null) {
+        const sqft = raw.sqft
+        if (typeof sqft !== 'number' || !Number.isFinite(sqft) || sqft < 0 || sqft > AREA_LIMITS.maxSqft) return { error: `Shape ${i + 1}: the area is not a valid number` }
+        if (Math.abs(sqft - serverSqft) > Math.max(serverSqft * MEASURE_TOLERANCE, 1)) return { error: `Shape ${i + 1}: the area does not match the outline, measure it again` }
+      }
+      shape.sqft = round(serverSqft, 1)
       if (t === 'cutout') {
         if (raw.takesFrom !== undefined && raw.takesFrom !== 'lawn' && raw.takesFrom !== 'bed') return { error: `Shape ${i + 1}: a cut-out comes out of the lawn or the beds` }
         shape.takesFrom = raw.takesFrom === 'bed' ? 'bed' : 'lawn'
       }
     } else {
-      const feet = raw.feet
-      if (typeof feet !== 'number' || !Number.isFinite(feet) || feet < 0 || feet > AREA_LIMITS.maxFeet) return { error: `Shape ${i + 1}: the length is not a valid number` }
-      shape.feet = round(feet, 1)
+      const serverFeet = pathLengthFeet(points)
+      if (serverFeet > AREA_LIMITS.maxFeet) return { error: `Shape ${i + 1}: the length is not a valid number` }
+      if (raw.feet !== undefined && raw.feet !== null) {
+        const feet = raw.feet
+        if (typeof feet !== 'number' || !Number.isFinite(feet) || feet < 0 || feet > AREA_LIMITS.maxFeet) return { error: `Shape ${i + 1}: the length is not a valid number` }
+        if (Math.abs(feet - serverFeet) > Math.max(serverFeet * MEASURE_TOLERANCE, 1)) return { error: `Shape ${i + 1}: the length does not match the line, measure it again` }
+      }
+      shape.feet = round(serverFeet, 1)
     }
     out.push(shape)
   }

@@ -5,6 +5,7 @@
  */
 import { NextResponse } from 'next/server'
 
+import { pathLengthFeet, polygonAreaSqft } from '@/lib/area-measure'
 import { mergeSettingsAt } from '@/lib/org-settings'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import type { ThreadViewer } from '@/lib/threads/visibility'
@@ -21,11 +22,22 @@ const baseViewer = (over: Partial<ThreadViewer> = {}): ThreadViewer => ({
   closerLike: false, setterLike: false, pricingBarred: false, insideSales: false, ...over,
 })
 
-const pts = [{ lat: 30.1, lng: -84.2 }, { lat: 30.1, lng: -84.1 }, { lat: 30.2, lng: -84.1 }]
-const lawn = { id: 'l1', type: 'lawn', name: 'Front', points: pts, sqft: 10000 }
-const bed = { id: 'b1', type: 'bed', name: null, points: pts, sqft: 540 }
-const house = { id: 'h1', type: 'cutout', name: 'House', points: pts, sqft: 2500 }
-const edge = { id: 'e1', type: 'line', name: 'Edging', points: pts.slice(0, 2), feet: 120 }
+// Real yard-sized shapes: the server measures them itself, so the browser's number must agree with the points.
+const FT_LAT = 0.3048 / 111_320 // degrees of latitude per foot (close enough to build a test yard)
+const rect = (lat: number, lng: number, wFt: number, hFt: number) => {
+  const dLat = hFt * FT_LAT
+  const dLng = (wFt * FT_LAT) / Math.cos((lat * Math.PI) / 180)
+  // points are stored to 7 decimals: build them that way so the server measures exactly what the test did
+  const r7 = (n: number) => Math.round(n * 1e7) / 1e7
+  return [{ lat, lng }, { lat, lng: lng + dLng }, { lat: lat + dLat, lng: lng + dLng }, { lat: lat + dLat, lng }].map((p) => ({ lat: r7(p.lat), lng: r7(p.lng) }))
+}
+const withArea = <T extends { points: Array<{ lat: number; lng: number }> }>(s: T) => ({ ...s, sqft: polygonAreaSqft(s.points) })
+const lawn = withArea({ id: 'l1', type: 'lawn', name: 'Front', points: rect(30.1, -84.2, 100, 100) })
+const bed = withArea({ id: 'b1', type: 'bed', name: null, points: rect(30.1002, -84.2, 20, 27) })
+const house = withArea({ id: 'h1', type: 'cutout', name: 'House', points: rect(30.1001, -84.2, 50, 50) })
+const edgePts = [{ lat: 30.1, lng: -84.2 }, { lat: Math.round((30.1 + 120 * FT_LAT) * 1e7) / 1e7, lng: -84.2 }]
+const edge = { id: 'e1', type: 'line', name: 'Edging', points: edgePts, feet: pathLengthFeet(edgePts) }
+const r1 = (n: number) => Math.round(n * 10) / 10
 
 function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
   db = createFakeDb(
@@ -39,6 +51,8 @@ function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
       leads: [
         { id: 'l-1', org_id: ORG, owner_user_id: 'u-me', homeowner_name: 'Lead One', address_text: '1 Lead Ln', lat: 30.1, lng: -84.2 },
         { id: 'l-2', org_id: ORG, owner_user_id: 'u-else', homeowner_name: 'Lead Two', address_text: '2 Lead Ln' },
+        { id: 'l-3', org_id: ORG, owner_user_id: 'u-me', customer_id: 'c1', homeowner_name: 'Converted', address_text: '5 Elm St' },
+        { id: 'l-4', org_id: ORG, owner_user_id: 'u-me', customer_id: 'c2', homeowner_name: 'Other customer lead', address_text: '9 Oak St' },
         { id: 'lx', org_id: OTHER, owner_user_id: 'u-x', homeowner_name: 'Theirs' },
       ],
       opportunities: [
@@ -107,6 +121,33 @@ describe('feature switch', () => {
   })
 })
 
+describe('the server measures for itself', () => {
+  it('stores its own value even when the browser sent none', async () => {
+    const { sqft: _s, ...noValue } = lawn
+    expect((await route.POST(post({ customerId: 'c1', shapes: [noValue] }))).status).toBe(201)
+    expect(saved()[0].lawn_sqft).toBe(r1(lawn.sqft))
+  })
+  it('a browser value within 2% passes and the stored value is the server one', async () => {
+    expect((await route.POST(post({ customerId: 'c1', shapes: [{ ...lawn, sqft: lawn.sqft * 1.015 }] }))).status).toBe(201)
+    expect(saved()[0].lawn_sqft).toBe(r1(lawn.sqft))
+  })
+  it('a browser value more than 2% off is refused, area and length alike', async () => {
+    const res = await route.POST(post({ customerId: 'c1', shapes: [{ ...lawn, sqft: lawn.sqft * 1.03 }] }))
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toMatch(/does not match the outline/)
+    expect((await route.POST(post({ customerId: 'c1', shapes: [{ ...edge, feet: edge.feet * 0.9 }] }))).status).toBe(400)
+    expect((await route.POST(post({ customerId: 'c1', shapes: [{ ...lawn, sqft: 999999 }] }))).status).toBe(400)
+    expect(saved()).toHaveLength(0)
+  })
+  it('an outline that crosses itself is refused', async () => {
+    const [a, b, c, d] = lawn.points
+    const res = await route.POST(post({ customerId: 'c1', shapes: [{ ...lawn, points: [a, c, b, d] }] }))
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toMatch(/Lines cross/)
+    expect(saved()).toHaveLength(0)
+  })
+})
+
 describe('saving', () => {
   it('saves to the customer: company id stamped, totals computed here with the company numbers, request totals ignored', async () => {
     const res = await route.POST(post({ customerId: 'c1', propertyId: 'p1', opportunityId: 'd1', shapes: [lawn, house, bed, edge], lawn_sqft: 999999, totals: { lawnSqft: 1 }, org_id: OTHER, address: 'typed addr', lat: 30.15, lng: -84.15 }))
@@ -114,9 +155,12 @@ describe('saving', () => {
     expect(saved()).toHaveLength(1)
     const row = saved()[0]
     expect(row).toMatchObject({ org_id: ORG, customer_id: 'c1', property_id: 'p1', opportunity_id: 'd1', lead_id: null, created_by: 'u-me', address_text: 'typed addr', lat: 30.15, lng: -84.15 })
-    expect([row.lawn_sqft, row.bed_sqft, row.cutout_sqft, row.line_feet]).toEqual([7500, 540, 2500, 120])
-    // 540 sq ft at 4 in = 6.67 cu yd; 540 / 40 = 13.5 -> 14 bales (the company's numbers, saved with the row)
-    expect(row.totals).toMatchObject({ lawnSqft: 7500, materials: { mulchCuYd: 6.67, strawBales: 14, mulchDepthIn: 4, strawSqftPerBale: 40 } })
+    const want = [r1(r1(lawn.sqft) - r1(house.sqft)), r1(bed.sqft), r1(house.sqft), r1(edge.feet)]
+    ;[row.lawn_sqft, row.bed_sqft, row.cutout_sqft, row.line_feet].forEach((v, i) => expect(v).toBeCloseTo(want[i], 5))
+    expect(row.lawn_sqft as number).toBeCloseTo(7500, -1)
+    expect(row.line_feet as number).toBeCloseTo(120, 0)
+    // ~540 sq ft at 4 in = ~6.67 cu yd; ~540 / 40 = ~13.5 -> 14 bales (the company's numbers, saved with the row)
+    expect(row.totals).toMatchObject({ materials: { mulchCuYd: expect.closeTo(6.67, 1), strawBales: 14, mulchDepthIn: 4, strawSqftPerBale: 40 } })
     expect(row.settings).toEqual({ mulchDepthIn: 4, strawSqftPerBale: 40 })
     expect((row.shapes as unknown[]).length).toBe(4)
   })
@@ -222,6 +266,42 @@ describe('permissions', () => {
   it('a job-board person who is not an owner may save for any customer of the company', async () => {
     viewer = baseViewer({ jobBoard: true })
     expect((await route.POST(post({ customerId: 'c2', shapes: [lawn] }))).status).toBe(201)
+  })
+})
+
+describe('lead and customer belong together', () => {
+  it("a lead named beside a customer must be that customer's", async () => {
+    viewer = baseViewer({ closerLike: true })
+    expect((await route.POST(post({ customerId: 'c1', leadId: 'l-3', shapes: [lawn] }))).status).toBe(201)
+    const res = await route.POST(post({ customerId: 'c1', leadId: 'l-4', shapes: [lawn] }))
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toBe('That lead belongs to another customer')
+    // a lead with no customer yet is not any customer's
+    expect((await route.POST(post({ customerId: 'c1', leadId: 'l-1', shapes: [lawn] }))).status).toBe(400)
+    expect(saved()).toHaveLength(1)
+  })
+  it('a lead the viewer cannot open is still not found, never "wrong customer"', async () => {
+    viewer = baseViewer({ closerLike: true })
+    expect((await route.POST(post({ customerId: 'c1', leadId: 'l-2', shapes: [lawn] }))).status).toBe(404)
+  })
+})
+
+describe('a measurement taken on a lead shows on the customer after conversion', () => {
+  it('the customer list reads rows saved on its customer, its leads and its deals; not other customers', async () => {
+    viewer = baseViewer({ managerLike: true })
+    expect((await route.POST(post({ leadId: 'l-3', shapes: [lawn] }))).status).toBe(201) // lead-only, before it was a customer
+    expect((await route.POST(post({ opportunityId: 'd1', shapes: [bed] }))).status).toBe(201)
+    expect((await route.POST(post({ customerId: 'c1', shapes: [house] }))).status).toBe(201)
+    expect((await route.POST(post({ leadId: 'l-4', shapes: [lawn] }))).status).toBe(201) // belongs to customer c2
+    const mine = (await (await route.GET(get('customer_id=c1'))).json()) as { rows: Array<{ lead_id: string | null; opportunity_id: string | null; customer_id: string | null }> }
+    expect(mine.rows).toHaveLength(3)
+    expect(mine.rows.some((r) => r.lead_id === 'l-3' && r.customer_id === null)).toBe(true)
+    expect(mine.rows.every((r) => r.lead_id !== 'l-4')).toBe(true)
+    // the lead's own page still lists just the lead's
+    expect(((await (await route.GET(get('lead_id=l-3'))).json()) as { rows: unknown[] }).rows).toHaveLength(1)
+    // and another company's rows never join in
+    db.tables.area_measurements.push({ id: 'm-x', org_id: OTHER, customer_id: null, lead_id: 'l-3', property_id: null, opportunity_id: null, lawn_sqft: 5, bed_sqft: 0, cutout_sqft: 0, line_feet: 0, shapes: [], totals: {}, settings: {}, created_at: '2099-01-01T00:00:00Z' })
+    expect(((await (await route.GET(get('customer_id=c1'))).json()) as { rows: unknown[] }).rows).toHaveLength(3)
   })
 })
 

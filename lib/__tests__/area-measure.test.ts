@@ -9,8 +9,10 @@ import path from 'path'
 import {
   AREA_LIMITS,
   AREA_MEASURE_DEFAULTS,
+  EARTH_RADIUS_M,
   bedMaterials,
   computeTotals,
+  distanceMeters,
   formatAcres,
   formatCuYd,
   formatSqft,
@@ -18,7 +20,12 @@ import {
   mulchCubicYards,
   parseAreaMeasureSettingsPatch,
   parseShapesInput,
+  pathLengthFeet,
+  pathLengthMeters,
   pineStrawBales,
+  polygonAreaSqft,
+  polygonAreaSqm,
+  polygonSelfIntersects,
   resolveAreaMeasureSettings,
   shapeLabel,
   sqftToAcres,
@@ -166,22 +173,80 @@ describe('company settings', () => {
   })
 })
 
-describe('what the save accepts', () => {
-  const pts = [{ lat: 30.1, lng: -84.2 }, { lat: 30.1, lng: -84.1 }, { lat: 30.2, lng: -84.1 }]
-  const good = { id: 'abc', type: 'lawn', name: '  Front  ', points: pts, sqft: 1234.56 }
+describe('geodesic measuring (port of Google computeArea / computeLength)', () => {
+  const FT = 0.3048 / 111_320
+  const rect = (lat: number, lng: number, wFt: number, hFt: number) => [
+    { lat, lng },
+    { lat, lng: lng + (wFt * FT) / Math.cos((lat * Math.PI) / 180) },
+    { lat: lat + hFt * FT, lng: lng + (wFt * FT) / Math.cos((lat * Math.PI) / 180) },
+    { lat: lat + hFt * FT, lng },
+  ]
+  it('a 100 x 100 ft yard is about 10,000 sq ft, in either winding direction', () => {
+    const r = rect(30.1, -84.2, 100, 100)
+    expect(polygonAreaSqft(r)).toBeGreaterThan(9990)
+    expect(polygonAreaSqft(r)).toBeLessThan(10010)
+    expect(polygonAreaSqft([...r].reverse())).toBeCloseTo(polygonAreaSqft(r), 6)
+  })
+  it('agrees with the exact sphere formula for a small lat/lng box (R^2 x d-lng x d-sin(lat), R = 6378137 m)', () => {
+    const box = [{ lat: 30, lng: -84 }, { lat: 30, lng: -83.999 }, { lat: 30.001, lng: -83.999 }, { lat: 30.001, lng: -84 }]
+    const exact = EARTH_RADIUS_M ** 2 * ((0.001 * Math.PI) / 180) * (Math.sin((30.001 * Math.PI) / 180) - Math.sin((30 * Math.PI) / 180))
+    expect(Math.abs(polygonAreaSqm(box) - exact) / exact).toBeLessThan(0.0005)
+  })
+  it('lengths: one degree of latitude on the sphere, and a 120 ft line', () => {
+    expect(distanceMeters({ lat: 0, lng: 0 }, { lat: 1, lng: 0 })).toBeCloseTo((Math.PI / 180) * EARTH_RADIUS_M, 3)
+    expect(pathLengthFeet([{ lat: 30.1, lng: -84.2 }, { lat: 30.1 + 120 * FT, lng: -84.2 }])).toBeCloseTo(120, 0)
+    expect(pathLengthMeters([{ lat: 1, lng: 1 }])).toBe(0)
+    expect(polygonAreaSqm([{ lat: 1, lng: 1 }, { lat: 2, lng: 2 }])).toBe(0)
+  })
+})
 
-  it('a good list is cleaned: name trimmed, areas rounded, cut-outs default to the lawn', () => {
-    const r = parseShapesInput([good, { type: 'cutout', points: pts, sqft: 200 }, { type: 'line', points: pts.slice(0, 2), feet: 51.26 }])
+describe('self-crossing outlines', () => {
+  const sq = [{ lat: 30.1, lng: -84.2 }, { lat: 30.1, lng: -84.199 }, { lat: 30.101, lng: -84.199 }, { lat: 30.101, lng: -84.2 }]
+  it('a plain outline and a triangle do not cross; a bow-tie does', () => {
+    expect(polygonSelfIntersects(sq)).toBe(false)
+    expect(polygonSelfIntersects(sq.slice(0, 3))).toBe(false)
+    expect(polygonSelfIntersects([sq[0], sq[2], sq[1], sq[3]])).toBe(true)
+  })
+  it('an L-shaped (concave) yard is fine; a spike that touches another edge is not', () => {
+    const l = [{ lat: 0, lng: 0 }, { lat: 0, lng: 2 }, { lat: 1, lng: 2 }, { lat: 1, lng: 1 }, { lat: 2, lng: 1 }, { lat: 2, lng: 0 }].map((p) => ({ lat: 30 + p.lat * 0.0003, lng: -84 + p.lng * 0.0003 }))
+    expect(polygonSelfIntersects(l)).toBe(false)
+    const touching = [...l.slice(0, 5), { lat: 30, lng: -84 + 0.0003 }, ...l.slice(5)]
+    expect(polygonSelfIntersects(touching)).toBe(true)
+  })
+})
+
+describe('what the save accepts', () => {
+  const FT = 0.3048 / 111_320
+  const r7 = (n: number) => Math.round(n * 1e7) / 1e7 // points are stored to 7 decimals
+  const pts = [{ lat: 30.1, lng: -84.2 }, { lat: 30.1, lng: -84.2 + 100 * FT * 1.155 }, { lat: 30.1 + 100 * FT, lng: -84.2 + 100 * FT * 1.155 }, { lat: 30.1 + 100 * FT, lng: -84.2 }].map((p) => ({ lat: r7(p.lat), lng: r7(p.lng) }))
+  const area = polygonAreaSqft(pts)
+  const r1 = (n: number) => Math.round(n * 10) / 10
+  const linePts = pts.slice(0, 2)
+  const good = { id: 'abc', type: 'lawn', name: '  Front  ', points: pts, sqft: area }
+
+  it('a good list is cleaned: name trimmed, the SERVER measures, cut-outs default to the lawn', () => {
+    const r = parseShapesInput([good, { type: 'cutout', points: pts, sqft: area * 1.01 }, { type: 'line', points: linePts, feet: pathLengthFeet(linePts) }])
     expect('shapes' in r && r.shapes).toEqual([
-      { id: 'abc', type: 'lawn', name: 'Front', points: pts, sqft: 1234.6 },
-      { id: 's2', type: 'cutout', name: null, points: pts, sqft: 200, takesFrom: 'lawn' },
-      { id: 's3', type: 'line', name: null, points: pts.slice(0, 2), feet: 51.3 },
+      { id: 'abc', type: 'lawn', name: 'Front', points: pts, sqft: r1(area) },
+      { id: 's2', type: 'cutout', name: null, points: pts, sqft: r1(area), takesFrom: 'lawn' },
+      { id: 's3', type: 'line', name: null, points: linePts, feet: r1(pathLengthFeet(linePts)) },
     ])
   })
+  it('the browser value is optional; when present it must be within 2% (or 1 unit on a tiny shape)', () => {
+    const { sqft: _s, ...none } = good
+    expect(parseShapesInput([none])).toMatchObject({ shapes: [{ sqft: r1(area) }] })
+    expect(parseShapesInput([{ ...good, sqft: area * 1.019 }])).toHaveProperty('shapes')
+    expect(parseShapesInput([{ ...good, sqft: area * 1.021 }])).toEqual({ error: 'Shape 1: the area does not match the outline, measure it again' })
+    expect(parseShapesInput([{ ...good, sqft: area * 0.97 }])).toEqual({ error: 'Shape 1: the area does not match the outline, measure it again' })
+    expect(parseShapesInput([{ type: 'line', points: linePts, feet: pathLengthFeet(linePts) * 1.05 }])).toEqual({ error: 'Shape 1: the length does not match the line, measure it again' })
+  })
+  it('refuses an outline that crosses itself, in plain words', () => {
+    expect(parseShapesInput([{ type: 'lawn', points: [pts[0], pts[2], pts[1], pts[3]] }])).toEqual({ error: 'Shape 1: Lines cross — redraw' })
+  })
   it('takesFrom is kept only on cut-outs', () => {
-    const r = parseShapesInput([{ ...good, takesFrom: 'bed' }, { type: 'cutout', points: pts, sqft: 1, takesFrom: 'bed' }])
+    const r = parseShapesInput([{ ...good, takesFrom: 'bed' }, { type: 'cutout', points: pts, sqft: area, takesFrom: 'bed' }])
     expect('shapes' in r && r.shapes.map((s) => s.takesFrom)).toEqual([undefined, 'bed'])
-    expect(parseShapesInput([{ type: 'cutout', points: pts, sqft: 1, takesFrom: 'roof' }])).toEqual({ error: 'Shape 1: a cut-out comes out of the lawn or the beds' })
+    expect(parseShapesInput([{ type: 'cutout', points: pts, sqft: area, takesFrom: 'roof' }])).toEqual({ error: 'Shape 1: a cut-out comes out of the lawn or the beds' })
   })
   it('unsafe or repeated ids are replaced', () => {
     const r = parseShapesInput([{ ...good, id: '../x' }, { ...good, id: 'dup' }, { ...good, id: 'dup' }])
@@ -197,8 +262,8 @@ describe('what the save accepts', () => {
     expect(parseShapesInput([{ ...good, points: [...pts.slice(0, 2), { lat: NaN, lng: 0 }] }])).toEqual({ error: 'Shape 1: a point is not a map location' })
     expect(parseShapesInput([{ ...good, sqft: -1 }])).toEqual({ error: 'Shape 1: the area is not a valid number' })
     expect(parseShapesInput([{ ...good, sqft: AREA_LIMITS.maxSqft + 1 }])).toEqual({ error: 'Shape 1: the area is not a valid number' })
-    expect(parseShapesInput([{ ...good, sqft: undefined }])).toEqual({ error: 'Shape 1: the area is not a valid number' })
-    expect(parseShapesInput([{ type: 'line', points: pts.slice(0, 2) }])).toEqual({ error: 'Shape 1: the length is not a valid number' })
+    expect(parseShapesInput([{ ...good, sqft: 'big' }])).toEqual({ error: 'Shape 1: the area is not a valid number' })
+    expect(parseShapesInput([{ type: 'line', points: linePts, feet: -3 }])).toEqual({ error: 'Shape 1: the length is not a valid number' })
     expect(parseShapesInput([{ ...good, name: 'x'.repeat(81) }])).toEqual({ error: 'Shape 1: name is too long' })
     expect(parseShapesInput([{ ...good, name: 5 }])).toEqual({ error: 'Shape 1: name must be text' })
     expect(parseShapesInput(Array.from({ length: AREA_LIMITS.maxShapes + 1 }, () => good))).toEqual({ error: `Too many shapes (most is ${AREA_LIMITS.maxShapes})` })
@@ -228,5 +293,15 @@ describe('table not there yet', () => {
     expect(isAreaMeasureNotReady({ message: 'relation "public.area_measurements" does not exist' })).toBe(true)
     expect(isAreaMeasureNotReady({ code: '23505', message: 'duplicate key' })).toBe(false)
     expect(isAreaMeasureNotReady(null)).toBe(false)
+  })
+})
+
+describe('the migration keeps the delete rules the app relies on', () => {
+  const sql = fs.readFileSync(path.join(__dirname, '../../supabase/migrations/202611230040_area_measurements.sql'), 'utf8')
+  it('a customer with measurements cannot be deleted; lead / deal / property deletes go through triggers', () => {
+    expect(sql).toMatch(/customer_id uuid NULL REFERENCES public\.customers\(id\) ON DELETE RESTRICT/)
+    for (const col of ['property_id', 'opportunity_id', 'lead_id']) expect(sql).toMatch(new RegExp(`${col} uuid NULL,`))
+    for (const t of ['leads', 'opportunities', 'properties']) expect(sql).toMatch(new RegExp(`BEFORE DELETE ON public\\.${t}`))
+    expect(sql).toMatch(/CONSTRAINT area_measurements_has_owner CHECK/)
   })
 })

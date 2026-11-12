@@ -18,6 +18,7 @@ import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/compo
 import {
   AREA_MEASURE_DEFAULTS,
   AREA_MEASURE_SETTING_FIELDS,
+  LINES_CROSS_MESSAGE,
   SHAPE_TYPES,
   SHAPE_TYPE_HELP,
   SHAPE_TYPE_LABELS,
@@ -30,6 +31,7 @@ import {
   isPolygonType,
   metersToFeet,
   minPoints,
+  polygonSelfIntersects,
   shapeLabel,
   sqmToSqft,
   type AreaMeasureSettings,
@@ -257,6 +259,10 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   const undoPoint = () => setDraft((d) => (d && d.points.length > 0 ? { ...d, points: d.points.slice(0, -1) } : d))
   function closeShape() {
     if (!draft || draft.points.length < minPoints(draft.type)) return
+    if (draftCrosses) {
+      setHint(LINES_CROSS_MESSAGE)
+      return
+    }
     const shape = withMeasure({
       id: newId(),
       type: draft.type,
@@ -291,10 +297,28 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     return withMeasure({ id: 'draft', type: draft.type, name: null, points: draft.points })
   }, [draft, mapReady])
   const hasBeds = totals.counts.bed > 0
+  // An outline that crosses itself has no single area: it cannot be finished or saved until it is redrawn.
+  const draftCrosses = !!draft && isPolygonType(draft.type) && polygonSelfIntersects(draft.points)
+  const crossingIds = React.useMemo(() => shapes.filter((x) => isPolygonType(x.type) && polygonSelfIntersects(x.points)).map((x) => x.id), [shapes])
+  const hasCrossing = draftCrosses || crossingIds.length > 0
+
+  // The Save bar is fixed to the bottom; keep the page padded by its real height so a wrapped message is never hidden behind it.
+  const barRef = React.useRef<HTMLDivElement>(null)
+  const [barHeight, setBarHeight] = React.useState(112)
+  React.useEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const measure = () => setBarHeight(el.getBoundingClientRect().height)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // ---- save ----
   async function save() {
-    if (!canSave || shapes.length === 0 || saving) return
+    if (!canSave || shapes.length === 0 || saving || hasCrossing) return
     setSaving(true)
     setSaveMsg(null)
     const c = mapRef.current?.getCenter?.()
@@ -338,7 +362,9 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
 
   const editName = draft ? draft.name : selected?.name ?? ''
   const editTakesFrom = draft ? draft.takesFrom : selected?.takesFrom ?? 'lawn'
-  const status = draft
+  const status = draftCrosses
+    ? LINES_CROSS_MESSAGE
+    : draft
     ? draft.points.length === 0
       ? `Tap the map to place the first point of the ${SHAPE_TYPE_LABELS[draft.type].toLowerCase()}.`
       : draft.points.length < minPoints(draft.type)
@@ -351,7 +377,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
         : 'Pick another shape to add, or tap one on the map or in the list.'
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-3 px-3 pb-28 pt-3 text-ink">
+    <div className="mx-auto flex max-w-3xl flex-col gap-3 px-3 pt-3 text-ink" style={{ paddingBottom: barHeight + 16 }}>
       <Card>
         <CardHeader>
           <div className="min-w-0">
@@ -389,7 +415,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
 
       <Card>
         <CardContent className="flex flex-col gap-3 pt-4">
-          <p className="text-ui-base font-semibold text-ink" role="status" data-testid="yard-status">
+          <p className={`text-ui-base font-semibold ${draftCrosses ? 'text-danger' : 'text-ink'}`} role="status" data-testid="yard-status">
             {hint ?? status}
           </p>
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="What are you measuring">
@@ -415,7 +441,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
                 <Button variant="secondary" onClick={cancelDraft}>
                   Cancel
                 </Button>
-                <Button onClick={closeShape} disabled={draft.points.length < minPoints(draft.type)}>
+                <Button onClick={closeShape} disabled={draft.points.length < minPoints(draft.type) || draftCrosses}>
                   Done
                 </Button>
               </div>
@@ -474,6 +500,11 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
                       {SHAPE_TYPE_LABELS[s.type]}
                       {s.type === 'cutout' ? ` (out of ${s.takesFrom === 'bed' ? 'beds' : 'lawn'})` : ''}: {valueText(s)}
                     </span>
+                    {crossingIds.includes(s.id) ? (
+                      <span className="block text-ui-base font-semibold text-danger" data-testid="yard-crossing">
+                        {LINES_CROSS_MESSAGE}
+                      </span>
+                    ) : null}
                     {m ? (
                       <span className="block text-ui-sm text-ink">
                         est. {formatCuYd(m.mulchCuYd)} mulch · est. {m.strawBales} bale{m.strawBales === 1 ? '' : 's'} pine straw
@@ -537,7 +568,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
                         aria-describedby={`${k}-help`}
                       />
                       <span id={`${k}-help`} className="text-ui-sm text-ink">
-                        {f.help} Your company&rsquo;s starting numbers are {AREA_MEASURE_DEFAULTS[k]}.
+                        {f.help} Your company uses {settings[k]} now{settings[k] === AREA_MEASURE_DEFAULTS[k] ? ' (the starting number)' : ` (starting number ${AREA_MEASURE_DEFAULTS[k]})`}.
                       </span>
                     </label>
                   )
@@ -554,7 +585,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
         </CardContent>
       </Card>
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-surface-line bg-surface p-3 shadow-lg">
+      <div ref={barRef} className="fixed inset-x-0 bottom-0 z-20 border-t border-surface-line bg-surface p-3 shadow-lg">
         <div className="mx-auto flex max-w-3xl flex-col gap-2">
           {saveMsg ? (
             <p className={`text-ui-base font-semibold ${saveMsg.ok ? 'text-ink' : 'text-danger'}`} role="status" data-testid="yard-save-msg">
@@ -568,7 +599,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
           ) : !canSave && cannotSaveReason ? (
             <p className="text-ui-base text-ink">{cannotSaveReason}</p>
           ) : null}
-          <Button onClick={save} disabled={!canSave || shapes.length === 0 || !dirty || !!draft} loading={saving}>
+          <Button onClick={save} disabled={!canSave || shapes.length === 0 || !dirty || !!draft || hasCrossing} loading={saving}>
             {!dirty && shapes.length > 0 ? 'Saved' : 'Save measurement'}
           </Button>
         </div>

@@ -761,6 +761,33 @@ const SCREENS: Screen[] = [
         await p.getByRole('button', { name: 'Save for the company' }).click()
         await p.waitForSelector('text=Saved for the whole company.')
         await p.waitForSelector('[data-testid=yard-materials] >> text=at 4 in deep')
+        // the help text shows the company's saved number, not just the starting one
+        await p.waitForSelector('text=Your company uses 4 now (starting number 3)')
+        await p.waitForSelector('text=Your company uses 40 now (starting number 50)')
+      } },
+      { name: 'lines-cross-redraw', run: async (p) => {
+        await p.getByRole('button', { name: '+ Lawn', exact: true }).click()
+        for (const [x, y] of [[60, 60], [240, 220], [240, 60], [60, 220]]) await p.getByTestId('yard-map').click({ position: { x, y } })
+        await p.waitForSelector('[data-testid=yard-status] >> text=Lines cross — redraw')
+        if (!(await p.getByRole('button', { name: 'Done', exact: true }).isDisabled())) throw new Error('Done must be off while lines cross')
+        await p.getByRole('button', { name: 'Undo point' }).click()
+        await p.waitForSelector('text=3 points. Tap more, or press Done.')
+        if (await p.getByRole('button', { name: 'Done', exact: true }).isDisabled()) throw new Error('Done should come back once the lines no longer cross')
+      } },
+      { name: 'long-save-message-stays-visible', run: async (p) => {
+        await p.route('**/api/area-measure', (route) => route.request().method() === 'POST'
+          ? route.fulfill(json({ error: 'Shape 1: the area does not match the outline, measure it again. If it keeps happening, close this screen, open it again from the customer file, and draw the shape once more before saving.' }, 400))
+          : route.fulfill(json({ rows: [] })))
+        await drawShape(p, '+ Lawn', 40, 40, 200)
+        await p.getByRole('button', { name: 'Save measurement' }).click()
+        await p.waitForSelector('[data-testid=yard-save-msg]')
+        await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+        const gap = await p.evaluate(() => {
+          const bar = document.querySelector('[data-testid=yard-save-msg]')!.closest('div.fixed') as HTMLElement
+          const lastCard = document.querySelector('[data-testid=yard-totals]')!.parentElement as HTMLElement
+          return bar.getBoundingClientRect().top - lastCard.getBoundingClientRect().bottom
+        })
+        if (gap < 0) throw new Error(`content runs ${-gap}px behind the Save bar`)
       } },
     ] },
   { name: 'area-measure-readonly', path: '/dev-harness/area-measure-readonly', ready: 'text=Open this from a customer or lead to save it.', mock: yardScreenMock },

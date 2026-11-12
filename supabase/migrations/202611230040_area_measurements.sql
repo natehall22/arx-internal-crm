@@ -11,7 +11,10 @@
 -- Small / Medium / Large lot) would read — no JSON parsing needed. They are always computed by the app from `shapes`.
 --
 -- RLS on, no policies: service role only (all reads and writes go through /api/area-measure), like `properties`.
--- Rollback (nothing else depends on it):  DROP TABLE public.area_measurements; DROP FUNCTION public.area_measurements_check();
+-- Rollback (nothing else depends on it):
+--   DROP TRIGGER area_measurements_lead_deleted ON public.leads; DROP TRIGGER area_measurements_opportunity_deleted ON public.opportunities;
+--   DROP TRIGGER area_measurements_property_deleted ON public.properties;
+--   DROP TABLE public.area_measurements; DROP FUNCTION public.area_measurements_check(); DROP FUNCTION public.area_measurements_parent_deleted();
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -19,10 +22,15 @@ SET LOCAL lock_timeout = '5s';
 CREATE TABLE IF NOT EXISTS public.area_measurements (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
-  customer_id uuid NULL REFERENCES public.customers(id) ON DELETE CASCADE,
-  property_id uuid NULL REFERENCES public.properties(id) ON DELETE SET NULL,
-  opportunity_id uuid NULL REFERENCES public.opportunities(id) ON DELETE SET NULL,
-  lead_id uuid NULL REFERENCES public.leads(id) ON DELETE SET NULL,
+  -- A customer's measurements are never silently wiped: deleting a customer that still has any is refused (RESTRICT).
+  customer_id uuid NULL REFERENCES public.customers(id) ON DELETE RESTRICT,
+  -- property / opportunity / lead are plain ids with NO foreign key: when one of them is deleted a trigger (below) either
+  -- clears the id (the row still has another parent) or deletes the row (it has none). A plain ON DELETE SET NULL cannot do
+  -- that: it would break area_measurements_has_owner for a row that only hung off the deleted lead. Existence and company
+  -- are checked on INSERT by area_measurements_check (which also locks the parent row against a concurrent delete).
+  property_id uuid NULL,
+  opportunity_id uuid NULL,
+  lead_id uuid NULL,
   -- The address the map was opened on (the property / deal / lead address or a typed one).
   address_text text NULL CHECK (address_text IS NULL OR char_length(address_text) <= 500),
   lat numeric(10, 7) NULL CHECK (lat IS NULL OR lat BETWEEN -90 AND 90),
@@ -56,18 +64,18 @@ REVOKE ALL ON public.area_measurements FROM anon, authenticated;
 CREATE OR REPLACE FUNCTION public.area_measurements_check() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NEW.customer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.customers c WHERE c.id = NEW.customer_id AND c.org_id = NEW.org_id) THEN
+  IF NEW.customer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.customers c WHERE c.id = NEW.customer_id AND c.org_id = NEW.org_id FOR KEY SHARE) THEN
     RAISE EXCEPTION 'measurement customer is not in this company' USING ERRCODE = '42501';
   END IF;
   IF NEW.property_id IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM public.properties p WHERE p.id = NEW.property_id AND p.org_id = NEW.org_id AND (NEW.customer_id IS NULL OR p.customer_id = NEW.customer_id)
+    SELECT 1 FROM public.properties p WHERE p.id = NEW.property_id AND p.org_id = NEW.org_id AND (NEW.customer_id IS NULL OR p.customer_id = NEW.customer_id) FOR KEY SHARE
   ) THEN
     RAISE EXCEPTION 'measurement property is not in this company or not this customer''s' USING ERRCODE = '42501';
   END IF;
-  IF NEW.opportunity_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.opportunities o WHERE o.id = NEW.opportunity_id AND o.org_id = NEW.org_id) THEN
+  IF NEW.opportunity_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.opportunities o WHERE o.id = NEW.opportunity_id AND o.org_id = NEW.org_id FOR KEY SHARE) THEN
     RAISE EXCEPTION 'measurement deal is not in this company' USING ERRCODE = '42501';
   END IF;
-  IF NEW.lead_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.leads l WHERE l.id = NEW.lead_id AND l.org_id = NEW.org_id) THEN
+  IF NEW.lead_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.leads l WHERE l.id = NEW.lead_id AND l.org_id = NEW.org_id FOR KEY SHARE) THEN
     RAISE EXCEPTION 'measurement lead is not in this company' USING ERRCODE = '42501';
   END IF;
   IF NEW.created_by IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id = NEW.created_by AND u.org_id = NEW.org_id) THEN
@@ -80,5 +88,35 @@ $$;
 DROP TRIGGER IF EXISTS area_measurements_check ON public.area_measurements;
 CREATE TRIGGER area_measurements_check BEFORE INSERT ON public.area_measurements
   FOR EACH ROW EXECUTE FUNCTION public.area_measurements_check();
+
+-- When a lead, deal or property is deleted: a measurement that hangs off ANOTHER parent keeps that parent (the id is cleared);
+-- one that hung off nothing else is deleted with it (it would have no owner, which the CHECK above forbids). Each trigger
+-- looks at the row as it is NOW, so a lead and its deal deleted in one statement end the same way in either order.
+CREATE OR REPLACE FUNCTION public.area_measurements_parent_deleted() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF TG_ARGV[0] = 'lead_id' THEN
+    DELETE FROM public.area_measurements WHERE lead_id = OLD.id AND customer_id IS NULL AND property_id IS NULL AND opportunity_id IS NULL;
+    UPDATE public.area_measurements SET lead_id = NULL WHERE lead_id = OLD.id;
+  ELSIF TG_ARGV[0] = 'opportunity_id' THEN
+    DELETE FROM public.area_measurements WHERE opportunity_id = OLD.id AND customer_id IS NULL AND property_id IS NULL AND lead_id IS NULL;
+    UPDATE public.area_measurements SET opportunity_id = NULL WHERE opportunity_id = OLD.id;
+  ELSIF TG_ARGV[0] = 'property_id' THEN
+    DELETE FROM public.area_measurements WHERE property_id = OLD.id AND customer_id IS NULL AND opportunity_id IS NULL AND lead_id IS NULL;
+    UPDATE public.area_measurements SET property_id = NULL WHERE property_id = OLD.id;
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS area_measurements_lead_deleted ON public.leads;
+CREATE TRIGGER area_measurements_lead_deleted BEFORE DELETE ON public.leads
+  FOR EACH ROW EXECUTE FUNCTION public.area_measurements_parent_deleted('lead_id');
+DROP TRIGGER IF EXISTS area_measurements_opportunity_deleted ON public.opportunities;
+CREATE TRIGGER area_measurements_opportunity_deleted BEFORE DELETE ON public.opportunities
+  FOR EACH ROW EXECUTE FUNCTION public.area_measurements_parent_deleted('opportunity_id');
+DROP TRIGGER IF EXISTS area_measurements_property_deleted ON public.properties;
+CREATE TRIGGER area_measurements_property_deleted BEFORE DELETE ON public.properties
+  FOR EACH ROW EXECUTE FUNCTION public.area_measurements_parent_deleted('property_id');
 
 COMMIT;

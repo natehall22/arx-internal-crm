@@ -78,6 +78,7 @@ export async function resolveAreaMeasureTarget(admin: SupabaseClient, viewer: Th
   let lng: number | null = null
   let canRead = true
   let dealLeadId: string | null = null
+  let leadCustomerId: string | null = null
 
   if (opportunityId) {
     const deal = await loadDeal(admin, viewer.orgId, opportunityId)
@@ -111,18 +112,24 @@ export async function resolveAreaMeasureTarget(admin: SupabaseClient, viewer: Th
   }
 
   if (leadId) {
-    const { data: lead } = await db.from('leads').select('id, owner_user_id, address_text, lat, lng').eq('id', leadId).maybeSingle()
+    const { data: lead } = await db.from('leads').select('id, owner_user_id, customer_id, address_text, lat, lng').eq('id', leadId).maybeSingle()
     if (!lead) return NOT_FOUND
     // A lead is readable by the people who see the whole company, its owner, or anyone who may open the deal it belongs to.
     // Access to a customer does NOT open that customer's other leads: a lead named beside a customer must be the viewer's own.
     const companyWide = viewer.ownerLike || viewer.jobBoard || viewer.managerLike
     const viaDeal = !!opportunityId && dealLeadId === leadId
     if (!companyWide && lead.owner_user_id !== viewer.userId && !viaDeal) canRead = false
+    leadCustomerId = (lead.customer_id as string | null) ?? null
     if (!address) address = (lead.address_text as string | null) ?? null
     if (lat === null) lat = toNum(lead.lat)
     if (lng === null) lng = toNum(lead.lng)
   }
   if (!canRead) return NOT_FOUND
+  // A lead named beside a customer must be that customer's (a lead the deal itself points at is already consistent).
+  // Checked only once the viewer may see the lead, so a lead id they cannot open is not confirmed to exist.
+  if (leadId && customerId && !(opportunityId && dealLeadId === leadId) && leadCustomerId !== customerId) {
+    return { ok: false, status: 400, error: 'That lead belongs to another customer' }
+  }
 
   return { ok: true, target: { customerId, propertyId, opportunityId, leadId, address, lat, lng, canWrite: canWriteAreaMeasure(viewer) } }
 }
@@ -184,8 +191,13 @@ export function isAreaMeasureNotReady(error: { code?: string; message?: string }
 export const AREA_MEASURE_NOT_READY = 'Measure yard needs a database update first. Nothing was saved.'
 
 /**
- * Every measurement of a customer / property / deal / lead, newest first (history included). Pass the refs that
- * `resolveAreaMeasureTarget` returned. A customer's list includes measurements saved against its deals, leads and properties.
+ * THE loader: every measurement of a property / customer / deal / lead, newest first (history included). Pass the refs that
+ * `resolveAreaMeasureTarget` returned.
+ * - A property's list is that property's.
+ * - A customer's list is everything hanging off the customer: rows saved against the customer, against any of the
+ *   customer's leads or deals (a measurement taken on the lead BEFORE it became a customer still shows after conversion),
+ *   and its properties' rows (they carry the customer id too).
+ * - A deal or a lead with no customer yet lists its own.
  */
 export async function loadAreaMeasurements(
   admin: SupabaseClient,
@@ -194,18 +206,35 @@ export async function loadAreaMeasurements(
   limit = 50
 ): Promise<{ ready: boolean; rows: AreaMeasurementRow[] }> {
   const db = orgDb(admin, orgId)
-  let q = db.from('area_measurements').select(COLUMNS).order('created_at', { ascending: false }).limit(Math.min(Math.max(limit, 1), 200))
-  if (where.propertyId) q = q.eq('property_id', where.propertyId)
-  else if (where.customerId) q = q.eq('customer_id', where.customerId)
-  else if (where.opportunityId) q = q.eq('opportunity_id', where.opportunityId)
-  else if (where.leadId) q = q.eq('lead_id', where.leadId)
+  const cap = Math.min(Math.max(limit, 1), 200)
+  const base = () => db.from('area_measurements').select(COLUMNS).order('created_at', { ascending: false }).limit(cap)
+  // One or more "who it hangs off" queries, merged below.
+  const queries: Array<PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>> = []
+  if (where.propertyId) queries.push(base().eq('property_id', where.propertyId))
+  else if (where.customerId) {
+    const [{ data: leads }, { data: deals }] = await Promise.all([
+      db.from('leads').select('id').eq('customer_id', where.customerId).limit(500),
+      db.from('opportunities').select('id').eq('customer_id', where.customerId).limit(500),
+    ])
+    const leadIds = ((leads ?? []) as Array<{ id: string }>).map((r) => r.id)
+    const dealIds = ((deals ?? []) as Array<{ id: string }>).map((r) => r.id)
+    queries.push(base().eq('customer_id', where.customerId))
+    if (leadIds.length) queries.push(base().in('lead_id', leadIds))
+    if (dealIds.length) queries.push(base().in('opportunity_id', dealIds))
+  } else if (where.opportunityId) queries.push(base().eq('opportunity_id', where.opportunityId))
+  else if (where.leadId) queries.push(base().eq('lead_id', where.leadId))
   else return { ready: true, rows: [] }
-  const { data, error } = await q
-  if (error) {
-    if (isAreaMeasureNotReady(error)) return { ready: false, rows: [] }
-    throw new Error(error.message)
+  const results = await Promise.all(queries)
+  const byId = new Map<string, AreaMeasurementRow>()
+  for (const { data, error } of results) {
+    if (error) {
+      if (isAreaMeasureNotReady(error)) return { ready: false, rows: [] }
+      throw new Error(error.message)
+    }
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) byId.set(r.id as string, asRow(r))
   }
-  return { ready: true, rows: ((data ?? []) as Array<Record<string, unknown>>).map(asRow) }
+  const rows = Array.from(byId.values()).sort((x, y) => (x.created_at < y.created_at ? 1 : x.created_at > y.created_at ? -1 : x.id < y.id ? 1 : -1))
+  return { ready: true, rows: rows.slice(0, cap) }
 }
 
 export type SaveInput = {
