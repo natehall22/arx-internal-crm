@@ -116,4 +116,4 @@ Decisions for Nathan / bookkeeper (additions): Plus plan (classes, sub-customers
 vendor bills and 1099 flags | refunds at gross, tax not split | customers are matched only by email/phone/street, else a suffixed name (never merged on name alone) |
 vendors adopted on exact name | each job is a sub-customer of the customer | change-order tax treated as tax-included | T&M jobs and no-job invoices send each CRM invoice
 even in per-job mode | payroll via the payroll provider, not here | cron every 10 min.
-Migration order: 202611210010 (additive columns) -> deploy code -> 202611210020 (NOT additive: removes the open outbox policy, service role only). Needs 202611100040 first.
+Migration order (Phase 1, both BEFORE the code): 202611210010 (additive columns) then 202611210020 (NOT additive: drops the outbox policies that let any signed-in member of the company read/update rows; every reader and writer uses the service role). Needs 202611100040 first.

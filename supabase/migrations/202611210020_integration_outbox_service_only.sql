@@ -1,4 +1,8 @@
--- HARDENING (apply after the QuickBooks worker code ships). NOT APPLIED — file only.
+-- HARDENING — PHASE 1: apply BEFORE the QuickBooks code ships (right after 202611210010). NOT APPLIED — file only.
+--
+-- Verified in prod 2026-11-11: the live policies are org-scoped, but they let ANY signed-in member of the company read and update outbox
+-- rows (a field role could read payment events). Every writer and reader uses the service role (checked: lib/integrations.ts, the
+-- worker, and all callers pass the admin client), so nothing needs the policies and dropping them before the code is safe.
 --
 -- 055_integration_ready.sql left integration_outbox with a policy "Service role can manage outbox ... FOR ALL USING (true)". With
 -- no `TO service_role` that policy applies to EVERY role, so any signed-in browser user could insert, rewrite or delete outbox
