@@ -228,7 +228,7 @@ export default function MoveSignedDocuments() {
     if (!ok) return
     try {
       await flushPicks()
-      await post(runId, { action: 'import' })
+      // The first call starts the import and runs the first batch; each later call runs the next one.
       for (let guard = 0; guard < 2000; guard++) {
         const r = await post<{ finished: boolean; progress: Progress }>(runId, { action: 'import' })
         const p = r.progress
