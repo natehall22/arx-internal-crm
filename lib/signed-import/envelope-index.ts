@@ -64,7 +64,8 @@ export function readEnvelopeIndex(rows: string[][]): EnvelopeIndexRead {
   const records: EnvelopeRecord[] = []
   for (const r of rows.slice(1)) {
     const envelopeId = cell(r, cols.envelopeId)[0] ?? null
-    const emails = Array.from(new Set(cell(r, cols.signerEmail).flatMap((c) => emailsIn(c))))
+    // Emails sit in the email column, or inside a name cell ("Jane <jane@x.com>", "jane@x.com; bob@x.com").
+    const emails = Array.from(new Set([...cell(r, cols.signerEmail), ...cell(r, cols.signerName)].flatMap((c) => emailsIn(c))))
     const nameCells = cell(r, cols.signerName).flatMap((c) => c.split(/\s*[;\n|]\s*/)).map((n) => n.replace(/<[^>]*>/g, '').trim()).filter((n) => n && !n.includes('@') && n.length <= 80)
     const status = cell(r, cols.status)[0] ?? ''
     const signers: EnvelopeRecord['signers'] = []
