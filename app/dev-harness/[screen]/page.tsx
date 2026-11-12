@@ -59,6 +59,7 @@ import WorkOrdersClient from '@/app/work-orders/WorkOrdersClient'
 import CustomersPageClient from '@/components/customers/CustomersPageClient'
 import JobProfitTable from '@/components/admin/JobProfitTable'
 import ProposalsPage from '@/app/proposals/page'
+import ProposalBuilderPage from '@/app/proposals/builder/page'
 import LeadsClient from '@/app/leads/LeadsClient'
 import OpportunitiesPage from '@/app/opportunities/page'
 import JobDetailClient from '@/app/ops/jobs/[id]/JobDetailClient'
@@ -564,6 +565,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS} query="" /></div>
     case 'proposals':
       return <ProposalsPage />
+    case 'proposal-builder':
+      return <ProposalBuilderPage />
     case 'leads':
       return <LeadsClient profile={{ id: 'u1', org_id: 'org-1', role: 'admin' }} canViewInbound campaigns={[{ id: 'cm1', name: 'Fall storm' }]} leadSources={[{ id: 'ls1', name: 'Website' }]} users={[{ id: 'u1', full_name: 'Jordan Setter' }]} />
     case 'job-profit':
