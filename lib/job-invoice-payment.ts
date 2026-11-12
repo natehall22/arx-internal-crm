@@ -4,6 +4,7 @@
  * the two that exist. Never more than the invoice balance; the payment's type follows the invoice (deposit / final).
  * If the apply fails after the payment was saved, the money stays recorded and shows as available on the invoice.
  */
+import { paymentTypeForInvoice } from '@/lib/online-payments/record'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { applyPaymentToInvoice, computeInvoiceBalance, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from '@/lib/invoices'
@@ -40,7 +41,7 @@ export async function recordJobInvoicePayment(
 
   // org-scope-ok: the invoice was verified in this company by findOrgInvoice in the caller (app/api/invoices/[invoiceId]); this reads its own row
   const { data: kindRow } = await admin.from('job_invoices').select('invoice_kind').eq('id', invoice.id).maybeSingle()
-  const paymentType = (kindRow as { invoice_kind?: string } | null)?.invoice_kind === 'deposit' ? 'deposit' : 'final'
+  const paymentType = paymentTypeForInvoice((kindRow as { invoice_kind?: string } | null)?.invoice_kind)
 
   const rec = await recordJobPayment(admin, {
     orgId,

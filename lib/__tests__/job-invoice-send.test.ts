@@ -4,7 +4,7 @@
  * customer). Same sender as service invoices (lib/invoice-email.ts), the company's own From; email first, status second.
  */
 const sendMail = jest.fn(async () => ({}))
-jest.mock('@/lib/setter-email', () => ({ getMailTransport: () => ({ sendMail }), getCrmEmailFrom: () => 'Acme Roofing <office@acme.example>' }))
+jest.mock('@/lib/setter-email', () => ({ getMailTransport: () => ({ sendMail }), getCrmEmailFrom: () => 'ARX Decoy <decoy@product.example>' }))
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
@@ -21,6 +21,7 @@ function world(customerEmail: string | null = 'pat@example.com') {
       job_invoices: [{ id: 'inv1', org_id: ORG, job_id: 'job1', customer_id: null, invoice_number: 'INV-26-0100-1', invoice_kind: 'final', status: 'draft', subtotal_cents: 500000, tax_cents: 0, total_cents: 500000, due_at: null, public_note: null }],
       job_invoice_items: [{ id: 'it1', invoice_id: 'inv1', description: 'Roof replacement balance', qty: 1, unit_price_cents: 500000, line_total_cents: 500000, sort_order: 0, unit: 'each' }],
       invoice_payments: [],
+      customer_message_suppressions: [],
       job_payments: [],
       projects: [],
       proposals: [],
@@ -43,7 +44,8 @@ describe('job invoice send', () => {
     expect(r.ok).toBe(true)
     expect(sendMail).toHaveBeenCalledTimes(1)
     const mail = (sendMail.mock.calls[0] as unknown as [Record<string, string>])[0]
-    expect(mail.from).toBe('Acme Roofing <office@acme.example>')
+    expect(mail.from).toBe('Acme Roofing <office@acme.example>') // the company's own sender, never the product fallback
+    expect(mail.replyTo).toBe('office@acme.example')
     expect(mail.to).toBe('pat@example.com')
     expect(mail.subject).toContain('INV-26-0100-1')
     expect(mail.html).toContain('$5,000.00')
@@ -69,6 +71,22 @@ describe('job invoice send', () => {
     expect(r).toMatchObject({ ok: false, status: 400 })
     expect(sendMail).toHaveBeenCalledTimes(1)
     expect((none.tables.job_invoices as Row[])[0].status).toBe('draft')
+  })
+
+  test('a company with no email set sends nothing (no product fallback); a bounced or opted-out address is not emailed', async () => {
+    const noEmail = world()
+    ;(noEmail.tables.orgs as Row[])[0].email = null
+    expect(await sendCustomerInvoiceOnline(noEmail.client as never, ORG, draft(noEmail), null, 'u1')).toMatchObject({ ok: false, status: 503 })
+
+    const bounced = world()
+    ;(bounced.tables.customer_message_suppressions as Row[]).push({ id: 's1', org_id: ORG, channel: 'email', address: 'pat@example.com', reason: 'bounce', created_at: '2026-11-01T00:00:00Z' })
+    expect(await sendCustomerInvoiceOnline(bounced.client as never, ORG, draft(bounced), null, 'u1')).toMatchObject({ ok: false, status: 409 })
+
+    const off = world()
+    ;(off.tables.customers as Row[])[0].messages_off_at = '2026-11-02T00:00:00Z'
+    expect(await sendCustomerInvoiceOnline(off.client as never, ORG, draft(off), null, 'u1')).toMatchObject({ ok: false, status: 409 })
+    expect(sendMail).not.toHaveBeenCalled()
+    expect((off.tables.job_invoices as Row[])[0].status).toBe('draft')
   })
 
   test('a void invoice is refused', async () => {

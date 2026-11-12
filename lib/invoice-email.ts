@@ -12,7 +12,12 @@ import { formatCurrency } from '@/lib/job-payments'
 import { finalizeAndSendInvoice } from '@/lib/invoices'
 import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
 import { isUsableCustomerEmail, loadInvoiceDocument, type InvoiceDocument } from '@/lib/invoice-document'
-import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
+import { companyIdentity } from '@/lib/customer-messages-db'
+import { normalizeEmail } from '@/lib/customer-message-channels'
+import { suppressionOf } from '@/lib/customer-message-suppressions'
+import { isMissingColumn } from '@/lib/supabase/errors'
+import { getMailTransport } from '@/lib/setter-email'
+import { orgDb } from '@/lib/supabase/org-db'
 import type { JobInvoice } from '@/lib/types/invoices'
 
 const money = formatCurrency
@@ -85,6 +90,32 @@ export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string
   return { subject, html, text }
 }
 
+type InvoiceSender = { ok: true; from: string; replyTo: string } | { ok: false; status: 400 | 409 | 503; error: string }
+
+/**
+ * Who an invoice email comes from and whether it may go: the SAME rules as customer messages (lib/customer-messages-db.ts) —
+ * From and Reply-To are the company's own email (never the product's `getCrmEmailFrom` fallback), the address must not be on
+ * the opt-out / bounce list (`customer_message_suppressions`) and the customer must not have turned messages off.
+ */
+export async function resolveInvoiceSender(admin: SupabaseClient, orgId: string, address: string): Promise<InvoiceSender> {
+  if (!process.env.SMTP_HOST) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
+  const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings').eq('id', orgId).maybeSingle()
+  if (!org) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
+  const id = companyIdentity(org as Parameters<typeof companyIdentity>[0], null)
+  if (id.missing.includes('missing_company_email') || id.missing.includes('missing_company_name')) {
+    return { ok: false, status: 503, error: 'Add your company name and email in Settings → Company settings: invoices are sent from it and replies go to it.' }
+  }
+  const to = normalizeEmail(address)
+  if (to && (await suppressionOf(admin, orgId, 'email', to))) return { ok: false, status: 409, error: 'This customer opted out of email or the address bounced, so the invoice was not sent. Send it another way.' }
+  if (to) {
+    const { data, error } = await orgDb(admin, orgId).from('customers').select('messages_off_at').ilike('email', to).not('messages_off_at', 'is', null).limit(1)
+    if (!error && (data ?? []).length > 0) return { ok: false, status: 409, error: 'This customer turned off email, so the invoice was not sent. Send it another way.' }
+    if (error && !isMissingColumn(error, 'messages_off_at')) throw new Error(`invoice email: ${error.message}`)
+  }
+  const name = id.from.name.replace(/["\\\r\n]/g, '')
+  return { ok: true, from: /[^A-Za-z0-9 .'_-]/.test(name) ? `"${name}" <${id.from.address}>` : `${name} <${id.from.address}>`, replyTo: id.from.address }
+}
+
 export type SendInvoiceResult = { ok: true; invoice: JobInvoice } | { ok: false; status: 400 | 409 | 503; error: string }
 
 /**
@@ -100,18 +131,17 @@ export async function sendCustomerInvoice(
   opts: { payUrl?: string | null } = {}
 ): Promise<SendInvoiceResult> {
   if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
-  if (!process.env.SMTP_HOST) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
-  const fromHeader = getCrmEmailFrom()
-  if (!fromHeader) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
   const doc = await loadInvoiceDocument(admin, orgId, invoice)
   const address = (to ?? doc.billTo.email ?? '').trim()
   if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
   if (doc.items.length === 0 || invoice.total_cents <= 0) return { ok: false, status: 400, error: 'This invoice has nothing to bill' }
+  const sender = await resolveInvoiceSender(admin, orgId, address)
+  if (!sender.ok) return sender
   const mail = renderInvoiceEmail(doc, { payUrl: doc.isPaid ? null : opts.payUrl ?? null })
   await getMailTransport().sendMail({
-    from: fromHeader,
+    from: sender.from,
     to: address,
-    ...(doc.company.email ? { replyTo: doc.company.email } : {}),
+    replyTo: sender.replyTo,
     subject: mail.subject,
     html: mail.html,
     text: mail.text,
@@ -143,16 +173,17 @@ export async function emailInvoicePayLink(
   to?: string | null
 ): Promise<{ ok: true; to: string } | { ok: false; status: 400 | 409 | 503; error: string }> {
   if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
-  if (!process.env.SMTP_HOST || !getCrmEmailFrom()) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
   const doc = await loadInvoiceDocument(admin, orgId, invoice)
   if (doc.isPaid) return { ok: false, status: 409, error: 'This invoice is already paid' }
   const address = (to ?? doc.billTo.email ?? '').trim()
   if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
+  const sender = await resolveInvoiceSender(admin, orgId, address)
+  if (!sender.ok) return sender
   const mail = renderInvoiceEmail(doc, { payUrl })
   await getMailTransport().sendMail({
-    from: getCrmEmailFrom(),
+    from: sender.from,
     to: address,
-    ...(doc.company.email ? { replyTo: doc.company.email } : {}),
+    replyTo: sender.replyTo,
     subject: mail.subject,
     html: mail.html,
     text: mail.text,
