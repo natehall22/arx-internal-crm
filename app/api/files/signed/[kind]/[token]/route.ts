@@ -25,19 +25,33 @@ function notFound() {
   return NextResponse.json({ error: 'Not found' }, { status: 404, headers: PRIVATE })
 }
 
-export async function GET(_request: Request, { params }: { params: { kind: string; token: string } }) {
+export async function GET(request: Request, { params }: { params: { kind: string; token: string } }) {
   const kind = params.kind
   const token = String(params.token ?? '')
   if (!isSignedDocKind(kind) || !isPlausibleSigningToken(kind, token)) return notFound()
 
   try {
     const admin = createServiceClient()
-    const doc = await findBySigningTokenOnThisHost(admin, kind, token, 'org_id, status, customer_signed_at, pdf_url, pdf_storage_path')
+    const doc = await findBySigningTokenOnThisHost(admin, kind, token, 'id, org_id, status, customer_signed_at, pdf_url, pdf_storage_path')
 
     // Signed = completed, or a contract superseded by a later signature (voided, never deleted, executed copy kept) — the
     // customer's emailed link to what they signed keeps working.
     const isSigned = doc?.status === 'completed' || (doc?.status === 'voided' && !!doc?.customer_signed_at)
     if (!doc || !isSigned) return notFound()
+
+    // ?doc=certificate: the completion certificate beside the signed copy (same token, same rules).
+    if (new URL(request.url).searchParams.get('doc') === 'certificate') {
+      const { data: env } = await admin
+        .from('signing_envelopes')
+        .select('certificate_path')
+        .eq('org_id', doc.org_id)
+        .eq('doc_kind', kind)
+        .eq('doc_id', doc.id)
+        .maybeSingle()
+      const certPath = filesPathFromStoredUrl((env as { certificate_path?: string | null } | null)?.certificate_path)
+      const certUrl = certPath ? await signFilesObject(admin, certPath, CUSTOMER_SIGNED_URL_TTL_SECONDS) : null
+      return certUrl ? NextResponse.redirect(certUrl, { status: 302, headers: PRIVATE }) : notFound()
+    }
 
     const storedUrl = String(doc.pdf_url ?? '').trim()
     // The old contract-signing fallback uploaded to the `contracts` bucket when `files` failed; that URL is not a `files`

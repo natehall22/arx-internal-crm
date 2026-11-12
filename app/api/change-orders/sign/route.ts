@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
-import nodemailer from 'nodemailer'
-import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildChangeOrderSignedEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -11,6 +9,10 @@ import { customerSignedDocLinkForPage, customerSignedDocUrl } from '@/lib/files/
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
 import { cleanPrintName, cleanSignatureImage, signingEvidence } from '@/lib/signing-input'
+import { completeEnvelope, loadSignedAttachments } from '@/lib/signing/complete'
+import { consentCheck } from '@/lib/signing/consent'
+import { sendSigningEmail } from '@/lib/signing/mail'
+import { loadSigningSettings } from '@/lib/signing/settings-server'
 
 type AdminClient = ReturnType<typeof createServiceClient>
 
@@ -25,6 +27,16 @@ async function jobIsCancelled(
   const { data } = await query
   const jobs = (data ?? []) as Array<{ status: string | null }>
   return jobs.length > 0 && jobs.every((j) => j.status === CANCELLED_JOB_STATUS)
+}
+
+/** The engine's completion for a signed change order that has its PDF; never throws, never blocks the signer's answer. */
+async function finishEvidence(supabase: AdminClient, co: Record<string, any>) {
+  if (!String(co.pdf_storage_path || co.pdf_url || '').trim()) return
+  try {
+    await completeEnvelope(supabase, { kind: 'change-order', docId: String(co.id), orgId: String(co.org_id) })
+  } catch (error) {
+    console.error('[Change Order Sign] engine completion error:', error)
+  }
 }
 
 /** Already signed: the signed result (with the copy's link when the PDF exists), not an error — a double tap lands here. */
@@ -69,6 +81,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (changeOrder.status === 'completed') {
+      await finishEvidence(supabase, changeOrder)
       return alreadySigned(changeOrder, token)
     }
     if (changeOrder.status !== 'pending_customer') {
@@ -80,6 +93,13 @@ export async function POST(request: NextRequest) {
         { error: 'This job has been cancelled, so this change order can no longer be signed. Please contact the company.' },
         { status: 409 }
       )
+    }
+
+    // The e-sign consent step, when the company turned it on: refused server-side without it.
+    const signingSettings = await loadSigningSettings(supabase, changeOrder.org_id)
+    const consent = consentCheck(signingSettings.consentStep, body?.consent)
+    if (!consent.ok) {
+      return NextResponse.json({ error: consent.error, code: consent.code }, { status: 400 })
     }
 
     const nowIso = new Date().toISOString()
@@ -95,6 +115,7 @@ export async function POST(request: NextRequest) {
         customer_signed_at: nowIso,
         customer_ip: clientIp,
         customer_user_agent: clientUserAgent,
+        ...(consent.version ? { consent_version: consent.version, consent_at: nowIso } : {}),
         status: 'completed',
       })
       .eq('id', changeOrder.id)
@@ -109,7 +130,10 @@ export async function POST(request: NextRequest) {
 
     if (!claimed || claimed.length === 0) {
       const { data: now } = await supabase.from('job_change_orders').select('*').eq('id', changeOrder.id).maybeSingle()
-      if (now?.status === 'completed') return alreadySigned(now, token)
+      if (now?.status === 'completed') {
+        await finishEvidence(supabase, now)
+        return alreadySigned(now, token)
+      }
       return NextResponse.json({ error: 'This change order is not open for signing' }, { status: 409 })
     }
 
@@ -176,38 +200,23 @@ export async function POST(request: NextRequest) {
       console.error('[Change Order Sign] pdf generation error:', pdfError)
     }
 
+    // The signing engine's completion: events, SHA-256, certificate, filing, copies (idempotent; retried on the customer's next tap).
+    if (pdfUrl) await finishEvidence(supabase, { ...changeOrder, status: 'completed', pdf_url: pdfUrl, pdf_storage_path: pdfStoragePath })
+
     // The customer's link to their signed copy goes through the token route, never the bucket's public URL.
     const customerPdfUrl = pdfUrl
       ? customerSignedDocUrl('change-order', token, await tryOrgAppUrl(changeOrder.org_id, 'signed change-order link'))
       : null
 
     if (changeOrder.customer_email) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT || 587),
-          secure: false,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        })
-
-        const email = buildChangeOrderSignedEmail({
-          brand: documentBrand,
-          coNumber: changeOrder.co_number,
-          customerPdfUrl,
-        })
-        await transporter.sendMail({
-          from: getCrmEmailFrom(),
-          to: changeOrder.customer_email,
-          subject: email.subject,
-          text: email.text,
-          html: email.html,
-        })
-      } catch (emailError) {
-        console.error('[Change Order Sign] email error:', emailError)
-      }
+      const email = buildChangeOrderSignedEmail({
+        brand: documentBrand,
+        coNumber: changeOrder.co_number,
+        customerPdfUrl,
+      })
+      // The certificate rides on the customer's copy only when the company turned `emails.signedCopy` on (same subject and body).
+      const attachments = await loadSignedAttachments(supabase, { kind: 'change-order', docId: changeOrder.id, orgId: changeOrder.org_id })
+      await sendSigningEmail({ to: changeOrder.customer_email, subject: email.subject, text: email.text, html: email.html, attachments })
     }
 
     return NextResponse.json({

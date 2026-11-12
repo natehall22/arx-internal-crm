@@ -293,6 +293,7 @@ describe('money on the card (kind and true)', () => {
     db.tables.job_payments.push({ id: 'p-pend', job_id: 'j-ordered', amount_cents: 500000, funding_status: 'pending' })
     expect(await money('j-ordered')).toMatchObject({ balanceCents: 500000, paidInFull: false })
   })
+  // Two days back: the portal's "today" is the company's local date, the test's day() is UTC; -1 flipped to "today" for hours every evening.
   test('the install day has come and the crew is not marked done: "in progress", not blank', async () => {
     db.tables.work_orders.find((w) => w.id === 'wo-roof')!.scheduled_date = day(-2)
     const main = (await homeOf('r1')).home.jobs.find((j) => j.id === 'j-main')!

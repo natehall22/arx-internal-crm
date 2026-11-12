@@ -188,7 +188,7 @@ describe('company settings override the profile', () => {
     expect(res.error).toMatch(/path \[profile\]/)
     expect(rpc).not.toHaveBeenCalled()
     expect(mergeSettingsAt({ a: 1 }, ['profile'], { id: 'lawn_landscape', version: 1 })).toEqual({ a: 1, profile: { id: 'lawn_landscape', version: 1 } })
-    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, \.\.\.rest/)
+    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, (signing: _signing, )?\.\.\.rest/)
   })
 })
 

@@ -3,6 +3,8 @@ export const dynamic = 'force-dynamic'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
+import { esignDisclosure } from '@/lib/signing/consent'
+import { loadSigningSettings } from '@/lib/signing/settings-server'
 import CustomerSigningForm from './CustomerSigningForm'
 
 export default async function ChangeOrderSigningPage({
@@ -53,5 +55,25 @@ export default async function ChangeOrderSigningPage({
     )
   }
 
-  return <CustomerSigningForm changeOrder={changeOrder as never} token={params.token} />
+  const brand = await getDocumentBrand(supabase, changeOrder.org_id)
+  if (changeOrder.status !== 'pending_customer') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
+          <h1 className="text-xl font-bold text-gray-900 mb-2">No Longer Open</h1>
+          <p className="text-gray-600">This change order is no longer open for signing. Please contact {brand.casualName}.</p>
+        </div>
+      </div>
+    )
+  }
+  const signing = await loadSigningSettings(supabase, changeOrder.org_id)
+  return (
+    <CustomerSigningForm
+      changeOrder={changeOrder as never}
+      token={params.token}
+      consent={signing.consentStep ? esignDisclosure({ name: brand.name, phone: brand.phone, email: brand.email }) : null}
+      declineEnabled={signing.declineEnabled}
+      companyName={brand.casualName}
+    />
+  )
 }

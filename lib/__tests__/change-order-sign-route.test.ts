@@ -11,7 +11,7 @@ jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     from: (t: string) => (db.client as any).from(t),
     rpc: (n: string, a: Record<string, unknown>) => (db.client as any).rpc(n, a),
-    storage: { from: () => ({ upload: async (p: string) => { uploads.push(p); return { error: null } } }) },
+    storage: { from: () => ({ upload: async (p: string) => { if (!p.includes('/signing/')) uploads.push(p); return { error: null } }, download: async () => ({ data: new Blob(['%PDF-fake']), error: null }) }) },
   }),
 }))
 jest.mock('@/lib/contracts/generateChangeOrderPdf', () => ({ generateChangeOrderPdf: jest.fn(async () => Buffer.from('%PDF')) }))
@@ -118,4 +118,46 @@ it('an already-signed change order answers with the signed result and changes no
   expect((await res.json()).alreadySigned).toBe(true)
   expect(db.tables.job_change_orders[0].customer_print_name).toBe('Pat Homeowner')
   expect(sync).not.toHaveBeenCalled()
+})
+
+describe('signing engine on the change-order route', () => {
+  const consentOn = () => { (db.tables as any).orgs = [{ id: ORG, settings: { signing: { consentStep: true } } }] }
+  const evidence = () => ({ ...(db.tables as any) })
+
+  it('refuses a signature without consent when the company requires it, and writes nothing', async () => {
+    consentOn()
+    const before = db.writes.length
+    const res = await post(good())
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('consent_required')
+    expect(db.tables.job_change_orders[0].status).toBe('pending_customer')
+    expect(db.writes.length).toBe(before)
+    expect(sync).not.toHaveBeenCalled()
+  })
+
+  it('stores the consent version with the signature when given', async () => {
+    consentOn()
+    const res = await post(good({ consent: { accepted: true, version: 'v1-2026-11' } }))
+    expect(res.status).toBe(200)
+    expect(db.tables.job_change_orders[0]).toMatchObject({ status: 'completed', consent_version: 'v1-2026-11' })
+  })
+
+  it('with no company switch, signs exactly as before (no consent needed, none stored)', async () => {
+    const res = await post(good())
+    expect(res.status).toBe(200)
+    expect(db.tables.job_change_orders[0].consent_version ?? null).toBeNull()
+  })
+
+  it('a double tap leaves one hash, one certificate and one set of events (when the migration is in)', async () => {
+    (db.tables as any).signing_envelopes = []; (db.tables as any).signing_events = []
+    await Promise.all([post(good()), post(good())])
+    const envs = evidence().signing_envelopes as any[]
+    expect(envs).toHaveLength(1)
+    expect(envs[0].pdf_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(envs[0].certificate_path).toContain('/signing/')
+    const ev = (evidence().signing_events as any[]).map((e) => e.event)
+    expect(ev.filter((e) => e === 'signed')).toHaveLength(1)
+    expect(ev.filter((e) => e === 'completed')).toHaveLength(1)
+    expect(ev.filter((e) => e === 'certificate_issued')).toHaveLength(1)
+  })
 })

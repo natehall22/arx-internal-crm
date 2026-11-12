@@ -244,15 +244,8 @@ On A's address or with A's company code, 44 handlers still answer B with **B's o
 | `/api/commissions/weekly` | GET | 200 | 401 | 401 | no |
 | `/api/comp-agreements/sign/[token]` | POST | 303 | 303 | 303 | no |
 | `/api/company-logo` | GET | 404 | 404 | 404 | no |
-| `/api/contract-templates` | POST | 303 | threw | threw | yes |
-| `/api/contracts/[id]/audit` | GET | 404 | 401 | 401 | yes |
-| `/api/contracts/[id]/download` | GET | 404 | 401 | 401 | yes |
-| `/api/contracts/[id]/rep-sign` | POST | 303 | threw | threw | yes |
-| `/api/contracts/[id]/send` | POST | 303 | threw | threw | yes |
 | `/api/contracts/create` | POST | 404 | 401 | 401 | yes |
-| `/api/contracts/from-template` | POST | 303 | threw | threw | yes |
 | `/api/contracts/sign` | POST | 200 | 200 | 200 | yes |
-| `/api/contracts/start` | POST | 303 | threw | threw | yes |
 | `/api/crew/[token]/photos/finalize` | POST | 400 | 400 | 400 | yes |
 | `/api/crew/[token]/photos/register` | POST | 500 | 500 | 500 | yes |
 | `/api/cron/cleanup-inspection-photos` | GET | 401 | 401 | 401 | no |
@@ -551,8 +544,6 @@ On A's address or with A's company code, 44 handlers still answer B with **B's o
 | `/app/change-orders/sign/[token]/page.tsx` | PAGE | rendered | rendered | rendered | yes |
 | `/app/comp-agreements/receipt/[token]/page.tsx` | PAGE | NEXT_NOT_FOUND | NEXT_NOT_FOUND | NEXT_NOT_FOUND | no |
 | `/app/comp-agreements/sign/[token]/page.tsx` | PAGE | rendered | rendered | rendered | yes |
-| `/app/contracts/[token]/page.tsx` | PAGE | rendered | rendered | rendered | yes |
-| `/app/contracts/[token]/rep/page.tsx` | PAGE | rendered | NEXT_REDIRECT | NEXT_REDIRECT | yes |
 | `/app/contracts/sign/[token]/page.tsx` | PAGE | rendered | rendered | rendered | yes |
 | `/app/crew/[token]/page.tsx` | PAGE | rendered | rendered | rendered | yes |
 | `/app/customers/[id]/page.tsx` | PAGE | NEXT_NOT_FOUND | NEXT_REDIRECT | NEXT_REDIRECT | yes |

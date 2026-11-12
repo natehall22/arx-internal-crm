@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
+import ConsentBlock from '@/components/signing/ConsentBlock'
+import type { ConsentDisclosure } from '@/lib/signing/consent'
+import { ESIGN_CONSENT_VERSION } from '@/lib/signing/consent'
 import { filesObjectHref } from '@/lib/files/files-object'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 
@@ -59,6 +62,18 @@ export default function ChangeOrderModal({
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [signingUrl, setSigningUrl] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
+  // The e-sign notice for an in-person signature, when the company's consent step is on (null = nothing to show).
+  const [consent, setConsent] = useState<ConsentDisclosure | null>(null)
+  const [consentAccepted, setConsentAccepted] = useState(false)
+  useEffect(() => {
+    if (signingMode !== 'in_person') return
+    let live = true
+    fetch('/api/signing/consent', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (live && d?.required && d.disclosure) setConsent(d.disclosure as ConsentDisclosure) })
+      .catch(() => undefined)
+    return () => { live = false }
+  }, [signingMode])
 
   const today = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
@@ -127,6 +142,11 @@ export default function ChangeOrderModal({
       return
     }
 
+    if (mode === 'in_person' && consent && !consentAccepted) {
+      setError('The customer needs to agree to sign electronically first')
+      return
+    }
+
     const finalCustomerPrintName = mode === 'in_person' ? customerPrintName.trim() : customerName
     const finalCustomerSignature = mode === 'in_person' ? customerSignature : null
     const finalCustomerEmail = mode === 'send_to_customer' ? customerEmailInput.trim() || null : customerEmail
@@ -156,6 +176,7 @@ export default function ChangeOrderModal({
           customerEmail: finalCustomerEmail,
           projectAddress,
           signingMode: mode,
+          ...(mode === 'in_person' && consent ? { consent: { accepted: consentAccepted, version: consent.version ?? ESIGN_CONSENT_VERSION } } : {}),
         }),
       })
 
@@ -463,6 +484,7 @@ export default function ChangeOrderModal({
                           height={120}
                         />
                       </div>
+                      {consent && <ConsentBlock disclosure={consent} checked={consentAccepted} onChange={setConsentAccepted} />}
                     </div>
                   </div>
                 )}

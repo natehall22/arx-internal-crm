@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { clientLinkBase } from '@/lib/app-url'
 import { toast } from '@/components/ui/toast'
 import { filesDocHref } from '@/lib/files/files-object'
+import SigningStatus from '@/components/signing/SigningStatus'
 
 interface ContractListItemProps {
   contract: {
@@ -131,6 +132,7 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
           ) : null}
         </div>
       </div>
+      {contract.status !== 'draft' && <SigningStatus kind="contract" id={contract.id} />}
     </div>
   )
 }

@@ -18,6 +18,7 @@ import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles
 import { loadOrgProfile } from '@/lib/org-profile'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
+import SigningSettingsCard from '@/components/admin/SigningSettingsCard'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import QuickBooksSetup from '@/components/admin/QuickBooksSetup'
 import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
@@ -89,6 +90,8 @@ export default async function SettingsPage() {
           {features.hourlyBilling && canEditFeatures ? <HourlyBillingSettingsCard /> : null}
           {/* Owners, when the company sends quote links: default deposit, link life, terms (lib/quotes/settings.ts). */}
           {features.quoteApproval && canEditFeatures ? <QuoteApprovalCard /> : null}
+          {/* Owners: the e-sign notice, decline, filing, reminders, signed-copy emails (lib/signing/settings.ts). */}
+          {canEditFeatures ? <SigningSettingsCard /> : null}
         </div>
       </main>
     </div>

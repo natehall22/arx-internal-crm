@@ -120,6 +120,22 @@ const SCREENS: Screen[] = [
       await p.waitForSelector('text=I HEREBY CANCEL THIS TRANSACTION.')
     } }] },
   { name: 'change-order-signing', path: '/dev-harness/change-order-signing', ready: 'text=CO-1' },
+  { name: 'change-order-signing-consent', path: '/dev-harness/change-order-signing-consent', ready: 'text=CO-1',
+    states: [{ name: 'decline-open', run: async (p) => {
+      await p.getByRole('button', { name: /can.t sign this/i }).click()
+      await p.waitForSelector('text=why you can')
+    } }] },
+  { name: 'signer-flow', path: '/dev-harness/signer-flow', ready: 'text=Lease agreement',
+    mock: async (p) => { await p.route('**/api/signing/requests/file**', (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: Buffer.from('%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\ntrailer<</Root 1 0 R/Size 4>>\n%%EOF') })) },
+    states: [
+      { name: 'signature-sheet', run: async (p) => { await p.getByRole('button', { name: 'Start' }).click(); await p.waitForSelector('text=Your signature') } },
+    ] },
+  { name: 'signing-status', path: '/dev-harness/signing-status', ready: 'text=Not opened yet',
+    mock: async (p) => { await p.route('**/api/signing/change-order/co-1', (route) => route.fulfill(json({
+      ready: true, title: 'Change Order CO-1', status: 'sent', statusLabel: 'Sent', sentAt: '2026-11-09T12:00:00Z', firstViewedAt: null,
+      expiresAt: '2026-11-20T12:00:00Z', reminderCount: 1, remindersOn: true, customerEmail: 'pat@example.test', extendDays: 7,
+    }))) },
+    states: [{ name: 'void-open', run: async (p) => { await p.getByRole('button', { name: 'Void' }).click(); await p.waitForSelector('text=Why are you voiding this?') } }] },
   { name: 'crew-photo-capture', path: '/dev-harness/crew-capture', ready: 'text=Front of house' },
   { name: 'payroll-attribution', path: '/dev-harness/payroll-attribution', ready: 'text=Payroll attribution' },
   { name: 'ops-dashboard', path: '/dev-harness/ops-dashboard', ready: 'text=Operations Dashboard',

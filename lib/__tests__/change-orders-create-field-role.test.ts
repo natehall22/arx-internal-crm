@@ -50,3 +50,26 @@ test('an allowed role still sends the change order exactly as before', async () 
   expect(await res.json()).toMatchObject({ success: true, changeOrderId: 'co1', signingUrl: 'https://x/s' })
   expect(createRemoteChangeOrder).toHaveBeenCalledTimes(1)
 })
+
+describe('in-person signing and the e-sign consent step', () => {
+  const inPerson = (extra: Record<string, unknown> = {}) =>
+    POST(new Request('https://crm.example/api/change-orders/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, signingMode: 'in_person', customerSignature: 'data:image/png;base64,xx', ...extra }) }) as never)
+  const consentOn = () => { db = createFakeDb({ projects: [{ id: 'p1', org_id: 'org-a' }], production_jobs: [{ id: 'j1', org_id: 'org-a' }], orgs: [{ id: 'org-a', settings: { signing: { consentStep: true } } }] }) }
+
+  it('refuses a customer signature taken on the rep\'s device without consent, before anything is made or written', async () => {
+    consentOn()
+    const res = await inPerson()
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('consent_required')
+    expect(db.writes).toEqual([])
+  })
+  it('an old notice version is refused too', async () => {
+    consentOn()
+    expect((await inPerson({ consent: { accepted: true, version: 'v0' } })).status).toBe(400)
+  })
+  it('with consent given it gets past the consent check', async () => {
+    consentOn()
+    const res = await inPerson({ consent: { accepted: true, version: 'v1-2026-11' } })
+    expect((await res.json().catch(() => ({}))).code).not.toBe('consent_required')
+  })
+})
