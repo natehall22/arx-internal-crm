@@ -80,3 +80,20 @@ describe('QuickBooks outbox: who can enqueue', () => {
     for (const f of ALL) expect(`${f}: ${/\/admin\/integrations|from\('integrations'\)/.test(read(f))}`).toBe(`${f}: false`)
   })
 })
+
+describe('the SQL job payment writer respects the QuickBooks switch', () => {
+  const sql = fs.readFileSync(path.join(ROOT, 'supabase/migrations/202611210030_record_job_payment_quickbooks_switch.sql'), 'utf8')
+  it('returns before the outbox insert unless features.quickbooks is true; the payment insert comes first', () => {
+    const insertPay = sql.indexOf('insert into public.job_payments')
+    const gate = sql.indexOf("settings->'features'->>'quickbooks'")
+    const outbox = sql.indexOf('insert into public.integration_outbox')
+    expect(insertPay).toBeGreaterThan(-1)
+    expect(insertPay).toBeLessThan(gate)
+    expect(gate).toBeLessThan(outbox)
+    expect(sql.slice(gate, outbox)).toMatch(/return jsonb_build_object\('payment'/)
+  })
+  it('keeps the signature and service-role-only grants of the original', () => {
+    expect(sql).toMatch(/revoke all on function public\.record_job_payment\(uuid, uuid, date, integer, text, text, text, text, uuid, text, text\) from public, anon, authenticated/)
+    expect(sql).toMatch(/grant execute on function public\.record_job_payment\([^)]*\) to service_role/)
+  })
+})
