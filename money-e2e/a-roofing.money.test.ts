@@ -306,3 +306,28 @@ describe('cancel then undo with the deposit still held', () => {
     agree('job 3 deposit after cancel + undo (cents)', { 'CRM job_payments sum': 400000, 'QuickBooks payments applied to the live invoice': appliedToLive, })
   })
 })
+
+describe('known disagreements (it.failing = a real bug today; flip to it when the product is fixed)', () => {
+  // FINDING D1: the report view ignores invoice tax that the job page, ops board and payroll eligibility all add to what is owed.
+  // supabase/migrations/202610220010_reporting_views.sql:37 (rpt_jobs.balance_due = sale_amount - collected) vs lib/job-collection.ts (invoiceTaxCents) via lib/job-payments.ts:47.
+  it.failing('D1 invoice tax: rpt_jobs.balance_due == the job page remaining balance (paid-in-full)', async () => {
+    const d4 = await seedSignedRoofingJob(co, { n: 4, contractTotal: 10000, salesTax: 0, customerName: 'Dana Fourth', email: 'dana@example.test' })
+    await syncJobSaleAndCommissionBase(admin(), { orgId: co.id, jobId: d4.jobId })
+    await must(admin().from('job_invoices').insert({ org_id: co.id, job_id: d4.jobId, invoice_number: `${d4.jobNumber}-X1`, status: 'sent', issued_at: '2026-11-10', subtotal_cents: 1000000, taxable_subtotal_cents: 500000, tax_cents: 35000, total_cents: 1035000 }).select('id').single(), 'invoice with tax')
+    await recordJobPayment(admin(), { orgId: co.id, jobId: d4.jobId, paidAt: '2026-11-10', amountCents: 1000000, paymentType: 'final', method: 'check', payer: 'homeowner', createdBy: null })
+    const page = await jobPageMoney(d4.jobId)
+    agree('balance due after paying the contract but not the invoice tax (cents)', {
+      'job page remaining (sale + invoice tax - collected)': Math.max(page.summary.remaining_cents ?? page.summary.balance_cents ?? 0, 0),
+      'rpt_jobs.balance_due': cents(rptJob(d4.jobId)?.balance_due),
+    })
+  })
+
+  // FINDING D2: the Financials card and goals economics subtract the 18% pool CAP as commission cost; payroll pays what the plans say (7% closer + 5% setter here).
+  // app/ops/jobs/[id]/JobDetailClient.tsx:1374 and lib/goals-job-economics.ts:49 (poolCap) vs lib/payroll-pay-week.ts (actual lines).
+  it.failing('D2 commission cost on the job: Financials card / goals economics == what payroll actually paid', async () => {
+    const j = (await admin().from('production_jobs').select('*').eq('id', deal.jobId).single()).data as any
+    const poolCap = Math.round(buildCommissionPayrollSnapshot(j).poolCap! * 100)
+    const paid = cents(sql<any>(`select coalesce(sum(net_amount),0) n from payroll_payout_lines where job_id='${deal.jobId}'`)[0].n)
+    agree('commission cost of the job (cents)', { 'Financials card / goals economics (pool cap)': poolCap, 'payroll_payout_lines actually paid': paid })
+  })
+})
