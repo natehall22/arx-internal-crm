@@ -4,6 +4,8 @@ import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
 import { canSeeFinancials } from '@/lib/financials-access'
+import { cleanPriceOptions, optionsFloorPrice } from '@/lib/price-list'
+import { loadPriceLists, ownListIdOrNull } from '@/lib/price-list-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -103,6 +105,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       pricebookItems: stripPricebookCosts(items, await canSeeFinancials(adminClient, { id: user.id, role: profile.role, custom_role_id: (profile as { custom_role_id?: string | null }).custom_role_id })),
       templates: templates || [],
+      priceLists: await loadPriceLists(adminClient, profile.org_id),
       orgId: profile.org_id,
       role: profile.role,
     })
@@ -141,13 +144,20 @@ export async function POST(request: NextRequest) {
     const { type, data } = body
 
     if (type === 'adder') {
-      // Get default pricebook
-      const { data: pricebook } = await adminClient
-        .from('pricebooks')
-        .select('id')
-        .eq('org_id', profile.org_id)
-        .eq('is_default', true)
-        .single()
+      // The price list this item goes in: the one chosen (must be this company's), else the default.
+      const chosenListId = await ownListIdOrNull(adminClient, profile.org_id, data.pricebook_id)
+      const { data: pricebook } = chosenListId
+        ? { data: { id: chosenListId } }
+        : await adminClient
+            .from('pricebooks')
+            .select('id')
+            .eq('org_id', profile.org_id)
+            .eq('is_default', true)
+            .single()
+
+      // Size options (lib/price-list.ts): the item's own price is its lowest option ("from $45").
+      const options = cleanPriceOptions(data.price_options)
+      if (!options.ok) return NextResponse.json({ error: options.error }, { status: 400 })
 
       // Determine commission settings based on the new logic:
       // - is_commissionable=true with no percent/cap = flows through regular comp plan (commission_percent=null)
@@ -174,7 +184,9 @@ export async function POST(request: NextRequest) {
         category: data.category || 'addons',
         item_type: 'addon',  // Required field for pricebook_items
         unit: data.price_type === 'percentage' ? 'percent' : (data.unit || 'each'),
-        unit_price: parseFloat(data.unit_price) || 0,
+        unit_price: options.value ? optionsFloorPrice(options.value) : parseFloat(data.unit_price) || 0,
+        ...(options.value ? { price_options: options.value } : {}),
+        ...(typeof data.description === 'string' && data.description.trim() ? { description: data.description.trim().slice(0, 500) } : {}),
         is_adder: true,
         adder_category: data.adder_category || 'Other',
         price_type: data.price_type || 'fixed',
@@ -371,12 +383,29 @@ export async function PATCH(request: NextRequest) {
         }
       }
 
+      const options = cleanPriceOptions(data.price_options)
+      if (!options.ok) return NextResponse.json({ error: options.error }, { status: 400 })
+
+      // The new columns (price_options, description) are touched only when the editor sent something for them, or the item
+      // already has something there (so it can be cleared). A plain edit of an item without them — every roofing item — never
+      // names the columns, so this code does not depend on migration 202611220030 being applied first.
+      const sentDescription = typeof data.description === 'string' ? data.description.trim() : ''
+      let existingNew: { price_options?: unknown; description?: unknown } | null = null
+      if (!options.value || !sentDescription) {
+        const { data: cur, error: curErr } = await adminClient.from('pricebook_items').select('price_options, description').eq('id', data.id).eq('org_id', profile.org_id).maybeSingle()
+        existingNew = curErr ? null : (cur as { price_options?: unknown; description?: unknown } | null)
+      }
+      const touchOptions = !!options.value || (Array.isArray(existingNew?.price_options) && existingNew!.price_options.length > 0)
+      const touchDescription = !!sentDescription || (typeof existingNew?.description === 'string' && existingNew.description.length > 0)
+
       // Build update object
       const updateData: any = {
         name: data.name,
         category: data.category || 'addons',
         unit: data.price_type === 'percentage' ? 'percent' : (data.unit || 'each'),
-        unit_price: parseFloat(data.unit_price) || 0,
+        unit_price: options.value ? optionsFloorPrice(options.value) : parseFloat(data.unit_price) || 0,
+        ...(touchOptions ? { price_options: options.value } : {}),
+        ...(touchDescription ? { description: sentDescription.slice(0, 500) || null } : {}),
         adder_category: data.adder_category || 'Other',
         price_type: data.price_type || 'fixed',
         is_commissionable: data.is_commissionable ?? true,

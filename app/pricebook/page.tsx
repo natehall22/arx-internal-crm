@@ -8,6 +8,8 @@ import { isBarredFromSalesDocAccess } from '@/lib/permissions'
 import PricebookItemPhotoCell from '@/components/pricebook/PricebookItemPhotoCell'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
 import { canSeeFinancials } from '@/lib/financials-access'
+import { readPriceOptions } from '@/lib/price-list'
+import { loadPriceLists } from '@/lib/price-list-server'
 
 // Matches the role gate on /api/admin/pricing/items/[id]/image
 const PRICEBOOK_IMAGE_EDIT_ROLES = new Set(['admin', 'operations'])
@@ -68,13 +70,18 @@ export default async function PricebookPage() {
 
   const items = stripPricebookCosts((itemsRaw ?? []) as Array<Record<string, any>>, await canSeeFinancials(admin, profile))
 
+  // Several price lists: each list's items are grouped under its own name (one list = unchanged).
+  const lists = await loadPriceLists(admin, profile.org_id)
+  const listName = new Map(lists.map((l) => [l.id, l.name]))
+
   const canEditPhotos = PRICEBOOK_IMAGE_EDIT_ROLES.has(profile.role)
 
   const itemsByCategory: Record<string, any[]> = items?.reduce((acc, item) => {
-    if (!acc[item.category]) {
-      acc[item.category] = []
+    const group = lists.length > 1 ? `${listName.get(item.pricebook_id) ?? 'Price list'} · ${item.category}` : item.category
+    if (!acc[group]) {
+      acc[group] = []
     }
-    acc[item.category].push(item)
+    acc[group].push(item)
     return acc
   }, {} as Record<string, any[]>) || {}
 
@@ -128,6 +135,7 @@ export default async function PricebookPage() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {item.name}
+                          {item.description ? <span className="block text-xs font-normal text-gray-900">{item.description}</span> : null}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
                           {item.item_type.replace('_', ' ')}
@@ -136,7 +144,9 @@ export default async function PricebookPage() {
                           {item.unit}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          ${item.unit_price.toFixed(2)}
+                          {readPriceOptions(item.price_options).length > 0
+                            ? readPriceOptions(item.price_options).map((o) => `${o.label} $${o.price.toFixed(2)}`).join(' · ')
+                            : `$${item.unit_price.toFixed(2)}`}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {item.is_labor ? 'Yes' : 'No'}

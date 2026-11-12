@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
 import { canSeeFinancials } from '@/lib/financials-access'
 import { mergeOrgSettings } from '@/lib/org-settings'
+import { canEditPriceLists, cleanPriceListName } from '@/lib/price-list-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -202,7 +203,7 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile?.org_id || !['admin', 'operations'].includes(profile.role)) {
+    if (!profile?.org_id || !canEditPriceLists(profile.role)) {
       return NextResponse.json({ error: 'Access denied. Only admins and operations managers can modify pricing data.' }, { status: 403 })
     }
 
@@ -210,6 +211,8 @@ export async function POST(request: NextRequest) {
     const { type, ...data } = body
 
     if (type === 'pricebook') {
+      const listName = cleanPriceListName(data.name)
+      if (!listName.ok) return NextResponse.json({ error: listName.error }, { status: 400 })
       const isFirst = await adminClient
         .from('pricebooks')
         .select('id')
@@ -220,7 +223,7 @@ export async function POST(request: NextRequest) {
         .from('pricebooks')
         .insert({
           org_id: profile.org_id,
-          name: data.name,
+          name: listName.name,
           is_default: !isFirst.data?.length,
         })
         .select()

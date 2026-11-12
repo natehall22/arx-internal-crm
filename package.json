@@ -35,6 +35,7 @@
     "test:mobile": "playwright test",
     "gates": "bash scripts/gates.sh",
     "seed:company": "tsx --env-file=.env.local scripts/seed-company.ts",
+    "import:price-list": "tsx --env-file=.env.local scripts/import-price-list.ts",
     "hardcode:check": "node scripts/hardcode-ratchet.mjs",
     "hardcode:update": "node scripts/hardcode-ratchet.mjs --update",
     "org-scope:check": "node scripts/org-scope-check.mjs",
