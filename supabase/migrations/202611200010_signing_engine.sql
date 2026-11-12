@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS public.signing_envelopes (
   declined_at          timestamptz,
   decline_reason       text,
   voided_at            timestamptz,
-  voided_by            uuid REFERENCES public.users(id) ON DELETE SET NULL,
+  voided_by            uuid,  -- plain uuid: no FK, so deleting a user never touches evidence (see signing_events trigger)
   void_reason          text,
   reminder_count       integer NOT NULL DEFAULT 0,
   last_reminder_at     timestamptz,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS public.signing_events (
     'completed', 'certificate_issued', 'copy_sent', 'filed'
   )),
   actor_type       text NOT NULL DEFAULT 'system' CHECK (actor_type IN ('signer', 'staff', 'system', 'provider')),
-  actor_user_id    uuid REFERENCES public.users(id) ON DELETE SET NULL,
+  actor_user_id    uuid,  -- plain uuid, no FK: a user delete must never need to UPDATE this append-only table
   actor_name       text,
   actor_email      text,
   ip               text,

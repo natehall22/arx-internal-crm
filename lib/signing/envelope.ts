@@ -74,6 +74,25 @@ export async function findEnvelope(admin: SupabaseClient, kind: SigningKind, org
   return (data as EnvelopeRow | null) ?? null
 }
 
+/**
+ * READ-ONLY view of the envelope (the staff status panel): the stored envelope, or the one the row would get, with nothing
+ * written. A GET never creates records; envelopes are made on write paths (send, resend, sign, complete).
+ */
+export async function peekEnvelope(admin: SupabaseClient, kind: SigningKind, row: DocRow): Promise<EnvelopeRow | 'not_ready'> {
+  const found = await findEnvelope(admin, kind, String(row.org_id), String(row.id))
+  if (found === 'not_ready') return 'not_ready'
+  if (found) return found
+  const d = deriveEnvelope(kind, row)
+  return {
+    id: '', org_id: String(row.org_id), doc_kind: kind, doc_id: String(row.id), provider: 'native', provider_ref: null,
+    status: d.status, signers: d.signers, documents: d.documents, fields: [], sent_at: d.sent_at, first_viewed_at: null,
+    completed_at: d.completed_at, declined_at: null, decline_reason: null, voided_at: null, voided_by: null, void_reason: null,
+    reminder_count: 0, last_reminder_at: null, consent_version: d.consent_version, pdf_sha256: null, pdf_hashed_at: null,
+    certificate_path: null, certificate_sha256: null, filed_at: null, copies_sent_at: null,
+    created_at: String(row.created_at ?? ''), updated_at: String(row.updated_at ?? row.created_at ?? ''),
+  } as EnvelopeRow
+}
+
 /** The envelope for this document row, made from the row when it has none yet. 'not_ready' = migration 202611200010 not applied. */
 export async function ensureEnvelope(admin: SupabaseClient, kind: SigningKind, row: DocRow): Promise<EnvelopeRow | 'not_ready'> {
   const orgId = String(row.org_id)

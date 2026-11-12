@@ -103,6 +103,16 @@ async function signingLinkFor(admin: SupabaseClient, kind: SigningKind, row: Doc
   return `${base}${kind === 'contract' ? '/contracts/sign/' : '/change-orders/sign/'}${token}`
 }
 
+/** "Questions? Call … or email …" with only what the company has on file; nothing at all when it has neither. */
+function contactLine(brand: { phone?: string | null; email?: string | null }): string | undefined {
+  const phone = String(brand.phone ?? '').trim()
+  const email = String(brand.email ?? '').trim()
+  if (phone && email) return `Questions? Call ${phone} or email ${email}.`
+  if (phone) return `Questions? Call ${phone}.`
+  if (email) return `Questions? Email ${email}.`
+  return undefined
+}
+
 export type InvitationVariant = 'resend' | 'reminder'
 
 async function sendInvitation(admin: SupabaseClient, a: { kind: SigningKind; row: DocRow; env: EnvelopeRow; variant: InvitationVariant }): Promise<'sent' | 'no_email' | 'no_link' | 'send_failed'> {
@@ -126,7 +136,7 @@ async function sendInvitation(admin: SupabaseClient, a: { kind: SigningKind; row
     ].filter(Boolean),
     rows: [{ label: 'Project', value: String(a.row.project_address ?? '') }],
     button: { label: 'Review & sign', href: url },
-    footnote: `Questions? Call ${brand.phone} or email ${brand.email}.`,
+    footnote: contactLine(brand),
     unsubscribeUrl: null,
   })
   const ok = await sendSigningEmail({
@@ -203,7 +213,27 @@ export async function voidEnvelope(
   await patchEnvelope(admin, o.env, { status: 'voided', voided_at: at, void_reason: reason, voided_by: a.actor.userId }, { status: ['sent', 'viewed'] })
   await recordSigningEvent(admin, { org_id: a.orgId, envelope_id: o.env.id, doc_kind: a.kind, doc_id: a.docId, event: 'voided', actor_type: 'staff', actor_user_id: a.actor.userId, actor_name: a.actor.name ?? null, meta: { reason } })
   await note(admin, a.kind, o.row, `${documentTitle(a.kind, o.row)} voided${a.actor.name ? ` by ${a.actor.name}` : ''}: ${reason}`)
+  await releaseSelection(admin, a.kind, o.row, 'was voided')
   return { ok: true }
+}
+
+/**
+ * A change order that came from a customer's selection ends (voided by the office, or declined): its link is dead for good
+ * (tokens cleared, so no page ever offers it) and the selection is released from it, so the selection reads "needs attention"
+ * and staff can reissue a fresh change order or cancel the pick (lib/project-tools/selections-db.ts). Best effort, own company only.
+ */
+async function releaseSelection(admin: SupabaseClient, kind: SigningKind, row: DocRow, why: string): Promise<void> {
+  if (kind !== 'change-order') return
+  try {
+    const { data } = await admin.from('job_selections').select('id').eq('org_id', row.org_id).eq('change_order_id', row.id).eq('status', 'chosen')
+    if (!data || data.length === 0) return
+    await admin.from('job_change_orders').update({ signing_token: null, signing_token_hash: null, signing_token_enc: null }).eq('id', row.id).eq('org_id', row.org_id).eq('status', 'voided')
+    await admin.from('job_selections').update({ change_order_id: null, updated_at: new Date().toISOString() }).eq('org_id', row.org_id).eq('change_order_id', row.id).eq('status', 'chosen')
+    await note(admin, kind, row, `Selection needs attention: its change order ${why}. Reissue it or cancel the pick.`)
+  } catch (e) {
+    // A deployment without the selections tables (or a read that failed) must never undo the void/decline.
+    console.error('[signing] selection release failed', e)
+  }
 }
 
 /** The in-app deal note (the job feed). Best effort: a note that fails never undoes what it describes. */
@@ -249,6 +279,7 @@ export async function declineEnvelope(
   await recordSigningEvent(admin, { org_id: a.row.org_id, envelope_id: o.env.id, doc_kind: a.kind, doc_id: a.row.id, event: 'declined', signer_key: 'customer', actor_type: 'signer', actor_name: name, actor_email: o.row.customer_email ?? null, ip: a.ip, user_agent: a.userAgent, meta: { reason } })
   const title = documentTitle(a.kind, o.row)
   await note(admin, a.kind, o.row, `${name || 'The customer'} declined to sign ${title}: ${reason}`)
+  await releaseSelection(admin, a.kind, o.row, 'was declined by the customer')
   if (settings.emails.declineNotice) await notifyDecline(admin, { row: o.row, title, name, reason })
   return { ok: true }
 }
