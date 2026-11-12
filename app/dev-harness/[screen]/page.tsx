@@ -112,6 +112,7 @@ import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import QuickBooksCard from '@/components/admin/QuickBooksCard'
 import QuickBooksMappingCard from '@/components/admin/QuickBooksMappingCard'
 import QuickBooksBackfillCard from '@/components/admin/QuickBooksBackfillCard'
+import QuickBooksSetup from '@/components/admin/QuickBooksSetup'
 import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import QuoteClient from '@/components/quotes/QuoteClient'
@@ -631,6 +632,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><QuickBooksMappingCard /></div>
     case 'quickbooks-backfill':
       return <div className="mx-auto max-w-2xl p-4"><QuickBooksBackfillCard /></div>
+    case 'quickbooks-setup':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksSetup /></div>
     case 'quickbooks-activity':
       return <div className="mx-auto max-w-2xl p-4"><QuickBooksActivityCard /></div>
     case 'online-payments-settings':

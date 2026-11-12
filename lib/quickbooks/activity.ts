@@ -23,6 +23,10 @@ export type ActivityItem = {
   qbType: string | null
   qbId: string | null
   qbUrl: string | null
+  /** Who closed it with Skip, when, and why (kept visible in the log). */
+  skippedBy: string | null
+  skippedAt: string | null
+  skipReason: string | null
   /** Retry / Skip are offered only here. */
   canAct: boolean
 }
@@ -90,6 +94,12 @@ export async function loadActivity(
   for (const r of rows) counts[stateOf(r)]++
   const shown = rows.filter((r) => !opts.filter || opts.filter === 'all' || stateOf(r) === opts.filter).slice(0, opts.limit ?? 100)
   const names = await labels(admin, orgId, shown)
+  const whoIds = Array.from(new Set(shown.map((r) => r.skipped_by).filter((x): x is string => !!x)))
+  const who = new Map<string, string>()
+  if (whoIds.length) {
+    const { data: us } = await orgDb(admin, orgId).from('users').select('id, full_name').in('id', whoIds)
+    for (const u of (us ?? []) as Array<{ id: string; full_name: string | null }>) who.set(u.id, u.full_name || 'An owner')
+  }
   const items = shown.map<ActivityItem>((r) => {
     const state = stateOf(r)
     return {
@@ -97,13 +107,16 @@ export async function loadActivity(
       state,
       title: `${VERB[r.event_type] ?? r.event_type} ${names.get(`${r.entity_table}:${r.entity_id}`) ?? ''}`.trim(),
       when: r.sent_at ?? r.processed_at ?? r.updated_at,
-      message: state === 'skipped' || state === 'needs_you' || state === 'waiting' ? r.last_error : null,
+      message: state === 'needs_you' || state === 'waiting' || (state === 'skipped' && !r.skipped_by) ? r.last_error : null,
       code: r.error_code,
       attempts: r.attempt_count,
       nextAttemptAt: r.next_attempt_at,
       qbType: r.qb_type,
       qbId: r.qb_id,
       qbUrl: qbRecordUrl(opts.environment, r.qb_type, r.qb_id),
+      skippedBy: r.skipped_by ? who.get(r.skipped_by) ?? 'An owner' : null,
+      skippedAt: r.skipped_at ?? null,
+      skipReason: r.skip_reason ?? null,
       canAct: state === 'needs_you',
     }
   })

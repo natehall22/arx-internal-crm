@@ -28,7 +28,10 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { action?: string; id?: unknown; reason?: unknown }
   if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id)) return NextResponse.json({ error: 'Unknown line' }, { status: 400 })
   if (body.action !== 'retry' && body.action !== 'skip') return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
-  const ok = body.action === 'retry' ? await retryRow(a.admin, a.profile.org_id, body.id) : await skipRow(a.admin, a.profile.org_id, body.id, { by: a.profile.id, reason: typeof body.reason === 'string' ? body.reason : null })
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+  // A skip closes a line for good: it needs a reason, which stays in the log with who and when.
+  if (body.action === 'skip' && reason.length < 3) return NextResponse.json({ error: 'Say why you are skipping it (a few words).' }, { status: 400 })
+  const ok = body.action === 'retry' ? await retryRow(a.admin, a.profile.org_id, body.id) : await skipRow(a.admin, a.profile.org_id, body.id, { by: a.profile.id, reason })
   if (!ok) return NextResponse.json({ error: 'That line is not waiting for you any more.' }, { status: 409 })
   return NextResponse.json({ ok: true })
 }

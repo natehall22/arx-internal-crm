@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { loadOrgFeatures } from '@/lib/org-features'
 import { requireOnlinePaymentsCaller } from '@/lib/online-payments/access'
-import { applyBackfill, planBackfill, type Decisions } from '@/lib/quickbooks/backfill'
+import { applyBackfill, planBackfill, skipBackfill, type Decisions } from '@/lib/quickbooks/backfill'
 import { readQbSettings } from '@/lib/quickbooks/mapping'
 import { loadOrgForMapping } from '@/lib/quickbooks/mapping-screen'
 import { openQbClient } from '@/lib/quickbooks/session'
@@ -33,6 +33,10 @@ export async function POST(request: Request) {
   const decisions: Decisions = {}
   for (const [k, v] of Object.entries(body.decisions ?? {})) if (typeof v === 'string' && v.length <= 64 && k.length <= 120) decisions[k] = v
   try {
+    if (body.action === 'skip') {
+      await skipBackfill(c.a.admin, c.orgId, c.a.profile.id)
+      return NextResponse.json({ ok: true })
+    }
     if (body.action === 'apply') {
       const r = await applyBackfill(c.a.admin, c.orgId, c.client, settings, decisions, c.a.profile.id)
       return NextResponse.json(r)

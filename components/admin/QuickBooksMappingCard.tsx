@@ -27,7 +27,7 @@ function Select({ value, onChange, options, none }: { value: string | null; onCh
  * Settings → QuickBooks → "What goes where" (owners). Plain-words mapping: every choice is one of the company's OWN QuickBooks
  * lists, pre-picked where there is an obvious answer. Nothing is sent until "Start sending". /api/admin/quickbooks/mapping.
  */
-export default function QuickBooksMappingCard({ initial = null }: { initial?: MappingScreen | null }) {
+export default function QuickBooksMappingCard({ initial = null, title = 'What goes where in QuickBooks', onSaved }: { initial?: MappingScreen | null; title?: string; onSaved?: () => void }) {
   const [screen, setScreen] = useState<MappingScreen | null>(initial)
   const [draft, setDraft] = useState<QbSettings | null>(initial ? initial.settings : null)
   const [error, setError] = useState<string | null>(null)
@@ -60,21 +60,22 @@ export default function QuickBooksMappingCard({ initial = null }: { initial?: Ma
     if (!initial) void load()
   }, [initial, load])
 
-  async function save(confirm: boolean) {
+  async function save() {
     if (!draft) return
     setBusy(true)
-    const res = await fetch('/api/admin/quickbooks/mapping', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...draft, confirm }) }).catch(() => null)
+    const res = await fetch('/api/admin/quickbooks/mapping', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...draft, confirm: false }) }).catch(() => null)
     const data = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : null
     setBusy(false)
     if (!res || !res.ok) {
       toast.error(data?.error ?? 'Could not save. Please try again.')
       return
     }
-    toast.success(confirm ? 'Saved. QuickBooks sending is on from your start date.' : 'Saved')
+    toast.success(live ? 'Saved. Sending is paused until you press Start sending in step 4.' : 'Saved')
     await load()
+    onSaved?.()
   }
 
-  if (error) return <Card id="quickbooks-mapping"><CardHeader><CardTitle>What goes where in QuickBooks</CardTitle></CardHeader><CardContent><p role="status" className="text-ui-base font-semibold text-ink">{error}</p></CardContent></Card>
+  if (error) return <Card id="quickbooks-mapping"><CardHeader><CardTitle>{title}</CardTitle></CardHeader><CardContent><p role="status" className="text-ui-base font-semibold text-ink">{error}</p></CardContent></Card>
   if (!screen || !draft) return <Card id="quickbooks-mapping"><CardContent><p className="text-ui-sm text-ink">Loading your QuickBooks lists…</p></CardContent></Card>
 
   const { lists } = screen
@@ -85,11 +86,11 @@ export default function QuickBooksMappingCard({ initial = null }: { initial?: Ma
   return (
     <Card id="quickbooks-mapping" className="scroll-mt-4">
       <CardHeader>
-        <CardTitle>What goes where in QuickBooks</CardTitle>
+        <CardTitle>{title}</CardTitle>
         {live ? <Badge tone="success">Sending</Badge> : <Badge tone="warning">Not sending yet</Badge>}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="text-ui-base text-ink">Pick where each kind of money lands. These are your own QuickBooks lists. Nothing is sent until you tap Start sending, and nothing dated before your start date is ever sent.</p>
+        <p className="text-ui-base text-ink">Pick where each kind of money lands. These are your own QuickBooks lists. Nothing is sent until you tap Start sending in step 4, and nothing dated before your start date is ever sent.</p>
 
         {screen.problems.length ? (
           <ul className="list-disc rounded-ui border border-surface-line bg-surface-subtle p-3 pl-6 text-ui-base font-semibold text-ink">
@@ -228,8 +229,7 @@ export default function QuickBooksMappingCard({ initial = null }: { initial?: Ma
         ) : null}
 
         <div className="sticky bottom-0 flex flex-wrap gap-2 bg-white py-2">
-          <Button variant="secondary" className="min-h-tap" loading={busy} onClick={() => void save(false)}>Save</Button>
-          <Button className="min-h-tap" loading={busy} onClick={() => void save(true)}>{live ? 'Save and keep sending' : 'Start sending'}</Button>
+          <Button className="min-h-tap" loading={busy} onClick={() => void save()}>Save my choices</Button>
         </div>
       </CardContent>
     </Card>

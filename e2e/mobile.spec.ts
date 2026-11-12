@@ -541,6 +541,14 @@ const SCREENS: Screen[] = [
       counts: { alreadyLinked: 4, certain: 1, ambiguous: 1, none: 0 }, qb: { customers: 40, jobs: 12, invoices: 30 }, willSend: { invoices: 3, payments: 2, bills: 1 }, truncated: false,
     })))
   }, states: [{ name: 'looked', run: async (p) => { await p.getByRole('button', { name: 'Look at QuickBooks' }).click(); await p.waitForSelector('text=Need your say') } }] },
+  { name: 'quickbooks-setup', path: '/dev-harness/quickbooks-setup', ready: 'text=4. Start sending', mock: async (p) => {
+    await p.route('**/api/admin/quickbooks', (route) => route.fulfill(json({ featureOn: true, configured: true, status: 'connected', companyName: 'Sample Roofing LLC', environment: 'production', reason: null, expiresSoon: false })))
+    await p.route('**/api/admin/quickbooks/mapping', (route) => route.fulfill(json({
+      settings: { startDate: '2026-11-01', invoiceMode: 'per_job', income: { defaultItemId: '5', byTrade: {} }, tax: { mode: 'none', taxCodeId: null, rateMap: {} }, depositToAccountId: '35', receivablesAccountId: null, bills: { enabled: false, expenseAccountId: null, classId: null }, vendors1099: [], confirmedAt: null, confirmedBy: null },
+      suggested: {}, lists: { country: 'US', items: [{ id: '5', name: 'Roofing Sales', type: 'Service' }], incomeAccounts: [], depositAccounts: [{ id: '35', name: 'Undeposited Funds', subType: null }], receivableAccounts: [], expenseAccounts: [], taxCodes: [], classes: [], customTxnNumbers: null, unreadable: [] },
+      problems: [], crmRates: [], vendors: [], tradeSlugs: [], preview: null, today: '2026-11-12', backfillDone: false, connected: true,
+    })))
+  } },
   { name: 'quickbooks-activity', path: '/dev-harness/quickbooks-activity', ready: 'text=QuickBooks activity', mock: async (p) => {
     await p.route('**/api/admin/quickbooks/activity**', (route) => route.fulfill(json({
       counts: { sent: 1, waiting: 0, needs_you: 1, skipped: 0, working: 0 },

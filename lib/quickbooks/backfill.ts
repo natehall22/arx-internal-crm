@@ -254,3 +254,9 @@ export async function applyBackfill(
 }
 
 export { qbQuote }
+
+/** The owner chose not to match anything (after a warning): the first "Start sending" may go ahead. Recorded with who and when. */
+export async function skipBackfill(admin: SupabaseClient, orgId: string, userId: string): Promise<void> {
+  const { error } = await mergeOrgSettings(admin, orgId, { backfill: { doneAt: new Date().toISOString(), doneBy: userId, skipped: true } }, { path: [QUICKBOOKS_SETTINGS_KEY] })
+  if (error) throw new Error('could not record the choice')
+}

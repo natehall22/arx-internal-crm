@@ -38,10 +38,13 @@ export type OutboxRow = {
   created_at: string
   updated_at: string
   processed_at: string | null
+  skipped_by?: string | null
+  skipped_at?: string | null
+  skip_reason?: string | null
 }
 
 export const OUTBOX_COLS =
-  'id, org_id, event_type, entity_table, entity_id, idempotency_key, status, attempt_count, last_error, error_code, error_kind, qb_type, qb_id, sent_at, next_attempt_at, locked_until, created_at, updated_at, processed_at'
+  'id, org_id, event_type, entity_table, entity_id, idempotency_key, status, attempt_count, last_error, error_code, error_kind, qb_type, qb_id, sent_at, next_attempt_at, locked_until, created_at, updated_at, processed_at, skipped_by, skipped_at, skip_reason'
 
 const iso = (ms: number) => new Date(ms).toISOString()
 

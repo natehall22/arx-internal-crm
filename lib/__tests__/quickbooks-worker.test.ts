@@ -10,6 +10,7 @@ import { runQuickBooksForOrg, type WorkerOrg } from '@/lib/quickbooks/worker'
 import { claimDue, markDone, MAX_ATTEMPTS, retryRow, skipRow } from '@/lib/quickbooks/outbox'
 import { classifyFailure } from '@/lib/quickbooks/faults'
 import { sweepUnheard } from '@/lib/quickbooks/sweep'
+import { loadActivity } from '@/lib/quickbooks/activity'
 import { readQbSettings } from '@/lib/quickbooks/mapping'
 
 const A = 'org-a'
@@ -714,5 +715,19 @@ describe('review fixes: enqueue rules, Skip, claim, 1099, customer marker, sweep
     for (let i = 0; i < 319; i++) (w.fake.tables.qb_links as any[]).push({ id: `l${i}`, org_id: A, crm_table: 'production_jobs', crm_id: jobs[i].id, qb_type: 'Invoice', qb_id: `q${i}` })
     const r = await sweepUnheard(w.fake.client as never, A, readQbSettings(w.org(A).settings), { dryRun: true })
     expect(r.invoices).toBe(1)
+  })
+})
+
+describe('Skip stays visible in the activity log', () => {
+  it('a skipped line shows who skipped it, when and why (and keeps its place in the log)', async () => {
+    const w = makeWorld([{ id: A }], { users: [{ id: 'u-owner', org_id: A, full_name: 'Nathan Hall' }] })
+    await w.enqueue(A, 'invoice.upserted', 'production_jobs', 'nope', 5)
+    await w.run(A)
+    const row = w.outbox()[0]
+    await skipRow(w.fake.client as never, A, row.id, { by: 'u-owner', reason: 'Already in QuickBooks' }, w.now())
+    const { items, counts } = await loadActivity(w.fake.client as never, A, { environment: null, filter: 'skipped' })
+    expect(counts.skipped).toBe(1)
+    expect(items[0]).toMatchObject({ state: 'skipped', skippedBy: 'Nathan Hall', skipReason: 'Already in QuickBooks', canAct: false })
+    expect(items[0].skippedAt).toBeTruthy()
   })
 })

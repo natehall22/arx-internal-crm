@@ -3,6 +3,7 @@
 import { useState } from 'react'
 
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, toast } from '@/components/ui'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 import type { BackfillPlan, MatchItem } from '@/lib/quickbooks/backfill'
 
 type Phase = 'start' | 'review' | 'linked'
@@ -13,12 +14,11 @@ const KIND: Record<MatchItem['kind'], string> = { customer: 'Customer', job: 'Jo
  * Settings → QuickBooks → "Match what is already in QuickBooks" (owners). 1) look (nothing changes), 2) settle the unclear ones with
  * one tap each, 3) link, 4) a separate, confirmed "Start sending" from the start date. /api/admin/quickbooks/backfill.
  */
-export default function QuickBooksBackfillCard() {
+export default function QuickBooksBackfillCard({ title = 'Match what is already in QuickBooks', done = false, onDone }: { title?: string; done?: boolean; onDone?: () => void }) {
   const [phase, setPhase] = useState<Phase>('start')
   const [plan, setPlan] = useState<BackfillPlan | null>(null)
   const [decisions, setDecisions] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
-  const [startDate, setStartDate] = useState<string | null>(null)
   const [result, setResult] = useState<{ linked: number; skipped: number; left: number } | null>(null)
 
   async function call(body: Record<string, unknown>) {
@@ -52,27 +52,27 @@ export default function QuickBooksBackfillCard() {
     const data = await call({ action: 'apply', decisions })
     if (data) {
       setResult(data as unknown as { linked: number; skipped: number; left: number })
-      const m = await fetch('/api/admin/quickbooks/mapping', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-      setStartDate((m as { settings?: { startDate?: string | null } } | null)?.settings?.startDate ?? null)
       setPhase('linked')
+      onDone?.()
     }
     setBusy(null)
   }
 
-  async function startSending() {
-    setBusy('send')
-    const m = await fetch('/api/admin/quickbooks/mapping', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-    const settings = (m as { settings?: Record<string, unknown> } | null)?.settings
-    if (!settings) {
-      setBusy(null)
-      toast.error('Could not read your QuickBooks choices. Try again.')
-      return
-    }
-    const res = await fetch('/api/admin/quickbooks/mapping', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...settings, confirm: true }) }).catch(() => null)
-    const body = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : null
+  async function skipStep() {
+    const ok = await confirmDialog({
+      title: 'Skip matching?',
+      description: 'If QuickBooks already has these customers or invoices, sending without matching can create duplicates that your bookkeeper must clean up. Only skip if QuickBooks is new or empty.',
+      confirmLabel: 'Skip matching',
+      destructive: true,
+    })
+    if (!ok) return
+    setBusy('skip')
+    const data = await call({ action: 'skip' })
     setBusy(null)
-    if (!res || !res.ok) toast.error(body?.error ?? 'Could not start sending.')
-    else toast.success(`Sending to QuickBooks from ${startDate ?? 'your start date'}.`)
+    if (data) {
+      toast.success('Matching skipped.')
+      onDone?.()
+    }
   }
 
   const ambiguous = plan?.items.filter((i) => i.state === 'ambiguous') ?? []
@@ -82,7 +82,7 @@ export default function QuickBooksBackfillCard() {
   return (
     <Card id="quickbooks-backfill" className="scroll-mt-4">
       <CardHeader>
-        <CardTitle>Match what is already in QuickBooks</CardTitle>
+        <CardTitle>{title}</CardTitle>
         {ambiguous.length ? <Badge tone="warning">{ambiguous.length} to settle</Badge> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -127,14 +127,15 @@ export default function QuickBooksBackfillCard() {
         {phase === 'linked' && result ? (
           <>
             <p role="status" className="rounded-ui border border-surface-line bg-surface-subtle p-3 text-ui-base font-semibold text-ink">
-              Matched {result.linked}{result.skipped ? `, ${result.skipped} already taken` : ''}{result.left ? `, ${result.left} still to settle` : ''}.
+              Matched {result.linked}{result.skipped ? `, ${result.skipped} already taken` : ''}{result.left ? `, ${result.left} still to settle` : ''}. Step 3 is done. Next is step 4.
             </p>
-            <p className="text-ui-base text-ink">Next, anything not in QuickBooks yet is created when it is first sent{startDate ? `, from ${startDate} on` : ''}. Nothing dated earlier is ever created.</p>
-            <div className="sticky bottom-0 flex flex-wrap gap-2 bg-white py-2">
-              <Button className="min-h-tap" loading={busy === 'send'} onClick={() => void startSending()}>{startDate ? `Start sending from ${startDate}` : 'Start sending'}</Button>
-              <Button variant="secondary" className="min-h-tap" onClick={() => void look()}>Look again</Button>
-            </div>
+            <Button variant="secondary" className="min-h-tap" onClick={() => void look()}>Look again</Button>
           </>
+        ) : null}
+
+        {phase === 'start' && done ? <p role="status" className="rounded-ui border border-surface-line bg-surface-subtle p-3 text-ui-base font-semibold text-ink">Step 3 is done. You can look again any time.</p> : null}
+        {phase !== 'linked' && !done ? (
+          <Button variant="secondary" className="min-h-tap" loading={busy === 'skip'} onClick={() => void skipStep()}>My QuickBooks is new or empty. Skip this step.</Button>
         ) : null}
       </CardContent>
     </Card>

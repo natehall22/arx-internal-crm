@@ -22,6 +22,9 @@ export type MappingScreen = {
   /** What "Start sending" would send from the start date (counts only). */
   preview: { invoices: number; payments: number; bills: number } | null
   today: string
+  /** Step 3 is done (matched, or skipped after a warning). */
+  backfillDone: boolean
+  connected: boolean
 }
 
 export async function loadOrgForMapping(admin: SupabaseClient, orgId: string): Promise<{ settings: Record<string, unknown>; timezone: string } | null> {
@@ -51,6 +54,8 @@ export async function loadMappingScreen(admin: SupabaseClient, orgId: string, cl
     tradeSlugs: ((trades ?? []) as Array<{ slug: string; label: string }>).map((t) => ({ slug: t.slug, label: t.label })),
     preview: settings.startDate ? await sweepUnheard(admin, orgId, settings, { dryRun: true }).catch(() => null) : null,
     today,
+    backfillDone: backfillDone(org.settings),
+    connected: true,
   }
 }
 
