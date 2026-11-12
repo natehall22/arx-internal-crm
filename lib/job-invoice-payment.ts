@@ -38,6 +38,7 @@ export async function recordJobInvoicePayment(
   if (before.balance_cents <= 0) return { ok: false, status: 409, error: 'This invoice is already paid' }
   if (p.amountCents > before.balance_cents) return { ok: false, status: 400, error: 'That is more than the invoice balance' }
 
+  // org-scope-ok: the invoice was verified in this company by findOrgInvoice in the caller (app/api/invoices/[invoiceId]); this reads its own row
   const { data: kindRow } = await admin.from('job_invoices').select('invoice_kind').eq('id', invoice.id).maybeSingle()
   const paymentType = (kindRow as { invoice_kind?: string } | null)?.invoice_kind === 'deposit' ? 'deposit' : 'final'
 
