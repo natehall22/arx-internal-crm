@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 
+import { normalizeEmail } from '@/lib/customer-message-channels'
+import { suppressionOf } from '@/lib/customer-message-suppressions'
 import { firstForeignRef } from '@/lib/supabase/org-db'
 import { canSendDocuments } from '@/lib/signing/access'
 import { createRequest, inviteSigners } from '@/lib/signing/requests/db'
@@ -22,11 +24,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if ('error' in g) return g.error
   if (!(await canSendDocuments(g.admin, { id: g.userId, role: g.profile.role, custom_role_id: g.profile.custom_role_id }))) return json({ error: 'Forbidden' }, 403)
   const orgId = g.profile.org_id as string
-  if (!(await loadSigningSettings(g.admin, orgId)).customDocuments) return json({ error: 'Sending your own documents is turned off for your company.' }, 403)
+  const settings = await loadSigningSettings(g.admin, orgId)
+  if (!settings.customDocuments) return json({ error: 'Sending your own documents is turned off for your company.' }, 403)
   const body = await request.json().catch(() => ({}))
   const recipients = Array.isArray(body?.recipients) ? body.recipients : []
   if (recipients.length === 0) return json({ error: 'Add at least one person' }, 400)
   if (recipients.length > LIMITS.maxBulk) return json({ error: `Send to at most ${LIMITS.maxBulk} people at a time` }, 400)
+  // Daily cap per company (rolling 24 hours of bulk-sent requests), set by the owner.
+  const since = new Date(Date.now() - 86_400_000).toISOString()
+  const { count: sentToday } = await g.admin.from('signature_requests').select('id', { count: 'exact', head: true }).eq('org_id', orgId).not('batch_id', 'is', null).gte('created_at', since)
+  if ((sentToday ?? 0) + recipients.length > settings.bulkDailyCap) return json({ error: `Your company can bulk send ${settings.bulkDailyCap} a day; ${sentToday ?? 0} already went out in the last 24 hours.` }, 429)
   const { data: t } = await g.admin.from('signature_templates').select('*').eq('org_id', orgId).eq('id', params.id).is('archived_at', null).maybeSingle()
   if (!t) return json({ error: 'Template not found' }, 404)
   const roles = (t.roles ?? []) as Array<{ key: string; label: string }>
@@ -41,6 +48,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const fail = (error: string) => results.push({ row: i + 1, name, email, ok: false, error })
     if (seen.has(email)) { fail('Listed twice'); continue }
     seen.add(email)
+    // Same opt-out / bounce list the automatic customer messages use: an address that asked to stop or bounced is skipped.
+    if (await suppressionOf(g.admin, orgId, 'email', normalizeEmail(email) ?? email)) { fail('Opted out or bounced: not emailed'); continue }
     if (r.customerId && (await firstForeignRef(g.admin, orgId, { customerId: ['customers', String(r.customerId)] }))) { fail('Customer not found'); continue }
     const made = await createRequest(g.admin, {
       orgId, createdBy: g.userId, title: String(body.title || t.name), sourcePath: t.source_path, sourceSha256: t.source_sha256, pageCount: t.page_count, templateId: t.id, batchId,

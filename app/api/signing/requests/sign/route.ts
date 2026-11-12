@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { getAuthContext } from '@/lib/auth'
 import { signingEvidence } from '@/lib/signing-input'
 import { submitSignature } from '@/lib/signing/requests/sign'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -14,7 +15,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}))
     const { ip, userAgent } = signingEvidence(request.headers)
-    const result = await submitSignature(createServiceClient(), { token: body?.token, consent: body?.consent, signature: body?.signature, initials: body?.initials, printName: body?.printName, values: body?.values, ip, userAgent })
+    const auth = await getAuthContext().catch(() => null)
+    const result = await submitSignature(createServiceClient(), { actingUserId: auth?.authUser?.id ?? null, token: body?.token, consent: body?.consent, signature: body?.signature, initials: body?.initials, printName: body?.printName, values: body?.values, ip, userAgent })
     if (result.ok) return NextResponse.json(result)
     return NextResponse.json({ error: result.error, code: result.code, missing: result.missing }, { status: result.status })
   } catch (error) {

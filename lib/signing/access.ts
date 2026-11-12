@@ -30,3 +30,8 @@ export async function canSendDocuments(admin: SupabaseClient, user: { id: string
 export async function canManageTemplates(admin: SupabaseClient, user: { id: string; role: string; custom_role_id?: string | null }): Promise<boolean> {
   return effectiveHasPermission(await resolveEffectivePermissionNames(admin, user.id, user), 'teams:manage')
 }
+
+/** Reading the company's sent documents (list, detail, files): `contracts:view`. A sender also sees their own (see `canReadRequest`). */
+export async function canViewDocuments(admin: SupabaseClient, user: { id: string; role: string; custom_role_id?: string | null }): Promise<boolean> {
+  return effectiveHasPermission(await resolveEffectivePermissionNames(admin, user.id, user), 'contracts:view')
+}

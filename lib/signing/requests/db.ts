@@ -29,7 +29,7 @@ export type RequestRow = {
 }
 export type SignerRow = {
   id: string; org_id: string; request_id: string; role_key: string; role_label: string; name: string; email: string | null; phone: string | null
-  order_index: number; is_company: boolean; status: 'pending' | 'viewed' | 'signed' | 'declined'; token_hash: string; token_enc: string | null
+  order_index: number; is_company: boolean; company_user_id: string | null; status: 'pending' | 'viewed' | 'signed' | 'declined'; token_hash: string; token_enc: string | null
   notified_at: string | null; reminder_count: number; viewed_at: string | null; signed_at: string | null; declined_at: string | null; decline_reason: string | null
   ip: string | null; user_agent: string | null; consent_version: string | null; consent_at: string | null; signature_data: string | null; initials_data: string | null
 }
@@ -88,6 +88,16 @@ export async function createRequest(admin: SupabaseClient, a: NewRequest): Promi
     emails.add(email)
   }
 
+  // The company's own signer must be an active staff user of THIS company (they sign signed in, never from an anonymous link).
+  const staff = new Map<string, string>()
+  for (const r of roles) {
+    if (!r.company) continue
+    const email = cleanText((byRole.get(r.key) as NewSigner).email, 200).toLowerCase()
+    const { data: u } = await admin.from('users').select('id, active').eq('org_id', a.orgId).ilike('email', email).maybeSingle()
+    if (!u || (u as { active?: boolean }).active === false) return { ok: false, error: `${r.label} must be a user of your company (use their login email)`, status: 400 }
+    staff.set(r.key, (u as { id: string }).id)
+  }
+
   const expiresAt = new Date(Date.now() + days * 86400000).toISOString()
   const { data: reqRow, error: reqErr } = await admin
     .from('signature_requests')
@@ -105,7 +115,7 @@ export async function createRequest(admin: SupabaseClient, a: NewRequest): Promi
   const signerRows = roles.map((r: RoleDef) => {
     const s = byRole.get(r.key) as NewSigner
     const token = newToken()
-    return { token, row: { org_id: a.orgId, request_id: request.id, role_key: r.key, role_label: r.label, name: cleanText(s.name, 120), email: cleanText(s.email, 200).toLowerCase(), phone: cleanText(s.phone, 40) || null, order_index: r.order, is_company: r.company === true, status: 'pending', token_hash: hashSigningToken(token), token_enc: sealSigningToken(token) } }
+    return { token, row: { org_id: a.orgId, request_id: request.id, role_key: r.key, role_label: r.label, name: cleanText(s.name, 120), email: cleanText(s.email, 200).toLowerCase(), phone: cleanText(s.phone, 40) || null, order_index: r.order, is_company: r.company === true, company_user_id: staff.get(r.key) ?? null, status: 'pending', token_hash: hashSigningToken(token), token_enc: sealSigningToken(token) } }
   })
   const { data: signerData, error: signerErr } = await admin.from('signature_request_signers').insert(signerRows.map((s) => s.row)).select('*')
   if (signerErr || !signerData) { await undo(); return { ok: false, error: 'Could not add the signers', status: 500 } }

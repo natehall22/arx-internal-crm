@@ -12,6 +12,19 @@ type Row = { key: string; label: string; name: string; email: string; company?: 
 type TemplateLite = { id: string; name: string; page_count: number; roles: RoleDef[] }
 type Prefill = { templateId?: string; customerId?: string; opportunityId?: string; jobId?: string; name?: string; email?: string }
 
+/** Straight from the browser to storage through a one-time signed URL (no PDF in a function body; our cap is LIMITS.maxPdfBytes). */
+async function uploadPdf(file: File): Promise<string> {
+  const slot = await fetch('/api/signing/uploads', { method: 'POST' })
+  const s = await slot.json().catch(() => ({}))
+  if (!slot.ok) throw new Error(s.error || 'Could not start the upload')
+  const body = new FormData()
+  body.append('cacheControl', '3600')
+  body.append('', file)
+  const put = await fetch(s.signedUrl, { method: 'PUT', body, headers: { 'x-upsert': 'false' } })
+  if (!put.ok) throw new Error('The upload failed. Check your connection and try again.')
+  return s.path as string
+}
+
 const input = 'w-full min-h-[48px] rounded-lg border-2 border-gray-400 bg-white px-3 text-base text-black'
 const btn = 'min-h-[48px] rounded-lg border-2 border-gray-500 bg-white px-4 text-base font-semibold text-[#2c2c2a]'
 const primary = 'min-h-[52px] w-full rounded-lg bg-gray-900 px-4 text-lg font-semibold text-white disabled:opacity-50'
@@ -77,11 +90,10 @@ export default function SendDocumentFlow({ mode = 'send', prefill = {}, me }: { 
     setBusy(true)
     setError(null)
     try {
-      const form = new FormData()
+      const post = (url: string, body: unknown) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (mode === 'template') {
-        form.set('payload', JSON.stringify({ name: title.trim(), roles, fields }))
-        if (file) form.set('file', file)
-        const res = await fetch('/api/signing/templates', { method: 'POST', body: form })
+        const uploadPath = file ? await uploadPdf(file) : undefined
+        const res = await post('/api/signing/templates', { name: title.trim(), roles, fields, uploadPath })
         const d = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(d.error || 'Could not save the template')
         toast.success('Template saved')
@@ -89,9 +101,8 @@ export default function SendDocumentFlow({ mode = 'send', prefill = {}, me }: { 
         return
       }
       const signers = roles.map((r, i) => ({ roleKey: r.key, name: rows[i].name.trim(), email: rows[i].email.trim() }))
-      form.set('payload', JSON.stringify({ title: title.trim(), templateId: template?.id, roles, fields: template ? templateFields : fields, signers, message: message.trim() || undefined, expiresInDays: days, customerId: prefill.customerId, opportunityId: prefill.opportunityId, jobId: prefill.jobId }))
-      if (!template && file) form.set('file', file)
-      const res = await fetch('/api/signing/requests', { method: 'POST', body: form })
+      const uploadPath = !template && file ? await uploadPdf(file) : undefined
+      const res = await post('/api/signing/requests', { uploadPath, title: title.trim(), templateId: template?.id, roles, fields: template ? templateFields : fields, signers, message: message.trim() || undefined, expiresInDays: days, customerId: prefill.customerId, opportunityId: prefill.opportunityId, jobId: prefill.jobId })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.error || 'Could not send')
       toast.success(d.failed?.length ? `Created, but we could not email ${d.failed.join(', ')}. Use the list to send it again.` : 'Sent for signature')

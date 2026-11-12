@@ -51,6 +51,7 @@ export default function SigningSettingsCard() {
           declineEnabled: s.declineEnabled,
           autoFile: s.autoFile,
           customDocuments: s.customDocuments,
+          bulkDailyCap: s.bulkDailyCap,
           extendDays: s.extendDays,
           reminders: { enabled: s.reminders.enabled, days: parsedDays },
           emails: s.emails,
@@ -74,6 +75,10 @@ export default function SigningSettingsCard() {
         <Row label="Ask customers to agree to sign electronically" hint="A short notice and one tick box before they sign. Recommended before anyone outside your own team signs." checked={s.consentStep} onChange={(v) => setS({ ...s, consentStep: v })} />
         <Row label="Let customers say “I can’t sign this”" hint="They give a reason; the document is voided (kept) and your note shows why." checked={s.declineEnabled} onChange={(v) => setS({ ...s, declineEnabled: v })} />
         <Row label="Send your own documents for signature" hint="Upload any PDF, place signature fields, save templates and send to many people at once." checked={s.customDocuments} onChange={(v) => setS({ ...s, customDocuments: v })} />
+        <label className="flex flex-col gap-1 pl-9">
+          <span className="text-sm text-[#2c2c2a]">Most people you can bulk send to in 24 hours</span>
+          <input value={s.bulkDailyCap} onChange={(e) => setS({ ...s, bulkDailyCap: Math.max(1, Math.min(2000, Math.round(Number(e.target.value) || 1))) })} inputMode="numeric" className="min-h-[44px] w-48 rounded-lg border border-gray-400 px-3 text-base text-black" />
+        </label>
         <Row label="File signed copies on the customer" hint="The signed PDF and its certificate appear under the customer’s documents, protected." checked={s.autoFile} onChange={(v) => setS({ ...s, autoFile: v })} />
         <Row label="Remind customers who haven’t signed" hint="One email each on the days below, daytime only." checked={s.reminders.enabled} onChange={(v) => setS({ ...s, reminders: { ...s.reminders, enabled: v } })} />
         <label className="flex flex-col gap-1 pl-9">

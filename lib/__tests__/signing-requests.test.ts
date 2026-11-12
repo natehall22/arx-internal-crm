@@ -16,6 +16,8 @@ jest.mock('@/lib/org-brand', () => ({ getDocumentBrand: async () => ({ name: 'Ac
 let fence: { kind: 'open' } | { kind: 'org'; orgId: string; source: string } = { kind: 'open' }
 jest.mock('@/lib/company-host-server', () => ({ getRequestHostFence: async () => fence }))
 
+import { adoptUploadedPdf } from '@/lib/signing/requests/store'
+import { readSigningSettings } from '@/lib/signing/settings'
 import { createRequest, findSignerByToken, loadRequest, sendInvitations } from '@/lib/signing/requests/db'
 import { completeRequest, declineRequest, markSignerViewed, resendToSigner, submitSignature, voidRequest } from '@/lib/signing/requests/sign'
 
@@ -41,13 +43,14 @@ function seedDb(settings: Record<string, unknown> = {}) {
   stored = { 'org/org-a/src.pdf': Buffer.from(sourceBytes) }
   const storage = {
     from: () => ({
-      upload: async (p: string, b: Buffer) => { stored[p] = Buffer.from(b); return { error: null } },
+      upload: async (p: string, b: Buffer, o?: { upsert?: boolean }) => { if (o?.upsert === false && stored[p]) return { error: { message: 'The resource already exists' } }; stored[p] = Buffer.from(b); return { error: null } },
+      remove: async (ps: string[]) => { for (const x of ps) delete stored[x]; return { error: null } },
       download: async (p: string) => (stored[p] ? { data: new Blob([new Uint8Array(stored[p])]), error: null } : { data: null, error: { message: 'missing' } }),
     }),
   }
   db = createFakeDb({
     orgs: [{ id: ORG, email: 'office@acme.test', timezone: 'America/New_York', settings }],
-    users: [{ id: 'u1', org_id: ORG, email: 'rep@acme.test' }],
+    users: [{ id: 'u1', org_id: ORG, email: 'rep@acme.test', active: true }],
     signature_requests: [], signature_request_signers: [], signature_fields: [], signing_envelopes: [], signing_events: [], documents: [],
   })
   ;(db.client as any).storage = storage
@@ -181,14 +184,14 @@ describe('creating and sending', () => {
     expect((await sendInvitations(admin(), { request: r.created.request, signers: r.created.signers }, tokens)).sent).toBe(2)
     expect(sendMail.mock.calls.map((c) => JSON.stringify(c)).join('')).not.toContain('rep@acme.test')
     const co = r.created.signers.find((x) => x.role_key === 'company') as any
-    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null })).toMatchObject({ ok: false, status: 409, code: 'not_your_turn' })
+    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null, actingUserId: 'u1' })).toMatchObject({ ok: false, status: 409, code: 'not_your_turn' })
     const ow = r.created.signers.find((x) => x.role_key === 'owner') as any
     const tn = r.created.signers.find((x) => x.role_key === 'tenant') as any
     await submitSignature(admin(), { token: ow.token, signature: PNG, values: {}, ip: null, userAgent: null })
     expect(sendMail.mock.calls.map((c) => JSON.stringify(c)).join('')).not.toContain('rep@acme.test')
     await submitSignature(admin(), tenantBody(tn))
     expect(sendMail.mock.calls.map((c) => JSON.stringify(c)).join('')).toContain('rep@acme.test')
-    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null })).toMatchObject({ ok: true, state: 'completed' })
+    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null, actingUserId: 'u1' })).toMatchObject({ ok: true, state: 'completed' })
   })
   it('parallel emails everyone; serial emails the first only, then the next when they sign', async () => {
     const p = await newReq()
@@ -311,6 +314,16 @@ describe('the office and the signer\'s other choices', () => {
     const m = await readyParallel()
     expect(await declineRequest(admin(), { token: m.tenant.token, reason: 'Nope nope', ip: null, userAgent: null })).toMatchObject({ ok: false, status: 409 })
   })
+  it('a signer who already signed cannot decline or overwrite their evidence', async () => {
+    seedDb({ signing: { declineEnabled: true } })
+    const { owner } = await readyParallel()
+    await submitSignature(admin(), { token: owner.token, signature: PNG, values: {}, ip: '1.1.1.1', userAgent: 'ua1' })
+    const before = JSON.stringify(db.tables.signature_request_signers.find((x: any) => x.role_key === 'owner'))
+    expect(await declineRequest(admin(), { token: owner.token, reason: 'Changed my mind', ip: '9.9.9.9', userAgent: 'evil' })).toMatchObject({ ok: false, status: 409 })
+    expect(JSON.stringify(db.tables.signature_request_signers.find((x: any) => x.role_key === 'owner'))).toBe(before)
+    expect(db.tables.signature_requests[0].status).toBe('pending')
+    expect(db.tables.signing_events.some((e: any) => e.event === 'declined')).toBe(false)
+  })
   it('resend is throttled, remind says so, an expired request is extended', async () => {
     const r = await newReq()
     if (!r.ok) throw new Error('x')
@@ -335,5 +348,53 @@ describe('the office and the signer\'s other choices', () => {
     fence = { kind: 'org', orgId: 'org-b', source: 'subdomain' }
     expect(await findSignerByToken(admin(), tenant.token)).toBeNull()
     expect(await submitSignature(admin(), { token: tenant.token, signature: PNG, values: {}, ip: null, userAgent: null })).toMatchObject({ ok: false, status: 404 })
+  })
+})
+
+describe('direct-to-storage uploads', () => {
+  const slot = (id: string) => `org/${ORG}/signing/uploads/${id}.pdf`
+  const ID = '11111111-1111-4111-8111-111111111111'
+  it('adopts a 10 MB PDF (past the function body cap), refuses others\' folders, junk and oversize', async () => {
+    const pdf = Buffer.from(await makePdf(2))
+    stored[slot(ID)] = Buffer.concat([pdf, Buffer.alloc(10 * 1024 * 1024 - pdf.length)])
+    const ok = await adoptUploadedPdf(admin(), ORG, slot(ID))
+    expect(ok).toMatchObject({ ok: true, path: slot(ID) })
+    expect((ok as any).info.pageCount).toBe(2)
+    expect(await adoptUploadedPdf(admin(), ORG, `org/other-org/signing/uploads/${ID}.pdf`)).toMatchObject({ ok: false, status: 400 })
+    expect(await adoptUploadedPdf(admin(), ORG, `org/${ORG}/signing/uploads/../../x.pdf`)).toMatchObject({ ok: false, status: 400 })
+    expect(await adoptUploadedPdf(admin(), ORG, slot('22222222-2222-4222-8222-222222222222'))).toMatchObject({ ok: false, status: 400 })
+    const junk = '33333333-3333-4333-8333-333333333333'
+    stored[slot(junk)] = Buffer.from('not a pdf')
+    expect(await adoptUploadedPdf(admin(), ORG, slot(junk))).toMatchObject({ ok: false, status: 400 })
+    expect(stored[slot(junk)]).toBeUndefined()
+    const big = '44444444-4444-4444-8444-444444444444'
+    stored[slot(big)] = Buffer.concat([pdf, Buffer.alloc(16 * 1024 * 1024)])
+    expect(await adoptUploadedPdf(admin(), ORG, slot(big))).toMatchObject({ ok: false, status: 413 })
+    expect(stored[slot(big)]).toBeUndefined()
+  })
+})
+
+describe('company signer and sending switches', () => {
+  it('sending your own documents is OFF by default; the bulk cap defaults to 200 and is bounded', () => {
+    expect(readSigningSettings({}).customDocuments).toBe(false)
+    expect(readSigningSettings({ profile: {} }).customDocuments).toBe(false)
+    expect(readSigningSettings({}).bulkDailyCap).toBe(200)
+    expect(readSigningSettings({ signing: { bulkDailyCap: 50 } }).bulkDailyCap).toBe(50)
+    expect(readSigningSettings({ signing: { bulkDailyCap: 99999 } }).bulkDailyCap).toBe(200)
+  })
+  it('the company signer must be a staff user of the company, and signs only signed in as that user', async () => {
+    const withCo = (email: string) => newReq({ roles: [...roles, { key: 'company', label: 'Company', order: 2, company: true }], fields: [...fields, F('f6', 'company', 'signature', { y: 0.6 })], signers: [{ roleKey: 'owner', name: 'Olive Owner', email: 'olive@example.test' }, { roleKey: 'tenant', name: 'Tom Tenant', email: 'tom@example.test' }, { roleKey: 'company', name: 'Rep', email }] })
+    expect(await withCo('stranger@example.test')).toMatchObject({ ok: false, status: 400 })
+    db.tables.users.push({ id: 'u-off', org_id: ORG, email: 'gone@acme.test', active: false }, { id: 'u-other', org_id: 'org-b', email: 'elsewhere@acme.test', active: true })
+    expect(await withCo('gone@acme.test')).toMatchObject({ ok: false, status: 400 })
+    expect(await withCo('elsewhere@acme.test')).toMatchObject({ ok: false, status: 400 })
+    const r = await withCo('rep@acme.test')
+    if (!r.ok) throw new Error('x')
+    const co = r.created.signers.find((x) => x.role_key === 'company') as any
+    expect(co.company_user_id).toBe('u1')
+    for (const k of ['owner', 'tenant']) { const x = r.created.signers.find((y) => y.role_key === k) as any; await submitSignature(admin(), x.role_key === 'tenant' ? tenantBody(x) : { token: x.token, signature: PNG, values: {}, ip: null, userAgent: null }) }
+    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null })).toMatchObject({ ok: false, status: 401, code: 'login_required' })
+    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null, actingUserId: 'someone-else' })).toMatchObject({ ok: false, status: 401 })
+    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null, actingUserId: 'u1' })).toMatchObject({ ok: true, state: 'completed' })
   })
 })

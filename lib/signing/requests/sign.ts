@@ -23,7 +23,7 @@ import { canSignNow, missingFields, type FieldValue, type PlacedField } from '@/
 import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { orgTimeZone } from '@/lib/timezone'
 
-export type SubmitInput = { token: unknown; consent?: unknown; signature?: unknown; initials?: unknown; printName?: unknown; values?: unknown; ip: string | null; userAgent: string | null }
+export type SubmitInput = { token: unknown; consent?: unknown; signature?: unknown; initials?: unknown; printName?: unknown; values?: unknown; ip: string | null; userAgent: string | null; /** The signed-in staff user, if any (required for the company signer). */ actingUserId?: string | null }
 export type SubmitResult =
   | { ok: true; state: 'signed' | 'completed'; alreadySigned?: boolean }
   | { ok: false; status: number; error: string; code?: string; missing?: string[] }
@@ -68,6 +68,8 @@ export async function submitSignature(admin: SupabaseClient, input: SubmitInput)
   if (signer.status === 'signed') return { ok: true, state: request.status === 'completed' ? 'completed' : 'signed', alreadySigned: true }
   if (request.status !== 'pending') return { ok: false, status: 409, error: request.status === 'completed' ? 'This document is already complete' : 'This document is no longer open for signing' }
   if (requestExpired(request)) return { ok: false, status: 410, error: 'This signing link has expired. Ask the sender for a new one.' }
+  // The company's countersignature is made signed in, as that staff user (the emailed link alone is not enough).
+  if (signer.is_company && (!input.actingUserId || input.actingUserId !== signer.company_user_id)) return { ok: false, status: 401, error: 'Sign in with your company login to sign this.', code: 'login_required' }
   if (!canSignNow(request.signing_order, found.signers, signer.id)) return { ok: false, status: 409, error: 'This is waiting for an earlier signer. You will get an email when it is your turn.', code: 'not_your_turn' }
 
   const settings = await loadSigningSettings(admin, request.org_id)
@@ -168,8 +170,9 @@ export async function completeRequest(admin: SupabaseClient, orgId: string, requ
       if (sha256Hex(source) !== request.source_sha256) return { ok: false, reason: 'source_changed' }
       const stamped = await stampSignedPdf(source, fields.map((f) => ({ ...fieldsOf([f])[0], value: f.kind === 'checkbox' ? f.value === 'true' : f.value })), signers)
       const path = `org/${orgId}/signing/requests/${requestId}_signed.pdf`
-      const { error: upErr } = await admin.storage.from('files').upload(path, Buffer.from(stamped), { contentType: 'application/pdf', upsert: true })
-      if (upErr) return { ok: false, reason: 'error', error: `Upload failed: ${upErr.message}` }
+      const { error: upErr } = await admin.storage.from('files').upload(path, Buffer.from(stamped), { contentType: 'application/pdf', upsert: false })
+      // upsert:false: the first completer's file is THE signed copy; a second one finds it already there and reads that back (the hash is taken from what is stored).
+      if (upErr && !/exist|duplicate/i.test(upErr.message)) return { ok: false, reason: 'error', error: `Upload failed: ${upErr.message}` }
       await admin.from('signature_requests').update({ signed_path: path, updated_at: new Date().toISOString() }).eq('id', requestId).eq('org_id', orgId).is('signed_path', null)
       signedPath = path
     }
@@ -292,10 +295,17 @@ export async function declineRequest(admin: SupabaseClient, a: { token: unknown;
   if (!found) return { ok: false, status: 404, error: 'This signing link was not found' }
   const settings = await loadSigningSettings(admin, found.request.org_id)
   if (!settings.declineEnabled) return { ok: false, status: 409, error: 'This document cannot be declined here. Please contact the sender.' }
+  // A signer who already signed cannot decline: their signed evidence stays exactly as it is.
+  if (found.signer.status !== 'pending' && found.signer.status !== 'viewed') return { ok: false, status: 409, error: found.signer.status === 'signed' ? 'You have already signed this document.' : 'This document is no longer open' }
   const nowIso = new Date().toISOString()
+  // Claim the signer first (only while still pending/viewed: a signature landing a moment ago wins), then end the request.
+  const { data: mine } = await admin.from('signature_request_signers').update({ status: 'declined', declined_at: nowIso, decline_reason: reason, ip: a.ip, user_agent: a.userAgent }).eq('id', found.signer.id).eq('org_id', found.request.org_id).in('status', ['pending', 'viewed']).select('id')
+  if (!mine || mine.length === 0) return { ok: false, status: 409, error: 'You have already signed this document.' }
   const { data } = await admin.from('signature_requests').update({ status: 'declined', updated_at: nowIso }).eq('id', found.request.id).eq('org_id', found.request.org_id).eq('status', 'pending').gt('expires_at', nowIso).select('id')
-  if (!data || data.length === 0) return { ok: false, status: 409, error: 'This document is no longer open' }
-  await admin.from('signature_request_signers').update({ status: 'declined', declined_at: nowIso, decline_reason: reason, ip: a.ip, user_agent: a.userAgent }).eq('id', found.signer.id).eq('org_id', found.request.org_id)
+  if (!data || data.length === 0) {
+    await admin.from('signature_request_signers').update({ status: found.signer.status, declined_at: null, decline_reason: null }).eq('id', found.signer.id).eq('org_id', found.request.org_id).eq('status', 'declined')
+    return { ok: false, status: 409, error: 'This document is no longer open' }
+  }
   const env = await ensureRequestEnvelope(admin, found.request, found.signers)
   if (env !== 'not_ready') {
     await patchEnvelope(admin, env, { status: 'declined', declined_at: nowIso, decline_reason: reason }, { status: ['sent', 'viewed'] })

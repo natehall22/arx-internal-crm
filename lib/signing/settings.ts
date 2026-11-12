@@ -23,8 +23,10 @@ export type SigningSettings = {
   declineEnabled: boolean
   /** File the signed copy + certificate on the customer (protected `signed_executed` document) when it is signed. */
   autoFile: boolean
-  /** Send any PDF for signature with placed fields, templates and bulk send (a new capability: on unless the owner turns it off). */
+  /** Send any PDF for signature with placed fields, templates and bulk send. OFF for every company until an owner turns it on. */
   customDocuments: boolean
+  /** Most bulk-send recipients a company can email in a rolling 24 hours (a leaked login cannot mass-mail through this). */
+  bulkDailyCap: number
   reminders: { enabled: boolean; days: number[] }
   /** Days a link is extended by when the office extends or resends an expired one. */
   extendDays: number
@@ -37,6 +39,8 @@ export type SigningSettings = {
 }
 
 export const DEFAULT_REMINDER_DAYS: readonly number[] = Object.freeze([2, 5])
+export const DEFAULT_BULK_DAILY_CAP = 200
+export const BULK_DAILY_CAP_RANGE = { min: 1, max: 2000 }
 export const EXTEND_DAYS_RANGE = { min: 1, max: 60 }
 export const MAX_REMINDERS = 4
 export const MAX_REMINDER_DAY = 30
@@ -47,7 +51,8 @@ export function defaultSigningSettings(hasProfile: boolean): SigningSettings {
     consentStep: hasProfile,
     declineEnabled: hasProfile,
     autoFile: hasProfile,
-    customDocuments: true,
+    customDocuments: false,
+    bulkDailyCap: DEFAULT_BULK_DAILY_CAP,
     reminders: { enabled: false, days: [...DEFAULT_REMINDER_DAYS] },
     extendDays: 7,
     emails: { signedCopy: false, declineNotice: false },
@@ -81,6 +86,7 @@ export function readSigningSettings(storedSettings: unknown): SigningSettings {
     declineEnabled: typeof s.declineEnabled === 'boolean' ? s.declineEnabled : d.declineEnabled,
     autoFile: typeof s.autoFile === 'boolean' ? s.autoFile : d.autoFile,
     customDocuments: typeof s.customDocuments === 'boolean' ? s.customDocuments : d.customDocuments,
+    bulkDailyCap: Number.isInteger(Number(s.bulkDailyCap)) && Number(s.bulkDailyCap) >= BULK_DAILY_CAP_RANGE.min && Number(s.bulkDailyCap) <= BULK_DAILY_CAP_RANGE.max ? Number(s.bulkDailyCap) : d.bulkDailyCap,
     reminders: {
       enabled: typeof rem.enabled === 'boolean' ? rem.enabled : d.reminders.enabled,
       days: cleanReminderDays(rem.days) ?? d.reminders.days,
@@ -115,6 +121,10 @@ export function parseSigningPatch(current: SigningSettings, body: unknown): { se
         if (!days) return { error: `Pick up to ${MAX_REMINDERS} different days, each 1–${MAX_REMINDER_DAY}` }
         next.reminders.days = days
       }
+    } else if (k === 'bulkDailyCap') {
+      const n = Number(v)
+      if (!Number.isInteger(n) || n < BULK_DAILY_CAP_RANGE.min || n > BULK_DAILY_CAP_RANGE.max) return { error: `Bulk send cap is ${BULK_DAILY_CAP_RANGE.min}–${BULK_DAILY_CAP_RANGE.max} a day` }
+      next.bulkDailyCap = n
     } else if (k === 'extendDays') {
       const n = Number(v)
       if (!Number.isInteger(n) || n < EXTEND_DAYS_RANGE.min || n > EXTEND_DAYS_RANGE.max) return { error: `Links extend ${EXTEND_DAYS_RANGE.min}–${EXTEND_DAYS_RANGE.max} days` }

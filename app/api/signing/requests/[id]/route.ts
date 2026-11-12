@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { canActOnSigning } from '@/lib/signing/access'
+import { canActOnSigning, canViewDocuments } from '@/lib/signing/access'
 import { listSigningEvents } from '@/lib/signing/events'
 import { REQUEST_KIND, loadRequest } from '@/lib/signing/requests/db'
 import { completeRequest, resendToSigner, voidRequest } from '@/lib/signing/requests/sign'
@@ -18,6 +18,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   const orgId = g.profile.org_id as string
   const loaded = await loadRequest(g.admin, orgId, params.id)
   if (!loaded) return json({ error: 'Not found' }, 404)
+  if (!(await canViewDocuments(g.admin, g.profile)) && loaded.request.created_by !== g.userId) return json({ error: 'Forbidden' }, 403)
   const { data: env } = await g.admin.from('signing_envelopes').select('*').eq('org_id', orgId).eq('doc_kind', REQUEST_KIND).eq('doc_id', params.id).maybeSingle()
   const events = env ? await listSigningEvents(g.admin, orgId, (env as EnvelopeRow).id) : []
   const r = loaded.request

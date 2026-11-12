@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { REQUEST_KIND, findSignerByToken } from '@/lib/signing/requests/db'
-import { pdfResponse, readStoredPdf } from '@/lib/signing/requests/store'
+import { redirectToStored } from '@/lib/signing/requests/store'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -25,7 +25,5 @@ export async function GET(request: NextRequest) {
     const { data: env } = await admin.from('signing_envelopes').select('certificate_path').eq('org_id', r.org_id).eq('doc_kind', REQUEST_KIND).eq('doc_id', r.id).maybeSingle()
     path = (env as { certificate_path?: string | null } | null)?.certificate_path ?? null
   }
-  const bytes = path ? await readStoredPdf(admin, path) : null
-  if (!bytes) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return pdfResponse(bytes, `${r.title}${which === 'certificate' ? ' - certificate' : ''}.pdf`, which === 'source')
+  return redirectToStored(admin, path, which === 'source')
 }

@@ -214,7 +214,7 @@ export function seedForRoute(seed: Record<string, Row[]>, routePath: string) {
   if (/^\/api\/(signing|admin\/signing)(\/|$)/.test(routePath)) {
     const open = { status: 'pending_customer', token_expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), customer_email: 'customer@example.test', customer_name: 'Pat' }
     for (const t of ['order_form_contracts', 'job_change_orders']) for (const r of seed[t] ?? []) Object.assign(r, open)
-    for (const r of seed.orgs ?? []) r.settings = { ...(r.settings as object), signing: { declineEnabled: true, consentStep: true } }
+    for (const r of seed.orgs ?? []) r.settings = { ...(r.settings as object), signing: { declineEnabled: true, consentStep: true, customDocuments: true } }
     const envs: Row[] = []
     for (const kind of ['contract', 'change-order']) {
       const table = kind === 'contract' ? 'order_form_contracts' : 'job_change_orders'

@@ -64,7 +64,7 @@ export default function PdfPages({
       try {
         const pdfjs = await loadPdfjs()
         const data = typeof source === 'string' ? await fetch(source, { cache: 'no-store' }).then((r) => { if (!r.ok) throw new Error('fetch'); return r.arrayBuffer() }) : source.slice(0)
-        task = pdfjs.getDocument({ data: new Uint8Array(data) })
+        task = pdfjs.getDocument({ data: new Uint8Array(data), isEvalSupported: false })
         const doc: PdfDoc = await (task as any).promise
         const s: PageSize[] = []
         for (let i = 1; i <= doc.numPages; i++) {

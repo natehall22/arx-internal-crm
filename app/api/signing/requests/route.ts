@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { firstForeignRef } from '@/lib/supabase/org-db'
-import { canSendDocuments } from '@/lib/signing/access'
+import { canSendDocuments, canViewDocuments } from '@/lib/signing/access'
 import { createRequest, inviteSigners, type NewSigner } from '@/lib/signing/requests/db'
-import { storeUploadedPdf } from '@/lib/signing/requests/store'
-import { firstWave, LIMITS } from '@/lib/signing/requests/types'
+import { adoptUploadedPdf } from '@/lib/signing/requests/store'
+import { firstWave } from '@/lib/signing/requests/types'
 import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { PRIVATE, staffSigningGate } from '@/lib/signing/staff-gate'
 import { tryOrgAppUrl } from '@/lib/company-links'
@@ -18,11 +18,15 @@ const json = (body: unknown, status = 200) => NextResponse.json(body, { status, 
 export async function GET(request: NextRequest) {
   const g = await staffSigningGate(null)
   if ('error' in g) return g.error
+  // contracts:view sees the company's documents; a sender without it sees only their own; anyone else nothing.
+  const seeAll = await canViewDocuments(g.admin, g.profile)
+  if (!seeAll && !(await canSendDocuments(g.admin, g.profile))) return json({ error: 'Forbidden' }, 403)
   const url = new URL(request.url)
   const customerId = url.searchParams.get('customerId')
   const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 100))
   let q = g.admin.from('signature_requests').select('id, title, status, signing_order, page_count, customer_id, batch_id, expires_at, completed_at, created_by, created_at').eq('org_id', g.profile.org_id).order('created_at', { ascending: false }).limit(limit)
   if (customerId) q = q.eq('customer_id', customerId)
+  if (!seeAll) q = q.eq('created_by', g.userId)
   const { data, error } = await q
   if (error) return json({ ready: false, requests: [] })
   const ids = (data ?? []).map((r: { id: string }) => r.id)
@@ -47,10 +51,8 @@ export async function POST(request: NextRequest) {
   const orgId = g.profile.org_id as string
   if (!(await loadSigningSettings(g.admin, orgId)).customDocuments) return json({ error: 'Sending your own documents is turned off for your company.' }, 403)
 
-  let form: FormData
-  try { form = await request.formData() } catch { return json({ error: 'Send the document as a form upload' }, 400) }
   let payload: Record<string, any>
-  try { payload = JSON.parse(String(form.get('payload') ?? '{}')) } catch { return json({ error: 'Bad request' }, 400) }
+  try { payload = await request.json() } catch { return json({ error: 'Bad request' }, 400) }
 
   // Whose record this is about: all of it must be this company's.
   const refs: Record<string, [string, string]> = {}
@@ -71,10 +73,7 @@ export async function POST(request: NextRequest) {
     fields = t.fields
     templateId = t.id
   } else {
-    const file = form.get('file')
-    if (!(file instanceof File) || file.size === 0) return json({ error: 'Choose a PDF to send' }, 400)
-    if (file.size > LIMITS.maxPdfBytes) return json({ error: 'That PDF is too large' }, 413)
-    const stored = await storeUploadedPdf(g.admin, orgId, new Uint8Array(await file.arrayBuffer()))
+    const stored = await adoptUploadedPdf(g.admin, orgId, payload.uploadPath)
     if (!stored.ok) return json({ error: stored.error }, stored.status)
     source = { path: stored.path, sha256: stored.sha256, pageCount: stored.info.pageCount }
   }
