@@ -20,10 +20,11 @@
 /** Lowercase DNS label: 1–63 chars, a-z 0-9 and inner hyphens. Same rule as the `orgs_subdomain_format` check. */
 export const SUBDOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 
-/** Names no company may take (product / infrastructure addresses). Mirrored in migration 202611100070. */
+/** Names no company may take (product / infrastructure addresses). Mirrored in migrations 202611100070 and 202611230090. */
 export const RESERVED_SUBDOMAINS: ReadonlySet<string> = new Set([
   'www', 'app', 'api', 'admin', 'auth', 'login', 'mail', 'email', 'smtp', 'status', 'help', 'support', 'docs',
   'static', 'assets', 'cdn', 'm', 'mobile', 'dev', 'staging', 'preview', 'test',
+  'arx', // reserved for managing CRM customers (Nathan, 2026-11-12); see docs/domain-cutover.md
 ])
 
 /** Header the iPhone app sends with every request once the user has entered their company code. */

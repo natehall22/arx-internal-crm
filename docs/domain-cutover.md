@@ -1,6 +1,8 @@
 # Moving the CRM to arxcapitol.com
 
-Old address: `arx-internal-crm.vercel.app`. New: `arx.arxcapitol.com` (the company address; the bare `arxcapitol.com` is refused once `APP_BASE_DOMAIN` is set), later `<company>.arxcapitol.com` per company.
+Old address: `arx-internal-crm.vercel.app`. New: `arxhome.arxcapitol.com` (the company address; the bare `arxcapitol.com` is refused once `APP_BASE_DOMAIN` is set), later `<company>.arxcapitol.com` per company.
+
+**Addresses (Nathan, 2026-11-12):** ARX Roofing is `arxhome.arxcapitol.com` (`orgs.subdomain = 'arxhome'`). `arx.arxcapitol.com` is reserved for managing CRM customers (migration 202611230090 + `RESERVED_SUBDOMAINS`).
 The old address keeps **serving** (no redirect) for the whole overlap.
 
 ## What the code does now (branch `feat/app-domain-cutover`)
@@ -28,24 +30,24 @@ The old address keeps **serving** (no redirect) for the whole overlap.
 ## Config checklist (outside the repo)
 **Never point `NEXT_PUBLIC_APP_URL` or the iOS `CRM_BASE_URL` at the bare domain `arxcapitol.com`.** Once `APP_BASE_DOMAIN` is
 set the bare domain is refused (no company), and links built from it would die. Go straight from the legacy host
-(`arx-internal-crm.vercel.app`) to the company address `https://arx.arxcapitol.com` (needs the web name `arx`, migrations
+(`arx-internal-crm.vercel.app`) to the company address `https://arxhome.arxcapitol.com` (needs the web name `arxhome`, migrations
 202611100070 / 202611100095). The code refuses the bare domain (`lib/__tests__/company-host.test.ts`).
 | # | Where | Change | Keep old during overlap? |
 |---|---|---|---|
-| 1 | GitHub repo variables | `WEATHER_SWATHS_INGEST_URL` = `https://arx.arxcapitol.com/api/cron/weather-swaths-ingest`, `LIDAR_INGEST_URL` = `https://arx.arxcapitol.com/api/cron/lidar-ingest`. **Check both are set before merging** — the weather worker no longer has a default. | n/a |
+| 1 | GitHub repo variables | `WEATHER_SWATHS_INGEST_URL` = `https://arxhome.arxcapitol.com/api/cron/weather-swaths-ingest`, `LIDAR_INGEST_URL` = `https://arxhome.arxcapitol.com/api/cron/lidar-ingest`. **Check both are set before merging** — the weather worker no longer has a default. | n/a |
 | 2 | Vercel → Domains | Add `arxcapitol.com` (and `www` → apex). Later `*.arxcapitol.com` (wildcard needs Vercel nameservers). Leave `arx-internal-crm.vercel.app` attached with **no redirect**. | yes |
-| 3 | Vercel → Settings → Environment Variables | `NEXT_PUBLIC_APP_URL=https://arx.arxcapitol.com` for Production **and** Preview (no value = links fail loudly there). Redeploy: NEXT_PUBLIC values are baked in at build. Keep "Automatically expose System Environment Variables" ON (the hand-off skips previews via `NEXT_PUBLIC_VERCEL_ENV`). | n/a |
-| 4 | Vercel env | `GOOGLE_REDIRECT_URI` = `https://arx.arxcapitol.com/api/auth/google/callback`, or delete it (it is then derived from the app address). | n/a |
-| 5 | Google Cloud → OAuth client | Add redirect URI `https://arx.arxcapitol.com/api/auth/google/callback` (keep the old one). OAuth consent screen → Authorized domains: add `arxcapitol.com`; update home/privacy links. Stored refresh tokens keep working. | yes |
-| 6 | Supabase → Auth → URL configuration | Site URL `https://arx.arxcapitol.com`. Redirect URLs: add `https://arx.arxcapitol.com/reset-password` and `https://*.arxcapitol.com/reset-password`; keep the old host's entry. Check email templates that use `{{ .SiteURL }}`. | yes |
-| 7 | Google Cloud → Maps JS key | HTTP referrers: add `https://arx.arxcapitol.com/*` and `https://*.arxcapitol.com/*`. | yes |
-| 8 | Website (arxroofing.com Vercel project) | `NEXT_PUBLIC_CRM_PUBLIC_ESTIMATE_URL` → `https://arx.arxcapitol.com` (instant estimate). | old keeps working |
+| 3 | Vercel → Settings → Environment Variables | `NEXT_PUBLIC_APP_URL=https://arxhome.arxcapitol.com` for Production **and** Preview (no value = links fail loudly there). Redeploy: NEXT_PUBLIC values are baked in at build. Keep "Automatically expose System Environment Variables" ON (the hand-off skips previews via `NEXT_PUBLIC_VERCEL_ENV`). | n/a |
+| 4 | Vercel env | `GOOGLE_REDIRECT_URI` = `https://arxhome.arxcapitol.com/api/auth/google/callback`, or delete it (it is then derived from the app address). | n/a |
+| 5 | Google Cloud → OAuth client | Add redirect URI `https://arxhome.arxcapitol.com/api/auth/google/callback` (keep the old one). OAuth consent screen → Authorized domains: add `arxcapitol.com`; update home/privacy links. Stored refresh tokens keep working. | yes |
+| 6 | Supabase → Auth → URL configuration | Site URL `https://arxhome.arxcapitol.com`. Redirect URLs: add `https://arxhome.arxcapitol.com/reset-password` and `https://*.arxcapitol.com/reset-password`; keep the old host's entry. Check email templates that use `{{ .SiteURL }}`. | yes |
+| 7 | Google Cloud → Maps JS key | HTTP referrers: add `https://arxhome.arxcapitol.com/*` and `https://*.arxcapitol.com/*`. | yes |
+| 8 | Website (arxroofing.com Vercel project) | `NEXT_PUBLIC_CRM_PUBLIC_ESTIMATE_URL` → `https://arxhome.arxcapitol.com` (instant estimate). | old keeps working |
 | 9 | Lead sources (Zapier/Facebook/forms) | Re-point any `…/api/webhooks/leads?token=…` URL to the new host (Admin → Campaigns now shows the new address). | yes |
-| 10 | iOS (Xcode) | Build setting `CRM_BASE_URL` → `https://arx.arxcapitol.com`, ship via TestFlight/App Store. Old builds keep calling the old host. | yes |
+| 10 | iOS (Xcode) | Build setting `CRM_BASE_URL` → `https://arxhome.arxcapitol.com`, ship via TestFlight/App Store. Old builds keep calling the old host. | yes |
 
 ## Cutover order
 1. GitHub variables (#1) — they work on either host.
-2. Domain live in Vercel (#2); confirm `https://arx.arxcapitol.com/api/health` answers.
+2. Domain live in Vercel (#2); confirm `https://arxhome.arxcapitol.com/api/health` answers.
 3. Allow-lists (#5, #6, #7) — before any link points at the new host.
 4. Set `NEXT_PUBLIC_APP_URL` / `GOOGLE_REDIRECT_URI` (#3, #4) and deploy this branch.
 5. Smoke test on the new host: sign in, admin password reset email, Google Calendar connect, assign a crew (invite crew link),
