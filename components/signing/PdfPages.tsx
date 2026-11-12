@@ -13,10 +13,11 @@ type PdfDoc = { numPages: number; getPage: (n: number) => Promise<{ getViewport:
 
 let workerReady = false
 async function loadPdfjs() {
-  // The "legacy" build runs on older phones; the worker is bundled by the app, not fetched from a CDN.
+  // The "legacy" build runs on older phones. The worker is served from /public (a copy of the package file, kept equal by
+  // lib/__tests__/pdfjs-worker-copy.test.ts), NOT bundled: webpack's minifier cannot parse the already-minified module worker.
   const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
   if (!workerReady) {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.min.mjs', import.meta.url).toString()
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs'
     workerReady = true
   }
   return pdfjs
