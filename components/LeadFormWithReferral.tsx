@@ -651,12 +651,12 @@ export default function LeadFormWithReferral({
 
       {/* Notes */}
       <div>
-        <label className="text-sm font-medium text-gray-500">Notes</label>
+        <label className="text-sm font-medium text-[#2c2c2a]">Notes</label>
         <textarea
           value={form.notes}
           onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value }))}
           rows={4}
-          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
           placeholder="Add details about the lead..."
         />
       </div>
@@ -666,7 +666,7 @@ export default function LeadFormWithReferral({
         <button
           type="submit"
           disabled={saving || !!savedLeadId}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="min-h-[44px] rounded-md bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
         >
           {saving ? 'Creating...' : savedLeadId ? 'Lead created' : 'Create lead'}
         </button>
@@ -675,7 +675,7 @@ export default function LeadFormWithReferral({
           <button
             type="button"
             onClick={() => setSource('referral')}
-            className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+            className="min-h-[44px] text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
