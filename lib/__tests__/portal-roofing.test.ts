@@ -294,7 +294,7 @@ describe('money on the card (kind and true)', () => {
     expect(await money('j-ordered')).toMatchObject({ balanceCents: 500000, paidInFull: false })
   })
   test('the install day has come and the crew is not marked done: "in progress", not blank', async () => {
-    db.tables.work_orders.find((w) => w.id === 'wo-roof')!.scheduled_date = day(-1)
+    db.tables.work_orders.find((w) => w.id === 'wo-roof')!.scheduled_date = day(-2)
     const main = (await homeOf('r1')).home.jobs.find((j) => j.id === 'j-main')!
     expect(main.installs[0]).toEqual({ label: 'Roof', when: null, done: false, inProgress: true })
   })
