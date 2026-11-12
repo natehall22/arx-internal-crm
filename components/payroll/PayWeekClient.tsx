@@ -18,10 +18,12 @@ import type { PayWeek as PayWeekData, PayWeekLine, PayWeekNeed, PayWeekPerson } 
 
 import JobSplitSheet from './JobSplitSheet'
 import PayWeekScheduleSheet from './PayWeekScheduleSheet'
-import { AdvancesSection, ExportButtons, PaySheetButton } from './PayWeekExtras'
+import { AdvancesSection, PayWeekExports, PaySheetButton } from './PayWeekExtras'
+import type { ExportChoice } from '@/lib/payroll-provider-export'
+import { signedFixAmount } from '@/lib/payroll-format'
 
 /** What GET pay-week returns: the week plus what this viewer may do (only owners approve or change the pay week). */
-type PayWeek = PayWeekData & { viewer?: { canApprove: boolean; canEditSchedule: boolean } }
+type PayWeek = PayWeekData & { viewer?: { canApprove: boolean; canEditSchedule: boolean; exportProvider?: ExportChoice | null } }
 
 const API = '/api/admin/payroll/pay-week'
 
@@ -30,6 +32,8 @@ export default function PayWeekClient() {
   const params = useSearchParams()
   const periodParam = params.get('period')
   const [week, setWeek] = React.useState<PayWeek | null>(null)
+  const [providerOverride, setProvider] = React.useState<ExportChoice | null>(null)
+  const provider: ExportChoice | null = providerOverride ?? week?.viewer?.exportProvider ?? null
   const [error, setError] = React.useState<string | null>(null)
   const [open, setOpen] = React.useState<Record<string, boolean>>({})
   const [later, setLater] = React.useState<Record<string, boolean>>({})
@@ -41,6 +45,8 @@ export default function PayWeekClient() {
   const [fixDispute, setFixDispute] = React.useState<string | null>(null)
   const [fixUser, setFixUser] = React.useState('')
   const [fixAmount, setFixAmount] = React.useState('')
+  /** Money in or out: chosen with two big buttons, so the amount box only ever holds a plain positive number. */
+  const [fixDir, setFixDir] = React.useState<'add' | 'take' | null>(null)
   const [fixReason, setFixReason] = React.useState('')
   const [splitJob, setSplitJob] = React.useState<string | null>(null)
   const [scheduleOpen, setScheduleOpen] = React.useState(false)
@@ -110,8 +116,8 @@ export default function PayWeekClient() {
     setBusy(true)
     try {
       const res = fixDispute
-        ? await post('dispute', { id: fixDispute, action: 'fix', periodId: week.period.id, amount: Number(fixAmount), reply: fixReason })
-        : await post('adjustment', { periodId: week.period.id, userId: fixUser, amount: Number(fixAmount), reason: fixReason })
+        ? await post('dispute', { id: fixDispute, action: 'fix', periodId: week.period.id, amount: signedFixAmount(fixDir, fixAmount), reply: fixReason })
+        : await post('adjustment', { periodId: week.period.id, userId: fixUser, amount: signedFixAmount(fixDir, fixAmount), reason: fixReason })
       setFixing(false)
       setFixDispute(null)
       setFixUser('')
@@ -160,10 +166,8 @@ export default function PayWeekClient() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button asChild variant="secondary" size="sm"><a href={csvHref}>Download CSV</a></Button>
           <PaySheetButton periodId={week.period.id} draft={draft} />
-          {!draft ? <ExportButtons periodId={week.period.id} canEditCodes={!!week.viewer?.canEditSchedule} /> : null}
-          <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>How this is calculated</Button>
+          <PayWeekExports periodId={week.period.id} draft={draft} provider={provider} canEditCodes={!!week.viewer?.canEditSchedule} csvHref={csvHref} onHelp={() => setHelp(true)} onProviderChanged={setProvider} />
         </div>
       </header>
 
@@ -185,7 +189,7 @@ export default function PayWeekClient() {
           <h2 id="needs-h" className="px-4 pt-3 text-ui-lg font-semibold text-ink">{openNeeds.length ? `Needs you (${openNeeds.length})` : 'Check these'}</h2>
           <ul className="divide-y divide-amber-200">
             {openNeeds.map((n, i) => (
-              <li key={i} className="px-4 py-3"><Need n={n} onHours={async (userId, hrs) => { try { await post('hours', { periodId: week.period.id, userId, regularHours: hrs }); toast.success('Hours added'); await load() } catch (e) { toast.error((e as Error).message) } }} onBonus={async (id) => { if (bonusBusy) return; setBonusBusy(true); try { await post('bonus', { id, periodId: week.period.id, action: 'approve' }); await load() } catch (e) { toast.error((e as Error).message) } finally { setBonusBusy(false) } }} onLater={(id) => setLater((l) => ({ ...l, [id]: true }))} onReply={async (id, reply) => { try { await post('dispute', { id, action: 'reply', reply }); toast.success('Sent'); await load() } catch (e) { toast.error((e as Error).message) } }} onDisputeFix={(d) => { setFixDispute(d.id); setFixUser(d.userId); setFixAmount(''); setFixReason(''); setFixing(true) }} onMinimum={async (userId, met) => { try { await post('minimum', { periodId: week.period.id, userId, met }); await load() } catch (e) { toast.error((e as Error).message) } }} /></li>
+              <li key={i} className="px-4 py-3"><Need n={n} onHours={async (userId, hrs) => { try { await post('hours', { periodId: week.period.id, userId, regularHours: hrs }); toast.success('Hours added'); await load() } catch (e) { toast.error((e as Error).message) } }} onBonus={async (id) => { if (bonusBusy) return; setBonusBusy(true); try { await post('bonus', { id, periodId: week.period.id, action: 'approve' }); await load() } catch (e) { toast.error((e as Error).message) } finally { setBonusBusy(false) } }} onLater={(id) => setLater((l) => ({ ...l, [id]: true }))} onReply={async (id, reply) => { try { await post('dispute', { id, action: 'reply', reply }); toast.success('Sent'); await load() } catch (e) { toast.error((e as Error).message) } }} onDisputeFix={(d) => { setFixDispute(d.id); setFixUser(d.userId); setFixAmount(''); setFixDir(null); setFixReason(''); setFixing(true) }} onMinimum={async (userId, met) => { try { await post('minimum', { periodId: week.period.id, userId, met }); await load() } catch (e) { toast.error((e as Error).message) } }} /></li>
             ))}
             {week.warnings.map((w, i) => (
               <li key={`w${i}`} className="px-4 py-3 text-ui-base text-ink">{w.text}</li>
@@ -216,7 +220,7 @@ export default function PayWeekClient() {
                     <Link href={`/ops/jobs/${j.jobId}`} className="inline-flex min-h-tap items-center font-semibold text-ink underline underline-offset-2">Job {j.jobNumber}</Link>
                     <span className="tabular-nums font-semibold text-ink">{formatMoney(j.total)}</span>
                   </div>
-                  <p className="text-ui-sm text-ink-muted">{j.address} · commission base {formatMoney(j.commissionBase)}</p>
+                  <p className="text-ui-sm text-ink-muted">{j.address} · sale amount (before tax) {formatMoney(j.commissionBase)}</p>
                   {draft ? <button type="button" onClick={() => setSplitJob(j.jobId)} className="min-h-tap text-ui-base font-semibold text-brand-700 underline underline-offset-2">Change who gets what</button> : null}
                   <ul className="mt-2 flex flex-col gap-1">
                     {j.paid.map((x, i) => (
@@ -269,7 +273,7 @@ export default function PayWeekClient() {
       <AdvancesSection advances={week.advances ?? []} directory={week.directory} canEdit={!!week.viewer?.canApprove} draft={draft} onChanged={load} />
 
       <div>
-        <Button variant="secondary" onClick={() => setFixing(true)}>Fix a mistake</Button>
+        <Button variant="secondary" onClick={() => { setFixAmount(''); setFixDir(null); setFixing(true) }}>Fix a mistake</Button>
         {!draft ? <p className="mt-1 text-ui-sm text-ink-muted">This week is paid and stays as it is. A fix goes on next week&apos;s check.</p> : null}
       </div>
 
@@ -326,15 +330,20 @@ export default function PayWeekClient() {
               {week.directory.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </label>
-          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Amount (+ pays them, − takes back)
-            <Input type="number" inputMode="decimal" step="0.01" value={fixAmount} onChange={(e) => setFixAmount(e.target.value)} placeholder="e.g. 322 or -150" />
+          <div role="radiogroup" aria-label="Add money or take money back" className="grid grid-cols-2 gap-2">
+            {([['add', 'Add money'], ['take', 'Take money back']] as const).map(([dir, label]) => (
+              <button key={dir} type="button" role="radio" aria-checked={fixDir === dir} onClick={() => setFixDir(dir)} className={`min-h-tap rounded-ui border px-3 text-ui-base font-semibold ${fixDir === dir ? 'border-brand-700 bg-brand-700 text-white' : 'border-surface-line bg-surface text-ink'}`}>{label}</button>
+            ))}
+          </div>
+          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Amount
+            <Input type="number" inputMode="decimal" step="0.01" min="0" value={fixAmount} onChange={(e) => setFixAmount(e.target.value.replace('-', ''))} placeholder="e.g. 322" />
           </label>
           <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Why
             <Input value={fixReason} onChange={(e) => setFixReason(e.target.value)} placeholder="e.g. Closed 26-0129 alone — no split" maxLength={300} />
           </label>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setFixing(false)}>Cancel</Button>
-            <Button loading={busy} disabled={!fixUser || !fixReason.trim() || !Number.isFinite(Number(fixAmount)) || Number(fixAmount) === 0 || fixAmount === ''} onClick={saveFix}>Add the fix</Button>
+            <Button loading={busy} disabled={!fixUser || !fixDir || !fixReason.trim() || !(Number(fixAmount) > 0)} onClick={saveFix}>Add the fix</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -376,7 +385,7 @@ function Person({ p, open, toggle, onChange, onRemove }: { p: PayWeekPerson; ope
           {p.lines.map((l, i) => (
             <li key={i} className="flex items-start justify-between gap-3 border-t border-dashed border-surface-line py-2">
               <span className="min-w-0">
-                <Badge tone="neutral" className="mr-1.5">{l.kind}</Badge>
+                <Badge tone="neutral" className="mr-1.5">{l.kind === 'Adjustment' ? 'Fix' : l.kind}</Badge>
                 <span className="text-ui-base text-ink">{l.what}</span>
                 <span className="block text-ui-sm text-ink-muted">{l.math}</span>
               </span>
