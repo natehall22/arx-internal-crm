@@ -36,7 +36,7 @@ describe('QuickBooks backfill (link-first)', () => {
     const w = world()
     const pat = await mk(w.qb, 'Customer', { DisplayName: 'Pat H', PrimaryEmailAddr: { Address: 'PAT@example.com' } })
     const job = await mk(w.qb, 'Customer', { DisplayName: '26-0001 12 Oak St', Job: true, ParentRef: { value: pat.Id } })
-    const inv = await mk(w.qb, 'Invoice', { DocNumber: '26-0001', TotalAmt: 10700, CustomerRef: { value: job.Id }, Line: [] })
+    const inv = await mk(w.qb, 'Invoice', { DocNumber: '26-0001', TotalAmt: 10700, CustomerRef: { value: job.Id }, Line: [{ Amount: 10700, DetailType: 'SalesItemLineDetail' }] })
     const before = w.qb.calls.filter((c) => c.op === 'create').length
     const plan = await planBackfill(w.fake.client as never, 'a', w.client, settings)
     const by = (k: string) => plan.items.find((i) => i.key === k)!
