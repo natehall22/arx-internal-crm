@@ -1,17 +1,12 @@
 import type { ReactNode } from 'react'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 
+// Session, active-account check and the company fence all come from requireAuth (never raw auth.getUser).
 export default async function PayrollLayout({ children }: { children: ReactNode }) {
-  const supabase = createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-  if (!profile?.role || !isPayrollAdminRole(profile.role)) {
+  const { profile } = await requireAuth()
+  if (!profile.role || !isPayrollAdminRole(profile.role)) {
     redirect('/dashboard')
   }
 
