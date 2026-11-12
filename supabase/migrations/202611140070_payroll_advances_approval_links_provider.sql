@@ -54,7 +54,7 @@ BEGIN
     EXECUTE format('ALTER TABLE payroll_adjustments DROP CONSTRAINT %I', r.conname);
   END LOOP;
   ALTER TABLE payroll_adjustments ADD CONSTRAINT payroll_adjustments_kind_check
-    CHECK (kind IN ('fix', 'balance', 'chargeback', 'resplit', 'topup', 'advance', 'advance_recovery'));
+    CHECK (kind IN ('fix', 'balance', 'chargeback', 'resplit', 'topup', 'commission_change', 'advance', 'advance_recovery'));  -- keeps 202611120030's 'commission_change'
 END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_adjustments_one_recovery ON payroll_adjustments(payroll_period_id, advance_id) WHERE kind = 'advance_recovery' AND status <> 'void';
 
