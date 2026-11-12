@@ -4,7 +4,7 @@ import SignerFlow, { type SignerField } from '@/components/signing/SignerFlow'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { esignDisclosure } from '@/lib/signing/consent'
 import { findSignerByToken, requestExpired } from '@/lib/signing/requests/db'
-import { canSignNow } from '@/lib/signing/requests/types'
+import { canSignNow, signingWave } from '@/lib/signing/requests/types'
 import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -34,7 +34,7 @@ export default async function SignPage({ params }: { params: { token: string } }
   const roleLabels = new Map(signers.map((s) => [s.role_key, s.role_label]))
   const view: SignerField[] = fields.map((f) => ({ id: f.id, roleKey: f.role_key, kind: f.kind, page: f.page, x: f.x, y: f.y, w: f.w, h: f.h, required: f.required, ...(f.label ? { label: f.label } : {}), mine: f.role_key === signer.role_key, roleLabel: roleLabels.get(f.role_key) ?? '' }))
   const turn = request.status === 'pending' && signer.status !== 'signed' ? canSignNow(request.signing_order, signers, signer.id) : true
-  const earlier = signers.filter((s) => s.order_index < signer.order_index && s.status !== 'signed').sort((a, b) => a.order_index - b.order_index)[0]
+  const earlier = signers.filter((s) => signingWave(request.signing_order, s, signers) < signingWave(request.signing_order, signer, signers) && s.status !== 'signed').sort((a, b) => a.order_index - b.order_index)[0]
   return (
     <SignerFlow
       token={params.token}

@@ -4,7 +4,7 @@ import { PDFDocument } from 'pdf-lib'
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { anchorFor, readPdfInfo, safeText, stampSignedPdf } from '@/lib/signing/requests/pdf'
-import { byReadingOrder, canSignNow, cleanFields, cleanRoles, missingFields, nextToNotify, roleKeyFrom } from '@/lib/signing/requests/types'
+import { byReadingOrder, canSignNow, cleanFields, firstWave, cleanRoles, missingFields, nextToNotify, roleKeyFrom } from '@/lib/signing/requests/types'
 import { sha256Hex } from '@/lib/signing/hash'
 
 process.env.SIGNING_TOKEN_SECRET = 'test-secret'
@@ -82,8 +82,30 @@ describe('plan rules', () => {
     expect(canSignNow('serial', s, 'b')).toBe(false)
     expect(canSignNow('serial', s, 'a')).toBe(true)
     expect(nextToNotify('serial', s, 'a').map((x) => x.id)).toEqual(['b'])
-    expect(nextToNotify('parallel', s, 'a')).toEqual([])
+    expect(nextToNotify('parallel', s, 'a').map((x) => x.id)).toEqual(['b']) // already emailed at send; notifyNext skips anyone with notified_at
     expect(canSignNow('serial', [{ ...s[0], status: 'signed' }, s[1]], 'b')).toBe(true)
+  })
+  it('the company countersignature always goes last, with no setting; everyone else signs at once', () => {
+    const s = [{ id: 'a', role_key: 'owner', order_index: 0, status: 'pending' }, { id: 'b', role_key: 'tenant', order_index: 1, status: 'pending' }, { id: 'c', role_key: 'company', order_index: 2, status: 'pending', is_company: true }]
+    expect(canSignNow('parallel', s, 'a')).toBe(true)
+    expect(canSignNow('parallel', s, 'b')).toBe(true)
+    expect(canSignNow('parallel', s, 'c')).toBe(false)
+    expect(firstWave('parallel', s).map((x) => x.id)).toEqual(['a', 'b'])
+    const oneSigned = [{ ...s[0], status: 'signed' }, s[1], s[2]]
+    expect(canSignNow('parallel', oneSigned, 'c')).toBe(false)
+    expect(nextToNotify('parallel', s, 'a').map((x) => x.id)).toEqual(['b'])
+    const bothSigned = [{ ...s[0], status: 'signed' }, { ...s[1], status: 'signed' }, s[2]]
+    expect(canSignNow('parallel', bothSigned, 'c')).toBe(true)
+    expect(nextToNotify('parallel', [s[0], { ...s[1], status: 'signed' }, s[2]], 'a').map((x) => x.id)).toEqual(['c'])
+    // serial keeps working, and the company still ends up last even if it was listed first
+    const ser = [{ id: 'c', role_key: 'company', order_index: 0, status: 'pending', is_company: true }, { id: 'a', role_key: 'owner', order_index: 1, status: 'pending' }]
+    expect(canSignNow('serial', ser, 'c')).toBe(false)
+    expect(canSignNow('serial', ser, 'a')).toBe(true)
+  })
+  it('only one company role, and someone besides the company must sign', () => {
+    expect('error' in (cleanRoles([{ key: 'a', label: 'A', company: true }, { key: 'b', label: 'B', company: true }]) as any)).toBe(true)
+    expect('error' in (cleanRoles([{ key: 'a', label: 'A', company: true }, { key: 'b', label: 'B' }]) as any)).toBe(false)
+    expect('error' in (cleanRoles([{ key: 'a', label: 'A', company: true }, { key: 'b', label: 'B', company: true }]) as any)).toBe(true)
   })
   it('missing fields are the signer\'s own required ones', () => {
     const fs = cleanFields(fields, roles, 1) as any[]
@@ -151,6 +173,22 @@ describe('creating and sending', () => {
     expect((await newReq({ title: ' ' })).ok).toBe(false)
     expect((await newReq({ signers: [{ roleKey: 'owner', name: 'O', email: 'bad' }, { roleKey: 'tenant', name: 'T', email: 't@x.test' }] })).ok).toBe(false)
     expect((await newReq({ fields: [F('a', 'owner', 'signature')] })).ok).toBe(false)
+  })
+  it('a countersigning company is emailed only after every other signer has signed', async () => {
+    const r = await newReq({ roles: [...roles, { key: 'company', label: 'Company', order: 2, company: true }], fields: [...fields, F('f6', 'company', 'signature', { y: 0.6 })], signers: [{ roleKey: 'owner', name: 'Olive Owner', email: 'olive@example.test' }, { roleKey: 'tenant', name: 'Tom Tenant', email: 'tom@example.test' }, { roleKey: 'company', name: 'Rep', email: 'rep@acme.test' }] })
+    if (!r.ok) throw new Error('x')
+    const tokens = new Map(r.created.signers.map((s) => [s.id, s.token]))
+    expect((await sendInvitations(admin(), { request: r.created.request, signers: r.created.signers }, tokens)).sent).toBe(2)
+    expect(sendMail.mock.calls.map((c) => JSON.stringify(c)).join('')).not.toContain('rep@acme.test')
+    const co = r.created.signers.find((x) => x.role_key === 'company') as any
+    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null })).toMatchObject({ ok: false, status: 409, code: 'not_your_turn' })
+    const ow = r.created.signers.find((x) => x.role_key === 'owner') as any
+    const tn = r.created.signers.find((x) => x.role_key === 'tenant') as any
+    await submitSignature(admin(), { token: ow.token, signature: PNG, values: {}, ip: null, userAgent: null })
+    expect(sendMail.mock.calls.map((c) => JSON.stringify(c)).join('')).not.toContain('rep@acme.test')
+    await submitSignature(admin(), tenantBody(tn))
+    expect(sendMail.mock.calls.map((c) => JSON.stringify(c)).join('')).toContain('rep@acme.test')
+    expect(await submitSignature(admin(), { token: co.token, signature: PNG, values: {}, ip: null, userAgent: null })).toMatchObject({ ok: true, state: 'completed' })
   })
   it('parallel emails everyone; serial emails the first only, then the next when they sign', async () => {
     const p = await newReq()

@@ -39,7 +39,8 @@ export const LIMITS = {
   defaultExpiryDays: 14,
 } as const
 
-export type RoleDef = { key: string; label: string; order: number }
+/** `company: true` = the company's own countersignature. It always signs LAST, after every other signer (see `signingWave`). */
+export type RoleDef = { key: string; label: string; order: number; company?: boolean }
 export type PlacedField = { id: string; roleKey: string; kind: FieldKind; page: number; x: number; y: number; w: number; h: number; required: boolean; label?: string }
 export type SigningOrder = 'parallel' | 'serial'
 
@@ -68,8 +69,10 @@ export function cleanRoles(input: unknown): RoleDef[] | { error: string } {
     if (!label) return { error: 'Every signer needs a label' }
     if (!KEY_RE.test(key) || seen.has(key)) return { error: 'Each signer needs its own key' }
     seen.add(key)
-    out.push({ key, label, order: i })
+    out.push({ key, label, order: i, ...(r.company === true ? { company: true } : {}) })
   }
+  if (out.filter((r) => r.company).length > 1) return { error: 'Only one signer can be the company' }
+  if (out.length > 1 && out.every((r) => r.company)) return { error: 'Someone besides the company has to sign' }
   return out
 }
 
@@ -105,24 +108,39 @@ export function cleanFields(input: unknown, roles: readonly RoleDef[], pageCount
   return out
 }
 
-export type SignerLite = { id: string; role_key: string; order_index: number; status: string }
+export type SignerLite = { id: string; role_key: string; order_index: number; status: string; is_company?: boolean }
 
-/** Whose turn it is. Parallel: everyone who has not signed. Serial: only the lowest-order signers still pending. */
+/**
+ * Which wave a signer belongs to; a lower wave signs first. The send screen always asks for "everyone at once" (parallel: wave 0),
+ * with ONE automatic exception: the company's own countersignature is wave 1, after every other signer, with no setting.
+ * (Serial stays in the engine: waves are the order numbers, with the company moved to the end.)
+ */
+export function signingWave(order: SigningOrder, s: SignerLite, all: readonly SignerLite[]): number {
+  if (order === 'serial') return s.is_company ? Math.max(...all.map((x) => x.order_index)) + 1 : s.order_index
+  return s.is_company ? 1 : 0
+}
+
+/** Whose turn it is: a signer may sign once nobody in an earlier wave is still unsigned. */
 export function canSignNow(order: SigningOrder, signers: readonly SignerLite[], signerId: string): boolean {
   const me = signers.find((s) => s.id === signerId)
   if (!me || me.status === 'signed' || me.status === 'declined') return false
-  if (order === 'parallel') return true
-  return !signers.some((s) => s.order_index < me.order_index && s.status !== 'signed')
+  const mine = signingWave(order, me, signers)
+  return !signers.some((s) => signingWave(order, s, signers) < mine && s.status !== 'signed')
 }
 
-/** The signers to email next after `justSigned` signed (serial: the next ones in line; parallel: nobody, all were notified at send). */
+/** The signers to email next after `justSigned` signed: the lowest wave still pending (callers skip anyone already notified). */
 export function nextToNotify(order: SigningOrder, signers: readonly SignerLite[], justSigned: string): SignerLite[] {
-  if (order !== 'serial') return []
   const after = signers.map((s) => (s.id === justSigned ? { ...s, status: 'signed' } : s))
   const pending = after.filter((s) => s.status !== 'signed' && s.status !== 'declined')
   if (pending.length === 0) return []
-  const lowest = Math.min(...pending.map((s) => s.order_index))
-  return pending.filter((s) => s.order_index === lowest)
+  const lowest = Math.min(...pending.map((s) => signingWave(order, s, after)))
+  return pending.filter((s) => signingWave(order, s, after) === lowest)
+}
+
+/** The signers to email at send time: the first wave (everyone at once, unless the company countersigns, who waits). */
+export function firstWave<T extends SignerLite>(order: SigningOrder, signers: readonly T[]): T[] {
+  const lowest = Math.min(...signers.map((s) => signingWave(order, s, signers)))
+  return signers.filter((s) => signingWave(order, s, signers) === lowest)
 }
 
 export type FieldValue = string | boolean | null | undefined

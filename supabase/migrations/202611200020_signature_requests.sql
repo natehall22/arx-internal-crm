@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS public.signature_request_signers (
   email            text,
   phone            text,
   order_index      integer NOT NULL DEFAULT 0,
+  is_company       boolean NOT NULL DEFAULT false,   -- the company's own countersignature: always signs last, after every other signer
   status           text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'viewed', 'signed', 'declined')),
   token_hash       text NOT NULL,
   token_enc        text,

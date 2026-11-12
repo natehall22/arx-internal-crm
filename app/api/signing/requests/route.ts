@@ -4,7 +4,7 @@ import { firstForeignRef } from '@/lib/supabase/org-db'
 import { canSendDocuments } from '@/lib/signing/access'
 import { createRequest, inviteSigners, type NewSigner } from '@/lib/signing/requests/db'
 import { storeUploadedPdf } from '@/lib/signing/requests/store'
-import { LIMITS } from '@/lib/signing/requests/types'
+import { firstWave, LIMITS } from '@/lib/signing/requests/types'
 import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { PRIVATE, staffSigningGate } from '@/lib/signing/staff-gate'
 import { tryOrgAppUrl } from '@/lib/company-links'
@@ -81,14 +81,14 @@ export async function POST(request: NextRequest) {
 
   const made = await createRequest(g.admin, {
     orgId, createdBy: g.userId, title: payload.title, sourcePath: source.path, sourceSha256: source.sha256, pageCount: source.pageCount, templateId,
-    signingOrder: payload.signingOrder, message: payload.message, expiresInDays: payload.expiresInDays, roles, fields,
+    signingOrder: 'parallel', // everyone at once (Nathan); only the company's countersignature waits, automatically
+    message: payload.message, expiresInDays: payload.expiresInDays, roles, fields,
     signers: (Array.isArray(payload.signers) ? payload.signers : []) as NewSigner[], customerId: payload.customerId ?? null, opportunityId: payload.opportunityId ?? null, jobId: payload.jobId ?? null,
   })
   if (!made.ok) return json({ error: made.error }, made.status)
   const { request: row, signers } = made.created
   const tokens = new Map(signers.map((s) => [s.id, s.token]))
-  const due = row.signing_order === 'serial' ? signers.filter((s) => s.order_index === Math.min(...signers.map((x) => x.order_index))) : signers
-  const result = await inviteSigners(g.admin, row, due, tokens)
+  const result = await inviteSigners(g.admin, row, firstWave(row.signing_order, signers), tokens)
   const base = await tryOrgAppUrl(orgId, 'signature request links')
   return json({
     id: row.id, sent: result.sent, failed: result.failed,

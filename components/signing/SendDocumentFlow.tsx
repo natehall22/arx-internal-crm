@@ -6,9 +6,9 @@ import { useRouter } from 'next/navigation'
 import FieldEditor from '@/components/signing/FieldEditor'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { toast } from '@/components/ui/toast'
-import { LIMITS, type PlacedField, type RoleDef, type SigningOrder } from '@/lib/signing/requests/types'
+import { LIMITS, type PlacedField, type RoleDef } from '@/lib/signing/requests/types'
 
-type Row = { key: string; label: string; name: string; email: string }
+type Row = { key: string; label: string; name: string; email: string; company?: boolean }
 type TemplateLite = { id: string; name: string; page_count: number; roles: RoleDef[] }
 type Prefill = { templateId?: string; customerId?: string; opportunityId?: string; jobId?: string; name?: string; email?: string }
 
@@ -20,7 +20,7 @@ const primary = 'min-h-[52px] w-full rounded-lg bg-gray-900 px-4 text-lg font-se
  * Send a document for signature, or save a template. Three taps from a template: pick it, fill the name and email, Send.
  * From a new PDF: drop it, say who signs, tap the page to place their fields, Send.
  */
-export default function SendDocumentFlow({ mode = 'send', prefill = {} }: { mode?: 'send' | 'template'; prefill?: Prefill }) {
+export default function SendDocumentFlow({ mode = 'send', prefill = {}, me }: { mode?: 'send' | 'template'; prefill?: Prefill; me?: { name: string; email: string } }) {
   const router = useRouter()
   const [templates, setTemplates] = useState<TemplateLite[] | null>(null)
   const [canManage, setCanManage] = useState(false)
@@ -30,7 +30,6 @@ export default function SendDocumentFlow({ mode = 'send', prefill = {} }: { mode
   const [bytes, setBytes] = useState<ArrayBuffer | null>(null)
   const [title, setTitle] = useState('')
   const [rows, setRows] = useState<Row[]>([{ key: 'customer', label: mode === 'template' ? 'Signer' : 'Customer', name: prefill.name ?? '', email: prefill.email ?? '' }])
-  const [order, setOrder] = useState<SigningOrder>('parallel')
   const [message, setMessage] = useState('')
   const [days, setDays] = useState(14)
   const [fields, setFields] = useState<PlacedField[]>([])
@@ -46,7 +45,7 @@ export default function SendDocumentFlow({ mode = 'send', prefill = {} }: { mode
   }, [mode])
 
   // Keys are stable (set when a signer is added), so renaming a signer never detaches the fields placed for them.
-  const roles: RoleDef[] = useMemo(() => (template ? template.roles : rows.map((r, i) => ({ key: r.key, label: r.label.trim() || `Signer ${i + 1}`, order: i }))), [rows, template])
+  const roles: RoleDef[] = useMemo(() => (template ? template.roles : rows.map((r, i) => ({ key: r.key, label: r.label.trim() || `Signer ${i + 1}`, order: i, ...(r.company ? { company: true } : {}) }))), [rows, template])
   const nextKey = () => { let n = rows.length + 1; while (rows.some((r) => r.key === `signer_${n}`)) n++; return `signer_${n}` }
 
   async function choose(f: File | undefined) {
@@ -67,7 +66,7 @@ export default function SendDocumentFlow({ mode = 'send', prefill = {} }: { mode
     setTemplate(t)
     setTemplateFields(d.fields)
     setTitle(t.name)
-    setRows(t.roles.map((r, i) => ({ key: r.key, label: r.label, name: i === 0 ? prefill.name ?? '' : '', email: i === 0 ? prefill.email ?? '' : '' })))
+    setRows(t.roles.map((r, i) => (r.company ? { key: r.key, label: r.label, name: me?.name ?? '', email: me?.email ?? '', company: true } : { key: r.key, label: r.label, name: i === 0 ? prefill.name ?? '' : '', email: i === 0 ? prefill.email ?? '' : '' })))
   }
 
   const sendable = mode === 'template'
@@ -90,7 +89,7 @@ export default function SendDocumentFlow({ mode = 'send', prefill = {} }: { mode
         return
       }
       const signers = roles.map((r, i) => ({ roleKey: r.key, name: rows[i].name.trim(), email: rows[i].email.trim() }))
-      form.set('payload', JSON.stringify({ title: title.trim(), templateId: template?.id, roles, fields: template ? templateFields : fields, signers, signingOrder: order, message: message.trim() || undefined, expiresInDays: days, customerId: prefill.customerId, opportunityId: prefill.opportunityId, jobId: prefill.jobId }))
+      form.set('payload', JSON.stringify({ title: title.trim(), templateId: template?.id, roles, fields: template ? templateFields : fields, signers, message: message.trim() || undefined, expiresInDays: days, customerId: prefill.customerId, opportunityId: prefill.opportunityId, jobId: prefill.jobId }))
       if (!template && file) form.set('file', file)
       const res = await fetch('/api/signing/requests', { method: 'POST', body: form })
       const d = await res.json().catch(() => ({}))
@@ -168,13 +167,14 @@ export default function SendDocumentFlow({ mode = 'send', prefill = {} }: { mode
             {!template && rows.length < LIMITS.maxRoles && (
               <button type="button" className={`${btn} mt-2`} onClick={() => setRows([...rows, { key: nextKey(), label: `Signer ${rows.length + 1}`, name: '', email: '' }])}>+ Add a signer</button>
             )}
-            {mode === 'send' && rows.length > 1 && (
-              <fieldset className="mt-3">
-                <legend className="mb-1 text-base font-semibold">Who signs first?</legend>
-                {(['parallel', 'serial'] as const).map((o) => (
-                  <label key={o} className="flex min-h-[44px] items-center gap-3 text-base"><input type="radio" name="order" className="h-6 w-6" checked={order === o} onChange={() => setOrder(o)} />{o === 'parallel' ? 'Everyone at once' : 'One after another, in this order'}</label>
-                ))}
-              </fieldset>
+            {mode === 'send' && !template && (
+              <label className="mt-3 flex min-h-[44px] items-center gap-3 text-base">
+                <input type="checkbox" className="h-6 w-6" checked={rows.some((r) => r.company)} disabled={rows.length >= LIMITS.maxRoles && !rows.some((r) => r.company)} onChange={(e) => {
+                  if (!e.target.checked) { const c = rows.find((r) => r.company); if (c) setFields(fields.filter((f) => f.roleKey !== c.key)); return setRows(rows.filter((r) => !r.company)) }
+                  setRows([...rows, { key: nextKey(), label: 'Company', name: me?.name ?? '', email: me?.email ?? '', company: true }])
+                }} />
+                <span>We sign too (after everyone else has signed)</span>
+              </label>
             )}
           </section>
 

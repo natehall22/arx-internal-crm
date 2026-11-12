@@ -16,7 +16,7 @@ import { hashSigningToken, openSigningToken, sealSigningToken } from '@/lib/sign
 import { emailCompanyFromBrand } from '@/lib/signing/complete'
 import { recordSigningEvent } from '@/lib/signing/events'
 import { sendSigningEmail } from '@/lib/signing/mail'
-import { cleanFields, cleanRoles, LIMITS, nextToNotify, type PlacedField, type RoleDef, type SigningOrder } from '@/lib/signing/requests/types'
+import { cleanFields, cleanRoles, firstWave, LIMITS, nextToNotify, type PlacedField, type RoleDef, type SigningOrder } from '@/lib/signing/requests/types'
 import type { EnvelopeRow } from '@/lib/signing/types'
 
 export const REQUEST_KIND = 'signature-request' as const
@@ -29,7 +29,7 @@ export type RequestRow = {
 }
 export type SignerRow = {
   id: string; org_id: string; request_id: string; role_key: string; role_label: string; name: string; email: string | null; phone: string | null
-  order_index: number; status: 'pending' | 'viewed' | 'signed' | 'declined'; token_hash: string; token_enc: string | null
+  order_index: number; is_company: boolean; status: 'pending' | 'viewed' | 'signed' | 'declined'; token_hash: string; token_enc: string | null
   notified_at: string | null; reminder_count: number; viewed_at: string | null; signed_at: string | null; declined_at: string | null; decline_reason: string | null
   ip: string | null; user_agent: string | null; consent_version: string | null; consent_at: string | null; signature_data: string | null; initials_data: string | null
 }
@@ -105,7 +105,7 @@ export async function createRequest(admin: SupabaseClient, a: NewRequest): Promi
   const signerRows = roles.map((r: RoleDef) => {
     const s = byRole.get(r.key) as NewSigner
     const token = newToken()
-    return { token, row: { org_id: a.orgId, request_id: request.id, role_key: r.key, role_label: r.label, name: cleanText(s.name, 120), email: cleanText(s.email, 200).toLowerCase(), phone: cleanText(s.phone, 40) || null, order_index: r.order, status: 'pending', token_hash: hashSigningToken(token), token_enc: sealSigningToken(token) } }
+    return { token, row: { org_id: a.orgId, request_id: request.id, role_key: r.key, role_label: r.label, name: cleanText(s.name, 120), email: cleanText(s.email, 200).toLowerCase(), phone: cleanText(s.phone, 40) || null, order_index: r.order, is_company: r.company === true, status: 'pending', token_hash: hashSigningToken(token), token_enc: sealSigningToken(token) } }
   })
   const { data: signerData, error: signerErr } = await admin.from('signature_request_signers').insert(signerRows.map((s) => s.row)).select('*')
   if (signerErr || !signerData) { await undo(); return { ok: false, error: 'Could not add the signers', status: 500 } }
@@ -208,11 +208,9 @@ export async function emailSigner(admin: SupabaseClient, a: { request: RequestRo
   return sendSigningEmail({ to, subject: `${reminder ? 'Reminder: ' : ''}${a.request.title} — ${brand.casualName}`, text: rendered.text, html: rendered.html })
 }
 
-/** Send the invitations that are due: everyone (parallel) or the first in line (serial). Marks each notified; records 'sent'. */
+/** Send the invitations that are due: the first wave (everyone at once; the company's countersignature waits). Marks each notified; records 'sent'. */
 export async function sendInvitations(admin: SupabaseClient, loaded: { request: RequestRow; signers: SignerRow[] }, tokens: Map<string, string>): Promise<{ sent: number; failed: string[] }> {
-  const lowest = Math.min(...loaded.signers.map((s) => s.order_index))
-  const due = loaded.request.signing_order === 'serial' ? loaded.signers.filter((s) => s.order_index === lowest) : loaded.signers
-  return inviteSigners(admin, loaded.request, due, tokens)
+  return inviteSigners(admin, loaded.request, firstWave(loaded.request.signing_order, loaded.signers), tokens)
 }
 
 export async function inviteSigners(admin: SupabaseClient, request: RequestRow, due: readonly SignerRow[], tokens: Map<string, string>): Promise<{ sent: number; failed: string[] }> {
@@ -231,7 +229,7 @@ export async function inviteSigners(admin: SupabaseClient, request: RequestRow, 
   return { sent, failed }
 }
 
-/** After one signer signs on a serial request: email whoever is next in line. */
+/** After a signer signs: email whoever's wave has come (the company, once every other signer has signed). */
 export async function notifyNext(admin: SupabaseClient, loaded: { request: RequestRow; signers: SignerRow[] }, justSigned: string): Promise<void> {
   const next = nextToNotify(loaded.request.signing_order, loaded.signers, justSigned).map((n) => loaded.signers.find((s) => s.id === n.id) as SignerRow)
   const fresh = next.filter((s) => !s.notified_at)

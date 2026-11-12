@@ -19,7 +19,7 @@ export default async function NewSignaturePage({ searchParams }: { searchParams:
       <Nav />
       <main className="px-3 py-4">
         <PageHeader title="Send for signature" />
-        <SendDocumentFlow mode="send" prefill={{ templateId: clip(searchParams.template, 40), customerId: clip(searchParams.customerId, 40), opportunityId: clip(searchParams.opportunityId, 40), jobId: clip(searchParams.jobId, 40), name: clip(searchParams.name, 120), email: clip(searchParams.email, 200) }} />
+        <SendDocumentFlow mode="send" me={{ name: String((profile as { full_name?: string; name?: string }).full_name ?? (profile as { name?: string }).name ?? '').slice(0, 120), email: String((profile as { email?: string }).email ?? '').slice(0, 200) }} prefill={{ templateId: clip(searchParams.template, 40), customerId: clip(searchParams.customerId, 40), opportunityId: clip(searchParams.opportunityId, 40), jobId: clip(searchParams.jobId, 40), name: clip(searchParams.name, 120), email: clip(searchParams.email, 200) }} />
       </main>
     </>
   )
