@@ -25,6 +25,8 @@ export type CustomerDocument = {
   property_id: string | null
   /** Shown to the customer in their portal (migration 202611120060). */
   shared_with_customer: boolean
+  /** Set on a contract signed in another tool and imported (Move signed documents, migration 202611190010): read-only, never re-rendered. */
+  import_source: string | null
   created_at: string
 }
 
@@ -37,7 +39,8 @@ export async function loadCustomerDocuments(admin: SupabaseClient, orgId: string
   const run = (cols: string) =>
     base().select(cols).eq('customer_id', customerId).is('job_id', null).is('deleted_at', null).order('created_at', { ascending: false }).limit(200)
   // Newest columns first; each older shape is what a database without the later migration answers with.
-  let { data, error } = await run(`${COLS}, property_id, shared_with_customer`)
+  let { data, error } = await run(`${COLS}, property_id, shared_with_customer, import_source`)
+  if (error) ({ data, error } = await run(`${COLS}, property_id, shared_with_customer`))
   if (error) ({ data, error } = await run(`${COLS}, property_id`))
   if (error && isPropertiesNotReadyError(error)) ({ data, error } = await run(COLS))
   if (error) {
@@ -53,6 +56,7 @@ export async function loadCustomerDocuments(admin: SupabaseClient, orgId: string
     file_size: typeof r.file_size === 'number' ? r.file_size : null,
     property_id: (r.property_id as string | null) ?? null,
     shared_with_customer: r.shared_with_customer === true,
+    import_source: (r.import_source as string | null) ?? null,
     created_at: String(r.created_at ?? ''),
   }))
 }

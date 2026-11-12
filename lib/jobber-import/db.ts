@@ -82,8 +82,11 @@ function runFromRow(r: Record<string, unknown>): RunRow {
 // Runs and files
 // ---------------------------------------------------------------------------------------------------------------------
 
-export async function listRuns(admin: SupabaseClient, orgId: string): Promise<{ ready: boolean; runs: RunRow[] }> {
-  const { data, error } = await orgDb(admin, orgId).from('import_runs').select(RUN_COLS).neq('status', 'discarded').order('created_at', { ascending: false }).limit(20)
+/** Which import a run belongs to: this file's own ('jobber') or Move signed documents ('signed_docs', lib/signed-import/db.ts). */
+export type RunSource = 'jobber' | 'signed_docs'
+
+export async function listRuns(admin: SupabaseClient, orgId: string, source: RunSource = 'jobber'): Promise<{ ready: boolean; runs: RunRow[] }> {
+  const { data, error } = await orgDb(admin, orgId).from('import_runs').select(RUN_COLS).eq('source', source).neq('status', 'discarded').order('created_at', { ascending: false }).limit(20)
   if (error) {
     if (!isImportNotReadyError(error)) console.error('[jobber-import] list runs', error)
     return { ready: false, runs: [] }
@@ -91,9 +94,9 @@ export async function listRuns(admin: SupabaseClient, orgId: string): Promise<{ 
   return { ready: true, runs: ((data ?? []) as Record<string, unknown>[]).map(runFromRow) }
 }
 
-export async function loadRun(admin: SupabaseClient, orgId: string, runId: string): Promise<RunRow | null> {
+export async function loadRun(admin: SupabaseClient, orgId: string, runId: string, source: RunSource = 'jobber'): Promise<RunRow | null> {
   if (typeof runId !== 'string' || !/^[0-9a-z-]{1,64}$/i.test(runId)) return null
-  const { data } = await orgDb(admin, orgId).from('import_runs').select(RUN_COLS).eq('id', runId).maybeSingle()
+  const { data } = await orgDb(admin, orgId).from('import_runs').select(RUN_COLS).eq('id', runId).eq('source', source).maybeSingle()
   return data ? runFromRow(data as Record<string, unknown>) : null
 }
 
@@ -105,13 +108,15 @@ export async function loadRunFiles(admin: SupabaseClient, orgId: string, runId: 
 }
 
 /** The open run (draft / importing / undoing) or a new draft. One open run per company (unique index). */
-export async function openRun(admin: SupabaseClient, orgId: string, userId: string): Promise<{ ok: true; run: RunRow } | Fail> {
+export async function openRun(admin: SupabaseClient, orgId: string, userId: string, source: RunSource = 'jobber'): Promise<{ ok: true; run: RunRow } | Fail> {
   const db = orgDb(admin, orgId)
-  const { data: open, error } = await db.from('import_runs').select(RUN_COLS).in('status', ['draft', 'importing', 'undoing']).maybeSingle()
+  const { data: open, error } = await db.from('import_runs').select(RUN_COLS).eq('source', source).in('status', ['draft', 'importing', 'undoing']).maybeSingle()
   if (error) return isImportNotReadyError(error) ? fail(503, IMPORT_NOT_READY) : fail(500, 'Could not start the import')
   if (open) return { ok: true, run: runFromRow(open as Record<string, unknown>) }
-  const { data, error: insErr } = await db.from('import_runs').insert({ source: 'jobber', status: 'draft', created_by: userId }).select(RUN_COLS).single()
-  if (insErr?.code === '23505') return openRun(admin, orgId, userId)
+  const { data, error: insErr } = await db.from('import_runs').insert({ source, status: 'draft', created_by: userId }).select(RUN_COLS).single()
+  if (insErr?.code === '23505') return openRun(admin, orgId, userId, source)
+  // 23514: the database has not had migration 202611190010 (the source check still says 'jobber' only).
+  if (insErr?.code === '23514' && source !== 'jobber') return fail(503, 'Move signed documents turns on once the database update for it is applied (migration 202611190010).')
   if (insErr || !data) return fail(500, 'Could not start the import')
   return { ok: true, run: runFromRow(data as Record<string, unknown>) }
 }
@@ -712,11 +717,11 @@ const UNDO_NOTES: Record<string, string> = {
   gone: 'Already removed',
 }
 
-export async function startUndo(admin: SupabaseClient, orgId: string, run: RunRow): Promise<{ ok: true } | Fail> {
+export async function startUndo(admin: SupabaseClient, orgId: string, run: RunRow, source: RunSource = 'jobber'): Promise<{ ok: true } | Fail> {
   if (run.status === 'undoing') return { ok: true }
   if (run.status !== 'done') return fail(409, run.status === 'importing' ? 'Wait for the import to finish' : 'Only a finished import can be undone')
   // Only the newest finished import: undoing an older one under a newer one would fight over the same rows.
-  const { data: newer } = await orgDb(admin, orgId).from('import_runs').select('id').in('status', ['done', 'importing']).gt('created_at', run.created_at).limit(1)
+  const { data: newer } = await orgDb(admin, orgId).from('import_runs').select('id').eq('source', source).in('status', ['done', 'importing']).gt('created_at', run.created_at).limit(1)
   if ((newer ?? []).length) return fail(409, 'Undo the newer import first')
   const { data } = await orgDb(admin, orgId).from('import_runs').update({ status: 'undoing', undo_started_at: new Date().toISOString() }).eq('id', run.id).eq('status', 'done').select('id')
   return (data ?? []).length ? { ok: true } : fail(409, 'This import changed — reload')

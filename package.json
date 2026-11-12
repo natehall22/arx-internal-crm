@@ -55,6 +55,7 @@
     "d3-contour": "^4.0.2",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
+    "fflate": "^0.8.3",
     "geotiff": "^3.0.5",
     "geotiff-geokeys-to-proj4": "^2024.4.13",
     "heic2any": "^0.0.4",
@@ -73,6 +74,7 @@
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
     "three": "^0.169.0",
+    "unpdf": "1.7.0",
     "zod": "^3.22.4",
     "zustand": "^5.0.11"
   },

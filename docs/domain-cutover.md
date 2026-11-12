@@ -107,6 +107,8 @@ needs entries #5–#7 (the wildcards above cover them).
   `record_customer_invoice_refund` and `job_invoices_void_guard` with copies that also count `paid_outside_cents`.
   Re-applying 0060 or 0020 after it would drop that; apply in order. DB test:
   `supabase/tests/run-jobber-import.sh`.
+- Move signed documents: `202611190010_signed_documents_import.sql` AFTER 202611120040 (Jobber import: it widens that
+  migration's `import_runs` source check and one-open-run index) and 202611110010. Additive; docs: `docs/signed-documents-import.md`.
 - Hourly billing: `202611120030_hourly_billing.sql` after 202611110060 (it writes `job_invoice_items.unit` / `work_order_id`
   and the per-hour plan basis on 202611110030's tables); also needs 202611100090 for price-book items priced "per hour".
   Then the code. DB test: `supabase/tests/run-hourly-billing.sh`.

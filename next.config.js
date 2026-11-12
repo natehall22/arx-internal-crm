@@ -27,6 +27,8 @@ const TOKEN_PAGE_SOURCES = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // unpdf (PDF text, signed-document import) is ESM-only and ships its own pdf.js: load it at run time instead of bundling it.
+  experimental: { serverComponentsExternalPackages: ['unpdf'] },
   async headers() {
     return [
       { source: '/:path*', headers: BASE_SECURITY_HEADERS },
