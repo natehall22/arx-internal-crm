@@ -50,6 +50,8 @@ describe('small screens cleaned up', () => {
     const s = src('app/proposals/builder/page.tsx')
     expect(s).not.toContain('Order Debug')
     expect(s).toMatch(/label: 'Waste'[\s\S]*label: 'Roofing Type'[\s\S]*label: 'Items'[\s\S]*label: 'Add-Ons'[\s\S]*label: 'Review'/)
+    // the circle shows its position, so a company without the Waste step reads 1-5, not 1,3,4,5,6
+    expect(s).toContain("{step > s.num ? '✓' : idx + 1}")
   })
 
   it('new lead form: no Status dropdown, schedule box after the contact fields and in the profile word', () => {

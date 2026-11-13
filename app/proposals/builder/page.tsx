@@ -1132,7 +1132,7 @@ export default function ProposalBuilderPage() {
                   <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
                     step === s.num ? 'bg-indigo-600 text-white' : step > s.num ? 'bg-green-500 text-white' : 'bg-gray-200'
                   }`}>
-                    {step > s.num ? '✓' : s.num}
+                    {step > s.num ? '✓' : idx + 1}
                   </div>
                   <span className="hidden sm:block font-medium">{s.label}</span>
                 </button>
