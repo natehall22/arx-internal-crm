@@ -57,7 +57,7 @@ async function carryLeadCategory(admin: SupabaseClient, orgId: string, leadId: s
   try {
     const { data, error } = await admin.from('leads').select('category').eq('id', leadId).eq('org_id', orgId).maybeSingle()
     const slug = error ? null : ((data as { category?: string | null } | null)?.category ?? null)
-    if (slug) await setCustomerCategory(admin, orgId, customerId, slug, { onlyIfBlank: true })
+    if (slug) await setCustomerCategory(admin, orgId, customerId, slug, { onlyIfBlank: true, keepTurnedOff: true })
   } catch (e) {
     console.error('carry lead category to customer failed (deal still created):', e)
   }

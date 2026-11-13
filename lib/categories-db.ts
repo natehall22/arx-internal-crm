@@ -44,20 +44,25 @@ export async function saveCategoryChange(admin: SupabaseClient, orgId: string, c
 
 type Write = { ok: true; category: string | null } | { ok: false; status: number; error: string }
 
-/** THE writer of `customers.category`. `onlyIfBlank`: fill it in, never overwrite what a person already chose. */
+/**
+ * THE writer of `customers.category`. `onlyIfBlank`: fill it in, never overwrite what a person already chose.
+ * `keepTurnedOff`: a slug already stored elsewhere (the lead's) is copied even when the category was turned off since —
+ * off only hides it from pickers, it never erases it. It must still be on the company's list.
+ */
 export async function setCustomerCategory(
   admin: SupabaseClient,
   orgId: string,
   customerId: string,
   requested: unknown,
-  opts: { onlyIfBlank?: boolean } = {}
+  opts: { onlyIfBlank?: boolean; keepTurnedOff?: boolean } = {}
 ): Promise<Write> {
   const { data: row, error: readError } = await admin.from('customers').select('category').eq('id', customerId).eq('org_id', orgId).maybeSingle()
   if (readError) return isMissingColumn(readError, 'category') ? { ok: false, status: 503, error: CATEGORIES_NOT_READY } : { ok: false, status: 500, error: 'Could not save' }
   if (!row) return { ok: false, status: 404, error: 'Customer not found' }
   const current = ((row as { category?: string | null }).category ?? null) || null
   if (opts.onlyIfBlank && current) return { ok: true, category: current }
-  const choice = resolveCategoryChoice(await loadOrgCategories(admin, orgId), requested, current)
+  const list = await loadOrgCategories(admin, orgId)
+  const choice = resolveCategoryChoice(opts.keepTurnedOff ? list.map((c) => ({ ...c, active: true })) : list, requested, current)
   if (!choice.ok) return { ok: false, status: 400, error: choice.error }
   if (choice.slug === current) return { ok: true, category: current }
   const { error } = await admin.from('customers').update({ category: choice.slug, updated_at: new Date().toISOString() }).eq('id', customerId).eq('org_id', orgId)

@@ -78,6 +78,15 @@ describe('carried to the customer at deal creation', () => {
     expect(id).toBe('c-chosen')
     expect(d.tables.customers.find((c) => c.id === 'c-chosen')?.category).toBe('residential')
   })
+  it('a category turned off since the lead was made is still copied (off hides it from pickers, never erases it)', async () => {
+    const d = seed()
+    d.tables.orgs[0].settings = { categories: { items: DEFAULT_CATEGORIES.map((c) => ({ ...c, active: c.slug !== 'commercial' })) } }
+    const id = await customerIdForLead(d.client, ORG, { id: 'l1', homeowner_name: 'Acme Plaza', phone: '7045550101', address_text: '1 Main St' })
+    expect(d.tables.customers.find((c) => c.id === id)?.category).toBe('commercial')
+    // A hand pick of the turned-off category is still refused.
+    const { setCustomerCategory } = await import('@/lib/categories-db')
+    expect(await setCustomerCategory(d.client, ORG, 'c-existing', 'commercial')).toMatchObject({ ok: false, status: 400 })
+  })
   it('a lead with no category leaves the customer blank (blank is not Residential)', async () => {
     const d = seed()
     const id = await customerIdForLead(d.client, ORG, { id: 'l3', homeowner_name: 'No Category', phone: '7045550103' })
