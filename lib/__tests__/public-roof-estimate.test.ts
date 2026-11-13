@@ -18,7 +18,6 @@ import {
   getPublicEstimatePreviewMessageForPath,
   getPublicEstimateUnlockNextStepForPath,
   getPublicEstimateLeadSourceName,
-  getPublicEstimateMailFrom,
   getPublicEstimatePricePerSquare,
   getPublicTurnstileSiteKey,
   isInPublicEstimateServiceArea,
@@ -372,18 +371,16 @@ describe('CRM / public estimate mail From', () => {
     else process.env.SMTP_FROM = prevFrom
   })
 
-  it('uses SMTP_FROM when it already targets info@', () => {
+  it('uses SMTP_FROM when it already targets info@', async () => {
     process.env.SMTP_FROM = 'ARX Roofing <info@arxroofing.com>'
-    expect(getCrmEmailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
-    expect(getPublicEstimateMailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
+    expect(await getCrmEmailFrom(null)).toBe('ARX Roofing <info@arxroofing.com>')
   })
 
-  it('falls back to branded info@ when SMTP_FROM is missing or not info@', () => {
+  it('falls back to branded info@ when SMTP_FROM is missing or not info@', async () => {
     delete process.env.SMTP_FROM
-    expect(getCrmEmailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
+    expect(await getCrmEmailFrom(null)).toBe('ARX Roofing <info@arxroofing.com>')
     process.env.SMTP_FROM = 'nathan@arxroofing.com'
-    expect(getCrmEmailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
-    expect(getPublicEstimateMailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
+    expect(await getCrmEmailFrom(null)).toBe('ARX Roofing <info@arxroofing.com>')
   })
 })
 

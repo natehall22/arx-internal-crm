@@ -217,7 +217,7 @@ export async function sendFounderContactsDigests(
           .order('created_at', { ascending: false }).order('id', { ascending: true }).range(from, to)
       )
       await getMailTransport(rows[0].org_id as string).sendMail({
-        from: getCrmEmailFrom(),
+        from: await getCrmEmailFrom(rows[0].org_id as string),
         to: user.email,
         subject: `Your contacts — ${rows.length} new (${dateLabel})`,
         html: founderContactsDigestHtml(rows, all.length, dateLabel),

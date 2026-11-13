@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     `
 
     await transporter.sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(null),
       to: 'nathan@arxroofing.com',
       subject,
       html: htmlContent,

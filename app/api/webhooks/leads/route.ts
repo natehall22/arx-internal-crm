@@ -514,7 +514,7 @@ export async function POST(request: NextRequest) {
 
       const transporter = getMailTransport(org_id)
       await transporter.sendMail({
-        from: getCrmEmailFrom(),
+        from: await getCrmEmailFrom(org_id),
         to: owner.email,
         subject: `${sourceLabel} (inbound lead)`,
         text: `A new inbound lead was created.\n\nSource: ${sourceLabel}\nLead Name: ${fullName || 'Unknown'}\nAddress: ${fullAddress || 'TBD'}\nPhone: ${phone || 'N/A'}\nLead URL: ${leadUrl}`,

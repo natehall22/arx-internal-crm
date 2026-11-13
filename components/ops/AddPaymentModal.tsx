@@ -45,6 +45,8 @@ const PAYMENT_PAYERS: PaymentPayer[] = [
 
 export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentModalProps) {
   const [saving, setSaving] = useState(false)
+  // One key per opening of this form: a double tap or a retried request records the payment once (record_job_payment dedupes on it).
+  const [idempotencyKey] = useState(() => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`))
   const [formData, setFormData] = useState({
     paid_at: new Date().toISOString().split('T')[0],
     amount: '',
@@ -76,6 +78,7 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
           method: formData.method,
           payer: formData.payer,
           note: formData.note || null,
+          idempotency_key: idempotencyKey,
         }),
       })
 

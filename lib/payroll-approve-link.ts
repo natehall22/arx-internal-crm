@@ -98,7 +98,7 @@ export async function notifyPayWeekReady(admin: SupabaseClient, orgId: string, n
     if (to && process.env.SMTP_HOST) {
       try {
         await getMailTransport(orgId).sendMail({
-          from: getCrmEmailFrom(),
+          from: await getCrmEmailFrom(orgId),
           to,
           subject: title,
           text: `${title}.\n\nThe week ending ${week.period.weekEnding} is ready: nothing needs you first. Payday is ${week.period.payDate}.\n\nOpen this, check the total, tap Approve:\n${url}\n\nThe link works once, for you, for ${APPROVAL_LINK_HOURS} hours.`,

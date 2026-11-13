@@ -284,5 +284,3 @@ export function getPublicEstimateTokenSecret(): string {
   return secret
 }
 
-/** @deprecated Prefer getCrmEmailFrom — Instant Estimate uses the shared CRM From. */
-export { getCrmEmailFrom as getPublicEstimateMailFrom } from '@/lib/crm-email-from'

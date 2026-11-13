@@ -3,6 +3,7 @@ import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from './job-invoice-tax'
 import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
+import { formatDate } from '@/lib/format'
 import { roundMoney } from '@/lib/money'
 import { cutoffYmd } from '@/lib/payroll-week-schedule'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
@@ -233,6 +234,18 @@ export type PayrollPlan = {
   selfGenSetterConflictJobIds: string[]
 }
 
+/** Skip reason: someone credited on the job has no pay plan on its sale date, so the whole job waits. */
+export const NO_PAY_PLAN_ON_SALE_DATE = 'no_pay_plan_on_sale_date'
+
+/** "Nathan Hall has no pay plan on Sep 3, 2026" (names read company-scoped). */
+async function noPayPlanText(supabase: SupabaseClient, orgId: string, userIds: string[], saleDate: string): Promise<string> {
+  const { data } = await supabase.from('users').select('id, full_name').eq('org_id', orgId).in('id', userIds)
+  const nameById = new Map((data || []).map((u) => [u.id as string, (u.full_name as string) || 'Someone']))
+  const names = userIds.map((id) => nameById.get(id) ?? 'Someone')
+  const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  return `${who} ${names.length === 1 ? 'has' : 'have'} no pay plan on ${formatDate(saleDate.slice(0, 10))}`
+}
+
 const WAITING_TEXT: Record<string, string> = {
   not_installed: 'Install not marked complete',
   missing_costs: 'Office is reviewing a cost on this job',
@@ -241,6 +254,7 @@ const WAITING_TEXT: Record<string, string> = {
   missing_eligibility_timestamp: 'Waiting on a date the office has to fill in',
   missing_participants: 'Nobody is credited on this job yet',
   no_resolvable_participant_plans: 'The people on this job have no pay plan yet',
+  [NO_PAY_PLAN_ON_SALE_DATE]: 'Someone on this job has no pay plan on its sale date',
 }
 
 export function waitingReasonText(reason: string, collectedCents: number, saleAmount: number | null, invoiceTaxCents?: number | null, tmInvoicedCents?: number | null, tmPending?: boolean | null): string {
@@ -492,7 +506,7 @@ export async function planPayrollPeriod(
   const priceJob = async (
     job: JobRow
   ): Promise<
-    | { skip: string; selfGenSetterConflict?: boolean }
+    | { skip: string; selfGenSetterConflict?: boolean; detail?: string }
     | {
         rows: PlannedPayoutRow[]
         payrollSnapshot: ReturnType<typeof buildCommissionPayrollSnapshot>
@@ -520,6 +534,9 @@ export async function planPayrollPeriod(
     // not consulted at all — the override is the whole answer — so they are collected
     // here and written as their own rows below, keeping `meta` (which snapshots a
     // resolved plan) untouched.
+    const missingPlanUserIds: string[] = []
+    /** Monthly flat-bonus slots this job took; given back if the job is held, so the bonus can land on another job. */
+    const bonusKeysThisJob: string[] = []
     const overriddenProducers: Array<{
       participant: PayrollParticipant
       resolved: { amount: number; basis: 'flat' | 'percent' }
@@ -547,7 +564,12 @@ export async function planPayrollPeriod(
 
       const assignment = await loadActiveCompPlanForUser(supabase, participant.userId, orgId, saleDate)
       const plan = assignment?.comp_plans as unknown as CompPlanForCalc | null
-      if (!plan) continue
+      // Credited on the sale but no pay plan on the SALE date: hold the whole job. Paying the others now would snapshot the job
+      // and this person's line could never be added later (a snapshotted job is never re-planned).
+      if (!plan) {
+        missingPlanUserIds.push(participant.userId)
+        continue
+      }
       const metrics = periodSitsAndCloseRateForParticipant({
         userId: participant.userId,
         monthKey,
@@ -567,7 +589,10 @@ export async function planPayrollPeriod(
       const bonusKey = `${participant.userId}|${monthKey || ''}`
       const flatBonus =
         calc.volumeBonusFlat > 0 && !flatBonusApplied.has(bonusKey) ? calc.volumeBonusFlat : 0
-      if (flatBonus > 0) flatBonusApplied.add(bonusKey)
+      if (flatBonus > 0) {
+        flatBonusApplied.add(bonusKey)
+        bonusKeysThisJob.push(bonusKey)
+      }
       meta.set(participant.userId, { role: participant.role, plan, calc, flatBonus })
       // Per-COMPONENT pool-cap rule: a hybrid plan's per-sale percentage / $-per-job
       // amount counts inside the cap; its hourly and per-unit dollars never reach
@@ -576,6 +601,11 @@ export async function planPayrollPeriod(
         poolKey(participant.userId, participant.role),
         calc.countsTowardPoolCap ? calc.totalAmount : 0
       )
+    }
+
+    if (missingPlanUserIds.length > 0) {
+      for (const key of bonusKeysThisJob) flatBonusApplied.delete(key)
+      return { skip: NO_PAY_PLAN_ON_SALE_DATE, detail: await noPayPlanText(supabase, orgId, missingPlanUserIds, saleDate) }
     }
 
     // Additive per-job participants (inspector, manager overrides). These count
@@ -702,7 +732,7 @@ export async function planPayrollPeriod(
         waiting.push({
           job,
           reason: priced.skip,
-          reasonText: waitingReasonText(priced.skip, sumCollectedCents(paymentsByJob.get(job.id) || []), job.sale_amount, job.invoice_tax_cents, job.tm_invoiced_cents, job.tm_pending),
+          reasonText: priced.detail ?? waitingReasonText(priced.skip, sumCollectedCents(paymentsByJob.get(job.id) || []), job.sale_amount, job.invoice_tax_cents, job.tm_invoiced_cents, job.tm_pending),
           collectedCents: sumCollectedCents(paymentsByJob.get(job.id) || []),
           rows: [],
         })
@@ -780,12 +810,14 @@ export async function planPayrollPeriod(
   for (const item of waitingToPrice) {
     const priced = await priceJob(item.job)
     const collectedCents = sumCollectedCents(paymentsByJob.get(item.job.id) || [])
-    // A job that cannot be priced still waits — with the pricing reason if that is what blocks it.
-    const reason = 'skip' in priced && item.reason === 'not_installed' ? item.reason : 'skip' in priced ? priced.skip : item.reason
+    // A job that cannot be priced still waits — with the pricing reason if that is what blocks it. A missing pay plan is shown
+    // even before install: it is the one thing the office has to fix ahead of time.
+    const planGap = 'skip' in priced && priced.skip === NO_PAY_PLAN_ON_SALE_DATE ? priced.detail ?? null : null
+    const reason = planGap ? NO_PAY_PLAN_ON_SALE_DATE : 'skip' in priced && item.reason === 'not_installed' ? item.reason : 'skip' in priced ? priced.skip : item.reason
     waiting.push({
       job: item.job,
       reason,
-      reasonText: waitingReasonText(reason, collectedCents, item.job.sale_amount, item.job.invoice_tax_cents, item.job.tm_invoiced_cents, item.job.tm_pending),
+      reasonText: planGap ?? waitingReasonText(reason, collectedCents, item.job.sale_amount, item.job.invoice_tax_cents, item.job.tm_invoiced_cents, item.job.tm_pending),
       collectedCents,
       rows: 'skip' in priced ? [] : priced.rows,
     })

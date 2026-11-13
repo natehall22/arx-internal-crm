@@ -70,7 +70,7 @@ export async function sendScheduledReports(
           if (!ctx.canExport) continue
           const result = await runReport(admin, ctx, parsed.spec)
           await getMailTransport(orgId).sendMail({
-            from: getCrmEmailFrom(),
+            from: await getCrmEmailFrom(orgId),
             to: person.email,
             subject: `${r.name} — ${todayKey}`,
             text: `Your scheduled report "${r.name}" is attached (${result.rows.length} rows).`,

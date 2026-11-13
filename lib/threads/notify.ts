@@ -74,6 +74,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
     const link = `${await orgAppUrl(input.orgId)}${path}`
     const { data: users } = await admin.from('users').select('id, email, full_name').in('id', rows.map((r) => r.userId))
     const transporter = getMailTransport(input.orgId)
+    const from = await getCrmEmailFrom(input.orgId)
     await Promise.allSettled(
       rows.map((r) => {
         const u = (users ?? []).find((x) => x.id === r.userId)
@@ -89,7 +90,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
               ? `${input.senderName} needs a reply · ${input.deal.label}`
               : `${input.senderName} mentioned you · ${input.deal.label}`
         return transporter.sendMail({
-          from: getCrmEmailFrom(),
+          from,
           to: u.email,
           subject,
           text: `${text}\n\nOpen: ${link}`,

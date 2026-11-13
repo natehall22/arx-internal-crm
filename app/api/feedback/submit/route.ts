@@ -139,7 +139,7 @@ ${escapeHtml(description.trim())}
       `
 
     await transporter.sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(auth.profile.org_id),
       to,
       subject,
       html: htmlContent,

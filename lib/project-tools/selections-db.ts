@@ -214,7 +214,7 @@ export async function sendSelection(
       const brand = await getDocumentBrand(admin, ctx.orgId)
       const mail = buildSelectionRequestEmail({ brand, customerName: ctx.contact.name, item: cur.item as string, link, dueDate: (cur.due_date as string | null) ?? null, repName: ctx.userName || brand.name })
       const transporter = getMailTransport(ctx.orgId, { secure: false })
-      await transporter.sendMail({ from: getCrmEmailFrom(), to: ctx.contact.email, subject: mail.subject, text: mail.text, html: mail.html })
+      await transporter.sendMail({ from: await getCrmEmailFrom(ctx.orgId), to: ctx.contact.email, subject: mail.subject, text: mail.text, html: mail.html })
       emailed = true
     } catch (e) {
       console.error('[selections] email failed', e)
