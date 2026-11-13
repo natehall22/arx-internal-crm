@@ -216,7 +216,9 @@ describe('rpt_revenue SQL: the no-double-count rule, kept in step with the views
   })
 
   it('the catalog names exactly the view columns', () => {
-    const view = sql.slice(sql.lastIndexOf('select org_id,'))
+    // The latest definition of the view (the work-categories migration appended `category` and replaced it).
+    const latest = read('supabase/migrations/202611240020_work_categories.sql').replace(/--.*$/gm, '')
+    const view = latest.slice(latest.lastIndexOf('select org_id,'))
     for (const c of DATASETS.revenue.columns) expect({ col: c.key, inView: new RegExp(`\\b${c.key}\\b`).test(view) }).toEqual({ col: c.key, inView: true })
     expect(DATASETS.revenue.idColumn).toBe('revenue_id')
     expect(DATASETS.revenue.dateColumn).toBe('event_date')

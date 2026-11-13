@@ -6,6 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import LinkCreateCustomerModal from './LinkCreateCustomerModal'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { categoryLabel, orderedCategories, type Category } from '@/lib/categories'
 
 interface Customer {
   id: string
@@ -15,17 +16,19 @@ interface Customer {
   address_text: string | null
   /** Has a project or a won deal. Everyone else is a prospect (a deal exists, nothing sold yet). */
   bought?: boolean
+  /** Work category slug (customers.category); null = not set. */
+  category?: string | null
 }
 
 const kindOf = (c: Customer) => (c.bought ? 'customer' : 'prospect')
-const COLUMNS: ColumnDef<Customer, any>[] = [
+const baseColumns: ColumnDef<Customer, any>[] = [
   { accessorKey: 'name', header: 'Name', cell: (c) => c.getValue() || 'N/A', meta: { mobile: 'title' } },
   { accessorKey: 'phone', header: 'Phone', cell: (c) => c.getValue() || '—' },
   { accessorKey: 'email', header: 'Email', cell: (c) => c.getValue() || '—', meta: { mobile: 'hide' } },
   { accessorKey: 'address_text', header: 'Address', cell: (c) => c.getValue() || '—' },
   { enableGlobalFilter: false, id: 'kind', header: 'Type', accessorFn: kindOf, cell: (c) => (c.getValue() === 'customer' ? 'Customer' : 'Prospect') },
 ]
-const FILTERS: TableFilter<Customer>[] = [
+const baseFilters: TableFilter<Customer>[] = [
   { key: 'kind', label: 'Type', options: [{ value: 'customer', label: 'Customers' }, { value: 'prospect', label: 'Prospects' }], accessor: kindOf },
 ]
 const SYSTEM_VIEWS: TableView[] = [
@@ -36,11 +39,32 @@ const SYSTEM_VIEWS: TableView[] = [
 
 interface Props {
   customers: Customer[]
+  /** The company's work categories (on and off); the Category column and filter show only when it has any in use or on. */
+  categories?: Category[]
   query: string
   isAdmin?: boolean
 }
 
-export default function CustomersPageClient({ customers, query, isAdmin = false }: Props) {
+/** Category column + filter: its own words, "Not set" for blank. Only offered when some category is on or in use. */
+function withCategory(categories: Category[], customers: Customer[]) {
+  const used = new Set(customers.map((c) => c.category).filter(Boolean) as string[])
+  const options = orderedCategories(categories).filter((c) => c.active || used.has(c.slug))
+  if (options.length === 0) return { columns: baseColumns, filters: baseFilters }
+  const valueOf = (c: Customer) => c.category || 'none'
+  return {
+    columns: [
+      ...baseColumns,
+      { enableGlobalFilter: false, id: 'category', header: 'Category', accessorFn: (c: Customer) => categoryLabel(c.category, categories) || 'Not set' } as ColumnDef<Customer, any>,
+    ],
+    filters: [
+      ...baseFilters,
+      { key: 'category', label: 'Category', options: [...options.map((c) => ({ value: c.slug, label: c.label })), { value: 'none', label: 'Not set' }], accessor: valueOf },
+    ] as TableFilter<Customer>[],
+  }
+}
+
+export default function CustomersPageClient({ customers, categories = [], query, isAdmin = false }: Props) {
+  const { columns, filters } = withCategory(categories, customers)
   const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isBackfilling, setIsBackfilling] = useState(false)
@@ -101,13 +125,13 @@ export default function CustomersPageClient({ customers, query, isAdmin = false 
       )}
 
       <DataTable
-        columns={COLUMNS}
+        columns={columns}
         data={customers}
         tableKey="customers"
         getRowId={(c) => c.id}
         getRowHref={(c) => `/customers/${c.id}`}
         searchPlaceholder="Search name, phone, email or address"
-        filters={FILTERS}
+        filters={filters}
         systemViews={SYSTEM_VIEWS}
         defaultViewId={query ? 'sys:everyone' : 'sys:customers'}
         initialSearch={query}

@@ -31,6 +31,8 @@ export interface OpsBoardJob {
   materials_status: string
   permit_status: string
   priority: string
+  /** Work category slug that counts for this job (its own override, else the customer's); null = not set (lib/categories.ts). */
+  effective_category?: string | null
   assigned_crew?: { id: string; name: string; color: string } | null
   assigned_sub?: { id: string; company_name: string } | null
   customer?: { id: string; name: string; phone: string } | null

@@ -60,6 +60,13 @@ CREATE TEMP TABLE rpt_jobs_cols_before AS SELECT attnum, attname FROM pg_attribu
 \i supabase/migrations/202611230010_rpt_revenue.sql
 -- Idempotent re-apply.
 \i supabase/migrations/202611230010_rpt_revenue.sql
+-- Work categories (customers / production_jobs .category, the label function, `category` appended to rpt_jobs / rpt_invoices / rpt_revenue).
+ALTER TABLE orgs ADD COLUMN IF NOT EXISTS settings jsonb DEFAULT '{}'::jsonb; -- the real orgs table has it; the harness's small one does not
+ALTER TABLE job_invoices ADD COLUMN IF NOT EXISTS paid_outside_cents integer NOT NULL DEFAULT 0; -- 202611120040 (Jobber import), the one column rpt_invoices reads
+\i supabase/migrations/202611140010_rpt_invoices.sql
+\i supabase/migrations/202611240020_work_categories.sql
+-- Idempotent re-apply.
+\i supabase/migrations/202611240020_work_categories.sql
 
 -- Test helper: totals as the app sends them (tax passed in; lib/sales-tax.ts is tested in jest).
 CREATE FUNCTION bill(o uuid, c uuid, p uuid, u uuid, lines jsonb, tax int DEFAULT 0) RETURNS jsonb LANGUAGE sql AS $$
@@ -158,8 +165,8 @@ BEGIN
   ASSERT (SELECT balance_due FROM rpt_jobs WHERE job_id = j3) = 310, 'T1c time & materials owes its issued invoices';
   ASSERT (SELECT balance_due FROM rpt_jobs WHERE job_id = j4) = 210, 'T1c no contract price owes its issued invoices (was 0 before this change)';
   ASSERT (SELECT balance_due FROM rpt_jobs WHERE job_id = j2) = 0, 'T1c cancelled owes nothing';
-  ASSERT (SELECT count(*) FROM rpt_jobs_cols_before) = (SELECT count(*) FROM pg_attribute WHERE attrelid = 'rpt_jobs'::regclass AND attnum > 0 AND NOT attisdropped)
-     AND NOT EXISTS (SELECT 1 FROM rpt_jobs_cols_before b JOIN pg_attribute a ON a.attrelid = 'rpt_jobs'::regclass AND a.attnum = b.attnum WHERE a.attname <> b.attname), 'T1c rpt_jobs keeps its columns, same order';
+  ASSERT (SELECT count(*) FROM rpt_jobs_cols_before) + 1 = (SELECT count(*) FROM pg_attribute WHERE attrelid = 'rpt_jobs'::regclass AND attnum > 0 AND NOT attisdropped)
+     AND NOT EXISTS (SELECT 1 FROM rpt_jobs_cols_before b JOIN pg_attribute a ON a.attrelid = 'rpt_jobs'::regclass AND a.attnum = b.attnum WHERE a.attname <> b.attname), 'T1c rpt_jobs keeps its columns, same order (the work category is the one new column, last)';
   -- T1d the company's own day: a job with no sale date falls on 10 March (New York evening), not 11 March (UTC).
   ASSERT (SELECT event_date FROM rpt_revenue WHERE reference = '26-0005' AND entry = 'Billed') = '2026-03-10', 'T1d created_at fallback uses the company time zone';
   ASSERT NOT EXISTS (SELECT 1 FROM rpt_revenue WHERE reference = '26-0002' AND entry = 'Billed'), 'T1 cancelled job bills nothing';
@@ -189,6 +196,42 @@ BEGIN
   INSERT INTO job_invoices (org_id, customer_id, property_id, created_by, status, issued_at, subtotal_cents, total_cents, tax_cents, invoice_kind)
     VALUES (o1, ca, pa, u1, 'sent', '2026-05-10', 20000, 20000, 0, 'service');
   ASSERT (SELECT sum(billed_service) FROM rpt_revenue WHERE org_id = o1) = 355, 'T8 lineless invoice bills its subtotal';
+  -- T10 work categories: effective category = the job's own override, else its customer's; blank stays blank; labels are the company's.
+  DECLARE
+    before_total numeric;
+  BEGIN
+    SELECT sum(billed) INTO before_total FROM rpt_revenue WHERE org_id = o1;
+    ASSERT NOT EXISTS (SELECT 1 FROM rpt_jobs WHERE category IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM rpt_revenue WHERE category IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM rpt_invoices WHERE category IS NOT NULL), 'T10 no backfill: everything starts as not set';
+    UPDATE customers SET category = 'commercial' WHERE id = ca;
+    UPDATE production_jobs SET category = 'new_build' WHERE id = j1;
+    ASSERT (SELECT category FROM rpt_jobs WHERE job_id = j1) = 'New build', 'T10 the job override wins over its customer';
+    ASSERT (SELECT category FROM rpt_jobs WHERE job_id = j4) = 'Commercial', 'T10 a job without an override follows its customer';
+    ASSERT (SELECT category FROM rpt_jobs WHERE job_id = j3) IS NULL, 'T10 no customer, no override = not set (NULL, not a default)';
+    ASSERT (SELECT bool_and(category = 'New build') FROM rpt_revenue WHERE org_id = o1 AND reference = '26-0001'), 'T10 revenue: the job''s billed row and its payments carry the override';
+    ASSERT (SELECT bool_and(category = 'Commercial') FROM rpt_revenue WHERE org_id = o1 AND work_type = 'Service'), 'T10 revenue: service invoices, their payments and a no-job refund follow the customer';
+    ASSERT (SELECT bool_and(category = 'Commercial') FROM rpt_invoices WHERE org_id = o1), 'T10 service invoices follow the customer';
+    ASSERT NOT EXISTS (SELECT 1 FROM rpt_revenue WHERE org_id = o2 AND category IS NOT NULL), 'T10 another company stays blank';
+    ASSERT (SELECT sum(billed) FROM rpt_revenue WHERE org_id = o1) = before_total, 'T10 a category never changes a dollar (the customer join is one-to-one)';
+    -- the company's own label (a rename shows up in reports at once), a slug nobody listed, and a blank
+    UPDATE orgs SET settings = '{"categories":{"items":[{"slug":"commercial","label":"Business"}]}}'::jsonb WHERE id = o1;
+    ASSERT (SELECT category FROM rpt_jobs WHERE job_id = j4) = 'Business', 'T10 label comes from the company list';
+    ASSERT (SELECT category FROM rpt_jobs WHERE job_id = j1) = 'New build', 'T10 a standard slug missing from a saved list still reads its standard name';
+    UPDATE customers SET category = 'multi_family' WHERE id = ca;
+    ASSERT (SELECT category FROM rpt_jobs WHERE job_id = j4) = 'Multi family', 'T10 an unlisted slug reads as its title-cased slug';
+    UPDATE customers SET category = NULL WHERE id = ca;
+    ASSERT (SELECT category FROM rpt_jobs WHERE job_id = j4) IS NULL, 'T10 cleared = not set';
+    ASSERT (SELECT attname FROM pg_attribute WHERE attrelid = 'rpt_revenue'::regclass AND attnum > 0 ORDER BY attnum DESC LIMIT 1) = 'category', 'T10 revenue: category appended last';
+    BEGIN
+      UPDATE customers SET category = 'Not A Slug' WHERE id = ca;
+      ASSERT false, 'T10 the slug format is checked';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+    BEGIN
+      UPDATE production_jobs SET category = '' WHERE id = j1;
+      ASSERT false, 'T10 an empty string is not a category (the writers send NULL)';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+  END;
   -- T9 the view is closed to the browser roles like every rpt_* view.
   ASSERT NOT has_table_privilege('anon', 'rpt_revenue', 'select') AND NOT has_table_privilege('authenticated', 'rpt_revenue', 'select'), 'T9 revoked from anon / authenticated';
   RAISE NOTICE 'REPORT: all assertions passed';

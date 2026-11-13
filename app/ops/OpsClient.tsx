@@ -34,6 +34,13 @@ import { formatDate, formatMoney } from '@/lib/format'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { JobCatchUpLine } from '@/components/ops/JobCatchUp'
 import { boardOwnerFilterValue } from '@/lib/job-catch-up'
+import { categoryLabel, orderedCategories, type Category } from '@/lib/categories'
+
+/** Board category filter: 'all', a slug, or 'none' (not set) — on the job's effective category. */
+function matchesCategoryFilter(job: OpsBoardJob, filter: string): boolean {
+  if (filter === 'all') return true
+  return filter === 'none' ? !job.effective_category : job.effective_category === filter
+}
 
 /** Paused jobs render in a strip above the board; cancelled ones in a list below it. */
 type BoardColumnStatus = Exclude<JobStatus, 'collected' | 'on_hold' | 'cancelled'>
@@ -46,6 +53,8 @@ interface OpsClientProps {
   catchUp?: { enabled: boolean; stuckDays: number; failed?: boolean; viewerId?: string }
   /** The company's industry profile resolved on the server (lib/org-profile.ts), so the heading paints first time. */
   orgProfile?: ClientOrgProfile | null
+  /** The company's work categories, for the Category filter. */
+  categories?: Category[]
 }
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
@@ -117,7 +126,7 @@ function formatJobTypeLabel(jobType: string): string {
     .join(' ')
 }
 
-export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp, orgProfile }: OpsClientProps) {
+export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp, orgProfile, categories = [] }: OpsClientProps) {
   // The company's words (industry profile, lib/org-profile.ts; server-resolved by the page so the first paint is right).
   const terms = useOrgProfile(orgProfile).terms
   const catchUpOn = catchUp?.enabled === true
@@ -136,6 +145,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
   }, [])
   const [snapshotJob, setSnapshotJob] = useState<OpsBoardJob | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
+  const [filterCategory, setFilterCategory] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [completedSearchQuery, setCompletedSearchQuery] = useState('')
 
@@ -223,6 +233,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
       },
       { id: 'customer', header: 'Customer', accessorFn: (j) => j.customer?.name ?? '' , cell: (c) => c.getValue() || '—' },
       { id: 'type', header: 'Type', accessorFn: (j) => j.job_type, cell: (c) => <span className="capitalize">{formatJobTypeLabel(String(c.getValue() ?? ''))}</span>, meta: { mobile: 'hide' } },
+      ...(categories.length > 0 ? [{ id: 'category', header: 'Category', accessorFn: (j: OpsBoardJob) => categoryLabel(j.effective_category, categories) || '—' } as ColumnDef<OpsBoardJob, any>] : []),
       { id: 'status', header: 'Status', accessorFn: (j) => j.status, cell: (c) => <StatusPill domain="job" value={c.getValue()} /> },
       {
         id: 'payment',
@@ -270,7 +281,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
     }
     return cols
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canViewProfitability, catchUpOn])
+  }, [canViewProfitability, catchUpOn, categories])
 
   const activeJobs = useMemo(
     () => jobs.filter((job) => job.status !== 'collected' && job.status !== CANCELLED_JOB_STATUS),
@@ -292,9 +303,10 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
     () =>
       activeJobs.filter((job) => {
         if (filterType !== 'all' && job.job_type !== filterType) return false
+        if (!matchesCategoryFilter(job, filterCategory)) return false
         return matchesActiveSearch(job, searchQuery)
       }),
-    [activeJobs, filterType, searchQuery]
+    [activeJobs, filterType, filterCategory, searchQuery]
   )
 
   const jobTypeOptions = useMemo(() => {
@@ -312,10 +324,17 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
     })
   }, [jobs])
 
+  // Category filter: the company's categories that are on or in use on a job; hidden when there is nothing to pick.
+  const categoryOptions = useMemo(() => {
+    const used = new Set(jobs.map((j) => j.effective_category).filter(Boolean) as string[])
+    return orderedCategories(categories).filter((c) => c.active || used.has(c.slug)).map((c) => ({ value: c.slug, label: c.label }))
+  }, [categories, jobs])
+
   const listFilters = useMemo<TableFilter<OpsBoardJob>[]>(
     () => [
       { key: 'status', label: 'Status', options: Object.keys(JOB_STATUS_CONFIG).filter((k) => k !== 'collected' && k !== CANCELLED_JOB_STATUS).map((k) => ({ value: k, label: JOB_STATUS_CONFIG[k as JobStatus].label })), accessor: (j) => j.status },
       { key: 'type', label: 'Type', options: jobTypeOptions.map((t) => ({ value: t, label: formatJobTypeLabel(t) })), accessor: (j) => j.job_type },
+      ...(categoryOptions.length > 0 ? [{ key: 'category', label: 'Category', options: [...categoryOptions, { value: 'none', label: 'Not set' }], accessor: (j: OpsBoardJob) => j.effective_category || 'none' }] : []),
       { key: 'materials', label: 'Materials', options: Object.entries(materialsConfig).map(([value, m]) => ({ value, label: m.label })), accessor: (j) => j.materials_status },
       { key: 'scheduled', label: 'Scheduled', options: [{ value: 'no', label: 'Not scheduled' }, { value: 'yes', label: 'Scheduled' }, { value: 'late', label: 'Past due' }], accessor: (j) => (isJobPastDue(j) ? 'late' : j.scheduled_date ? 'yes' : 'no') },
       ...(catchUpOn
@@ -325,7 +344,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
           ]
         : []),
     ],
-    [jobTypeOptions, catchUpOn, viewerId]
+    [jobTypeOptions, categoryOptions, catchUpOn, viewerId]
   )
 
   const jobsByBoardStatus = useMemo(() => {
@@ -355,9 +374,10 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
     () =>
       completedJobs.filter((job) => {
         if (filterType !== 'all' && job.job_type !== filterType) return false
+        if (!matchesCategoryFilter(job, filterCategory)) return false
         return matchesActiveSearch(job, completedSearchQuery)
       }),
-    [completedJobs, filterType, completedSearchQuery]
+    [completedJobs, filterType, filterCategory, completedSearchQuery]
   )
 
   const stats = useMemo(
@@ -560,6 +580,25 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                   </option>
                 ))}
               </select>
+              {categoryOptions.length > 0 && (
+                <select
+                  hidden={viewMode === 'list'}
+                  id="ops-job-category-filter"
+                  name="ops-job-category-filter"
+                  aria-label="Category"
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value)}
+                  className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-base sm:text-sm"
+                >
+                  <option value="all">All categories</option>
+                  {categoryOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                  <option value="none">Not set</option>
+                </select>
+              )}
               <div className="flex border border-gray-300 rounded-lg overflow-hidden">
                 <button
                   onClick={() => setViewMode('board')}

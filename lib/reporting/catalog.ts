@@ -50,7 +50,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
       c('salesperson', 'Salesperson'), c('sale_amount', 'Sale amount', 'money', false, true), c('collected', 'Collected', 'money'),
       c('balance_due', 'Balance due', 'money'), c('aging_bucket', 'How old (unpaid)', 'text', true), c('days_since_sale', 'Days since sale', 'number'),
       c('dealer_fee', 'Lender fee', 'money', true), c('cost_total', 'Total cost', 'money', true),
-      c('profit_before_commission', 'Profit before commission', 'money', true),
+      c('profit_before_commission', 'Profit before commission', 'money', true), c('category', 'Category'),
     ],
   },
   sales: {
@@ -76,7 +76,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
     columns: [
       c('invoice_number', 'Invoice #'), c('customer', 'Customer'), c('property', 'Property'), c('status', 'Status'), c('invoice_date', 'Invoice date', 'date'),
       c('due_at', 'Due', 'date'), c('subtotal', 'Subtotal', 'money'), c('tax', 'Sales tax', 'money'), c('total', 'Total', 'money'), c('paid', 'Paid', 'money'),
-      c('balance_due', 'Owed', 'money'), c('days_overdue', 'Days late', 'number'), c('aging_bucket', 'How late'),
+      c('balance_due', 'Owed', 'money'), c('days_overdue', 'Days late', 'number'), c('aging_bucket', 'How late'), c('category', 'Category'),
     ],
   },
   revenue: {
@@ -86,7 +86,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
       c('event_date', 'Date', 'date'), c('work_type', 'Kind of work'), c('entry', 'Billed or collected'), c('service', 'Service'), c('trade', 'Trade'),
       c('reference', 'Job / invoice #'), c('customer', 'Customer'), c('billed', 'Billed', 'money'), c('collected', 'Collected', 'money'),
       c('billed_jobs', 'Billed: jobs', 'money'), c('billed_service', 'Billed: service', 'money'),
-      c('collected_jobs', 'Collected: jobs', 'money'), c('collected_service', 'Collected: service', 'money'),
+      c('collected_jobs', 'Collected: jobs', 'money'), c('collected_service', 'Collected: service', 'money'), c('category', 'Category'),
     ],
   },
   job_costs: {

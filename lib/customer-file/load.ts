@@ -6,6 +6,10 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { defaultTab, tabLabelsFor, tabsFor, type FileTab } from '@/lib/customer-file/access'
 import { loadOrgProfile } from '@/lib/org-profile'
+import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
+import type { Category } from '@/lib/categories'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { buildStages, nextAction, type StageStep } from '@/lib/customer-file/stage'
 import { dealRefsFor, getPinned, loadDeal, type ThreadMessage } from '@/lib/threads/get-thread'
 import { canOpenDeal } from '@/lib/threads/api'
@@ -47,6 +51,10 @@ export type FileContext = {
   canViewJobBilling: boolean
   signedContract: boolean
   proposalCount: number
+  /** The customer's work category slug (null = not set) and the company's list; edit follows PATCH /api/customers/[id]. */
+  category: string | null
+  categories: Category[]
+  canEditCategory: boolean
 }
 
 /**
@@ -116,6 +124,14 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
   const prefs = (profile as { ui_prefs?: Record<string, unknown> | null }).ui_prefs ?? null
   const remembered = typeof prefs?.fileTab === 'string' ? (prefs.fileTab as string) : null
   const pinned = await getPinned(admin, viewer, dealRow)
+  // Work category (customers.category): read separately so a missing column can never break the file.
+  const [categories, categoryByCustomer, customerPerms] = await Promise.all([
+    loadOrgCategories(admin, viewer.orgId),
+    loadCustomerCategories(admin, viewer.orgId, [customerId]),
+    resolveEffectivePermissionNames(admin, profile.id, profile),
+  ])
+  const canEditCategory =
+    canEditCustomerRecordsFromPermissionNames(customerPerms) && (!isRepLikeCustomerRecordRole(profile.role) || dealRow.owner_user_id === profile.id)
 
   return {
     viewer,
@@ -135,6 +151,9 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
     canViewJobBilling: await callerCanAccessJobBilling(admin, profile),
     signedContract,
     proposalCount,
+    category: categoryByCustomer.get(customerId) ?? null,
+    categories,
+    canEditCategory,
   }
 })
 

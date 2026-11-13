@@ -7,6 +7,7 @@ import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { notFound } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
 
 export default async function CustomersPage({
   searchParams,
@@ -57,6 +58,14 @@ export default async function CustomersPage({
     customers = (data ?? []).map((c) => ({ ...c, bought: buyers.has(c.id as string) }))
   }
 
+  // Work category on each row (its own read: a missing column can never blank the list) and the company's list for the filter.
+  const adminForCategories = createServiceClient()
+  const [categoryById, categories] = await Promise.all([
+    loadCustomerCategories(adminForCategories, profile.org_id, customers.map((c) => c.id as string)),
+    loadOrgCategories(adminForCategories, profile.org_id),
+  ])
+  customers = customers.map((c) => ({ ...c, category: categoryById.get(c.id as string) ?? null }))
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -67,7 +76,7 @@ export default async function CustomersPage({
             <NewCustomerPlan size="md" />
           </div>
         ) : null}
-        <CustomersPageClient customers={customers} query={query} isAdmin={profile.role === 'admin'} />
+        <CustomersPageClient customers={customers} categories={categories} query={query} isAdmin={profile.role === 'admin'} />
       </div>
     </div>
   )

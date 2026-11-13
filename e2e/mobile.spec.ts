@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CREW_INCENTIVES, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS } from './fixtures'
+import { HARNESS_CATEGORIES, JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CREW_INCENTIVES, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -300,10 +300,31 @@ const SCREENS: Screen[] = [
       for (const l of ['Dashboard', 'Reports', 'Sisu']) if ((await p.locator('nav[aria-label="Main"]').getByRole('link', { name: l, exact: true }).count()) > 0 && (await p.locator('nav[aria-label="Main"]').getByRole('link', { name: l, exact: true }).first().isVisible())) throw new Error(`${l} must not be a bottom tab`) } }] },
   { name: 'job-setup', path: '/dev-harness/job-setup', ready: 'text=Solar panel removal & reinstall', mock: async (p) => {
     await p.route('**/api/admin/job-setup/trades', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(JOB_SETUP_TRADES) }))
+    await p.route('**/api/categories', (route) => route.fulfill(json({ categories: HARNESS_CATEGORIES })))
   },
     states: [
+      { name: 'categories-tab', run: async (p) => { await p.getByRole('tab', { name: 'Categories' }).click(); await p.waitForSelector('text=New build'); await p.getByRole('button', { name: 'Rename' }).first().click(); await p.waitForSelector('input[aria-label="New name for Residential"]') } },
       { name: 'renaming', run: async (p) => { await p.getByRole('button', { name: 'Rename' }).first().click(); await p.waitForSelector('input[aria-label="New name for Roofing"]') } },
       { name: 'adding', run: async (p) => { await p.getByLabel('Add a trade').fill('Painting'); await p.waitForTimeout(100) } },
+    ] },
+  // Work categories: the one-tap picker on the customer (blank by default) and on a job ("Same as customer (…)" by default).
+  { name: 'categories', path: '/dev-harness/categories', ready: 'text=Category for this job', mock: async (p) => {
+    await p.route('**/api/categories', (route) => route.fulfill(json({ categories: HARNESS_CATEGORIES })))
+    await p.route('**/api/customers/c1', (route) => route.fulfill(json({ customer: { id: 'c1' } })))
+    await p.route('**/api/ops/jobs/j1/category', (route) => route.fulfill(json({ jobCategory: null })))
+  },
+    states: [
+      { name: 'picked', run: async (p) => {
+        const customerSave = p.waitForRequest((r) => r.url().endsWith('/api/customers/c1') && r.method() === 'PATCH')
+        await p.getByRole('radio', { name: 'Commercial' }).first().click()
+        const body = (await customerSave).postDataJSON()
+        if (body.category !== 'commercial') throw new Error(`customer save sent ${JSON.stringify(body)}`)
+        const jobSave = p.waitForRequest((r) => r.url().endsWith('/api/ops/jobs/j1/category') && r.method() === 'PATCH')
+        await p.getByRole('radio', { name: 'New build' }).last().click()
+        const jb = (await jobSave).postDataJSON()
+        if (jb.category !== 'new_build') throw new Error(`job save sent ${JSON.stringify(jb)}`)
+        await p.getByRole('radio', { name: 'Same as customer (Residential)' }).waitFor()
+      } },
     ] },
   { name: 'move-from-jobber', path: '/dev-harness/move-from-jobber', ready: 'text=2. Check before anything is saved', mock: async (p) => {
     await p.route(/\/api\/admin\/import\/jobber$/, (route) => route.fulfill(json({ ready: true, runs: [HARNESS_JOBBER_RUN] })))
