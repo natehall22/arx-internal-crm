@@ -84,6 +84,27 @@ describe('job invoices on jobs already paid in full (the prod shape)', () => {
     expect(q.items).toHaveLength(1)
     expect(q.items[0].note).toContain('$133.17 owed')
   })
+  it('several open invoices on one job share what the job still owes, oldest due first (never more than the job owes)', async () => {
+    const d = createFakeDb({
+      production_jobs: [{ id: 'jm', org_id: ORG, customer_id: 'c1', job_number: '26-0040', sale_amount: 100, status: 'complete' }],
+      customers: [{ id: 'c1', org_id: ORG, name: 'Pat Lee', email: null }],
+      job_invoices: [
+        inv('1', { job_id: 'jm', total_cents: 6000, due_at: '2026-11-01' }), // deposit
+        inv('2', { job_id: 'jm', total_cents: 10000, due_at: '2026-11-05' }), // re-issued for the whole sale
+      ],
+      invoice_payments: [],
+      job_payments: [{ id: 'a', job_id: 'jm', amount_cents: 2500, payment_type: 'deposit', method: 'check', paid_at: '2026-11-01' }], // never applied
+    })
+    const q = await loadUnpaidInvoicesQueue(d.client as never, ORG, NOW, { money: true })
+    // The job still owes $75: $60 on the oldest, $15 on the next — $75 together, not $60 + $75.
+    expect(q.items.map((i) => [i.ref, i.note.split(' · ')[0]])).toEqual([
+      ['Job 26-0040 · Invoice INV-26-1', '$60.00 owed'],
+      ['Job 26-0040 · Invoice INV-26-2', '$15.00 owed'],
+    ])
+    d.tables.job_payments.push({ id: 'b', job_id: 'jm', amount_cents: 2000, payment_type: 'final', method: 'check', paid_at: '2026-11-02' })
+    const q2 = await loadUnpaidInvoicesQueue(d.client as never, ORG, NOW, { money: true })
+    expect(q2.items.map((i) => [i.ref, i.note.split(' · ')[0]])).toEqual([['Job 26-0040 · Invoice INV-26-1', '$55.00 owed']]) // nothing left for the second
+  })
 })
 
 describe('loadUnpaidInvoicesQueue', () => {

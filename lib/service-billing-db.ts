@@ -388,18 +388,25 @@ export async function loadUnpaidInvoices(admin: SupabaseClient, orgId: string): 
     }
     if (invoices.length < UNPAID_INVOICES_READ_CAP) break
   }
-  // A job invoice is never owed more than its JOB still owes by the one rule (lib/job-collection.ts): money recorded on the job
-  // is often never applied to the invoice, so its own balance reads too high (or open on a collected job). Paid in full -> gone;
-  // otherwise capped at the job's remaining balance. Applies to every user of this list.
-  const collections = await jobCollections(admin, orgId, Array.from(new Set(open.map((x) => x.i.job_id).filter((id): id is string => !!id))))
-  for (let k = open.length - 1; k >= 0; k--) {
-    const c = open[k].i.job_id ? collections.get(open[k].i.job_id as string) : null
-    if (!c || (c.missingSaleAmount && !c.paidInFull)) continue // no sale amount on file: nothing to cap against
-    if (c.paidInFull || c.remainingCents <= 0) open.splice(k, 1)
-    else open[k].balance = Math.min(open[k].balance, c.remainingCents)
-  }
   // Oldest due first, no due date last (sorted here so it never depends on the database's null ordering).
   open.sort((x, y) => (x.i.due_at ?? '9999').localeCompare(y.i.due_at ?? '9999') || x.i.created_at.localeCompare(y.i.created_at))
+  // A job's invoices TOGETHER are never owed more than the JOB still owes by the one rule (lib/job-collection.ts): money recorded
+  // on the job is often never applied to an invoice, so their own balances read too high (or open on a collected job), and two
+  // open invoices on one job must not each claim the job's whole remaining. Paid in full -> gone; otherwise the job's remaining
+  // is shared out oldest due first (the order every collection splits in) and an invoice left with nothing is not owed.
+  // Applies to every user of this list.
+  const collections = await jobCollections(admin, orgId, Array.from(new Set(open.map((x) => x.i.job_id).filter((id): id is string => !!id))))
+  const left = new Map<string, number>()
+  for (let k = 0; k < open.length; k++) {
+    const jobId = open[k].i.job_id
+    const c = jobId ? collections.get(jobId) : null
+    if (!jobId || !c || (c.missingSaleAmount && !c.paidInFull)) continue // no sale amount on file: nothing to cap against
+    const budget = c.paidInFull ? 0 : left.get(jobId) ?? Math.max(0, c.remainingCents)
+    const take = Math.min(open[k].balance, budget)
+    left.set(jobId, budget - take)
+    open[k].balance = take
+  }
+  for (let k = open.length - 1; k >= 0; k--) if (open[k].balance <= 0) open.splice(k, 1)
   // A job invoice names its customer through the job (customer_id on the invoice itself is only set without a job).
   const jobIds = Array.from(new Set(open.map((x) => x.i.job_id).filter((id): id is string => !!id)))
   const jobFacts = new Map<string, { customerId: string | null; jobNumber: string | null }>()
