@@ -44,6 +44,8 @@ set the bare domain is refused (no company), and links built from it would die. 
 | 8 | Website (arxroofing.com Vercel project) | `NEXT_PUBLIC_CRM_PUBLIC_ESTIMATE_URL` → `https://arxhome.arxcapitol.com` (instant estimate). | old keeps working |
 | 9 | Lead sources (Zapier/Facebook/forms) | Re-point any `…/api/webhooks/leads?token=…` URL to the new host (Admin → Campaigns now shows the new address). | yes |
 | 10 | iOS (Xcode) | Build setting `CRM_BASE_URL` → `https://arxhome.arxcapitol.com`, ship via TestFlight/App Store. Old builds keep calling the old host. | yes |
+| 11 | Intuit developer app "ARX" → Settings → Redirect URIs, then Vercel env | Add `https://arxhome.arxcapitol.com/api/integrations/quickbooks/callback` (keep the vercel.app one), then set `INTUIT_REDIRECT_URI` to it and redeploy. Connected QuickBooks companies keep working (tokens are not tied to the address). | yes |
+| 12 | AI apps (Claude / ChatGPT) | Each person re-adds the connector with `https://arxhome.arxcapitol.com/mcp` (Settings → Connect your AI shows it). Old connections stop when the vercel.app address does. | n/a |
 
 ## Cutover order
 1. GitHub variables (#1) — they work on either host.
