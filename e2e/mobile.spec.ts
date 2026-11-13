@@ -641,18 +641,18 @@ const SCREENS: Screen[] = [
       await p.getByRole('button', { name: '7 days' }).click()
       if (!(await save.isEnabled())) throw new Error('Save should be enabled after changes')
       await save.click()
-      await p.waitForSelector('text=Saved')
+      await p.waitForSelector('text="Saved"')
       await p.getByLabel('Send your own documents for signature').uncheck()
       if (await p.getByText('Daily limit for bulk sends').isVisible().catch(() => false)) throw new Error('bulk limit still visible after turning its switch off')
     } }] },
-  { name: 'checkup-settings', path: '/dev-harness/checkup-settings', ready: 'text=When on, every finished install',
+  { name: 'checkup-settings', path: '/dev-harness/checkup-settings', ready: 'text=When on, every finished job',
     states: [{ name: 'on-edit', run: async (p) => {
       const saveBody: unknown[] = []
       await p.route('**/api/admin/settings', async (route) => { saveBody.push(route.request().postDataJSON()); await route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' }) })
       const save = p.getByRole('button', { name: 'Save changes' })
       if (await save.isEnabled()) throw new Error('Save should be disabled before any change')
       await p.getByRole('switch', { name: 'Customer checkups' }).check()
-      await p.waitForSelector('text=Roof inspections, after the install')
+      await p.waitForSelector('text=Inspections, after the job is finished')
       const example = p.getByTestId('checkup-example')
       await p.getByRole('button', { name: 'Remove 12 months' }).click()
       if (!/inspection in \w+ \d{4}, then a check-in every year after/.test((await example.textContent()) || '')) throw new Error('example did not update after removing a chip')
@@ -661,11 +661,11 @@ const SCREENS: Screen[] = [
       if (!(await p.getByRole('button', { name: 'Remove 9 months' }).isVisible())) throw new Error('9 month chip missing')
       if (!(await save.isEnabled())) throw new Error('Save should be enabled after a change')
       await save.click()
-      await p.waitForSelector('text=Saved')
+      await p.waitForSelector('text="Saved"')
       const body = saveBody[0] as Record<string, unknown>
       if (JSON.stringify(body.inspectionMonths) !== '[6,9]' || body.enabled !== true) throw new Error(`unexpected save body ${JSON.stringify(body)}`)
       await p.getByRole('switch', { name: 'Customer checkups' }).uncheck()
-      await p.waitForSelector('text=When on, every finished install')
+      await p.waitForSelector('text=When on, every finished job')
     } }] },
   { name: 'catch-up-settings', path: '/dev-harness/catch-up-settings', ready: 'text=Flag a job as stuck' },
   { name: 'org-features', path: '/dev-harness/org-features', ready: 'text=Turn off what your company doesn’t use' },

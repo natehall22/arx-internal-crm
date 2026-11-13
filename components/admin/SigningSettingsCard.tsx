@@ -141,7 +141,7 @@ export default function SigningSettingsCard() {
 
         <div className="flex items-center gap-3 pt-2">
           <Button onClick={save} disabled={!canSave} loading={busy} className="min-h-tap">Save changes</Button>
-          {justSaved && !dirty && <span role="status" className="text-base font-semibold">Saved</span>}
+          {dirty ? <span role="status" className="text-base font-semibold">Not saved yet</span> : justSaved ? <span role="status" className="text-base font-semibold">Saved</span> : null}
         </div>
       </CardContent>
     </Card>

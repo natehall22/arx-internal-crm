@@ -35,13 +35,18 @@ export type CheckupSettings = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** Limits for the inspection months and the call/text cadence (the Settings card reads these too). */
+export const INSPECTION_MONTH_RANGE = { min: 1, max: 120 } as const
+export const MAX_INSPECTIONS = 4
+export const TOUCH_EVERY_MAX_MONTHS = 60
+
 /** 1–4 distinct whole months from 1 to 120, ascending; anything else → null. */
 export function parseInspectionMonths(v: unknown): number[] | null {
-  if (!Array.isArray(v) || v.length > 4) return null
+  if (!Array.isArray(v) || v.length > MAX_INSPECTIONS) return null
   const out: number[] = []
   for (const x of v) {
     const n = typeof x === 'number' ? x : typeof x === 'string' && x.trim() !== '' ? Number(x) : NaN
-    if (!Number.isInteger(n) || n < 1 || n > 120) return null
+    if (!Number.isInteger(n) || n < INSPECTION_MONTH_RANGE.min || n > INSPECTION_MONTH_RANGE.max) return null
     if (!out.includes(n)) out.push(n)
   }
   return out.sort((a, b) => a - b)
@@ -49,7 +54,7 @@ export function parseInspectionMonths(v: unknown): number[] | null {
 
 export function parseTouchEveryMonths(v: unknown): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN
-  if (!Number.isInteger(n) || n < 0 || n > 60) return null
+  if (!Number.isInteger(n) || n < 0 || n > TOUCH_EVERY_MAX_MONTHS) return null
   return n
 }
 

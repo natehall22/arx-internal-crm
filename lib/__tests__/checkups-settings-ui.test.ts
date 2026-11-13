@@ -57,12 +57,25 @@ describe('inspection chips', () => {
 
 describe('live example', () => {
   it('uses the day passed in (the company\'s today), never the machine clock', () => {
-    expect(checkupExample({ inspectionMonths: [6, 12], touchEveryMonths: 12 }, '2026-11-12')).toBe('Example: a roof finished today gets inspections in May 2027 and Nov 2027, then a check-in every year after.')
+    expect(checkupExample({ inspectionMonths: [6, 12], touchEveryMonths: 12 }, '2026-11-12')).toBe('Example: a job finished today gets inspections in May 2027 and Nov 2027, then a check-in every year after.')
   })
   it('handles one inspection, other cadences, never, and year wrap', () => {
-    expect(checkupExample({ inspectionMonths: [6], touchEveryMonths: 24 }, '2026-12-31')).toBe('Example: a roof finished today gets an inspection in Jun 2027, then a check-in every 2 years after.')
-    expect(checkupExample({ inspectionMonths: [3, 6, 12], touchEveryMonths: 0 }, '2026-11-12')).toBe('Example: a roof finished today gets inspections in Feb 2027, May 2027 and Nov 2027, and no check-ins after that.')
+    expect(checkupExample({ inspectionMonths: [6], touchEveryMonths: 24 }, '2026-12-31')).toBe('Example: a job finished today gets an inspection in Jun 2027, then a check-in every 2 years after.')
+    expect(checkupExample({ inspectionMonths: [3, 6, 12], touchEveryMonths: 0 }, '2026-11-12')).toBe('Example: a job finished today gets inspections in Feb 2027, May 2027 and Nov 2027, and no check-ins after that.')
     expect(checkupExample({ inspectionMonths: [12], touchEveryMonths: 18 }, '2026-01-31')).toContain('then a check-in every 18 months after')
     expect(checkupExample({ inspectionMonths: [], touchEveryMonths: 12 }, '2026-11-12')).toMatch(/at least one inspection/)
+  })
+  it('month-end clamps (Aug 31 + 6 months → Feb), leap years too, and uses the company word for a job', () => {
+    expect(checkupExample({ inspectionMonths: [6], touchEveryMonths: 0 }, '2026-08-31')).toContain('in Feb 2027')
+    expect(checkupExample({ inspectionMonths: [6], touchEveryMonths: 0 }, '2027-08-31')).toContain('in Feb 2028')
+    expect(checkupExample({ inspectionMonths: [1], touchEveryMonths: 0 }, '2027-01-31')).toContain('in Feb 2027')
+    expect(checkupExample({ inspectionMonths: [6], touchEveryMonths: 12 }, '2026-11-12', 'Project')).toMatch(/^Example: a project finished today/)
+  })
+})
+
+describe('chip limits come from the settings module', () => {
+  it('matches parseInspectionMonths and the signing reminder rules', () => {
+    expect(INSPECTION_CHIP_RULES).toEqual({ unit: 'month', min: 1, max: 120, maxCount: 4 })
+    expect(parseInspectionMonths([1, 2, 3, 4, 5])).toBeNull()
   })
 })

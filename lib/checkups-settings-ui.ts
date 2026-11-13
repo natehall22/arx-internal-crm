@@ -2,13 +2,13 @@
  * Plain-words view of the checkup settings for the Settings card (client-safe, no storage of its own).
  * The stored shape and the limits stay in lib/checkups-settings.ts; this only maps them to chips, a select and one example line.
  */
-import { addMonthsYmd } from '@/lib/checkups-settings'
+import { INSPECTION_MONTH_RANGE, MAX_INSPECTIONS, addMonthsYmd } from '@/lib/checkups-settings'
 import type { ChipRules } from '@/lib/chip-numbers'
 
 /** Months offered by "+ Add inspection" (a typed number is also allowed). */
 export const INSPECTION_PRESET_MONTHS: readonly number[] = [3, 6, 9, 12, 18, 24]
 /** Same limits parseInspectionMonths enforces: 1-4 different whole months, 1-120. */
-export const INSPECTION_CHIP_RULES: ChipRules = { unit: 'month', min: 1, max: 120, maxCount: 4 }
+export const INSPECTION_CHIP_RULES: ChipRules = { unit: 'month', min: INSPECTION_MONTH_RANGE.min, max: INSPECTION_MONTH_RANGE.max, maxCount: MAX_INSPECTIONS }
 
 export const TOUCH_CHOICES: ReadonlyArray<{ value: number; label: string }> = [
   { value: 0, label: 'Never' },
@@ -49,10 +49,10 @@ function everyPhrase(n: number): string {
   return n === 1 ? 'every month' : `every ${n} months`
 }
 
-/** One line showing what the current choices do for a roof finished on `todayYmd` (the company's today, passed in). */
-export function checkupExample(s: { inspectionMonths: number[]; touchEveryMonths: number }, todayYmd: string): string {
+/** One line showing what the current choices do for a job finished on `todayYmd` (the company's today, passed in). `jobWord` is the company's own word for a job (industry profile term). */
+export function checkupExample(s: { inspectionMonths: number[]; touchEveryMonths: number }, todayYmd: string, jobWord = 'job'): string {
   if (s.inspectionMonths.length === 0) return 'Add at least one inspection to see an example.'
   const dates = [...s.inspectionMonths].sort((a, b) => a - b).map((m) => monthYearOfYmd(addMonthsYmd(todayYmd, m)))
-  const first = `Example: a roof finished today gets ${s.inspectionMonths.length === 1 ? 'an inspection' : 'inspections'} in ${joinPlain(dates)}`
+  const first = `Example: a ${jobWord.toLowerCase()} finished today gets ${s.inspectionMonths.length === 1 ? 'an inspection' : 'inspections'} in ${joinPlain(dates)}`
   return s.touchEveryMonths > 0 ? `${first}, then a check-in ${everyPhrase(s.touchEveryMonths)} after.` : `${first}, and no check-ins after that.`
 }

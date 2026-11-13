@@ -85,7 +85,7 @@ export default async function SettingsPage() {
           {canEditFeatures && features.quickbooks ? <QuickBooksSetup /> : null}
           {canEditFeatures && features.quickbooks ? <QuickBooksActivityCard /> : null}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
-          <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} timeZone={orgTimeZone(orgRow?.timezone)} />
+          <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} timeZone={orgTimeZone(orgRow?.timezone)} terms={{ job: orgProfile.terms.job, jobs: orgProfile.terms.jobs }} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}
           {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
           {/* Owners, when the company bills by the hour: rounding, minimums, drive time (lib/hourly-billing.ts). */}

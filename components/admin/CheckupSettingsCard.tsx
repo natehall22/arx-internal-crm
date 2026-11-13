@@ -22,7 +22,8 @@ function toDraft(s: Settings): Draft {
  * Settings → Customer checkups card: on/off, when inspections fall due, how often to check in after that, and who handles them.
  * Only admins / owners can change it (PATCH /api/admin/settings `checkups`, sending only the keys that changed).
  */
-export default function CheckupSettingsCard({ initial, users, timeZone = DEFAULT_TIMEZONE }: { initial: Settings; users: Array<{ id: string; name: string }>; timeZone?: string }) {
+export default function CheckupSettingsCard({ initial, users, timeZone = DEFAULT_TIMEZONE, terms = { job: 'Job', jobs: 'Jobs' } }: { initial: Settings; users: Array<{ id: string; name: string }>; timeZone?: string; terms?: { job: string; jobs: string } }) {
+  const jobWord = terms.job.toLowerCase()
   const canEdit = initial.canEdit
   const [saved, setSaved] = useState<Draft>(toDraft(initial))
   const [draft, setDraft] = useState<Draft>(toDraft(initial))
@@ -52,11 +53,17 @@ export default function CheckupSettingsCard({ initial, users, timeZone = DEFAULT
     setSaving(false)
     const data = await res.json().catch(() => ({}))
     if (!res.ok) return toast.error(data.error || 'Could not save')
-    setSaved(draft)
+    // Only the keys sent were stored; anything held back (e.g. a blank person while turning off) keeps its stored value.
+    setSaved((prev) => ({
+      enabled: 'enabled' in patch ? draft.enabled : prev.enabled,
+      inspectionMonths: 'inspectionMonths' in patch ? [...draft.inspectionMonths] : prev.inspectionMonths,
+      touchEveryMonths: 'touchEveryMonths' in patch ? draft.touchEveryMonths : prev.touchEveryMonths,
+      assignee: 'assigneeUserId' in patch ? draft.assignee : prev.assignee,
+    }))
     setJustSaved(true)
   }
 
-  const example = checkupExample(draft, ymdInZone(new Date(), timeZone))
+  const example = checkupExample(draft, ymdInZone(new Date(), timeZone), terms.job)
 
   return (
     <Card id="checkups" className="scroll-mt-4">
@@ -74,11 +81,11 @@ export default function CheckupSettingsCard({ initial, users, timeZone = DEFAULT
           </label>
 
           {!draft.enabled ? (
-            <p className="text-ui-base">When on, every finished install gets roof inspections at set months, then a call or text check-in. They show on Jobs → Checkups and in the morning email.</p>
+            <p className="text-ui-base">When on, every finished {jobWord} gets inspections at set months, then a call or text check-in. They show on {terms.jobs} → Checkups and in the morning email.</p>
           ) : (
             <>
               <div className="flex flex-col gap-2">
-                <p className="text-ui-sm font-semibold">Roof inspections, after the install</p>
+                <p className="text-ui-sm font-semibold">Inspections, after the {jobWord} is finished</p>
                 <NumberChips
                   values={draft.inspectionMonths}
                   onChange={(inspectionMonths) => change({ inspectionMonths })}
@@ -119,7 +126,7 @@ export default function CheckupSettingsCard({ initial, users, timeZone = DEFAULT
           {canEdit ? (
             <div className="flex items-center gap-3">
               <Button type="button" variant="primary" className="min-h-tap" disabled={!canSave} loading={saving} onClick={() => void save()}>Save changes</Button>
-              {justSaved && !dirty && <span role="status" className="text-ui-base font-semibold">Saved</span>}
+              {dirty ? <span role="status" className="text-ui-base font-semibold">Not saved yet</span> : justSaved ? <span role="status" className="text-ui-base font-semibold">Saved</span> : null}
             </div>
           ) : (
             <p className="text-ui-sm">Only an admin can change these.</p>
