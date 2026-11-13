@@ -29,7 +29,7 @@ export default function AuthorizeConsent({ ticket, companyName, appLabel, claime
   }
 
   return (
-    <main className="mx-auto max-w-md px-4 py-8 text-ink">
+    <main className="min-h-dvh bg-white"><div className="mx-auto max-w-md px-4 py-8 text-ink">
       <h1 className="text-2xl font-semibold">{`${appName} wants to connect to ${companyName}`}</h1>
       <p className="mt-3 rounded-lg border border-amber-500 bg-amber-50 p-3 text-base">
         <strong>Only continue if you started this yourself</strong>, by connecting {companyName} from inside your own AI app just now. If someone sent you here, or you did not ask for this, press Cancel.
@@ -86,6 +86,6 @@ export default function AuthorizeConsent({ ticket, companyName, appLabel, claime
           Cancel
         </button>
       </div>
-    </main>
+    </div></main>
   )
 }

@@ -22,10 +22,10 @@ const KEYS = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'c
 
 function Notice({ title, body }: { title: string; body: string }) {
   return (
-    <main className="mx-auto max-w-md px-4 py-10 text-ink">
+    <main className="min-h-dvh bg-white"><div className="mx-auto max-w-md px-4 py-10 text-ink">
       <h1 className="text-xl font-semibold">{title}</h1>
       <p className="mt-3 text-base">{body}</p>
-    </main>
+    </div></main>
   )
 }
 
