@@ -5,6 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatDateWeekday } from '@/lib/format'
 import { RESULT_TONE_CLASS, SKIP_REASONS, SKIP_REASON_LABELS, type SkipReason, type StepResultOption } from '@/lib/service-plans'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
+import { checklistSummary, unchecked, type ChecklistItem } from '@/lib/visit-checklist'
+import { formatCents } from '@/lib/format'
+import { QrCode } from '@/components/ui/QrCode'
+import type { CrewMoney } from '@/lib/visit-collections'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
 import { useClock, usePresence, type ClockState } from '@/components/time/useClock'
@@ -24,7 +28,18 @@ export type CrewDayVisit = {
   routePosition: number | null
   /** A follow-on step's result options (empty = just "done"). */
   resultOptions: StepResultOption[]
+  /** What the office wrote for the crew about this visit. */
+  officeNotes: string | null
+  /** The services sold, with what has been checked (empty = nothing to check). */
+  checklist: ChecklistItem[]
+  /** What the customer still owes, when anything (never a price line). */
+  money: CrewMoney | null
 }
+
+/** Money tap state for the visit whose panel is open. */
+type MoneyPanel = { id: string; kind: 'collect' | 'qr'; method: 'cash' | 'check'; amount: string; checkNumber: string; qrUrl: string | null; tapId: string }
+
+const newTapId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().replace(/-/g, '') : `${Date.now()}${Math.random().toString(36).slice(2)}`)
 
 /** How long a one-tap skip waits (with Undo) before it is sent. */
 const UNDO_MS = 6000
@@ -71,6 +86,10 @@ export default function CrewDayList({
   const [skipping, setSkipping] = useState<{ id: string; reason: SkipReason | ''; notes: string } | null>(null)
   const [finishing, setFinishing] = useState<string | null>(null)
   const [askPhoto, setAskPhoto] = useState<string | null>(null)
+  // "Mark done anyway?" when services are still unchecked (it never blocks: the crew decides).
+  const [confirmDone, setConfirmDone] = useState<string | null>(null)
+  const [panel, setPanel] = useState<MoneyPanel | null>(null)
+  const [payNote, setPayNote] = useState<Record<string, string>>({})
   const [dead, setDead] = useState(false)
   // A skip waits a few seconds so a wrong tap can be undone; it is sent at once if the page is closed or hidden.
   const pendingSkip = useRef<{ id: string; body: Record<string, unknown>; before: CrewDayVisit; timer: number } | null>(null)
@@ -105,6 +124,8 @@ export default function CrewDayList({
     setSkipping(null)
     setFinishing(null)
     setAskPhoto(null)
+    setConfirmDone(null)
+    setPanel(null)
     setUndoFor(null)
     setDead(true)
   }, [token])
@@ -206,6 +227,62 @@ export default function CrewDayList({
     return true
   }
 
+  /** One tap on a service: shows at once, saves in the background, puts it back (and says so) if it didn't save. */
+  async function toggleLine(v: CrewDayVisit, label: string, done: boolean) {
+    setError(null)
+    const set = (list: ChecklistItem[]) => setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, checklist: list } : x)))
+    set(v.checklist.map((c) => (c.label === label ? { ...c, done } : c)))
+    const res = await fetch(`${base(v.id)}/checklist`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, done }) }).catch(() => null)
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; checklist?: ChecklistItem[] }
+    if (!res || !res.ok) {
+      if (res && res.status === 404) void recheck()
+      set(v.checklist)
+      setError(out.error || 'That tap didn’t save — no signal? Try again.')
+    } else if (out.checklist) set(out.checklist)
+  }
+
+  function startDone(v: CrewDayVisit) {
+    if (unchecked(v.checklist).length > 0 && confirmDone !== v.id) return setConfirmDone(v.id)
+    setConfirmDone(null)
+    if (v.resultOptions.length) return setFinishing(v.id)
+    void act(v.id, { action: 'done' }).then((ok) => ok && markDone(v, {}))
+  }
+
+  async function payLink(v: CrewDayVisit, mode: 'text' | 'qr') {
+    setBusy(v.id)
+    setError(null)
+    const res = await fetch(`${base(v.id)}/pay-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }).catch(() => null)
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; message?: string; url?: string; amountCents?: number; status?: string }
+    setBusy(null)
+    if (res && res.status === 404) return void recheck()
+    if (mode === 'qr') {
+      if (!res || !res.ok || !out.url) return setError(out.error || 'No signal? Try again in a moment.')
+      // The link pays ONE invoice (the oldest open one): say that invoice's amount, not everything the customer owes.
+      return setPanel({ id: v.id, kind: 'qr', method: 'cash', amount: typeof out.amountCents === 'number' ? formatCents(out.amountCents) : '', checkNumber: '', qrUrl: out.url, tapId: '' })
+    }
+    if (!res) return setError('No signal? Try again in a moment.')
+    if (res.ok) return setPayNote((n) => ({ ...n, [v.id]: out.message || 'Pay link texted to the customer.' }))
+    // The text could not go (no OK to text, texting hours, …): say why and hand over the QR code instead.
+    setPayNote((n) => ({ ...n, [v.id]: `${out.message || out.error || 'The text could not be sent.'} Use the QR code instead.` }))
+    void payLink(v, 'qr')
+  }
+
+  async function saveCollection(v: CrewDayVisit, p: MoneyPanel) {
+    setBusy(v.id)
+    setError(null)
+    const body = { amount: p.amount, method: p.method, checkNumber: p.method === 'check' ? p.checkNumber : undefined, tapId: p.tapId }
+    const res = await fetch(`${base(v.id)}/collect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; money?: CrewMoney }
+    setBusy(null)
+    if (!res || !res.ok) {
+      if (res && res.status === 404) void recheck()
+      return setError(out.error || 'No signal? Try again in a moment.')
+    }
+    setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, money: out.money ?? null } : x)))
+    setPanel(null)
+    setPayNote((n) => ({ ...n, [v.id]: 'Saved. The office will confirm it.' }))
+  }
+
   async function onMyWay(id: string) {
     setBusy(id)
     setError(null)
@@ -245,6 +322,11 @@ export default function CrewDayList({
                 ? 'All visits finished. Nice work.'
                 : `${open} of ${visits.length} visit${visits.length === 1 ? '' : 's'} left`}
           </p>
+          {visits.length > 0 ? (
+            <a href={`/api/crew/day/${token}/sheet`} target="_blank" rel="noopener noreferrer" className={`${btn} mt-2 w-full border-2 border-[#2c2c2a] bg-white`}>
+              Print today’s sheet
+            </a>
+          ) : null}
         </header>
         {error ? (
           <p role="alert" className="rounded-lg border-2 border-red-700 bg-white p-3 text-base font-semibold text-red-800">
@@ -267,6 +349,33 @@ export default function CrewDayList({
                     {v.accessNotes}
                   </p>
                 ) : null}
+                {v.officeNotes ? (
+                  <p className="mt-2 whitespace-pre-wrap break-words text-base">
+                    <span className="font-bold">Notes: </span>
+                    {v.officeNotes}
+                  </p>
+                ) : null}
+                {!closed && v.checklist.length > 0 ? (
+                  <ul className="mt-3 flex flex-col gap-2" aria-label="Services to do">
+                    {v.checklist.map((c) => (
+                      <li key={c.label}>
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={c.done}
+                          className={`flex min-h-[52px] w-full items-center gap-3 rounded-lg border-2 px-3 text-left text-lg font-semibold ${c.done ? 'border-green-800 bg-green-50' : 'border-[#2c2c2a] bg-white'}`}
+                          onClick={() => void toggleLine(v, c.label, !c.done)}
+                        >
+                          <span aria-hidden className={`flex h-7 w-7 shrink-0 items-center justify-center rounded border-2 text-xl leading-none ${c.done ? 'border-green-800 bg-green-800 text-white' : 'border-[#2c2c2a] bg-white'}`}>
+                            {c.done ? '✓' : ''}
+                          </span>
+                          <span className="min-w-0 break-words">{c.label}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {closed && v.status === 'completed' && v.checklist.length > 0 ? <p className="mt-1 text-base">{checklistSummary(v.checklist)}</p> : null}
                 {closed ? (
                   <p className="mt-2 text-base font-bold">
                     {v.status === 'completed'
@@ -303,7 +412,7 @@ export default function CrewDayList({
                         type="button"
                         className={`${btn} bg-green-800 text-white`}
                         disabled={busy === v.id}
-                        onClick={() => (v.resultOptions.length ? setFinishing(v.id) : void act(v.id, { action: 'done' }).then((ok) => ok && markDone(v, {})))}
+                        onClick={() => startDone(v)}
                       >
                         Done
                       </button>
@@ -322,6 +431,118 @@ export default function CrewDayList({
                   <p role="status" className="mt-2 text-base font-semibold">
                     {told[v.id]}
                   </p>
+                ) : null}
+                {confirmDone === v.id ? (
+                  <div className="mt-3 flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3" role="alertdialog" aria-label="Mark done anyway?">
+                    <p className="text-base font-bold">Mark done anyway?</p>
+                    <p className="text-base">Not checked: {unchecked(v.checklist).map((c) => c.label).join(', ')}</p>
+                    <button type="button" className={`${btn} bg-green-800 text-white`} onClick={() => startDone(v)}>
+                      Yes, mark done
+                    </button>
+                    <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} onClick={() => setConfirmDone(null)}>
+                      Go back
+                    </button>
+                  </div>
+                ) : null}
+                {v.status !== 'skipped' && (v.money || payNote[v.id]) ? (
+                  <div className="mt-3 flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3">
+                    {v.money && v.money.dueCents > 0 ? <p className="text-lg font-bold">Customer owes {formatCents(v.money.dueCents)}</p> : null}
+                    {v.money && v.money.pendingCents > 0 ? (
+                      <p className="text-base font-semibold">{formatCents(v.money.pendingCents)} collected — waiting for the office to confirm</p>
+                    ) : null}
+                    {payNote[v.id] ? (
+                      <p role="status" className="text-base font-semibold">
+                        {payNote[v.id]}
+                      </p>
+                    ) : null}
+                    {v.money && v.money.dueCents > 0 && panel?.id !== v.id ? (
+                      <div className="grid grid-cols-1 gap-2">
+                        {v.money.canPayOnline ? (
+                          <button type="button" className={`${btn} bg-[#2c2c2a] text-white`} disabled={busy === v.id} onClick={() => void payLink(v, 'text')}>
+                            Text pay link
+                          </button>
+                        ) : null}
+                        {v.money.canPayOnline ? (
+                          <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} disabled={busy === v.id} onClick={() => void payLink(v, 'qr')}>
+                            Show QR code
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className={`${btn} border-2 border-[#2c2c2a] bg-white`}
+                          onClick={() => setPanel({ id: v.id, kind: 'collect', method: 'cash', amount: ((v.money?.dueCents ?? 0) / 100).toFixed(2), checkNumber: '', qrUrl: null, tapId: newTapId() })}
+                        >
+                          Collected cash / check
+                        </button>
+                      </div>
+                    ) : null}
+                    {panel?.id === v.id && panel.kind === 'qr' && panel.qrUrl ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <p className="text-base font-bold">Customer scans this to pay {panel.amount}</p>
+                        <QrCode value={panel.qrUrl} size={260} label="Pay link QR code" />
+                        <button type="button" className={`${btn} w-full border-2 border-[#2c2c2a] bg-white`} onClick={() => setPanel(null)}>
+                          Close
+                        </button>
+                      </div>
+                    ) : null}
+                    {panel?.id === v.id && panel.kind === 'collect' ? (
+                      <form
+                        className="flex flex-col gap-2"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          void saveCollection(v, panel)
+                        }}
+                      >
+                        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="How was it paid?">
+                          {(['cash', 'check'] as const).map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              role="radio"
+                              aria-checked={panel.method === m}
+                              className={`${btn} border-2 ${panel.method === m ? 'border-[#2c2c2a] bg-[#2c2c2a] text-white' : 'border-[#2c2c2a] bg-white'}`}
+                              onClick={() => setPanel({ ...panel, method: m })}
+                            >
+                              {m === 'cash' ? 'Cash' : 'Check'}
+                            </button>
+                          ))}
+                        </div>
+                        <label className="flex flex-col gap-1 text-base font-semibold">
+                          Amount ($)
+                          <input
+                            className="min-h-[48px] rounded-lg border-2 border-[#2c2c2a] bg-white px-3 text-base font-normal"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            value={panel.amount}
+                            onChange={(e) => setPanel({ ...panel, amount: e.target.value })}
+                          />
+                        </label>
+                        {panel.method === 'check' ? (
+                          <label className="flex flex-col gap-1 text-base font-semibold">
+                            Check number (optional)
+                            <input
+                              className="min-h-[48px] rounded-lg border-2 border-[#2c2c2a] bg-white px-3 text-base font-normal"
+                              inputMode="numeric"
+                              autoComplete="off"
+                              maxLength={40}
+                              value={panel.checkNumber}
+                              onChange={(e) => setPanel({ ...panel, checkNumber: e.target.value })}
+                            />
+                            <span className="text-base font-normal">Tip: tap “Add photos” to take a picture of the check.</span>
+                          </label>
+                        ) : null}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} onClick={() => setPanel(null)}>
+                            Cancel
+                          </button>
+                          <button type="submit" className={`${btn} bg-green-800 text-white disabled:opacity-50`} disabled={busy === v.id || !panel.amount.trim()}>
+                            Save
+                          </button>
+                        </div>
+                        <p className="text-base">The office confirms it before it counts as paid.</p>
+                      </form>
+                    ) : null}
+                  </div>
                 ) : null}
                 {undoFor === v.id ? (
                   <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-[#2c2c2a] px-3 py-2 text-white" role="status">

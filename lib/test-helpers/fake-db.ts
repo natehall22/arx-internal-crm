@@ -6,6 +6,14 @@
 type Row = Record<string, unknown>
 export type WriteLog = Array<{ table: string; op: 'insert' | 'upsert' | 'update' | 'delete'; rows: Row[] }>
 
+function jsonEq(cell: unknown, text: string): boolean {
+  try {
+    return JSON.stringify(cell) === JSON.stringify(JSON.parse(text))
+  } catch {
+    return false
+  }
+}
+
 export function createFakeDb(
   seed: Record<string, Row[]>,
   opts: {
@@ -159,7 +167,8 @@ export function createFakeDb(
       update(p: Row) { op = 'update'; patch = p; return api },
       delete() { op = 'delete'; return api },
       // `rel.col` filters an embedded parent (e.g. `.eq('production_jobs.org_id', org)` with `production_jobs!inner(...)`).
-      eq(c: string, v: unknown) { filters.push((r) => (c.includes('.') ? embeddedValue(r, c) : r[c]) === v); return api },
+      // A jsonb column compared with JSON text (`.eq('payments', '[...]')`) compares as JSON, like PostgREST.
+      eq(c: string, v: unknown) { filters.push((r) => { const cell = c.includes('.') ? embeddedValue(r, c) : r[c]; return cell !== null && typeof cell === 'object' && typeof v === 'string' ? jsonEq(cell, v) : cell === v }); return api },
       neq(c: string, v: unknown) { filters.push((r) => r[c] !== v); return api },
       in(c: string, v: unknown[]) { filters.push((r) => v.includes(r[c])); return api },
       is(c: string, v: unknown) { filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return api },

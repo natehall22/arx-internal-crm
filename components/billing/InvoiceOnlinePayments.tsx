@@ -23,7 +23,7 @@ export default function InvoiceOnlinePayments({
   owed: boolean
   onChanged?: () => void
 }) {
-  const [busy, setBusy] = useState<'copy' | 'email' | null>(null)
+  const [busy, setBusy] = useState<'copy' | 'email' | 'text' | null>(null)
   const [shownUrl, setShownUrl] = useState<string | null>(null)
   if (!online) return null
 
@@ -46,6 +46,19 @@ export default function InvoiceOnlinePayments({
     }
   }
 
+  /** Text the customer the link from the server (the same helper the crew page uses); staff never see the number. */
+  async function text() {
+    setBusy('text')
+    const res = await fetch(`/api/invoices/${invoiceId}/pay-link/text`, { method: 'POST' }).catch(() => null)
+    const data = res ? ((await res.json().catch(() => ({}))) as { message?: string; error?: string }) : {}
+    setBusy(null)
+    if (res?.ok) {
+      onChanged?.()
+      return toast.success(data.message || 'Pay link texted')
+    }
+    toast.error(`${data.message || data.error || 'Could not text the link'}${res ? ' Use Copy or Email instead.' : ''}`)
+  }
+
   return (
     <div className="mb-6 rounded-lg border border-gray-200 p-4">
       <div className="mb-2 text-sm font-semibold text-gray-900">Online payment</div>
@@ -57,6 +70,9 @@ export default function InvoiceOnlinePayments({
             </Button>
             <Button size="sm" variant="secondary" className="min-h-tap" loading={busy === 'email'} onClick={() => void make(true)}>
               Email pay link
+            </Button>
+            <Button size="sm" variant="secondary" className="min-h-tap" loading={busy === 'text'} onClick={() => void text()}>
+              Text pay link
             </Button>
           </div>
         ) : (

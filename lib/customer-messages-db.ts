@@ -74,6 +74,7 @@ import {
 } from '@/lib/customer-messages'
 import { orgLogoHref } from '@/lib/files/files-object'
 import { loadCustomerVisitPhotos } from '@/lib/customer-visit-photos'
+import { formatCents } from '@/lib/format'
 import { findOrgInvoice } from '@/lib/invoices'
 import { loadInvoiceDocument } from '@/lib/invoice-document'
 import type { JobInvoice } from '@/lib/types/invoices'
@@ -591,7 +592,7 @@ export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent'
 
 /** Texts to one number per 24 hours, by kind: automation is capped low, a person's conversation is not, the STOP answer never. */
 function smsPerNumberCap(kind: RowKind): number {
-  return kind === 'sms_compliance' ? 1000 : kind === 'staff_reply' ? SMS_MAX_STAFF_PER_NUMBER_PER_DAY : SMS_MAX_PER_NUMBER_PER_DAY
+  return kind === 'sms_compliance' ? 1000 : kind === 'staff_reply' || kind === 'pay_link' ? SMS_MAX_STAFF_PER_NUMBER_PER_DAY : SMS_MAX_PER_NUMBER_PER_DAY
 }
 
 /**
@@ -660,6 +661,8 @@ async function build(ctx: SendContext, row: MessageRow): Promise<Built> {
       return buildInvoiceReminder(ctx, row)
     case 'staff_reply':
       return buildStaffReply(ctx, row)
+    case 'pay_link':
+      return buildPayLink(ctx, row)
     case 'sms_compliance':
       return buildCompliance(ctx, row)
   }
@@ -916,6 +919,48 @@ async function buildStaffReply(ctx: SendContext, row: MessageRow): Promise<Built
   }
 }
 
+/**
+ * A pay link texted by a person (crew lead at the door, or office). Re-checked now: the invoice is still open, online payments
+ * still ready, the customer still textable WITH consent (no "they texted first" exception: this is not a reply). The link is
+ * made only once the row is ours and lives only in the text — never in the send log.
+ */
+async function buildPayLink(ctx: SendContext, row: MessageRow): Promise<Built> {
+  const invoiceId = str(row.refs.invoiceId)
+  if (ctx.channel.channel !== 'sms' || !invoiceId) return { send: false, status: 'cancelled', reason: 'bad_refs' }
+  const found = await findOrgInvoice(ctx.admin, invoiceId, ctx.orgId)
+  if (!found || (found.status !== 'sent' && found.status !== 'partially_paid')) return { send: false, status: 'cancelled', reason: found ? `invoice_${found.status}` : 'invoice_gone' }
+  // org-scope-ok: found above in this company by findOrgInvoice (job invoices scope through their job)
+  const { data: full } = await ctx.admin.from('job_invoices').select('*').eq('id', found.id).maybeSingle()
+  if (!full) return { send: false, status: 'cancelled', reason: 'invoice_gone' }
+  const invoice = full as JobInvoice
+  const doc = await loadInvoiceDocument(ctx.admin, ctx.orgId, invoice)
+  if (doc.isPaid || doc.balanceCents <= 0) return { send: false, status: 'cancelled', reason: 'paid' }
+  const { loadOnlinePayments } = await import('@/lib/online-payments/accounts')
+  if (!(await loadOnlinePayments(ctx.admin, ctx.orgId)).ready) return { send: false, status: 'cancelled', reason: 'online_payments_not_ready' }
+  const { invoiceCustomerId } = await import('@/lib/online-payments/checkout')
+  const customerId = row.customer_id ?? (await invoiceCustomerId(ctx.admin, ctx.orgId, invoice))
+  const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
+  if (!customer || (invoice.customer_id && customer.id !== invoice.customer_id)) return { send: false, status: 'cancelled', reason: 'bad_refs' }
+  const to = ctx.channel.addressFor({ email: null, phone: customer.phone })
+  const refusal = await recipientRefusal(ctx, customer, to)
+  if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
+  const amount = formatCents(doc.balanceCents)
+  return {
+    send: true,
+    customerId: customer.id,
+    to: to!,
+    prepare: async () => {
+      const { createPaymentLink } = await import('@/lib/online-payments/links')
+      return { payUrl: (await createPaymentLink(ctx.admin, ctx.orgId, { kind: 'invoice', invoiceId: invoice.id }, null, ctx.now)).url }
+    },
+    render: (_links, prepared) => {
+      const first = (customer.name ?? '').trim().split(/\s+/)[0]
+      const text = `${ctx.company.name}: ${first ? `Hi ${first}, ` : ''}here is your link to pay invoice ${invoice.invoice_number} (${amount}): ${prepared.payUrl ?? ''}`
+      return { subject: 'Pay your invoice', html: '', text, sms: text }
+    },
+  }
+}
+
 /** The STOP / HELP / START answer (refs: `to` and the exact `text`). Goes even to a number on the opt-out list — it IS the answer. */
 async function buildCompliance(ctx: SendContext, row: MessageRow): Promise<Built> {
   const to = ctx.channel.addressFor({ email: null, phone: str(row.refs.to) })
@@ -959,6 +1004,68 @@ export async function sendStaffText(admin: SupabaseClient, orgId: string, custom
     return { status: r }
   } catch (e) {
     console.error('[customer-messages] staff text failed', { orgId, e })
+    return { status: 'failed' }
+  }
+}
+
+/** How long a texted pay link may wait for texting hours: a crew lead is standing at the door, so a late one is no use. */
+export const PAY_LINK_TEXT_EXPIRES_MINUTES = 3
+/** Pay-link texts for one invoice per hour (a crew phone or staff screen cannot spam a customer). */
+export const PAY_LINK_TEXTS_PER_INVOICE_PER_HOUR = 3
+
+export type PayLinkTextResult = {
+  status: 'sent' | 'blocked' | 'too_many' | 'off' | 'failed'
+  /** Why it did not go (for the fallback wording): no_consent, no_address, suppressed, customer_opted_out, expired (outside texting hours), … */
+  reason?: string
+}
+
+/**
+ * Text the customer a pay link for one invoice. THE door for both callers (the crew page at the door, and the staff
+ * "Text pay link" button): a `pay_link` row in the same send log, delivered by the same `deliver`, so consent, opt-out,
+ * quiet hours, the daily caps, the company number and idempotency are the same rules as every other text. Outside texting
+ * hours it is NOT held for later (it expires in minutes): the caller shows a QR code / copy link instead. At most 3 per
+ * invoice per hour. The link is made only when the text really goes out, and never stored.
+ */
+export async function sendPayLinkText(admin: SupabaseClient, orgId: string, o: { invoiceId: string; customerId: string; createdBy: string | null }, now: Date = new Date()): Promise<PayLinkTextResult> {
+  try {
+    const loaded = await loadSendContext(admin, orgId, now, { channel: 'sms', purpose: 'reply' })
+    if (!loaded.ok) return { status: 'off', reason: loaded.reason === 'feature_off' ? 'texting_off' : 'not_ready' }
+    const ctx = loaded.ctx
+    const prefix = `pay_link:sms:${o.invoiceId}:`
+    const { count } = await orgDb(admin, orgId)
+      .from('customer_messages')
+      .select('id', { count: 'exact', head: true })
+      .like('message_key', `${prefix}%`)
+      .gte('created_at', new Date(now.getTime() - 3_600_000).toISOString())
+    if ((count ?? 0) >= PAY_LINK_TEXTS_PER_INVOICE_PER_HOUR) return { status: 'too_many' }
+    const key = `${prefix}${Math.floor(now.getTime() / 600_000)}` // a double tap inside ten minutes is one text
+    const row = await enqueueMessage(admin, orgId, {
+      kind: 'pay_link',
+      channel: 'sms',
+      key,
+      customerId: o.customerId,
+      refs: { invoiceId: o.invoiceId },
+      sendAfter: now,
+      expiresAt: new Date(now.getTime() + PAY_LINK_TEXT_EXPIRES_MINUTES * 60_000),
+      createdBy: o.createdBy,
+    })
+    if (!row) {
+      const { data } = await orgDb(admin, orgId).from('customer_messages').select('status, skip_reason').eq('message_key', key).maybeSingle()
+      const prior = data as { status: string; skip_reason: string | null } | null
+      return prior?.status === 'sent' || prior?.status === 'sending' ? { status: 'sent' } : { status: 'blocked', reason: prior?.skip_reason ?? 'not_sent' }
+    }
+    const r = await deliver(ctx, row)
+    if (r === 'sent') return { status: 'sent' }
+    if (r === 'deferred') {
+      // Closed hours / daily cap: nothing may go later. Close the row so the scheduled run never sends it.
+      await orgDb(admin, orgId).from('customer_messages').update({ status: 'skipped', skip_reason: 'outside_texting_hours', updated_at: now.toISOString() }).eq('id', row.id).eq('status', 'queued')
+      return { status: 'blocked', reason: 'outside_texting_hours' }
+    }
+    if (r === 'failed') return { status: 'failed' }
+    const { data } = await orgDb(admin, orgId).from('customer_messages').select('skip_reason').eq('id', row.id).maybeSingle()
+    return { status: 'blocked', reason: (data as { skip_reason: string | null } | null)?.skip_reason ?? r }
+  } catch (e) {
+    console.error('[customer-messages] pay link text failed', { orgId, e })
     return { status: 'failed' }
   }
 }

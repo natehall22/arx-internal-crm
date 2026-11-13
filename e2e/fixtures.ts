@@ -698,6 +698,12 @@ export const HARNESS_CREW_DAY = [
   { id: 'v3', planName: 'Clean-up check — Hedges', address: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, accessNotes: null, status: 'scheduled', skipReason: null, photoCount: 0, routePosition: null, resultOptions: [{ key: 'pass', label: 'Passed', tone: 'good' }, { key: 'fail', label: 'Needs a return trip', tone: 'bad' }] },
 ]
 
+/** Crew day with the v2 pieces: office notes, a checklist (one unchecked) and money owed (card payment ready). */
+export const HARNESS_CREW_DAY_MONEY = [
+  { ...HARNESS_CREW_DAY[0], officeNotes: 'Customer wants the side beds done first.', checklist: [{ label: 'Mow', done: true }, { label: 'Edge', done: true }, { label: 'Blow off drive', done: false }], money: { dueCents: 7000, pendingCents: 0, canPayOnline: true } },
+  { ...HARNESS_CREW_DAY[1], officeNotes: null, checklist: [{ label: 'Mow', done: true }], money: null },
+]
+
 /** Ready to bill (components/billing/ReadyToBill.tsx): October done, November waiting, one unpriced visit. */
 const billUnit = (key: string, kind: 'visit' | 'month', customerId: string, propertyId: string, planName: string, month: string, date: string, cents: number, taxable: boolean, visits: string[]) => ({
   key, kind, customerId, propertyId, planId: `plan-${planName}`, planName, month, date, amountCents: cents, taxable, visits: visits.map((d, i) => ({ visitId: `${key}-${i}`, date: d })),

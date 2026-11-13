@@ -440,6 +440,19 @@ const SCREENS: Screen[] = [
       { name: 'skip-reasons', run: async (p) => { await p.getByRole('button', { name: 'Skip', exact: true }).first().click(); await p.waitForSelector('text=Why skip?') } },
       { name: 'step-results', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('text=Needs a return trip') } },
     ] },
+  { name: 'crew-day-money', path: '/dev-harness/crew-day-money', ready: 'text=Customer owes $70.00',
+    mock: async (p) => {
+      await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
+      await p.route('**/api/crew/day/*/visits/*/checklist', (route) => route.fulfill(json({ ok: true })))
+      await p.route('**/api/crew/day/*/visits/*/pay-link', (route) => route.fulfill(json({ url: 'https://pay.example.com/pay/harness-token' })))
+      await p.route('**/api/crew/day/*/visits/*/collect', (route) => route.fulfill(json({ ok: true, money: { dueCents: 7000, pendingCents: 2000, canPayOnline: true } })))
+      await p.route('**/api/crew/day/*/visits/*', (route) => route.fulfill(json({ ok: true })))
+    },
+    states: [
+      { name: 'done-anyway', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).first().click(); await p.waitForSelector('text=Mark done anyway?') } },
+      { name: 'qr', run: async (p) => { await p.getByRole('button', { name: 'Show QR code' }).click(); await p.waitForSelector('text=Customer scans this to pay') } },
+      { name: 'collect', run: async (p) => { await p.getByRole('button', { name: 'Collected cash / check' }).click(); await p.waitForSelector('text=Amount ($)') } },
+    ] },
   { name: 'crew-day-on-the-way', path: '/dev-harness/crew-day-on-the-way', ready: 'text=Gate code 4421. Dog in back yard.',
     mock: async (p) => {
       await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))

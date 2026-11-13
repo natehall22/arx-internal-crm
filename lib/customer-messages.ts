@@ -19,11 +19,12 @@ export const MESSAGE_KINDS = ['visit_reminder', 'visit_on_the_way', 'visit_done'
 export type MessageKind = (typeof MESSAGE_KINDS)[number]
 
 /**
- * Messages that are not automatic: a staff member's reply "To customer", and the answers a carrier requires to STOP / HELP /
+ * Messages that are not automatic: a staff member's reply "To customer", a pay link a person texts (`pay_link`: crew lead or
+ * office, lib/customer-messages-db.ts sendPayLinkText), and the answers a carrier requires to STOP / HELP /
  * START. They share the send log, the sender and the channels with the automatic kinds, but are never scheduled, never
  * listed in Settings, and never need an owner toggle.
  */
-export const SYSTEM_KINDS = ['staff_reply', 'sms_compliance'] as const
+export const SYSTEM_KINDS = ['staff_reply', 'sms_compliance', 'pay_link'] as const
 export type SystemKind = (typeof SYSTEM_KINDS)[number]
 /** Every kind a `customer_messages` row can have. */
 export type RowKind = MessageKind | SystemKind

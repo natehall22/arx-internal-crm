@@ -12,7 +12,7 @@ import { BILLING_BASIS_LABELS, EMPTY_PRICING, billingBasisChoices, type BillingB
 
 type Option = { id: string; name: string }
 type Load = { ready: boolean; canEdit: boolean; templates: ServicePlanTemplate[]; starters: StarterTemplate[]; trades: Array<{ slug: string; label: string }>; crews: Option[]; people: Option[] }
-type Draft = { id: string | null; updated_at: string | null; name: string; trade: string; description: string; seasons: Season[]; billing_basis: BillingBasis; taxable: boolean; pricing: PlanPricing; steps: PlanStep[]; active: boolean }
+type Draft = { id: string | null; updated_at: string | null; name: string; trade: string; description: string; service_lines: string; seasons: Season[]; billing_basis: BillingBasis; taxable: boolean; pricing: PlanPricing; steps: PlanStep[]; active: boolean }
 type Detail = { template: ServicePlanTemplate; plans: number; behind: number; history: Array<{ id: string; action: string; at: string; by: string | null; lines: string[] }> }
 
 function draftFrom(t: Partial<ServicePlanTemplate> | StarterTemplate | null, trades: Load['trades']): Draft {
@@ -23,6 +23,7 @@ function draftFrom(t: Partial<ServicePlanTemplate> | StarterTemplate | null, tra
     name: t?.name ?? '',
     trade: match?.slug ?? trades[0]?.slug ?? '',
     description: t?.description ?? '',
+    service_lines: ((t as Partial<ServicePlanTemplate> | null)?.service_lines ?? []).join('\n'),
     seasons: t?.seasons?.length ? t.seasons.map((s) => ({ ...s })) : [{ from: '01-01', to: '12-31', frequency: 'weekly' }],
     billing_basis: t?.billing_basis ?? 'per_visit',
     taxable: t?.taxable ?? false,
@@ -165,6 +166,7 @@ export default function ServicePlanTemplatesCard() {
                   </Select>
                 )}
               </Field>
+              <Field label="What’s included (one per line)" hint="Copied onto each plan sold; the crew checks these off on every visit. No prices.">{(a) => <Textarea {...a} className="text-base" rows={4} maxLength={1800} value={draft.service_lines} onChange={(e) => setDraft({ ...draft, service_lines: e.target.value })} />}</Field>
               <Field label="Description (optional)">{(a) => <Textarea {...a} className="text-base" maxLength={2000} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />}</Field>
               <SeasonsEditor value={draft.seasons} onChange={(seasons) => setDraft({ ...draft, seasons })} />
               <Field label="Billed (custom prices)">

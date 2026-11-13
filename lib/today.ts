@@ -548,6 +548,25 @@ export async function loadUnpaidInvoicesQueue(admin: SupabaseClient, orgId: stri
   }
 }
 
+/**
+ * Cash and checks a crew took at the door that the office has not confirmed yet (lib/visit-collections-db.ts). Not money until
+ * confirmed. Amounts are on screen only for people who see money (`money`); the title is the customer, like the unpaid card.
+ */
+export async function loadDoorCollectionsQueue(admin: SupabaseClient, orgId: string, opts: { money?: boolean; cap?: number } = {}): Promise<Queue> {
+  const { loadPendingCollections } = await import('@/lib/visit-collections-db')
+  const rows = await loadPendingCollections(admin, orgId, 200)
+  return {
+    id: 'door-collections',
+    title: 'Cash and checks to confirm',
+    count: rows.length,
+    empty: 'Nothing to confirm.',
+    items: rows.slice(0, opts.cap ?? LIST_CAP).map((r) => {
+      const note = [opts.money ? formatCents(r.amountCents) : null, r.method === 'check' ? `check${r.checkNumber ? ` #${r.checkNumber}` : ''}` : 'cash', r.crewName].filter(Boolean).join(' · ')
+      return { id: r.id, title: r.customerName, detail: note, href: '/billing?view=door', ref: 'Collected at the door', note }
+    }),
+  }
+}
+
 /** The Today card when the unpaid-invoices read failed: said out loud, never "nothing owed". Same id, so it sits in the same place. */
 export function unpaidInvoicesFailedQueue(): Queue {
   return { id: 'unpaid-invoices', title: 'Unpaid invoices', count: 0, empty: 'Unpaid invoices couldn’t load today.', items: [] }

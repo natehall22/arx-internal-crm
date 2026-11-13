@@ -62,6 +62,7 @@ import { orgDb } from '@/lib/supabase/org-db'
 import { upsertCustomer } from '@/lib/customers'
 import { createProperty, loadCustomerProperties } from '@/lib/properties-db'
 import { cleanPropertyInput } from '@/lib/properties'
+import { readChecklist, readServiceLines, visitChecklist, type ChecklistItem } from '@/lib/visit-checklist'
 
 const PAGE = 1000
 /** Ids per `in (…)` request: keeps PostgREST URLs short however many visits a screen shows. */
@@ -101,6 +102,7 @@ export function planFromRow(r: Record<string, unknown>): ServicePlan {
     trade: String(r.trade),
     name: String(r.name ?? ''),
     description: (r.description as string | null) ?? null,
+    service_lines: readServiceLines(r.service_lines),
     price: num(r.price),
     previous_price: num(r.previous_price),
     price_starts_on: (r.price_starts_on as string | null) ?? null,
@@ -340,6 +342,7 @@ function planChanges(
     if (field === 'property_id') return names.properties?.get(String(v)) ?? v
     if (field === 'seasons') return (v as Season[]).map(seasonLabel)
     if (field === 'steps') return (v as Array<{ label: string }>).map((x) => x.label)
+    if (field === 'service_lines') return (v as string[]).join(', ')
     if (field === 'pricing') return (v as { tiers: Array<{ label: string; price: number }> }).tiers.map((t) => `${t.label} $${t.price}`)
     return v
   }
@@ -383,6 +386,7 @@ export function templateFromRow(r: Record<string, unknown>): ServicePlanTemplate
     name: String(r.name ?? ''),
     trade: String(r.trade ?? ''),
     description: (r.description as string | null) ?? null,
+    service_lines: readServiceLines(r.service_lines),
     seasons: Array.isArray(r.seasons) ? (r.seasons as Season[]) : [],
     billing_basis: r.billing_basis === 'per_month' || r.billing_basis === 'per_year' || r.billing_basis === 'per_hour' ? r.billing_basis : 'per_visit',
     taxable: r.taxable === true,
@@ -490,7 +494,7 @@ export function templatePlanValues(
   template_version: number
 } {
   return {
-    ...(atSale ? { trade: t.trade, name: t.name, description: t.description } : {}),
+    ...(atSale ? { trade: t.trade, name: t.name, description: t.description, service_lines: t.service_lines } : {}),
     seasons: t.seasons,
     billing_basis: t.billing_basis,
     taxable: t.taxable,
@@ -904,11 +908,14 @@ export async function updateServicePlan(
 
   // The plan row and its visit changes in ONE transaction, under the plan's lock (service_plan_save).
   const steps = await regenerationSteps(admin, orgId, old, next, today)
+  // `service_lines` (what was sold) never changes a visit's date / crew / price, so it is written beside the transaction,
+  // not inside it (service_plan_save lists its columns; it is read live by the crew page).
+  const { service_lines: newLines, ...rpcPatch } = patch
   const { data, error } = await admin.rpc('service_plan_save', {
     p_org_id: orgId,
     p_plan_id: planId,
     p_expected_updated_at: typeof b.expectedUpdatedAt === 'string' ? b.expectedUpdatedAt : null,
-    p_patch: { ...patch, updated_by: userId },
+    p_patch: { ...rpcPatch, updated_by: userId },
     p_remove: steps.remove,
     p_updates: steps.updates,
   })
@@ -919,7 +926,20 @@ export async function updateServicePlan(
     cancelled: number
     updated: number
   }
-  const plan = planFromRow(out.plan)
+  let plan = planFromRow(out.plan)
+  if (Array.isArray(newLines)) {
+    const { data: saved, error: linesError } = await orgDb(admin, orgId)
+      .from('service_plans')
+      .update({ service_lines: newLines })
+      .eq('id', plan.id)
+      .select(SERVICE_PLAN_COLUMNS)
+      .single()
+    if (linesError || !saved) {
+      console.error('[service-plans] service lines save failed', linesError)
+      return { ok: false, status: 500, error: 'Saved, but “What’s included” did not save. Try again.' }
+    }
+    plan = planFromRow(saved as Record<string, unknown>)
+  }
   const { created } = await ensureServiceVisits(admin, orgId, {
     now,
     planIds: [plan.id],
@@ -1272,12 +1292,16 @@ export type VisitView = {
   skipReason: string | null
   notes: string | null
   completedAt: string | null
+  /** What the office wrote for the crew (the plan's "Notes for the crew"). */
+  officeNotes: string | null
+  /** The services sold, with what the crew has checked (lib/visit-checklist.ts); empty for a follow-on step visit. */
+  checklist: ChecklistItem[]
   photoCount: number
   updatedAt: string
 }
 
 const VISIT_COLS =
-  'id, work_order_number, service_plan_id, visit_step, step_result, status, scheduled_date, service_planned_date, trade, customer_id, property_id, assigned_sub_id, assigned_user_id, skip_reason, completion_notes, completed_at, updated_at, address, title'
+  'id, work_order_number, service_plan_id, visit_step, step_result, status, scheduled_date, service_planned_date, trade, customer_id, property_id, assigned_sub_id, assigned_user_id, skip_reason, completion_notes, completed_at, updated_at, address, title, description, visit_checklist'
 
 /** Visits on [from, to] (by the day they sit on), ordered by day, then the crew's stop number, then address. */
 export type VisitFilter = {
@@ -1383,7 +1407,8 @@ async function viewsFor(admin: SupabaseClient, orgId: string, rows: Array<Record
       name: string
       route_position: number | null
       steps: unknown
-    }>(admin, orgId, 'service_plans', 'id, name, route_position, steps', 'id', uniq('service_plan_id')),
+      service_lines: unknown
+    }>(admin, orgId, 'service_plans', 'id, name, route_position, steps, service_lines', 'id', uniq('service_plan_id')),
     selectInChunks<{ id: string; name: string | null }>(admin, orgId, 'customers', 'id, name', 'id', uniq('customer_id')),
     selectInChunks<{
       id: string
@@ -1410,8 +1435,9 @@ async function viewsFor(admin: SupabaseClient, orgId: string, rows: Array<Record
         name: string
         route_position: number | null
         steps: unknown
+        service_lines: unknown
       }>
-    ).map((p) => [p.id, { ...p, steps: readSteps(p.steps) }])
+    ).map((p) => [p.id, { ...p, steps: readSteps(p.steps), lines: readServiceLines(p.service_lines) }])
   )
   const custBy = new Map(((custs.data ?? []) as Array<{ id: string; name: string | null }>).map((c) => [c.id, c.name]))
   const propBy = new Map(
@@ -1474,6 +1500,10 @@ async function viewsFor(admin: SupabaseClient, orgId: string, rows: Array<Record
       skipReason: (r.skip_reason as string | null) ?? null,
       notes: (r.completion_notes as string | null) ?? null,
       completedAt: (r.completed_at as string | null) ?? null,
+      // What the office wrote for the crew, and the checklist from what was sold (still to do: the plan's lines as they are
+      // now; finished: what was stored). A follow-on step visit (inspection) has no checklist.
+      officeNotes: ((r.description as string | null) ?? '').trim() || null,
+      checklist: !r.visit_step || r.visit_step === SERVICE_STEP ? visitChecklist(plan?.lines ?? [], readChecklist(r.visit_checklist), r.status === 'scheduled') : [],
       photoCount: photoCount.get(String(r.id)) ?? 0,
       updatedAt: String(r.updated_at ?? ''),
     }
@@ -1509,7 +1539,7 @@ export async function applyVisitAction(
   const db = orgDb(admin, orgId)
   let q = db
     .from('work_orders')
-    .select('id, status, scheduled_date, updated_at, visit_step, service_plan_id, service_planned_date')
+    .select('id, status, scheduled_date, updated_at, visit_step, service_plan_id, service_planned_date, visit_checklist')
     .eq('id', visitId)
     .eq('work_order_type', SERVICE_VISIT_TYPE)
   if (opts.onlySubId) q = q.eq('assigned_sub_id', opts.onlySubId)
@@ -1523,6 +1553,7 @@ export async function applyVisitAction(
     visit_step: string | null
     service_plan_id: string
     service_planned_date: string
+    visit_checklist: unknown
   }
   if (a.action === 'assign' && a.subId) {
     const { data: sub } = await db.from('sub_contractors').select('id').eq('id', a.subId).maybeSingle()
@@ -1542,6 +1573,13 @@ export async function applyVisitAction(
   }
   const patch = visitPatch({ ...r, results }, a, by, opts.now ?? new Date())
   if ('error' in patch) return { ok: false, status: 400, error: patch.error as string }
+  // Done: keep the whole list as it stood (checked AND not), in the same save, so the office sees what was left undone and a
+  // later plan edit cannot rewrite what this visit was.
+  if (a.action === 'done' && (r.visit_step ?? SERVICE_STEP) === SERVICE_STEP) {
+    const plan = await loadServicePlan(admin, orgId, r.service_plan_id)
+    const list = visitChecklist(plan?.service_lines ?? [], readChecklist(r.visit_checklist), true)
+    if (list.length > 0) (patch as Record<string, unknown>).visit_checklist = list
+  }
   const { data: updated, error } = await db.from('work_orders').update(patch).eq('id', visitId).eq('updated_at', r.updated_at).select('id')
   // 23514 from work_orders_billed_visit_guard: billed between the check above and this save (same lock as billing).
   if (error) return { ok: false, status: 409, error: error.code === '23514' ? 'This visit is on an invoice — void that invoice first' : 'Could not save' }
@@ -1809,19 +1847,20 @@ export async function rotateCrewDayToken(
 export const CREW_VISIT_PHOTO_LIMIT = 20
 const CREW_VISIT_UNFINISHED_LIMIT = 10
 
-export async function loadCrewVisit(admin: SupabaseClient, crew: CrewDay, visitId: string, now = new Date()): Promise<{ id: string; status: string } | null> {
+export async function loadCrewVisit(admin: SupabaseClient, crew: CrewDay, visitId: string, now = new Date()): Promise<{ id: string; status: string; customerId: string | null } | null> {
   if (typeof visitId !== 'string' || !visitId) return null
   const today = ymdInZone(now, await loadOrgTimeZone(admin, crew.orgId))
   const { data } = await orgDb(admin, crew.orgId)
     .from('work_orders')
-    .select('id, status')
+    .select('id, status, customer_id')
     .eq('id', visitId)
     .eq('work_order_type', SERVICE_VISIT_TYPE)
     .eq('assigned_sub_id', crew.subId)
     .gte('scheduled_date', addDaysYmd(today, -1))
     .lte('scheduled_date', today)
     .maybeSingle()
-  return (data as { id: string; status: string } | null) ?? null
+  const r = data as { id: string; status: string; customer_id: string | null } | null
+  return r ? { id: r.id, status: r.status, customerId: r.customer_id } : null
 }
 
 /** Why a crew may not start another photo upload on a visit, or null. Fails closed (public endpoint). */
