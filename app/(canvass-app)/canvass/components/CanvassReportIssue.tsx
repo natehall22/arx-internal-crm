@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import FeedbackModal from '@/components/FeedbackModal'
+import { useBackToClose } from '../lib/useBackToClose'
 
 type Props = {
   userName?: string
@@ -16,6 +17,7 @@ export default function CanvassReportIssue({
   variant = 'settings-row',
 }: Props) {
   const [open, setOpen] = useState(false)
+  useBackToClose(open, () => setOpen(false))
 
   return (
     <>

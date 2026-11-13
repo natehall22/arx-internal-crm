@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { findStaleSquareLines, isPerSquareUnit, keepLinesWhenRoofingTypeChanges } from '@/lib/proposal-line-squares'
 import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { toast } from '@/components/ui/toast'
 import SalesTaxPicker from '@/components/proposals/SalesTaxPicker'
@@ -463,6 +464,7 @@ export default function ProposalBuilderPage() {
   // Calculate waste squares and total squares
   const wasteSquares = baseSquares * (effectiveWastePercent / 100)
   const totalSquaresWithWaste = baseSquares + wasteSquares
+  const staleSquareLines = findStaleSquareLines(lineItems, totalSquaresWithWaste)
   const rawBundleCount = totalSquaresWithWaste * BUNDLES_PER_SQUARE
   const roundedBundles = Math.ceil(rawBundleCount)
   const bundleRoundedSquares = roundedBundles / BUNDLES_PER_SQUARE
@@ -749,7 +751,11 @@ export default function ProposalBuilderPage() {
     let calculatedQuantity = quantity || 1
     
     if (!quantity && measurementData?.total_squares) {
-      calculatedQuantity = convertQuantityForUnit(measurementData.total_squares, item.unit)
+      // Per-square lines use the sold squares shown in step 2 (waste included), same as the base price.
+      calculatedQuantity = convertQuantityForUnit(
+        isPerSquareUnit(item.unit) ? totalSquaresWithWaste : measurementData.total_squares,
+        item.unit
+      )
     }
     
     const isPercentage = item.price_type === 'percentage' || item.unit === 'percent'
@@ -1112,27 +1118,28 @@ export default function ProposalBuilderPage() {
             <div className="flex items-center gap-3 sm:gap-8 overflow-x-auto">
               {[
                 { num: 1, label: 'Customer Info' },
-                { num: 2, label: 'Roofing Type' },
-                { num: 3, label: 'Pricing' },
-                { num: 4, label: 'Adders' },
-                { num: 5, label: 'Review' },
+                ...(squaresOn ? [{ num: 2, label: 'Waste' }] : []),
+                { num: 3, label: 'Roofing Type' },
+                { num: 4, label: 'Items' },
+                { num: 5, label: 'Add-Ons' },
+                { num: 6, label: 'Review' },
               ].map((s, idx) => (
                 <button
                   key={s.num}
                   onClick={() => setStep(s.num)}
-                  className={`flex items-center gap-2 flex-shrink-0 ${step === s.num ? 'text-indigo-600' : 'text-gray-400'}`}
+                  className={`flex items-center gap-2 flex-shrink-0 ${step === s.num ? 'text-indigo-600' : 'text-gray-600'}`}
                 >
                   <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
                     step === s.num ? 'bg-indigo-600 text-white' : step > s.num ? 'bg-green-500 text-white' : 'bg-gray-200'
                   }`}>
-                    {step > s.num ? '✓' : s.num}
+                    {step > s.num ? '✓' : idx + 1}
                   </div>
                   <span className="hidden sm:block font-medium">{s.label}</span>
                 </button>
               ))}
             </div>
             <div className="text-right flex-shrink-0">
-              <p className="text-sm text-gray-500">Total</p>
+              <p className="text-sm text-gray-700">Total</p>
               <p className="text-lg sm:text-2xl font-bold text-gray-900">
                 $
                 {(primaryDisplayTotal || 0).toLocaleString(undefined, {
@@ -1168,12 +1175,12 @@ export default function ProposalBuilderPage() {
         {/* Measurement Summary Banner */}
         {measurementData && (
           <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-6 mb-6 text-white">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-semibold mb-1">Roof Measurement Loaded</h3>
                 <p className="text-indigo-100 text-sm">{measurementData.address_text}</p>
               </div>
-              <div className="flex gap-6 text-center">
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-center">
                 {squaresOn && (
                 <div>
                   <div className="text-3xl font-bold">{measurementData.total_squares?.toFixed(1) || urlSquares}</div>
@@ -1202,7 +1209,7 @@ export default function ProposalBuilderPage() {
           <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Customer Information</h2>
             
-            <p className="text-sm text-gray-500 mb-4">Fields marked with * are required</p>
+            <p className="text-sm text-gray-700 mb-4">Fields marked with * are required</p>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
@@ -1277,7 +1284,7 @@ export default function ProposalBuilderPage() {
                       <option key={l.id} value={l.id}>{l.name}{l.is_default ? ' (standard)' : ''}</option>
                     ))}
                   </select>
-                  <p className="text-sm text-gray-500 mt-1">Prices come from this list. You can still change any line’s price.</p>
+                  <p className="text-sm text-gray-700 mt-1">Prices come from this list. You can still change any line’s price.</p>
                 </div>
               )}
             </div>
@@ -1298,7 +1305,7 @@ export default function ProposalBuilderPage() {
         {step === 2 && squaresOn && (
           <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Material Waste Factor</h2>
-            <p className="text-gray-500 mb-6">
+            <p className="text-gray-700 mb-6">
               Add a waste percentage to account for cuts, overlaps, and material waste. Industry standard is typically 10-15%.
             </p>
 
@@ -1306,24 +1313,24 @@ export default function ProposalBuilderPage() {
             <div className="bg-gray-50 rounded-xl p-6 mb-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Measured Area</p>
+                  <p className="text-sm text-gray-700 mb-1">Measured Area</p>
                   <p className="text-2xl font-bold text-gray-900">{baseSquares.toFixed(1)}</p>
-                  <p className="text-xs text-gray-400">squares</p>
+                  <p className="text-xs text-gray-600">squares</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Waste Factor</p>
+                  <p className="text-sm text-gray-700 mb-1">Waste Factor</p>
                   <p className="text-2xl font-bold text-amber-600">+{effectiveWastePercent}%</p>
-                  <p className="text-xs text-gray-400">{wasteSquares.toFixed(1)} squares</p>
+                  <p className="text-xs text-gray-600">{wasteSquares.toFixed(1)} squares</p>
                 </div>
                 <div className="col-span-2 md:col-span-1">
-                  <p className="text-sm text-gray-500 mb-1">Total Material</p>
+                  <p className="text-sm text-gray-700 mb-1">Total Material</p>
                   <p className="text-2xl font-bold text-indigo-600">{totalSquaresWithWaste.toFixed(1)}</p>
-                  <p className="text-xs text-gray-400">squares needed</p>
+                  <p className="text-xs text-gray-600">squares needed</p>
                 </div>
                 <div className="col-span-2 md:col-span-1">
-                  <p className="text-sm text-gray-500 mb-1">Total Sq Ft</p>
+                  <p className="text-sm text-gray-700 mb-1">Total Sq Ft</p>
                   <p className="text-2xl font-bold text-gray-700">{(totalSquaresWithWaste * 100).toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">square feet</p>
+                  <p className="text-xs text-gray-600">square feet</p>
                 </div>
               </div>
             </div>
@@ -1367,7 +1374,7 @@ export default function ProposalBuilderPage() {
                   }}
                   className="w-32 px-4 py-3 border border-gray-300 rounded-xl text-center text-lg font-semibold"
                 />
-                <span className="text-gray-500 font-medium">%</span>
+                <span className="text-gray-700 font-medium">%</span>
               </div>
             </div>
 
@@ -1391,7 +1398,7 @@ export default function ProposalBuilderPage() {
                   <span>Recommended order (bundle-rounded)</span>
                   <span className="font-semibold">{recommendedOrderSquares} squares</span>
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-700">
                   {roundedBundles} bundles ({BUNDLES_PER_SQUARE} bundles/square), rounded up from {rawBundleCount.toFixed(2)} bundles.
                 </div>
               </div>
@@ -1442,25 +1449,6 @@ export default function ProposalBuilderPage() {
               </div>
             </div>
 
-            {measurementData && (
-              <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-xl">
-                <p className="text-sm font-semibold text-gray-800 mb-2">Order Debug (Temporary)</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-700">
-                  <p>Measured squares before waste: <strong>{baseSquares.toFixed(2)}</strong></p>
-                  <p>Waste % used: <strong>{effectiveWastePercent}%</strong></p>
-                  <p>Suggested waste / tier: <strong>{measuredSuggestedWaste || 'N/A'}% / {measurementWasteCategory}</strong></p>
-                  <p>Final order squares (pre-round): <strong>{totalSquaresWithWaste.toFixed(3)}</strong></p>
-                  <p>Bundle rounding: <strong>{rawBundleCount.toFixed(2)}</strong> {'->'} <strong>{roundedBundles}</strong> bundles</p>
-                  <p>Recommended order squares: <strong>{recommendedOrderSquares}</strong></p>
-                  <p>Pitch: <strong>{measurementData.predominant_pitch || '-'}</strong></p>
-                  <p>Valleys LF: <strong>{measurementData.valleys_lf ?? 0}</strong></p>
-                  <p>Ridge cap order: <strong>{capOrder?.ridgeCapSq.toFixed(2) ?? '0'} sq</strong> ({measurementData.ridges_lf ?? 0} LF)</p>
-                  <p>Hip cap order: <strong>{capOrder?.hipCapSq.toFixed(2) ?? '0'} sq</strong> ({measurementData.hips_lf ?? 0} LF)</p>
-                  <p>Section count: <strong>{measurementData.facet_count ?? 0}</strong></p>
-                </div>
-              </div>
-            )}
-
             <div className="mt-8 flex justify-between">
               <button
                 onClick={() => setStep(1)}
@@ -1483,15 +1471,15 @@ export default function ProposalBuilderPage() {
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Roofing Type</h2>
-              <p className="text-gray-500 mb-6">Choose the type of roofing material for this project. Pricing will be calculated based on your selection.</p>
+              <p className="text-gray-700 mb-6">Choose the type of roofing material for this project. Pricing will be calculated based on your selection.</p>
 
               {roofingTypes.length === 0 ? (
                 <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
                   <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                   </svg>
-                  <p className="text-gray-500 mb-2">No roofing types configured</p>
-                  <p className="text-sm text-gray-400">Ask your admin to set up roofing types in Admin → Pricing & Costs</p>
+                  <p className="text-gray-700 mb-2">No roofing types configured</p>
+                  <p className="text-sm text-gray-600">Ask your admin to set up roofing types in Admin → Pricing & Costs</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1511,14 +1499,7 @@ export default function ProposalBuilderPage() {
                           const newLineItem = buildRoofingLineItem(type)
                           console.log('Creating line item:', totalSquaresWithWaste, 'squares x $', type.price_per_square, '= $', newLineItem.line_total, '(recommended order:', recommendedOrderSquares, 'sq)')
                           // Replace any existing roofing line items
-                          setLineItems(prev => {
-                            const nonRoofingItems = prev.filter(item => 
-                              !item.name.toLowerCase().includes('roofing') && 
-                              !item.name.toLowerCase().includes('installation') ||
-                              item.is_adder
-                            )
-                            return [newLineItem, ...nonRoofingItems.filter(i => !i.is_adder)]
-                          })
+                          setLineItems(prev => [newLineItem, ...keepLinesWhenRoofingTypeChanges(prev)])
                         } else {
                           console.log('No squares available, not creating line item')
                         }
@@ -1549,16 +1530,16 @@ export default function ProposalBuilderPage() {
                       </div>
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">{type.name}</h3>
                       {type.description && (
-                        <p className="text-sm text-gray-500 mb-3 line-clamp-2">{type.description}</p>
+                        <p className="text-sm text-gray-700 mb-3 line-clamp-2">{type.description}</p>
                       )}
                       <div className="flex items-baseline gap-1">
                         <span className="text-2xl font-bold" style={{ color: type.color }}>
                           ${(type.price_per_square || 0).toLocaleString()}
                         </span>
-                        <span className="text-sm text-gray-400">/square</span>
+                        <span className="text-sm text-gray-600">/square</span>
                       </div>
                       {type.default_warranty_years && (
-                        <p className="text-xs text-gray-500 mt-2">
+                        <p className="text-xs text-gray-700 mt-2">
                           {type.default_warranty_years} year warranty
                         </p>
                       )}
@@ -1580,7 +1561,7 @@ export default function ProposalBuilderPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-gray-700">Estimated Base Price</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-700">
                         {totalSquaresWithWaste.toFixed(1)} squares (incl. {effectiveWastePercent}% waste) × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
                       </p>
                     </div>
@@ -1598,7 +1579,7 @@ export default function ProposalBuilderPage() {
                   <p className="text-sm text-gray-600 mb-4">
                     Does the existing roof need to be removed before installing the new roof?
                   </p>
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <button
                       onClick={() => {
                         setIsTearOff(true)
@@ -1611,7 +1592,7 @@ export default function ProposalBuilderPage() {
                         )
                         setTearOffOptions(tearOffAdders)
                       }}
-                      className={`flex-1 py-4 px-6 rounded-xl font-semibold border-2 transition-all ${
+                      className={`flex-1 min-w-0 min-h-[44px] py-4 px-3 sm:px-6 rounded-xl font-semibold border-2 transition-all ${
                         isTearOff === true
                           ? 'bg-amber-600 text-white border-amber-600'
                           : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
@@ -1630,7 +1611,7 @@ export default function ProposalBuilderPage() {
                         setSelectedTearOff(null)
                         setTearOffOptions([])
                       }}
-                      className={`flex-1 py-4 px-6 rounded-xl font-semibold border-2 transition-all ${
+                      className={`flex-1 min-w-0 min-h-[44px] py-4 px-3 sm:px-6 rounded-xl font-semibold border-2 transition-all ${
                         isTearOff === false
                           ? 'bg-gray-600 text-white border-gray-600'
                           : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
@@ -1663,7 +1644,7 @@ export default function ProposalBuilderPage() {
                             <div className="flex justify-between items-center">
                               <div>
                                 <p className="font-medium text-gray-900">{option.name}</p>
-                                <p className="text-sm text-gray-500">
+                                <p className="text-sm text-gray-700">
                                   ${(option.unit_price || 0).toLocaleString()} / {option.unit}
                                 </p>
                               </div>
@@ -1753,7 +1734,7 @@ export default function ProposalBuilderPage() {
 
                   {lineItems.filter(i => !i.is_adder).length === 0 ? (
                     <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
-                      <p className="text-gray-500 mb-4">No items added yet</p>
+                      <p className="text-gray-700 mb-4">No items added yet</p>
                       <button
                         onClick={() => setShowAddItem(true)}
                         className="px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700"
@@ -1763,11 +1744,30 @@ export default function ProposalBuilderPage() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {lineItems.filter(i => !i.is_adder).map((item) => (
+                      {lineItems.filter(i => !i.is_adder).map((item) => {
+                        const stale = editingProposalId ? staleSquareLines.find(l => l.id === item.id) : undefined
+                        return (
                         <div key={item.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
                           <div className="flex-1">
                             <p className="font-medium text-gray-900">{item.name}</p>
-                            <p className="text-sm text-gray-500">{item.category}</p>
+                            <p className="text-sm text-gray-700">{item.category}</p>
+                            {stale && (
+                              <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-lg" data-testid="stale-squares-warning">
+                                <p className="text-sm text-gray-900">
+                                  This line is {stale.quantity} sq. The roof is now {stale.soldSquares} sq (waste included).
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuantityDrafts(prev => { const next = { ...prev }; delete next[item.id]; return next })
+                                    updateLineItem(item.id, 'quantity', stale.soldSquares)
+                                  }}
+                                  className="mt-2 min-h-[44px] px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg"
+                                >
+                                  Update to {stale.soldSquares} sq
+                                </button>
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-3">
                             <input
@@ -1786,7 +1786,7 @@ export default function ProposalBuilderPage() {
                               min="0"
                               step="0.1"
                             />
-                            <span className="text-gray-500 text-sm w-20">{getUnitLabel(item.unit)}</span>
+                            <span className="text-gray-700 text-sm w-20">{getUnitLabel(item.unit)}</span>
                             <span className="text-gray-900 font-medium w-24 text-right">
                               ${item.unit_price.toFixed(2)}
                             </span>
@@ -1803,7 +1803,8 @@ export default function ProposalBuilderPage() {
                             </button>
                           </div>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </>
@@ -1814,7 +1815,7 @@ export default function ProposalBuilderPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">Base Project Price</h3>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-sm text-gray-700 mt-1">
                           {measurementData ? (
                             <>Based on {measurementData.total_squares?.toFixed(1) || urlSquares} squares</>
                           ) : (
@@ -1862,7 +1863,7 @@ export default function ProposalBuilderPage() {
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Add-Ons & Upgrades</h2>
-              <p className="text-gray-500 mb-4">Select additional items for this project</p>
+              <p className="text-gray-700 mb-4">Select additional items for this project</p>
               
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-6">
                 <p className="text-sm text-blue-800">
@@ -1912,9 +1913,9 @@ export default function ProposalBuilderPage() {
                         <div className="flex-1 min-w-[8rem]">
                           <span className="text-green-700 font-medium">{item.name}</span>
                           {isPercent ? (
-                            <p className="text-xs text-gray-500">{item.unit_price}% of project total</p>
+                            <p className="text-xs text-gray-700">{item.unit_price}% of project total</p>
                           ) : (
-                            <p className="text-xs text-gray-500">${item.unit_price.toLocaleString()} per {perUnitLabel(item.unit)}</p>
+                            <p className="text-xs text-gray-700">${item.unit_price.toLocaleString()} per {perUnitLabel(item.unit)}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3">
@@ -1969,7 +1970,7 @@ export default function ProposalBuilderPage() {
                               </button>
                             </div>
                           ) : !isPercent ? (
-                            <span className="text-sm text-gray-500">{item.quantity} {getUnitLabel(item.unit)}</span>
+                            <span className="text-sm text-gray-700">{item.quantity} {getUnitLabel(item.unit)}</span>
                           ) : null}
                           <span className="font-bold text-green-800 w-20 sm:w-24 text-right">
                             ${calculatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -2014,7 +2015,7 @@ export default function ProposalBuilderPage() {
                         <div className="min-w-0">
                         <p className="font-medium text-gray-900">{adder.name}</p>
                         <div className="flex items-center gap-2">
-                          <p className="text-sm text-gray-500">{adder.adder_category || adder.category}</p>
+                          <p className="text-sm text-gray-700">{adder.adder_category || adder.category}</p>
                           {needsQuantityInput(adder.unit) && !isPercent && (
                             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
                               Qty required
@@ -2037,12 +2038,12 @@ export default function ProposalBuilderPage() {
                         {isPercent ? (
                           <>
                             <p className="font-bold text-indigo-600">{adder.unit_price}%</p>
-                            <p className="text-xs text-gray-400">of project total</p>
+                            <p className="text-xs text-gray-600">of project total</p>
                           </>
                         ) : (
                           <>
                             <p className="font-bold text-indigo-600">{readPriceOptions(adder.price_options).length > 0 ? 'from ' : ''}${(adder.unit_price || 0).toLocaleString()}</p>
-                            <p className="text-xs text-gray-400">per {perUnitLabel(adder.unit)}</p>
+                            <p className="text-xs text-gray-600">per {perUnitLabel(adder.unit)}</p>
                           </>
                         )}
                       </div>
@@ -2052,7 +2053,7 @@ export default function ProposalBuilderPage() {
               </div>
 
               {adders.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-gray-700">
                   No add-ons available. Contact admin to add items.
                 </div>
               )}
@@ -2093,14 +2094,14 @@ export default function ProposalBuilderPage() {
               <div className="p-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
                   <div>
-                    <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Customer</h3>
+                    <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Customer</h3>
                     <p className="font-medium text-gray-900">{form.customer_name}</p>
                     <p className="text-gray-600">{form.customer_address}</p>
                     {form.customer_phone && <p className="text-gray-600">{formatPhone(form.customer_phone)}</p>}
                     {form.customer_email && <p className="text-gray-600">{form.customer_email}</p>}
                   </div>
                   <div className="text-right">
-                    <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Project Total</h3>
+                    <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Project Total</h3>
                     <p className="text-4xl font-bold" style={{ color: form.accent_color }}>
                       $
                       {primaryDisplayTotal.toLocaleString(undefined, {
@@ -2109,7 +2110,7 @@ export default function ProposalBuilderPage() {
                       })}
                     </p>
                     {form.financing_available && (
-                      <p className="text-gray-500 mt-1">
+                      <p className="text-gray-700 mt-1">
                         or ${displayMonthlyPayment.toFixed(2)}/mo for {form.financing_term_months} months
                       </p>
                     )}
@@ -2158,7 +2159,7 @@ export default function ProposalBuilderPage() {
                       </span>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 mt-4 pt-3 border-t">
+                  <p className="text-xs text-gray-700 mt-4 pt-3 border-t">
                     Note: Customer will only see the total investment amount. Line items and adders are not shown on the customer proposal.
                   </p>
                 </div>
@@ -2307,7 +2308,7 @@ export default function ProposalBuilderPage() {
                       className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
                       placeholder="$ Amount"
                     />
-                    <span className="flex items-center text-gray-400">or</span>
+                    <span className="flex items-center text-gray-600">or</span>
                     <input
                       type="number"
                       value={form.discount_percent}
@@ -2486,7 +2487,7 @@ export default function ProposalBuilderPage() {
                 <h2 className="text-xl font-bold text-gray-900">Add Item</h2>
                 <button
                   onClick={() => setShowAddItem(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+                  className="p-2 text-gray-600 hover:text-gray-900 rounded-lg"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -2500,10 +2501,10 @@ export default function ProposalBuilderPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                     </svg>
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No Pricebook Items</h3>
-                    <p className="text-gray-500 mb-4">
+                    <p className="text-gray-700 mb-4">
                       No items have been added to your pricebook yet.
                     </p>
-                    <p className="text-sm text-gray-400">
+                    <p className="text-sm text-gray-600">
                       Go to <span className="font-medium">Admin → Pricing & Costs → Pricebook Items</span> to add items.
                     </p>
                   </div>
@@ -2517,11 +2518,11 @@ export default function ProposalBuilderPage() {
                       >
                         <div>
                           <p className="font-medium text-gray-900">{item.name}</p>
-                          <p className="text-sm text-gray-500">{item.category}</p>
+                          <p className="text-sm text-gray-700">{item.category}</p>
                         </div>
                         <div className="text-right">
                           <p className="font-bold text-indigo-600">{readPriceOptions(item.price_options).length > 0 ? 'from ' : ''}${(item.unit_price || 0).toLocaleString()}</p>
-                          <p className="text-xs text-gray-400">per {perUnitLabel(item.unit)}</p>
+                          <p className="text-xs text-gray-600">per {perUnitLabel(item.unit)}</p>
                         </div>
                       </button>
                     ))}
@@ -2546,7 +2547,7 @@ export default function ProposalBuilderPage() {
                       ? 'Enter Total Linear Feet'
                       : 'Enter Quantity'}
                 </h2>
-                <p className="text-gray-500 text-sm mt-1">
+                <p className="text-gray-700 text-sm mt-1">
                   {isPerSqftUnit(quantityModalItem.unit)
                     ? 'Use the actual coverage area (e.g. siding). This is separate from roof squares.'
                     : quantityModalItem.unit?.toLowerCase() === 'lf' ||
@@ -2561,11 +2562,11 @@ export default function ProposalBuilderPage() {
                   <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-xl">
                     <div>
                       <p className="font-medium text-gray-900">{quantityModalItem.name}</p>
-                      <p className="text-sm text-gray-500">{quantityModalItem.category}</p>
+                      <p className="text-sm text-gray-700">{quantityModalItem.category}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-indigo-600">{modalOptions.length > 0 && !quantityModalOption ? 'Pick a size' : `$${modalPrice.toLocaleString()}`}</p>
-                      <p className="text-xs text-gray-400">per {perUnitLabel(quantityModalItem.unit)}</p>
+                      <p className="text-xs text-gray-600">per {perUnitLabel(quantityModalItem.unit)}</p>
                     </div>
                   </div>
 
@@ -2691,7 +2692,7 @@ export default function ProposalBuilderPage() {
                       ${(modalPrice * quantityModalValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-700 mt-1">
                     {quantityModalValue} × ${modalPrice.toLocaleString()} per {perUnitLabel(quantityModalItem.unit)}
                   </p>
                 </div>

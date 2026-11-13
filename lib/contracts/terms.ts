@@ -171,6 +171,48 @@ export const REPAIR_TERMS: readonly string[] = [
 export const INSTALLATION_SIGNING_STATEMENT =
   'By signing below, the undersigned represents that (i) he or she has read the above Order Form and the Terms and Conditions (collectively, the "Agreement") in its entirety, and (ii) he or she agrees to be bound by the terms and conditions of the Agreement.'
 
+export type InstallationAcknowledgementKey = 'changeOrders' | 'propertyCondition' | 'color' | 'landscaping'
+
+export interface InstallationAcknowledgement {
+  key: InstallationAcknowledgementKey
+  label: string
+  text: string
+}
+
+/**
+ * Installation Agreement — "Customer Acknowledgements" (initialed), shared by the signing screen and PDF page 6.
+ * Landscaping/cosmetic impacts is covered by Section 8, so it is no longer initialed (Nathan, 2026-11-12); Color replaced
+ * it. The rep types the color when sending the agreement (order_form_contracts.roof_color).
+ * A contract signed before this change keeps its landscaping line (it has landscaping initials and no color), so a
+ * re-rendered old PDF still shows what the customer initialed. A contract sent before this change and still unsigned has
+ * neither: it is initialed on the two lines it has.
+ */
+export const COLOR_ACKNOWLEDGEMENT_LABEL = 'Color'
+export const colorAcknowledgementText = (color: string) => `I confirm the color I selected is ${color}.`
+
+export function cleanRoofColor(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const v = value.replace(/\s+/g, ' ').trim()
+  return v.length > 0 && v.length <= 120 ? v : null
+}
+
+export function installationAcknowledgements(contract: {
+  roof_color?: string | null
+  customer_initials_landscaping?: string | null
+}): InstallationAcknowledgement[] {
+  const list: InstallationAcknowledgement[] = [
+    { key: 'changeOrders', label: 'Change Orders', text: 'I understand additional work beyond the Base Scope requires a signed change order.' },
+    { key: 'propertyCondition', label: 'Property Condition', text: 'I affirm there are no known structural defects (rotted rafters, sagging roof lines, etc.) other than disclosed in writing.' },
+  ]
+  const color = cleanRoofColor(contract.roof_color)
+  if (color) {
+    list.push({ key: 'color', label: COLOR_ACKNOWLEDGEMENT_LABEL, text: colorAcknowledgementText(color) })
+  } else if (contract.customer_initials_landscaping) {
+    list.push({ key: 'landscaping', label: 'Landscaping/Cosmetic Impacts', text: 'I understand incidental cosmetic impacts may occur as described in Section 8.' })
+  }
+  return list
+}
+
 /** Change order — the agreement sentence above the signatures. */
 export const CHANGE_ORDER_AGREEMENT =
   'By signing below, both parties agree to the changes described above. The customer acknowledges that the updated total project cost and remaining balance are accurate.'

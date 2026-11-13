@@ -25,11 +25,5 @@
   "categories": ["business", "productivity"],
   "screenshots": [],
   "prefer_related_applications": false,
-  "serviceworker": {
-    "src": "/sw.js",
-    "scope": "/",
-    "type": "module"
-  },
-  "offline_enabled": true,
   "handle_links": "preferred"
 }

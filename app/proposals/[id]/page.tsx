@@ -571,7 +571,7 @@ export default function ProposalDetailPage() {
               {proposal.opportunity_id ? '← Back to Opportunity' : '← Back to Proposals'}
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">{proposal.proposal_number}</h1>
-            <p className="text-gray-500">Created {new Date(proposal.created_at).toLocaleDateString()}</p>
+            <p className="text-gray-700">Created {new Date(proposal.created_at).toLocaleDateString()}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(proposal.status)}`}>
@@ -663,7 +663,7 @@ export default function ProposalDetailPage() {
                         Dark (iPad)
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-700 mt-1">
                       {pdfTheme === 'print' ? 'Ink-friendly for printing' : 'Luxury dark theme for presentations'}
                     </p>
                   </div>
@@ -816,7 +816,7 @@ export default function ProposalDetailPage() {
                     <svg className="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    <p className="text-gray-500 text-sm mb-2">No property image</p>
+                    <p className="text-gray-700 text-sm mb-2">No property image</p>
                     <button
                       onClick={() => setShowImageModal(true)}
                       className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
@@ -826,7 +826,7 @@ export default function ProposalDetailPage() {
                   </div>
                 )}
               </div>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-gray-700 mt-2">
                 This image will appear on the PDF proposal. Upload a photo of the property for a professional touch.
               </p>
             </div>
@@ -899,7 +899,7 @@ export default function ProposalDetailPage() {
             <div className="mb-8">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-semibold text-gray-900">Inspection Notes</h3>
-                <span className="text-sm text-gray-500">{inspectionNotes.length} note{inspectionNotes.length !== 1 ? 's' : ''}</span>
+                <span className="text-sm text-gray-700">{inspectionNotes.length} note{inspectionNotes.length !== 1 ? 's' : ''}</span>
               </div>
               <div className="border rounded-xl p-4 bg-gray-50">
                 {inspectionNotes.length > 0 && (
@@ -914,7 +914,7 @@ export default function ProposalDetailPage() {
                             setInspectionNotes(next)
                             saveInspectionNotes(next)
                           }}
-                          className="text-gray-400 hover:text-red-500"
+                          className="text-gray-600 hover:text-red-500"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -955,7 +955,7 @@ export default function ProposalDetailPage() {
                     Add
                   </button>
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs text-gray-700 mt-2">
                   These notes will appear in the "Inspection Findings" section of the PDF.
                 </p>
               </div>
@@ -966,7 +966,7 @@ export default function ProposalDetailPage() {
               <div className="mb-8">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-lg font-semibold text-gray-900">Line Items (Admin View)</h3>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="flex items-center gap-2 text-sm text-gray-700">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -1019,7 +1019,7 @@ export default function ProposalDetailPage() {
                     </tbody>
                   </table>
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs text-gray-700 mt-2">
                   Items with "Show to Customer" enabled will be itemized on the customer-facing proposal. 
                   Hidden items are still included in the total price.
                 </p>
@@ -1278,7 +1278,7 @@ export default function ProposalDetailPage() {
                   setImageUrlInput('')
                   setShowSatelliteEditor(false)
                 }}
-                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+                className="p-2 text-gray-600 hover:text-gray-900 rounded-lg"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1311,7 +1311,7 @@ export default function ProposalDetailPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                         </svg>
                         <p className="text-indigo-600 font-medium group-hover:text-indigo-700">Pan & Zoom Satellite Image</p>
-                        <p className="text-xs text-gray-500 mt-1">Adjust the view to show the correct building</p>
+                        <p className="text-xs text-gray-700 mt-1">Adjust the view to show the correct building</p>
                       </button>
                     </div>
                   )}
@@ -1322,7 +1322,7 @@ export default function ProposalDetailPage() {
                       <div className="w-full border-t border-gray-300" />
                     </div>
                     <div className="relative flex justify-center text-sm">
-                      <span className="px-2 bg-white text-gray-500">or upload your own</span>
+                      <span className="px-2 bg-white text-gray-700">or upload your own</span>
                     </div>
                   </div>
 
@@ -1348,7 +1348,7 @@ export default function ProposalDetailPage() {
                         {uploadingImage ? (
                           <div className="flex flex-col items-center">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-2" />
-                            <span className="text-gray-500">Uploading...</span>
+                            <span className="text-gray-700">Uploading...</span>
                           </div>
                         ) : (
                           <>
@@ -1356,7 +1356,7 @@ export default function ProposalDetailPage() {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
                             <p className="text-indigo-600 font-medium">Click to upload</p>
-                            <p className="text-xs text-gray-500 mt-1">PNG, JPG, WEBP up to 5MB</p>
+                            <p className="text-xs text-gray-700 mt-1">PNG, JPG, WEBP up to 5MB</p>
                           </>
                         )}
                       </label>
@@ -1369,7 +1369,7 @@ export default function ProposalDetailPage() {
                       <div className="w-full border-t border-gray-300" />
                     </div>
                     <div className="relative flex justify-center text-sm">
-                      <span className="px-2 bg-white text-gray-500">or paste URL</span>
+                      <span className="px-2 bg-white text-gray-700">or paste URL</span>
                     </div>
                   </div>
 
@@ -1393,7 +1393,7 @@ export default function ProposalDetailPage() {
                         Save
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-700 mt-1">
                       Paste a direct link to an image (must be publicly accessible)
                     </p>
                   </div>

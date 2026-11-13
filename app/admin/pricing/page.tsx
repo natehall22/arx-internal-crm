@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
@@ -270,14 +271,12 @@ export default function AdminPricingPage() {
       
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Settings
-          </Link>
+          <SettingsBackLink />
         </div>
 
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Pricing Setup</h1>
-          <p className="text-gray-500 mt-1">Set your prices for different job types. Reps will select from these when building proposals.</p>
+          <p className="text-gray-700 mt-1">Set your prices for different job types. Reps will select from these when building proposals.</p>
         </div>
 
         {/* Quick Start Guide - only show if no roofing types */}
@@ -301,7 +300,7 @@ export default function AdminPricingPage() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Service Types & Prices</h2>
-              <p className="text-sm text-gray-500">What you charge customers for each type of work</p>
+              <p className="text-sm text-gray-700">What you charge customers for each type of work</p>
             </div>
             {roofingTypes.length > 0 && (
               <button
@@ -314,7 +313,7 @@ export default function AdminPricingPage() {
           </div>
 
           {roofingTypes.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-gray-700">
               No service types yet. Add one to get started.
             </div>
           ) : (
@@ -346,14 +345,14 @@ export default function AdminPricingPage() {
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-gray-700">
                           {type.default_warranty_years} year warranty
                           {type.profit_margin_percent != null && (
                             <span className="ml-2 text-green-600 font-medium">• {type.profit_margin_percent}% profit</span>
                           )}
                         </p>
                         {cost > 0 && (
-                          <p className="text-xs text-gray-400">
+                          <p className="text-xs text-gray-600">
                             Cost: ${cost.toLocaleString()} → Sells at ${(type.unit_price || 0).toLocaleString()}
                           </p>
                         )}
@@ -365,7 +364,7 @@ export default function AdminPricingPage() {
                         <p className="text-2xl font-bold" style={{ color: type.color }}>
                           ${(type.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: type.pricing_unit === 'square' ? 0 : 2 })}
                         </p>
-                        <p className="text-xs text-gray-400">{UNIT_LABELS[type.pricing_unit] || 'per square'}</p>
+                        <p className="text-xs text-gray-600">{UNIT_LABELS[type.pricing_unit] || 'per square'}</p>
                       </div>
                       
                       <div className="flex items-center gap-2">
@@ -380,7 +379,7 @@ export default function AdminPricingPage() {
                         )}
                         <button
                           onClick={() => openEditModal(type)}
-                          className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                          className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -388,7 +387,7 @@ export default function AdminPricingPage() {
                         </button>
                         <button
                           onClick={() => deleteRoofingType(type.id, type.name)}
-                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                          className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -407,7 +406,7 @@ export default function AdminPricingPage() {
         <div className="bg-white rounded-2xl shadow-sm border p-6 mb-8">
           <div className="mb-6">
             <h2 className="text-xl font-bold text-gray-900">Your Costs (Optional)</h2>
-            <p className="text-sm text-gray-500">What you pay sub-contractors. Used to calculate profit margins.</p>
+            <p className="text-sm text-gray-700">What you pay sub-contractors. Used to calculate profit margins.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -415,7 +414,7 @@ export default function AdminPricingPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Install Labor</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
                 <input
                   type="number"
                   step="0.01"
@@ -428,13 +427,13 @@ export default function AdminPricingPage() {
                   placeholder="145"
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-1">Per square</p>
+              <p className="text-xs text-gray-700 mt-1">Per square</p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Tear-off Labor</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
                 <input
                   type="number"
                   step="0.01"
@@ -447,14 +446,14 @@ export default function AdminPricingPage() {
                   placeholder="75"
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-1">Per square</p>
+              <p className="text-xs text-gray-700 mt-1">Per square</p>
             </div>
             </>)}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Dump Run</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
                 <input
                   type="number"
                   step="0.01"
@@ -467,7 +466,7 @@ export default function AdminPricingPage() {
                   placeholder="150"
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-1">Flat rate per job</p>
+              <p className="text-xs text-gray-700 mt-1">Flat rate per job</p>
             </div>
           </div>
 

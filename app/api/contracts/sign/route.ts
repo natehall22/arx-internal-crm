@@ -17,6 +17,7 @@ import { consentCheck } from '@/lib/signing/consent'
 import { sendSigningEmail } from '@/lib/signing/mail'
 import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { findBySigningToken } from '@/lib/signing-tokens'
+import { isMissingColumnError } from '@/lib/missing-column'
 import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
 import {
   cleanInitials,
@@ -974,7 +975,7 @@ export async function POST(request: NextRequest) {
       signature: signatureInput,
       initialsChangeOrders: initialsChangeOrdersInput,
       initialsPropertyCondition: initialsPropertyConditionInput,
-      initialsLandscaping: initialsLandscapingInput,
+      initialsColor: initialsColorInput,
       initialsInsurance: initialsInsuranceInput,
     } = body ?? {}
 
@@ -1045,12 +1046,12 @@ export async function POST(request: NextRequest) {
 
     const initialsChangeOrders = cleanInitials(initialsChangeOrdersInput)
     const initialsPropertyCondition = cleanInitials(initialsPropertyConditionInput)
-    const initialsLandscaping = cleanInitials(initialsLandscapingInput)
+    const initialsColor = cleanInitials(initialsColorInput)
     const initialsInsurance = cleanInitials(initialsInsuranceInput)
     const initialsProblem = contractInitialsProblem(contract, {
       changeOrders: initialsChangeOrders,
       propertyCondition: initialsPropertyCondition,
-      landscaping: initialsLandscaping,
+      color: initialsColor,
       insurance: initialsInsurance,
     })
     if (initialsProblem && !isQuoteApproval) {
@@ -1063,9 +1064,7 @@ export async function POST(request: NextRequest) {
 
     // The signature is saved first, and only ONE request can save it: the update only matches a contract that is still
     // waiting for the customer and whose link is still live. Two taps / two tabs → one winner; the other gets the signed result.
-    const { data: claimed, error: updateError } = await supabase
-      .from('order_form_contracts')
-      .update({
+    const claimPatch: Record<string, unknown> = {
         preferred_contact: preferredContact,
         customer_print_name: printName,
         customer_signature_data: signature,
@@ -1074,17 +1073,30 @@ export async function POST(request: NextRequest) {
         customer_user_agent: clientUserAgent,
         customer_initials_change_orders: initialsChangeOrders,
         customer_initials_property_condition: initialsPropertyCondition,
-        customer_initials_landscaping: initialsLandscaping,
         customer_initials_insurance: initialsInsurance,
         // Written only when the company's consent step is on (so nothing new is written for a company that has it off).
         ...(consent.version ? { consent_version: consent.version, consent_at: customerSignedAt } : {}),
         status: 'completed',
         signing_finalize_lease_at: customerSignedAt,
-      })
-      .eq('id', contract.id)
-      .eq('status', 'pending_customer')
-      .gt('token_expires_at', customerSignedAt)
-      .select('id')
+        // Color gets its own key, sent only when there is one (a deploy before migration 202611230060 must not break
+        // signing); the legacy landscaping column is no longer written (signed old contracts keep theirs).
+        ...(initialsColor ? { customer_initials_color: initialsColor } : {}),
+    }
+    const claimContract = (patch: Record<string, unknown>) =>
+      supabase
+        .from('order_form_contracts')
+        .update(patch)
+        .eq('id', contract.id)
+        .eq('status', 'pending_customer')
+        .gt('token_expires_at', customerSignedAt)
+        .select('id')
+    let { data: claimed, error: updateError } = await claimContract(claimPatch)
+    if (updateError && isMissingColumnError(updateError, 'customer_initials_color')) {
+      console.warn('[contracts/sign] order_form_contracts.customer_initials_color is missing (migration 202611230060 not applied); retrying without it')
+      const { customer_initials_color: _skipped, ...withoutColor } = claimPatch
+      ;({ data: claimed, error: updateError } = await claimContract(withoutColor))
+    }
+
 
     if (updateError) {
       console.error('Error updating contract:', updateError)

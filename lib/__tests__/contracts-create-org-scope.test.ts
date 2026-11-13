@@ -17,8 +17,31 @@ jest.mock('nodemailer', () => ({ __esModule: true, default: { createTransport: (
 jest.mock('@/lib/crm-email-from', () => ({ getCrmEmailFrom: () => 'crm@example.test' }))
 
 let db: ReturnType<typeof createFakeDb>
+/** When set, an insert into order_form_contracts whose row has `roof_color` fails with this error (migration not applied). */
+let colorInsertError: { code: string; message: string } | null = null
 jest.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => db.client,
+  createServiceClient: () => ({
+    ...(db.client as any),
+    from: (t: string) => {
+      const b = (db.client as any).from(t)
+      if (t !== 'order_form_contracts') return b
+      return new Proxy(b, {
+        get: (target, k: string) => {
+          const v = target[k]
+          if (k !== 'insert') return typeof v === 'function' ? v.bind(target) : v
+          return (row: any) => {
+            if (colorInsertError && row && 'roof_color' in row) {
+              const p: any = new Proxy(function () {}, {
+                get: (_t, key) => (key === 'then' ? (res: (x: unknown) => void) => res({ data: null, error: colorInsertError, count: null }) : () => p),
+              })
+              return p
+            }
+            return v.call(target, row)
+          }
+        },
+      })
+    },
+  }),
 }))
 
 import { POST } from '@/app/api/contracts/create/route'
@@ -45,6 +68,7 @@ const post = (b: unknown) =>
   )
 
 beforeEach(() => {
+  colorInsertError = null
   authResult = admin
   db = createFakeDb({
     opportunities: [
@@ -84,4 +108,52 @@ test('no session → 401', async () => {
   authResult = null
   const res = await post(body('opp-a'))
   expect(res.status).toBe(401)
+})
+
+describe('roof color on the installation agreement (2026-11-12)', () => {
+  const install = (over: Record<string, unknown> = {}) => ({ ...body('opp-a'), agreementType: 'installation', projectCost: 15000, ...over })
+  const written = () => db.writes.find((w) => w.table === 'order_form_contracts' && w.op === 'insert')
+
+  test('an installation agreement with no color is refused and nothing is written', async () => {
+    for (const roofColor of [undefined, '', '   ']) {
+      const res = await post(install({ roofColor }))
+      expect(res.status).toBe(400)
+    }
+    expect(written()).toBeUndefined()
+  })
+
+  test('the typed color is stored trimmed', async () => {
+    const res = await post(install({ roofColor: '  IKO Dynasty — Granite Black ' }))
+    expect(res.status).toBe(200)
+    expect(written()?.rows[0]).toMatchObject({ roof_color: 'IKO Dynasty — Granite Black' })
+  })
+
+  test('repair and contingency agreements take no color (stored null even if sent)', async () => {
+    expect((await post({ ...body('opp-a'), roofColor: 'Black' })).status).toBe(200)
+    expect(written()?.rows[0]).not.toHaveProperty('roof_color')
+    db.writes.length = 0
+    expect((await post({ ...body('opp-a'), agreementType: 'repair', projectCost: 900, roofColor: 'Black' })).status).toBe(200)
+    expect(written()?.rows[0]).not.toHaveProperty('roof_color')
+  })
+
+  test.each([
+    ['42703', 'column "roof_color" of relation "order_form_contracts" does not exist'],
+    ['PGRST204', "Could not find the 'roof_color' column of 'order_form_contracts' in the schema cache"],
+  ])('a missing roof_color column (%s) retries without it and the contract is still created', async (code, message) => {
+    colorInsertError = { code, message }
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const res = await post(install({ roofColor: 'Black' }))
+    expect(res.status).toBe(200)
+    expect(warn).toHaveBeenCalled()
+    expect(written()?.rows[0]).not.toHaveProperty('roof_color')
+    expect(db.tables.order_form_contracts.some((r: any) => r.org_id === 'org-a' && r.agreement_type === 'installation')).toBe(true)
+    warn.mockRestore()
+  })
+
+  test('an unrelated insert error is not retried', async () => {
+    colorInsertError = { code: '42703', message: 'column "something_else" does not exist' }
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    expect((await post(install({ roofColor: 'Black' }))).status).toBe(500)
+    err.mockRestore()
+  })
 })

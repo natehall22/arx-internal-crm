@@ -466,7 +466,7 @@ export default function SoldScopeCard({
         </div>
       ) : showEmptyState ? (
         <div className="text-center py-4">
-          <p className="text-sm text-gray-500">No accepted proposal linked to this job.</p>
+          <p className="text-sm text-gray-700">No accepted proposal linked to this job.</p>
 
           {/* Manual Link Dropdown */}
           {jobId && (
@@ -483,9 +483,9 @@ export default function SoldScopeCard({
                 </button>
               ) : (
                 <div className="mt-2 p-3 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-2">Select an accepted proposal:</p>
+                  <p className="text-xs text-gray-700 mb-2">Select an accepted proposal:</p>
                   {availableProposals.length === 0 ? (
-                    <p className="text-sm text-gray-400">No accepted proposals found</p>
+                    <p className="text-sm text-gray-600">No accepted proposals found</p>
                   ) : (
                     <div className="space-y-1 max-h-40 overflow-y-auto">
                       {availableProposals.map(p => (
@@ -496,14 +496,14 @@ export default function SoldScopeCard({
                           className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 rounded flex justify-between items-center"
                         >
                           <span>{p.proposal_number}</span>
-                          <span className="text-gray-500">${p.total.toLocaleString()}</span>
+                          <span className="text-gray-700">${p.total.toLocaleString()}</span>
                         </button>
                       ))}
                     </div>
                   )}
                   <button
                     onClick={() => setShowLinkDropdown(false)}
-                    className="mt-2 text-xs text-gray-500 hover:text-gray-700"
+                    className="mt-2 text-xs text-gray-700 hover:text-gray-900"
                   >
                     Cancel
                   </button>
@@ -591,7 +591,7 @@ export default function SoldScopeCard({
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {Object.entries(groupedItems).map(([category, items]) => (
                   <div key={category}>
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                    <div className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-1">
                       {category}
                     </div>
                     <div className="space-y-1">
@@ -600,7 +600,7 @@ export default function SoldScopeCard({
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-gray-900">{item.name}</p>
                             {item.description && (
-                              <p className="text-xs text-gray-500 truncate">{item.description}</p>
+                              <p className="text-xs text-gray-700 truncate">{item.description}</p>
                             )}
                           </div>
                           <div className="text-right ml-4 flex-shrink-0">
@@ -636,7 +636,7 @@ export default function SoldScopeCard({
                   <p className="text-sm text-gray-600">
                     {item.quantity} {item.unit}
                     {item.unit_price > 0 && (
-                      <span className="text-gray-400 ml-1">@ ${item.unit_price}</span>
+                      <span className="text-gray-600 ml-1">@ ${item.unit_price}</span>
                     )}
                   </p>
                   <button
@@ -671,7 +671,7 @@ export default function SoldScopeCard({
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <label className="text-xs text-gray-500">Quantity</label>
+                <label className="text-xs text-gray-700">Quantity</label>
                 <input
                   type="number"
                   step="0.01"
@@ -681,7 +681,7 @@ export default function SoldScopeCard({
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500">Unit</label>
+                <label className="text-xs text-gray-700">Unit</label>
                 <select
                   value={newItem.unit}
                   onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
@@ -696,7 +696,7 @@ export default function SoldScopeCard({
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Unit Price ($)</label>
+                <label className="text-xs text-gray-700">Unit Price ($)</label>
                 <input
                   type="number"
                   step="0.01"
@@ -707,7 +707,7 @@ export default function SoldScopeCard({
               </div>
             </div>
             {parseFloat(newItem.quantity) > 0 && parseFloat(newItem.unit_price) > 0 && (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-700">
                 Total: ${(parseFloat(newItem.quantity) * parseFloat(newItem.unit_price)).toFixed(2)}
               </p>
             )}

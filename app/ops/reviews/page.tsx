@@ -90,19 +90,19 @@ export default async function OpsReviewsPage() {
 
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Awaiting request</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-700">Awaiting request</p>
             <p className="mt-1 text-2xl font-bold text-gray-900">{rows.length}</p>
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Sent</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-700">Sent</p>
             <p className="mt-1 text-2xl font-bold text-gray-900">{sentCount}</p>
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Clicked</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-700">Clicked</p>
             <p className="mt-1 text-2xl font-bold text-gray-900">{clickedCount}</p>
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Click rate</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-700">Click rate</p>
             <p className="mt-1 text-2xl font-bold text-gray-900">{ctr}%</p>
           </div>
         </div>

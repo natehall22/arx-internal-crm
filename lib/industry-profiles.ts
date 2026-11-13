@@ -31,10 +31,11 @@ export function isIndustryProfileId(v: unknown): v is IndustryProfileId {
  * - job / jobs: customer file Job tab, Nav "Jobs" section
  * - jobBoard: Nav link to /ops · productionBoard: the /ops page heading
  * - inspection / proposal / install / installed: customer file progress steps + "Next:" button
+ * - leadName: the name field label on the New Lead form (roofing: "Homeowner Name")
  * - subs: Settings → Subcontractors + the /admin/subs heading. "Crews" is NOT used for subs: crews are the per-trade
  *   crews on a job (work_orders), so a profile that renamed subs to "Crews" would clash.
  */
-export const TERM_KEYS = ['job', 'jobs', 'jobBoard', 'productionBoard', 'inspection', 'proposal', 'install', 'installed', 'subs'] as const
+export const TERM_KEYS = ['job', 'jobs', 'jobBoard', 'productionBoard', 'inspection', 'proposal', 'install', 'installed', 'subs', 'leadName'] as const
 export type TermKey = (typeof TERM_KEYS)[number]
 export type Terms = Record<TermKey, string>
 
@@ -49,6 +50,7 @@ export const TERM_LABELS: Readonly<Record<TermKey, string>> = Object.freeze({
   install: 'Install step',
   installed: 'Installed step',
   subs: 'Subcontractors (Settings)',
+  leadName: 'Name on the New Lead form',
 })
 
 /** Today's words (= the roofing profile). Every other profile starts from these. */
@@ -62,11 +64,12 @@ export const BASE_TERMS: Readonly<Terms> = Object.freeze({
   install: 'Install',
   installed: 'Installed',
   subs: 'Subcontractors',
+  leadName: 'Homeowner Name',
 })
 
-export type NavSectionId = 'today' | 'pipeline' | 'jobs' | 'customers' | 'money' | 'insights'
+export type NavSectionId = 'today' | 'dashboard' | 'pipeline' | 'jobs' | 'customers' | 'money' | 'reports' | 'sisu'
 /** Today's section order (lib/nav-config.ts NAV_SECTIONS). */
-export const BASE_NAV_ORDER: readonly NavSectionId[] = ['today', 'pipeline', 'jobs', 'customers', 'money', 'insights']
+export const BASE_NAV_ORDER: readonly NavSectionId[] = ['today', 'dashboard', 'pipeline', 'jobs', 'customers', 'money', 'reports', 'sisu']
 
 /**
  * Today screen cards. A card is a queue id produced by the loaders in lib/today.ts. `planned` cards belong to features
@@ -199,10 +202,10 @@ const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
-  version: 4,
+  version: 5,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
-  features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, ...ROOF_ONLY_OFF },
+  features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, areaMeasure: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Lawn care', matchKeywords: ['\\blawn', 'mow', 'edging', 'fertiliz'] },
     { label: 'Landscaping', matchKeywords: ['landscap', 'mulch', 'sod\\b', 'plant', 'shrub', 'hardscape', 'paver'] },
@@ -211,6 +214,7 @@ const lawnLandscape: IndustryProfile = {
     { label: 'Soft wash / pressure washing', matchKeywords: ['soft ?wash', 'pressure ?wash', 'power ?wash'] },
   ],
   terms: {
+    leadName: 'Customer / company name',
     job: 'Project',
     jobs: 'Work',
     jobBoard: 'Work board',
@@ -220,9 +224,9 @@ const lawnLandscape: IndustryProfile = {
     install: 'Work',
     installed: 'Done',
   },
-  nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
+  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: SERVICE_NAV_HIDDEN },
   today: {
-    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
+    order: ['todays-visits', 'skipped-visits', 'leads-waiting', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],
     texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
@@ -275,8 +279,8 @@ const exteriorCleaning: IndustryProfile = {
     { label: 'Window cleaning', matchKeywords: ['\\bwindows?\\b'] },
     { label: 'Gutter cleaning', matchKeywords: ['gutter'] },
   ],
-  terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done' },
-  nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
+  terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done', leadName: 'Customer / company name' },
+  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: SERVICE_NAV_HIDDEN },
   today: {
     order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],
@@ -346,7 +350,7 @@ const HOME_BUILDER_SCHEDULE_TEMPLATES: readonly ScheduleTemplate[] = [
 
 const homeBuilder: IndustryProfile = {
   id: 'home_builder',
-  version: 2,
+  version: 3,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
   features: { canvassing: false, incentives: false, projectTools: true, customerPortal: true, ...ROOF_ONLY_OFF },
@@ -360,8 +364,8 @@ const homeBuilder: IndustryProfile = {
     { label: 'HVAC', matchKeywords: ['hvac', 'duct'] },
     { label: 'Finishes', matchKeywords: ['drywall', 'paint', 'trim', 'floor', 'cabinet'] },
   ],
-  terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners' },
-  nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
+  terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners', leadName: 'Client / company name' },
+  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
   today: {
     order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],

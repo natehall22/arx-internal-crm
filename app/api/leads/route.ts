@@ -13,6 +13,9 @@ import {
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
 import { createLeadRecord } from '@/lib/leads-create'
+import { insertNewLeadBell, loadCompanyServiceChoices, resolveLeadOwner } from '@/lib/lead-intake-db'
+import { matchServiceChoice, readLeadIntakeSettings } from '@/lib/lead-intake'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 export const dynamic = 'force-dynamic'
 
@@ -87,7 +90,7 @@ export async function POST(request: NextRequest) {
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role')
       .eq('id', user.id)
       .single()
 
@@ -97,19 +100,51 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
 
-    // A chosen owner must be a user of this company (the insert runs on the service client, no RLS).
-    const ownerUserId: string = body.owner_user_id || user.id
+    // An owner picked by hand always wins (and must be a user of this company: the insert runs on the service client, no RLS).
+    // With none picked, a company that set up lead routing (Settings → Lead routing) hands the lead out by it; every other
+    // company keeps the person who typed it in, as before.
+    const pickedByHand = typeof body.owner_user_id === 'string' && body.owner_user_id.trim() !== ''
+    let ownerUserId: string = pickedByHand ? body.owner_user_id : user.id
     if (await firstForeignRef(adminClient, profile.org_id, { owner_user_id: ['users', ownerUserId] })) {
       return NextResponse.json({ error: 'Owner not found' }, { status: 400 })
     }
+    // Automatic routing is only for an office typing in a lead for someone else to work: never for field roles, and never for
+    // a lead the typist found themself (door to door) or got from a referral. The typist keeps those. When the routing
+    // matches nobody, the typist is the fallback too.
+    // The structured service is stored only when it is one of the company's choices.
+    const serviceChoices = await loadCompanyServiceChoices(adminClient, profile.org_id).catch(() => [] as string[])
+    const matchedService = matchServiceChoice(body.service_requested, serviceChoices)
+    const source = typeof body.source === 'string' ? body.source.trim().toLowerCase() : ''
+    const keepsOwn = isSetterLikeRole(profile.role) || source === 'door_to_door' || source === 'referral'
+    if (!pickedByHand && !keepsOwn) {
+      const { data: org } = await adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle()
+      const settings = (org as { settings?: unknown } | null)?.settings
+      if (readLeadIntakeSettings(settings).routing.mode !== 'person') {
+        const routed = await resolveLeadOwner(adminClient, profile.org_id, settings, null, matchedService, user.id)
+        if (routed) ownerUserId = routed.id
+      }
+    }
 
     // Create the lead
-    const created = await createLeadRecord(adminClient, profile.org_id, ownerUserId, body)
+    const created = await createLeadRecord(adminClient, profile.org_id, ownerUserId, { ...body, service_requested: matchedService })
     if (!created.ok) {
       console.error('Lead creation error:', created.error)
       return NextResponse.json({ error: `Failed to create lead: ${created.error}` }, { status: 400 })
     }
     const lead = { id: created.id }
+
+    // Whoever now owns the lead (and is not the person who typed it in) gets the same new-lead bell website leads send.
+    if (ownerUserId !== user.id) {
+      const who = [body.homeowner_name, body.phone || body.email].filter((v) => typeof v === 'string' && v.trim()).join(' - ')
+      const { error: bellError } = await insertNewLeadBell(adminClient, {
+        orgId: profile.org_id,
+        userId: ownerUserId,
+        leadId: lead.id,
+        title: 'New Lead',
+        body: `New lead added by the office: ${who || 'No contact info'}`,
+      })
+      if (bellError) console.error('New lead notification insert failed:', bellError)
+    }
 
     return NextResponse.json({ lead_id: lead.id })
   } catch (error) {

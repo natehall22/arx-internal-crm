@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
-import Link from 'next/link'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import PhoneLink from '@/components/PhoneLink'
@@ -258,15 +258,13 @@ export default function CrewsPage() {
       
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Settings
-          </Link>
+          <SettingsBackLink />
         </div>
 
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Crews</h1>
-            <p className="text-gray-500 mt-1">Manage your in-house installation crews</p>
+            <p className="text-gray-700 mt-1">Manage your in-house installation crews</p>
           </div>
           <button
             onClick={() => openModal()}
@@ -283,25 +281,25 @@ export default function CrewsPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-gray-900">{crews.length}</div>
-            <div className="text-sm text-gray-500">Total Crews</div>
+            <div className="text-sm text-gray-700">Total Crews</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-green-600">
               {crews.filter(c => c.active).length}
             </div>
-            <div className="text-sm text-gray-500">Active</div>
+            <div className="text-sm text-gray-700">Active</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-blue-600">
               {crews.reduce((sum, c) => sum + c.daily_capacity, 0)}
             </div>
-            <div className="text-sm text-gray-500">Daily Capacity</div>
+            <div className="text-sm text-gray-700">Daily Capacity</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-indigo-600">
               {crews.reduce((sum, c) => sum + (c.members?.length || 0), 0)}
             </div>
-            <div className="text-sm text-gray-500">Total Members</div>
+            <div className="text-sm text-gray-700">Total Members</div>
           </div>
         </div>
 
@@ -314,7 +312,7 @@ export default function CrewsPage() {
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No crews yet</h3>
-            <p className="text-gray-500 mb-4">Create your first crew to start scheduling jobs</p>
+            <p className="text-gray-700 mb-4">Create your first crew to start scheduling jobs</p>
             <button
               onClick={() => openModal()}
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -345,7 +343,7 @@ export default function CrewsPage() {
                       </div>
                       <div>
                         <h3 className="font-semibold text-gray-900">{crew.name}</h3>
-                        <span className="text-xs text-gray-500 capitalize">{crew.crew_type}</span>
+                        <span className="text-xs text-gray-700 capitalize">{crew.crew_type}</span>
                       </div>
                     </div>
                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${
@@ -358,14 +356,14 @@ export default function CrewsPage() {
                   {/* Foreman */}
                   {crew.foreman_user_id && (
                     <div className="mb-3">
-                      <span className="text-xs text-gray-500">Foreman:</span>
+                      <span className="text-xs text-gray-700">Foreman:</span>
                       <span className="text-sm text-gray-900 ml-2">{getUserName(crew.foreman_user_id)}</span>
                     </div>
                   )}
 
                   {/* Members */}
                   <div className="mb-3">
-                    <span className="text-xs text-gray-500">Members:</span>
+                    <span className="text-xs text-gray-700">Members:</span>
                     {crew.members && crew.members.length > 0 ? (
                       <div className="flex flex-wrap gap-1 mt-1">
                         {crew.members.slice(0, 4).map(memberId => (
@@ -377,16 +375,16 @@ export default function CrewsPage() {
                           </span>
                         ))}
                         {crew.members.length > 4 && (
-                          <span className="text-xs text-gray-500">+{crew.members.length - 4} more</span>
+                          <span className="text-xs text-gray-700">+{crew.members.length - 4} more</span>
                         )}
                       </div>
                     ) : (
-                      <span className="text-sm text-gray-400 ml-2">No members assigned</span>
+                      <span className="text-sm text-gray-600 ml-2">No members assigned</span>
                     )}
                   </div>
 
                   {/* Stats Row */}
-                  <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
+                  <div className="flex items-center gap-4 text-sm text-gray-700 mb-4">
                     <span>📊 {crew.daily_capacity} jobs/day</span>
                     {crew.phone && <span>📞 <PhoneLink value={crew.phone} /></span>}
                   </div>
@@ -526,7 +524,7 @@ export default function CrewsPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Crew Members</label>
                   <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto">
                     {users.length === 0 ? (
-                      <p className="text-gray-500 text-sm">No users available</p>
+                      <p className="text-gray-700 text-sm">No users available</p>
                     ) : (
                       <div className="space-y-2">
                         {users.map(user => (
@@ -541,14 +539,14 @@ export default function CrewsPage() {
                               className="w-4 h-4 text-indigo-600 rounded"
                             />
                             <span className="text-sm text-gray-900">{user.full_name}</span>
-                            <span className="text-xs text-gray-500 capitalize">({user.role})</span>
+                            <span className="text-xs text-gray-700 capitalize">({user.role})</span>
                           </label>
                         ))}
                       </div>
                     )}
                   </div>
                   {formData.members.length > 0 && (
-                    <p className="text-xs text-gray-500 mt-1">{formData.members.length} member(s) selected</p>
+                    <p className="text-xs text-gray-700 mt-1">{formData.members.length} member(s) selected</p>
                   )}
                 </div>
 

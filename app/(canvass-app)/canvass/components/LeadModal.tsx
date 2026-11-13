@@ -5,6 +5,7 @@ import { getInspectionSubmitCooldownRemainingMs } from '../lib/inspectionSubmitC
 import type { CanvassPin } from '../page'
 import { lookupPinStorm, type WeatherContext } from '../lib/weather-overlay'
 import StormCard from './StormCard'
+import { useBackToClose } from '../lib/useBackToClose'
 
 // Disposition config from admin settings
 interface DispositionConfig {
@@ -74,6 +75,7 @@ export default function LeadModal({
   dispositions: dispositionsProp = [],
   weatherContext = null,
 }: Props) {
+  useBackToClose(true, onClose)
   const pinLat = pin?.lat ?? location?.lat
   const pinLng = pin?.lng ?? location?.lng
   const stormSummary = useMemo(() => {
@@ -104,7 +106,6 @@ export default function LeadModal({
     disposition: '',
     notes: '',
   })
-  const [showComingSoon, setShowComingSoon] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -263,11 +264,6 @@ export default function LeadModal({
     }
   }
 
-  const handlePhotoClick = () => {
-    setShowComingSoon(true)
-    setTimeout(() => setShowComingSoon(false), 2000)
-  }
-
   const handleDelete = async () => {
     if (!pin?.id || !onDelete) return
     setIsDeleting(true)
@@ -311,7 +307,7 @@ export default function LeadModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col animate-slide-up">
+      <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90dvh] overflow-hidden flex flex-col animate-slide-up">
         {/* Header */}
         <div className="px-4 py-3 border-b flex items-center justify-between bg-gray-50">
           <h2 className="font-semibold text-lg">
@@ -319,7 +315,7 @@ export default function LeadModal({
           </h2>
           <button
             onClick={onClose}
-            className="p-2 -mr-2 text-gray-400 hover:text-gray-600"
+            className="p-2 -mr-2 text-gray-600 hover:text-gray-900"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -531,7 +527,7 @@ export default function LeadModal({
                     {loadingSlots ? (
                       <div className="flex h-full items-center justify-center py-4">
                         <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                        <span className="ml-2 text-sm text-gray-500">Loading available times...</span>
+                        <span className="ml-2 text-sm text-gray-700">Loading available times...</span>
                       </div>
                     ) : slotsError ? (
                       <div className="py-4 px-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -565,12 +561,12 @@ export default function LeadModal({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-500 text-center py-4">
+                      <p className="text-sm text-gray-700 text-center py-4">
                         No available time slots. Tap Refresh above to try again.
                       </p>
                     )}
                     </div>
-                    <p className="mt-2 text-xs text-gray-500">
+                    <p className="mt-2 text-xs text-gray-700">
                       Buffer times are editable in <strong>Settings → Calendar</strong> (personal) or
                       <strong> Admin → Teams → Closer Queue</strong> (team round-robin).
                     </p>
@@ -598,6 +594,7 @@ export default function LeadModal({
                 </label>
                 <input
                   type="text"
+                  autoComplete="off"
                   value={formData.first_name}
                   onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
                   className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -610,6 +607,7 @@ export default function LeadModal({
                 </label>
                 <input
                   type="text"
+                  autoComplete="off"
                   value={formData.last_name}
                   onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
                   className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -624,6 +622,8 @@ export default function LeadModal({
               </label>
               <input
                 type="tel"
+                autoComplete="off"
+                inputMode="tel"
                 value={formData.phone}
                 onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                 className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -637,6 +637,8 @@ export default function LeadModal({
               </label>
               <input
                 type="email"
+                autoComplete="off"
+                inputMode="email"
                 value={formData.email}
                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                 className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -655,32 +657,6 @@ export default function LeadModal({
                 className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder="123 Main St, City, ST 12345"
               />
-            </div>
-
-            {/* Photos */}
-            <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2">
-                Photos
-              </label>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handlePhotoClick}
-                  className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400 hover:border-gray-400 hover:text-gray-500 relative"
-                >
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </button>
-              </div>
-              
-              {/* Coming Soon Toast */}
-              {showComingSoon && (
-                <div className="mt-2 bg-indigo-100 text-indigo-800 text-sm px-3 py-2 rounded-lg animate-pulse">
-                  Photo uploads coming soon!
-                </div>
-              )}
             </div>
           </div>
 

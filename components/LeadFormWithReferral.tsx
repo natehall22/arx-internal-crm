@@ -19,22 +19,20 @@ interface ReferrerResult {
   address: string | null
 }
 
-const leadStatuses = [
-  'new',
-  'contacted',
-  'appointment',
-  'inspection',
-  'estimate_sent',
-  'won',
-  'lost',
-] as const
-
 interface LeadFormWithReferralProps {
   orgId: string
   userId: string
   defaultBonusAmount?: number
   /** Enables post-create “Schedule inspection” when user also has scheduling:create server-side */
   canScheduleInspection?: boolean
+  /** The name field's label (industry profile word; roofing: "Homeowner Name"). */
+  nameLabel?: string
+  /** The company's word for the first visit, lower case (industry profile; roofing: "inspection"). */
+  inspectionWord?: string
+  /** The company's service choices (Admin → Campaigns); none = no Service field. */
+  serviceChoices?: string[]
+  /** People to pick as owner. Given only for a company that set up lead routing: the default is "Me"; "Assign automatically" is an explicit choice. */
+  ownerChoices?: Array<{ id: string; name: string }> | null
 }
 
 type SchedulingResources = {
@@ -49,6 +47,10 @@ export default function LeadFormWithReferral({
   userId,
   defaultBonusAmount = 100,
   canScheduleInspection = false,
+  nameLabel = 'Homeowner Name',
+  inspectionWord = 'inspection',
+  serviceChoices = [],
+  ownerChoices = null,
 }: LeadFormWithReferralProps) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
@@ -61,6 +63,8 @@ export default function LeadFormWithReferral({
   const [schedulingResources, setSchedulingResources] = useState<SchedulingResources | null>(null)
   const [schedulingLoadError, setSchedulingLoadError] = useState<string | null>(null)
   const [source, setSource] = useState('')
+  const [serviceRequested, setServiceRequested] = useState('')
+  const [ownerChoice, setOwnerChoice] = useState(userId)
   
   // Referral state
   const [showReferralSearch, setShowReferralSearch] = useState(false)
@@ -77,7 +81,6 @@ export default function LeadFormWithReferral({
     phone: '',
     email: '',
     address_text: '',
-    status: 'new',
     notes: '',
   })
 
@@ -182,13 +185,13 @@ export default function LeadFormWithReferral({
 
     if (selectedSchedule) {
       const missingScheduleFields = [
-        !form.homeowner_name.trim() ? 'homeowner name' : null,
+        !form.homeowner_name.trim() ? nameLabel.toLowerCase() : null,
         !form.phone.trim() ? 'phone' : null,
         !form.address_text.trim() ? 'address' : null,
       ].filter(Boolean)
 
       if (missingScheduleFields.length > 0) {
-        toast(`Add ${missingScheduleFields.join(', ')} before saving the scheduled inspection.`)
+        toast(`Add ${missingScheduleFields.join(', ')} before saving the scheduled ${inspectionWord}.`)
         return
       }
     }
@@ -200,13 +203,15 @@ export default function LeadFormWithReferral({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        owner_user_id: userId,
+        // Without a routing setup the person typing owns it (as always). With one, "Assign automatically" sends no owner so the
+        // server routes it; a person picked by hand always wins.
+        ...(ownerChoices && ownerChoice === 'auto' ? {} : { owner_user_id: ownerChoices ? ownerChoice : userId }),
+        service_requested: serviceRequested || null,
         homeowner_name: form.homeowner_name || null,
         phone: form.phone || null,
         email: form.email || null,
         address_text: form.address_text || null,
         source: source || null,
-        status: form.status,
         notes: form.notes || null,
       }),
     })
@@ -285,10 +290,11 @@ export default function LeadFormWithReferral({
       phone: '',
       email: '',
       address_text: '',
-      status: 'new',
       notes: '',
     })
     setSource('')
+    setServiceRequested('')
+    setOwnerChoice(userId)
     setSelectedReferrer(null)
     setSelectedSchedule(null)
   }
@@ -321,7 +327,7 @@ export default function LeadFormWithReferral({
                 onClick={() => setScheduleModalOpen(true)}
                 className="inline-flex rounded-md border border-green-700 bg-white px-4 py-2 text-sm font-semibold text-green-900 hover:bg-green-50"
               >
-                Schedule inspection…
+                Schedule {inspectionWord}…
               </button>
             )}
             <button
@@ -334,7 +340,7 @@ export default function LeadFormWithReferral({
           </div>
           {canScheduleInspection && !savedEligibleForSchedule && (
             <p className="mt-3 text-xs text-amber-800">
-              Add an address on the lead record, then use <strong>Schedule inspection</strong> from the lead page.
+              Add an address on the lead record, then use <strong>Schedule {inspectionWord}</strong> from the lead page.
             </p>
           )}
         </div>
@@ -358,10 +364,10 @@ export default function LeadFormWithReferral({
           closeDurationMinutes={schedulingResources.inspectionDurationMinutes}
           users={schedulingResources.users}
           teams={schedulingResources.teams}
-          modalTitle="Pick inspection time"
+          modalTitle={`Pick ${inspectionWord} time`}
           intro={
             <p>
-              Pick the open inspection slot first. You will enter the customer information next, then create and save.
+              Pick an open {inspectionWord} slot. It is booked when you create the lead.
             </p>
           }
           summaryHint="This slot will be booked when you create the lead."
@@ -370,13 +376,101 @@ export default function LeadFormWithReferral({
       )}
 
     <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="text-sm font-medium text-[#2c2c2a]">{nameLabel}</label>
+          <input
+            value={form.homeowner_name}
+            onChange={(e) => setForm(prev => ({ ...prev, homeowner_name: e.target.value }))}
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+            placeholder="Jane Smith"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-[#2c2c2a]">Phone</label>
+          <input
+            value={form.phone}
+            onChange={(e) => setForm(prev => ({ ...prev, phone: e.target.value }))}
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+            placeholder="(555) 555-5555"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-[#2c2c2a]">Email</label>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+            placeholder="homeowner@email.com"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-[#2c2c2a]">Address</label>
+          <input
+            value={form.address_text}
+            onChange={(e) => setForm(prev => ({ ...prev, address_text: e.target.value }))}
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+            placeholder="123 Main St, Dallas TX"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-[#2c2c2a]">Source</label>
+          <select
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+          >
+            <option value="">Select source</option>
+            {MANUAL_LEAD_SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {serviceChoices.length > 0 && (
+          <div>
+            <label htmlFor="lead-service" className="text-sm font-medium text-[#2c2c2a]">Service requested</label>
+            <select
+              id="lead-service"
+              value={serviceRequested}
+              onChange={(e) => setServiceRequested(e.target.value)}
+              className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+            >
+              <option value="">Not sure</option>
+              {serviceChoices.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {ownerChoices && (
+          <div>
+            <label htmlFor="lead-owner" className="text-sm font-medium text-[#2c2c2a]">Owner</label>
+            <select
+              id="lead-owner"
+              value={ownerChoice}
+              onChange={(e) => setOwnerChoice(e.target.value)}
+              className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
+            >
+              <option value={userId}>Me</option>
+              <option value="auto">Assign automatically</option>
+              {ownerChoices.filter((p) => p.id !== userId).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
       {canScheduleInspection && (
         <div className="rounded-lg border border-green-200 bg-green-50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-green-950">Schedule inspection</h3>
+              <h3 className="text-sm font-semibold text-green-950">Schedule {inspectionWord}</h3>
               <p className="mt-1 text-sm text-green-950/80">
-                Pick the available time first, then enter the homeowner details below.
+                Optional. Pick a time now and it is booked when you save.
               </p>
               {selectedScheduleLabel && (
                 <p className="mt-2 text-sm font-medium text-green-900">
@@ -410,75 +504,6 @@ export default function LeadFormWithReferral({
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="text-sm font-medium text-gray-500">Homeowner Name</label>
-          <input
-            value={form.homeowner_name}
-            onChange={(e) => setForm(prev => ({ ...prev, homeowner_name: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-            placeholder="Jane Smith"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Phone</label>
-          <input
-            value={form.phone}
-            onChange={(e) => setForm(prev => ({ ...prev, phone: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-            placeholder="(555) 555-5555"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Email</label>
-          <input
-            type="email"
-            value={form.email}
-            onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-            placeholder="homeowner@email.com"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Address</label>
-          <input
-            value={form.address_text}
-            onChange={(e) => setForm(prev => ({ ...prev, address_text: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-            placeholder="123 Main St, Dallas TX"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Source</label>
-          <select
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-          >
-            <option value="">Select source</option>
-            {MANUAL_LEAD_SOURCES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Status</label>
-          <select
-            value={form.status}
-            onChange={(e) => setForm(prev => ({ ...prev, status: e.target.value }))}
-            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-          >
-            {leadStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status.replace('_', ' ')}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
       {/* Referral Section */}
       {source === 'referral' && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
@@ -496,18 +521,18 @@ export default function LeadFormWithReferral({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-gray-900">{selectedReferrer.name}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-700">
                     {selectedReferrer.type === 'customer' ? 'Customer' : 'Previous Lead'}
                     {selectedReferrer.phone && ` • ${formatPhone(selectedReferrer.phone)}`}
                   </p>
                   {selectedReferrer.address && (
-                    <p className="text-sm text-gray-500">{selectedReferrer.address}</p>
+                    <p className="text-sm text-gray-700">{selectedReferrer.address}</p>
                   )}
                 </div>
                 <button
                   type="button"
                   onClick={clearReferrer}
-                  className="text-gray-400 hover:text-red-500"
+                  className="text-gray-600 hover:text-red-500"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -519,7 +544,7 @@ export default function LeadFormWithReferral({
               <div className="mt-3 pt-3 border-t">
                 <label className="text-sm font-medium text-gray-700">Referral Bonus Amount</label>
                 <div className="mt-1 relative w-32">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                   <input
                     type="number"
                     value={bonusAmount}
@@ -565,11 +590,11 @@ export default function LeadFormWithReferral({
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium text-gray-900">{result.name}</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-sm text-gray-700">
                             {result.phone ? formatPhone(result.phone) : result.email || 'No contact info'}
                           </p>
                           {result.address && (
-                            <p className="text-xs text-gray-400">{result.address}</p>
+                            <p className="text-xs text-gray-600">{result.address}</p>
                           )}
                         </div>
                         <span className={`px-2 py-0.5 text-xs rounded ${
@@ -592,7 +617,7 @@ export default function LeadFormWithReferral({
               )}
 
               {referralSearch.length < 2 && referralSearch.length > 0 && (
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-sm text-gray-700">
                   Type at least 2 characters to search...
                 </p>
               )}
@@ -603,12 +628,12 @@ export default function LeadFormWithReferral({
 
       {/* Notes */}
       <div>
-        <label className="text-sm font-medium text-gray-500">Notes</label>
+        <label className="text-sm font-medium text-[#2c2c2a]">Notes</label>
         <textarea
           value={form.notes}
           onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value }))}
           rows={4}
-          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
           placeholder="Add details about the lead..."
         />
       </div>
@@ -618,7 +643,7 @@ export default function LeadFormWithReferral({
         <button
           type="submit"
           disabled={saving || !!savedLeadId}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="min-h-[44px] rounded-md bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
         >
           {saving ? 'Creating...' : savedLeadId ? 'Lead created' : 'Create lead'}
         </button>
@@ -627,7 +652,7 @@ export default function LeadFormWithReferral({
           <button
             type="button"
             onClick={() => setSource('referral')}
-            className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+            className="min-h-[44px] text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />

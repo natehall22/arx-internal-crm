@@ -51,7 +51,7 @@ function Tile({ template, preset }: { template: ReportTemplate; preset: DatePres
   const max = Math.max(1, ...rows.flatMap((r) => [Number(r.value) || 0, extra ? Number(r[extra.key]) || 0 : 0]))
   const money = result?.columns[1]?.type === 'money'
   return (
-    <Link href="/reports/explore" style={{ ...card, display: 'block', textDecoration: 'none' }}>
+    <Link href={`/reports/explore?template=${encodeURIComponent(template.key)}&period=${preset}`} style={{ ...card, display: 'block', textDecoration: 'none' }}>
       <strong>{template.title}</strong>
       {extra && result && <p style={{ margin: '2px 0 0', fontSize: 14 }}>{plain(result.columns[1].label)} (top bar) and {plain(extra.label)} (bottom bar)</p>}
       {result === undefined && <p>Loading…</p>}
@@ -253,7 +253,7 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
               </select>
             </div>
             {data?.avgDealBasis && (
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-600">
                 Avg deal: ${data.avgDealValue.toLocaleString()} · {data.avgDealBasis}
               </p>
             )}
@@ -263,7 +263,7 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
           <div className="flex items-center gap-2">
             {editingGoal ? (
               <>
-                <span className="text-sm text-gray-500">Goal $</span>
+                <span className="text-sm text-gray-700">Goal $</span>
                 <input
                   type="number"
                   value={goalInput}
@@ -275,12 +275,12 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
                 <button onClick={saveGoal} disabled={savingGoal} className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm font-medium">
                   {savingGoal ? '…' : 'Save'}
                 </button>
-                <button onClick={() => setEditingGoal(false)} className="px-2 py-1 text-sm text-gray-500">Cancel</button>
+                <button onClick={() => setEditingGoal(false)} className="px-2 py-1 text-sm text-gray-700">Cancel</button>
               </>
             ) : (
               <>
                 <span className="text-sm text-gray-600">
-                  Goal: {goal ? `$${goal.toLocaleString()}` : <span className="text-gray-400">Not set</span>}
+                  Goal: {goal ? `$${goal.toLocaleString()}` : <span className="text-gray-600">Not set</span>}
                 </span>
                 {isAdmin && (
                   <button
@@ -302,16 +302,16 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
           <>
             <div className="flex flex-wrap items-end gap-6 mb-4">
               <div>
-                <p className="text-xs text-gray-400 mb-0.5">Total forecast</p>
+                <p className="text-xs text-gray-600 mb-0.5">Total forecast</p>
                 <p className="text-3xl font-bold text-gray-900">${forecast.toLocaleString()}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400 mb-0.5">Locked (confirmed)</p>
+                <p className="text-xs text-gray-600 mb-0.5">Locked (confirmed)</p>
                 <p className="text-xl font-semibold text-green-600">${(data?.totalLocked || 0).toLocaleString()}</p>
               </div>
               {gap !== null && gap > 0 && (
                 <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Gap to goal</p>
+                  <p className="text-xs text-gray-600 mb-0.5">Gap to goal</p>
                   <p className="text-xl font-semibold text-red-500">${gap.toLocaleString()}</p>
                 </div>
               )}
@@ -319,7 +319,7 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
 
             {pct !== null && (
               <div>
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                <div className="flex justify-between text-xs text-gray-700 mb-1">
                   <span>{pct}% of goal</span>
                   <span>${forecast.toLocaleString()} of ${goal!.toLocaleString()}</span>
                 </div>
@@ -350,11 +350,11 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
                   <div className="flex items-center gap-2 min-w-0">
                     {row.locked && <span className="text-green-500 text-xs font-bold">✓</span>}
                     <span className="text-sm text-gray-700 truncate">{row.stage}</span>
-                    <span className="text-xs text-gray-400 shrink-0">({row.count})</span>
+                    <span className="text-xs text-gray-600 shrink-0">({row.count})</span>
                   </div>
                   <div className="text-right shrink-0 ml-3">
                     <p className="text-sm font-semibold text-gray-900">${Math.round(row.expectedRevenue).toLocaleString()}</p>
-                    <p className="text-xs text-gray-400">{row.probability}%</p>
+                    <p className="text-xs text-gray-600">{row.probability}%</p>
                   </div>
                 </div>
               ))}
@@ -369,7 +369,7 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
               <span className="text-sm font-bold text-amber-600">${data.insuranceTotal.toLocaleString()}</span>
             </div>
             {data.insurancePipeline.length === 0 ? (
-              <p className="text-sm text-gray-400 py-4 text-center">No active insurance jobs.<br />Mark jobs as Insurance on the Ops board.</p>
+              <p className="text-sm text-gray-600 py-4 text-center">No active insurance jobs.<br />Mark jobs as Insurance on the Ops board.</p>
             ) : (
               <div className="space-y-2">
                 {data.insurancePipeline.map((row) => (
@@ -377,11 +377,11 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
                     <div className="flex items-center gap-2 min-w-0">
                       {row.lockedRevenue > 0 && <span className="text-green-500 text-xs font-bold">✓</span>}
                       <span className="text-sm text-gray-700 truncate">{row.stage}</span>
-                      <span className="text-xs text-gray-400 shrink-0">({row.count})</span>
+                      <span className="text-xs text-gray-600 shrink-0">({row.count})</span>
                     </div>
                     <div className="text-right shrink-0 ml-3">
                       <p className="text-sm font-semibold text-gray-900">${Math.round(row.expectedRevenue).toLocaleString()}</p>
-                      <p className="text-xs text-gray-400">{row.probability}%</p>
+                      <p className="text-xs text-gray-600">{row.probability}%</p>
                     </div>
                   </div>
                 ))}

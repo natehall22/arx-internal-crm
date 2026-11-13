@@ -44,6 +44,9 @@ type AIAssistantContextValue = {
   setInput: Dispatch<SetStateAction<string>>
   feedbackRatings: Record<number, AIAssistantFeedbackRating>
   setFeedbackRatings: Dispatch<SetStateAction<Record<number, AIAssistantFeedbackRating>>>
+  /** True once AIAssistantWrapper has verified this user may use the assistant. Nav shows "Ask AI" only then. */
+  assistantAvailable: boolean
+  setAssistantAvailable: (available: boolean) => void
 }
 
 const AIAssistantContext = createContext<AIAssistantContextValue | null>(null)
@@ -60,6 +63,7 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
     Record<number, AIAssistantFeedbackRating>
   >({})
   const [shellHydrated, setShellHydrated] = useState(false)
+  const [assistantAvailable, setAssistantAvailable] = useState(false)
 
   useEffect(() => {
     const stored = readAiAssistantShellStorage()
@@ -95,6 +99,8 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
       setInput,
       feedbackRatings,
       setFeedbackRatings,
+      assistantAvailable,
+      setAssistantAvailable,
     }),
     [
       pageContext,
@@ -104,6 +110,7 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
       conversationId,
       input,
       feedbackRatings,
+      assistantAvailable,
     ]
   )
 
@@ -127,4 +134,14 @@ export function useAIAssistantPageContext() {
 /** Full assistant shell state (panel mode + persisted chat). */
 export function useAIAssistantShell() {
   return useAIAssistantContext()
+}
+
+/**
+ * What Nav needs to show the "Ask AI" launcher. Null outside the provider (tests, harness) so Nav never throws.
+ * `available` is the wrapper's own allowlist check; there is no second gate.
+ */
+export function useAIAssistantLauncher(): { available: boolean; open: () => void } | null {
+  const ctx = useContext(AIAssistantContext)
+  if (!ctx) return null
+  return { available: ctx.assistantAvailable, open: () => ctx.setPanelMode('open') }
 }

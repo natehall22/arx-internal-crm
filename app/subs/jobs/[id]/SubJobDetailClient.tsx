@@ -139,14 +139,14 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         <div className="max-w-4xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href="/subs/jobs" className="text-gray-500 hover:text-gray-700 min-h-[44px] min-w-[44px] flex items-center justify-center">
+              <Link href="/subs/jobs" className="text-gray-700 hover:text-gray-900 min-h-[44px] min-w-[44px] flex items-center justify-center">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </Link>
               <div>
                 <h1 className="text-lg font-bold text-gray-900">{job.job_number}</h1>
-                <p className="text-sm text-gray-500">{companyName}</p>
+                <p className="text-sm text-gray-700">{companyName}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -193,7 +193,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
           
           <div className="space-y-3">
             <div>
-              <p className="text-sm text-gray-500">{t('customer')}</p>
+              <p className="text-sm text-gray-700">{t('customer')}</p>
               <p className="font-medium text-gray-900">{job.customer_name || 'N/A'}</p>
               {job.customer_phone && (
                 <PhoneLink value={job.customer_phone} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center" />
@@ -201,7 +201,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
             </div>
 
             <div>
-              <p className="text-sm text-gray-500">{t('address')}</p>
+              <p className="text-sm text-gray-700">{t('address')}</p>
               <p className="text-gray-900">{job.address_text}</p>
               <a 
                 href={`https://maps.google.com/?q=${encodeURIComponent(job.address_text)}`}
@@ -215,7 +215,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
 
             {job.scheduled_date && (
               <div>
-                <p className="text-sm text-gray-500">{t('scheduled')}</p>
+                <p className="text-sm text-gray-700">{t('scheduled')}</p>
                 <p className="text-gray-900">
                   {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
                     weekday: 'long',
@@ -226,14 +226,14 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
                   {job.scheduled_time_start && ` at ${job.scheduled_time_start}`}
                 </p>
                 {job.estimated_duration_hours && (
-                  <p className="text-sm text-gray-500">{job.estimated_duration_hours}h</p>
+                  <p className="text-sm text-gray-700">{job.estimated_duration_hours}h</p>
                 )}
               </div>
             )}
 
             {job.permit_required && (
               <div>
-                <p className="text-sm text-gray-500">{t('permit')}</p>
+                <p className="text-sm text-gray-700">{t('permit')}</p>
                 <p className="text-gray-900">
                   {job.permit_number || t('required')} 
                   <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
@@ -256,7 +256,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
             
             {job.product_summary && (
               <div className="mb-3">
-                <p className="text-sm text-gray-500">{t('product')}</p>
+                <p className="text-sm text-gray-700">{t('product')}</p>
                 <p className="text-gray-900">{job.product_summary}</p>
               </div>
             )}
@@ -284,14 +284,14 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
             <div className="space-y-3">
               {Object.entries(groupedItems).map(([category, items]) => (
                 <div key={category}>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{category}</p>
+                  <p className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-1">{category}</p>
                   <div className="space-y-1">
                     {items.map(item => (
                       <div key={item.id} className="flex justify-between py-1 border-b border-gray-100 last:border-0">
                         <div>
                           <p className="text-sm text-gray-900">{item.name}</p>
                           {item.description && (
-                            <p className="text-xs text-gray-500">{item.description}</p>
+                            <p className="text-xs text-gray-700">{item.description}</p>
                           )}
                         </div>
                         <p className="text-sm text-gray-600">{item.quantity} {item.unit}</p>
@@ -312,7 +312,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
               {job.notes.map(note => (
                 <div key={note.id} className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-700">{note.note}</p>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-600 mt-1">
                     {new Date(note.created_at).toLocaleDateString()}
                   </p>
                 </div>
@@ -363,7 +363,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
                       <svg className="w-8 h-8 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      <p className="text-xs text-gray-500 truncate mt-1">{file.file_name}</p>
+                      <p className="text-xs text-gray-700 truncate mt-1">{file.file_name}</p>
                     </div>
                   </a>
                 )

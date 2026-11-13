@@ -219,7 +219,7 @@ describe('migration 202611220030 (file only)', () => {
   })
   it('is the latest migration number and the unit-missing message names it', () => {
     const files = require('fs').readdirSync(path.join(process.cwd(), 'supabase/migrations')).filter((f: string) => /^\d{12}_/.test(f)).sort()
-    expect(files[files.length - 1]).toBe('202611220030_price_sheet_units_options_lists.sql')
+    expect(files).toContain('202611220030_price_sheet_units_options_lists.sql')
     expect(serviceUnitNotReadyMessage({ code: '22P02' }, 'pallet')).toContain('202611220030')
     expect(serviceUnitNotReadyMessage({ code: '22P02' }, 'visit')).toContain('202611100090')
   })

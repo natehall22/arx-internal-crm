@@ -14,11 +14,12 @@ import MovedHostNotice from './components/MovedHostNotice'
 import { lookupPinStorm } from './lib/weather-overlay'
 import { recordSuccessfulInspectionSubmit } from './lib/inspectionSubmitCooldown'
 import { useOfflineStore } from './lib/offlineStore'
-import { useGeolocation } from './lib/useGeolocation'
+import { useGeolocation, isUsableFix } from './lib/useGeolocation'
 import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLeads'
 import type { AssignedTerritoryMapPayload } from '@/lib/canvass-territories'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { formatPhone } from '@/lib/format'
+import { registerCanvassServiceWorker, hasWaitingUpdate, applyWaitingUpdate } from '@/lib/service-worker-scope'
 
 // Global type declarations for Google Maps and MarkerClusterer
 declare global {
@@ -146,6 +147,9 @@ export default function CanvassPage() {
   ])
   
   const { position, error: geoError, requestPermission } = useGeolocation()
+  const [updateReady, setUpdateReady] = useState(false)
+  const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null)
+  const [fixNotice, setFixNotice] = useState<string | null>(null)
   const { pendingLeads, addLead, syncLeads, isOnline, isSyncing } = useOfflineStore()
   
   const { 
@@ -181,45 +185,40 @@ export default function CanvassPage() {
     }
   }, [])
 
-  const swReloadGuard = useRef(false)
-
   useEffect(() => {
     loadData()
 
-    if (!('serviceWorker' in navigator)) return
+    // Ask the browser not to evict the offline queue under storage pressure. Best effort, silent.
+    navigator.storage?.persist?.()?.catch(() => {})
 
-    const onControllerChange = () => {
-      if (swReloadGuard.current) return
-      swReloadGuard.current = true
-      window.location.reload()
-    }
-
-    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
-
-    navigator.serviceWorker.register('/canvass-sw.js').then((registration) => {
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing
-        if (!newWorker) return
-
-        newWorker.addEventListener('statechange', () => {
-          if (
-            newWorker.state === 'installed' &&
-            navigator.serviceWorker.controller &&
-            registration.waiting
-          ) {
-            registration.waiting.postMessage({ type: 'SKIP_WAITING' })
-          }
-        })
-      })
-
-      if (registration.waiting) {
-        registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+    // One worker, scope /canvass (lib/service-worker-scope.ts): retires the old `/` registration first.
+    let registration: ServiceWorkerRegistration | null = null
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return
+      let newer = hasWaitingUpdate(registration)
+      try {
+        await registration?.update()
+        newer = hasWaitingUpdate(registration)
+        const res = await fetch('/api/build-id', { cache: 'no-store' })
+        if (res.ok) {
+          const { id } = (await res.json()) as { id?: string }
+          if (id && id !== 'dev' && process.env.NEXT_PUBLIC_BUILD_ID && id !== process.env.NEXT_PUBLIC_BUILD_ID) newer = true
+        }
+      } catch {
+        // offline: keep what we know
       }
-    }).catch(console.error)
-
-    return () => {
-      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
+      if (newer) setUpdateReady(true)
     }
+    registerCanvassServiceWorker()
+      .then((reg) => {
+        registration = reg
+        swRegistrationRef.current = reg
+        reg?.addEventListener('updatefound', () => reg.installing?.addEventListener('statechange', () => void check()))
+        void check()
+      })
+      .catch(console.error)
+    document.addEventListener('visibilitychange', check)
+    return () => document.removeEventListener('visibilitychange', check)
   }, [])
 
   /** Work areas deep-link only for managers; strip ?areas=1 for everyone else. */
@@ -613,9 +612,15 @@ export default function CanvassPage() {
   }
 
   const handleDropPinAtLocation = () => {
-    if (position) {
+    if (position && !isUsableFix(position)) {
+      // Too old or too rough: never drop on it. Restart the watch for a fresh fix; the button works once it lands.
+      setFixNotice('Getting your exact location…')
+      window.setTimeout(() => setFixNotice(null), 4000)
+      requestPermission()
+    } else if (position) {
       handleMapClick(position.lat, position.lng)
     } else {
+      if (geoError) alert(geoError)
       requestPermission()
     }
   }
@@ -668,7 +673,7 @@ export default function CanvassPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-dvh flex items-center justify-center bg-gray-100">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Loading...</p>
@@ -678,7 +683,21 @@ export default function CanvassPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
+    <div className="h-dvh flex flex-col bg-gray-100">
+      {updateReady && (
+        <button
+          type="button"
+          onClick={() => applyWaitingUpdate(swRegistrationRef.current)}
+          className="w-full min-h-[44px] bg-amber-100 text-[#2c2c2a] text-sm font-semibold px-4 py-2 text-center"
+        >
+          New version — tap to refresh
+        </button>
+      )}
+      {fixNotice && (
+        <div role="status" className="w-full bg-white text-[#2c2c2a] text-sm font-semibold px-4 py-2 text-center">
+          {fixNotice}
+        </div>
+      )}
       {/* Header */}
       <header className="bg-indigo-600 text-white px-4 py-3 flex items-center justify-between safe-area-top">
         <div className="flex items-center gap-3">
@@ -734,7 +753,7 @@ export default function CanvassPage() {
           <div className="h-full overflow-y-auto p-4 pb-24">
             <div className="space-y-3">
               {displayPins.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
+                <div className="text-center py-12 text-gray-700">
                   <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   </svg>
@@ -775,11 +794,11 @@ export default function CanvassPage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-gray-500 mt-0.5">
+                          <p className="text-sm text-gray-700 mt-0.5">
                             {addressText || `${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`}
                           </p>
                           {phone && (
-                            <p className="text-sm text-gray-500">{formatPhone(phone)}</p>
+                            <p className="text-sm text-gray-700">{formatPhone(phone)}</p>
                           )}
                         </div>
                         <span className={`px-2 py-1 text-xs rounded-full font-medium ${

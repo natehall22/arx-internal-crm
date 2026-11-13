@@ -57,7 +57,7 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
   }
 
   const priorityColors: Record<string, string> = {
-    low: 'text-gray-500',
+    low: 'text-gray-700',
     normal: 'text-blue-600',
     high: 'text-orange-600',
     urgent: 'text-red-600',
@@ -82,7 +82,7 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-gray-900">{companyName}</h1>
-              <p className="text-sm text-gray-500">{t('subContractorPortal')}</p>
+              <p className="text-sm text-gray-700">{t('subContractorPortal')}</p>
             </div>
             <div className="flex items-center gap-4">
               <LanguageToggle />
@@ -104,7 +104,7 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
           <nav className="flex gap-6">
             <Link
               href="/subs/jobs"
-              className="py-3 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-2 border-transparent"
+              className="py-3 text-sm font-medium text-gray-700 hover:text-gray-900 border-b-2 border-transparent"
             >
               {t('jobs')}
             </Link>
@@ -123,15 +123,15 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow-sm border p-4 text-center">
             <p className="text-2xl font-bold text-purple-600">{pendingCount}</p>
-            <p className="text-sm text-gray-500">{t('statusPending')}</p>
+            <p className="text-sm text-gray-700">{t('statusPending')}</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm border p-4 text-center">
             <p className="text-2xl font-bold text-indigo-600">{inProgressCount}</p>
-            <p className="text-sm text-gray-500">{t('inProgress')}</p>
+            <p className="text-sm text-gray-700">{t('inProgress')}</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm border p-4 text-center">
             <p className="text-2xl font-bold text-green-600">{completedCount}</p>
-            <p className="text-sm text-gray-500">{t('completed')}</p>
+            <p className="text-sm text-gray-700">{t('completed')}</p>
           </div>
         </div>
 
@@ -156,7 +156,7 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
         <div className="space-y-3">
           {filteredWorkOrders.length === 0 ? (
             <div className="bg-white rounded-lg shadow-sm border p-8 text-center">
-              <p className="text-gray-500">{t('noWorkOrders')}</p>
+              <p className="text-gray-700">{t('noWorkOrders')}</p>
             </div>
           ) : (
             filteredWorkOrders.map(wo => {
@@ -197,7 +197,7 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
                   )}
 
                   {wo.description && (
-                    <p className="text-sm text-gray-500 mb-2 line-clamp-2">{wo.description}</p>
+                    <p className="text-sm text-gray-700 mb-2 line-clamp-2">{wo.description}</p>
                   )}
 
                   <div className="flex items-center gap-4 text-sm mb-3">
@@ -211,13 +211,13 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
                       </span>
                     )}
                     {wo.scheduled_time_start && (
-                      <span className="text-gray-500">{wo.scheduled_time_start}</span>
+                      <span className="text-gray-700">{wo.scheduled_time_start}</span>
                     )}
                     {wo.estimated_hours && (
-                      <span className="text-gray-500">{wo.estimated_hours}h</span>
+                      <span className="text-gray-700">{wo.estimated_hours}h</span>
                     )}
                     {totalPhotos > 0 && (
-                      <span className="text-gray-500 flex items-center gap-1">
+                      <span className="text-gray-700 flex items-center gap-1">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
@@ -251,7 +251,7 @@ export default function SubWorkOrdersClient({ workOrders, companyName }: SubWork
                   {/* Completion info if completed */}
                   {wo.status === 'completed' && wo.sub_completion_notes && (
                     <div className="mt-3 pt-3 border-t">
-                      <p className="text-xs text-gray-500 mb-1">{t('completionNote')}:</p>
+                      <p className="text-xs text-gray-700 mb-1">{t('completionNote')}:</p>
                       <p className="text-sm text-gray-700">{wo.sub_completion_notes}</p>
                     </div>
                   )}

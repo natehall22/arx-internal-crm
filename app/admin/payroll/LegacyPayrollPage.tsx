@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import { formatParticipantRoleLabel } from '@/lib/payroll-format'
 import InspectionCommissionRateCard from './InspectionCommissionRateCard'
@@ -117,11 +118,7 @@ export default function AdminPayrollPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-6">
-          <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Admin
-          </Link>
-        </div>
+        <SettingsBackLink />
 
         <div className="bg-white rounded-xl shadow-sm border p-6 sm:p-8">
           <h1 className="text-2xl font-semibold text-gray-900">Payroll &amp; commission export</h1>
@@ -136,10 +133,10 @@ export default function AdminPayrollPage() {
               Weekly eligibility worksheet →
             </Link>
             <Link
-              href="/admin/sisu/bonus-approval"
+              href="/admin/bonuses"
               className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800"
             >
-              Bonus approval (444, setter ramp) →
+              Bonuses (444, setter ramp, manual) →
               {pendingBonusCount != null && pendingBonusCount > 0 && (
                 <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                   {pendingBonusCount} pending
@@ -265,7 +262,7 @@ export default function AdminPayrollPage() {
                           className="text-xs text-gray-700 mt-0.5 max-w-[220px] leading-snug"
                           title={r.customer_name || undefined}
                         >
-                          {r.customer_name?.trim() ? r.customer_name : <span className="text-gray-400">—</span>}
+                          {r.customer_name?.trim() ? r.customer_name : <span className="text-gray-600">—</span>}
                         </div>
                       </td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{r.sale_date || '—'}</td>
@@ -294,7 +291,7 @@ export default function AdminPayrollPage() {
             </div>
           )}
 
-          <div className="mt-8 text-xs text-gray-500 space-y-1">
+          <div className="mt-8 text-xs text-gray-700 space-y-1">
             <p>
               <strong>Who appears on a job:</strong> <strong>Sales rep</strong> from the job, plus{' '}
               <strong>Setter</strong> and <strong>Closer</strong> from the linked opportunity when set (each person once).

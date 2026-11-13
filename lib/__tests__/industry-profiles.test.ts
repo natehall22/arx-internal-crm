@@ -27,7 +27,7 @@ import { profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { parseCompanySeedInput } from '@/lib/company-seed'
 
 const read = (f: string) => readFileSync(path.join(process.cwd(), f), 'utf8')
-const lawnSettings = { profile: { id: 'lawn_landscape', version: 4 } }
+const lawnSettings = { profile: { id: 'lawn_landscape', version: 5 } }
 
 const flags = { isOpsOnly: false, canSeeOpsDashboard: true, canSeeJobBoard: true, canSeeInsideSales: true, projectsBarred: false, salesDocBarred: false, customerRecords: true, reports: true, isPayrollAdmin: true, earnsPay: true, payWeek: true }
 const owner = (extra: Partial<NavContext> = {}): NavContext => ({ permsReady: true, role: 'owner', fullAccess: true, permissionNames: new Set(), flags, ...extra })
@@ -40,7 +40,7 @@ describe('roofing profile = the app as it was (the original company is unchanged
     expect(roof.storedVersion).toBeNull()
     expect(roof.features).toEqual(DEFAULT_ORG_FEATURES)
     expect(roof.terms).toEqual(BASE_TERMS)
-    expect(BASE_TERMS).toEqual({ job: 'Job', jobs: 'Jobs', jobBoard: 'Job Board', productionBoard: 'Production Board', inspection: 'Inspection', proposal: 'Proposal', install: 'Install', installed: 'Installed', subs: 'Subcontractors' })
+    expect(BASE_TERMS).toEqual({ job: 'Job', jobs: 'Jobs', jobBoard: 'Job Board', productionBoard: 'Production Board', inspection: 'Inspection', proposal: 'Proposal', install: 'Install', installed: 'Installed', subs: 'Subcontractors', leadName: 'Homeowner Name' })
     // An explicit roofing profile is the same thing.
     expect(resolveOrgProfile({ profile: { id: 'roofing', version: 1 } }).terms).toEqual(BASE_TERMS)
   })
@@ -57,7 +57,7 @@ describe('roofing profile = the app as it was (the original company is unchanged
     const none = visibleNav(owner())
     const withRoofing = visibleNav(owner({ profile: clientOrgProfile(roof) }))
     expect(withRoofing).toEqual(none)
-    expect(none.sections.map((s) => s.label)).toEqual(['Today', 'Pipeline', 'Jobs', 'Customers', 'Money', 'Insights'])
+    expect(none.sections.map((s) => s.label)).toEqual(['Today', 'Dashboard', 'Pipeline', 'Jobs', 'Customers', 'Money', 'Reports', 'Sisu'])
     expect(none.sections.find((s) => s.id === 'jobs')!.children[0]).toEqual({ href: '/ops', label: 'Job Board' })
   })
 
@@ -105,8 +105,8 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
 
   it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing + customer messages on', () => {
     expect(lawn.id).toBe('lawn_landscape')
-    expect(lawn.storedVersion).toBe(4)
-    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval'])
+    expect(lawn.storedVersion).toBe(5)
+    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval' || k === 'areaMeasure'])
   })
 
   it('words, menu order and hidden pages', () => {
@@ -115,9 +115,9 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
     // Crews are a job's per-trade crews; subcontractors keep their own word (no clash).
     expect(t(lawn, 'subs')).toBe('Subcontractors')
     const nav = visibleNav(owner({ features: lawn.features, profile: clientOrgProfile(lawn) }))
-    expect(nav.sections.map((s) => s.id)).toEqual(['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'])
+    expect(nav.sections.map((s) => s.id)).toEqual(['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports'])
     expect(nav.sections.find((s) => s.id === 'jobs')!.label).toBe('Work')
-    const hrefs = nav.sections.flatMap((s) => s.children.map((c) => c.href))
+    const hrefs = nav.sections.flatMap((s) => (s.children.length ? s.children.map((c) => c.href) : [s.href]))
     for (const gone of ['/inside-sales', '/ops/checkups', '/projects', '/sisu']) expect(hrefs).not.toContain(gone)
     expect(nav.canvass).toBe(false)
     expect(nav.sections.find((s) => s.id === 'jobs')!.children[0]).toEqual({ href: '/ops', label: 'Work board' })
@@ -190,7 +190,7 @@ describe('company settings override the profile', () => {
     expect(res.error).toMatch(/path \[profile\]/)
     expect(rpc).not.toHaveBeenCalled()
     expect(mergeSettingsAt({ a: 1 }, ['profile'], { id: 'lawn_landscape', version: 1 })).toEqual({ a: 1, profile: { id: 'lawn_landscape', version: 1 } })
-    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, (signing: _signing, )?\.\.\.rest/)
+    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, (signing: _signing, )?(leadIntake: _leadIntake, )?(areaMeasure: _areaMeasure, )?\.\.\.rest/)
   })
 })
 
@@ -201,7 +201,7 @@ describe('switching profile', () => {
     const plan = planProfileSwitch({ features: {} }, [...DEFAULT_ORG_TRADES], 'lawn_landscape')
     expect(plan.from.id).toBe('roofing')
     // Roofing: every switch on except the default-off modules (service plans, time clock); lawn: the reverse.
-    expect(plan.features.map((f) => [f.key, f.now, f.after])).toEqual(ORG_FEATURE_KEYS.filter((k) => k !== 'onlinePayments' && k !== 'aiConnector' && k !== 'projectTools' && k !== 'quickbooks' && k !== 'aiConnectorWrites' && k !== 'texting').map((k) => (k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval' ? [k, false, true] : [k, true, false])))
+    expect(plan.features.map((f) => [f.key, f.now, f.after])).toEqual(ORG_FEATURE_KEYS.filter((k) => k !== 'onlinePayments' && k !== 'aiConnector' && k !== 'projectTools' && k !== 'quickbooks' && k !== 'aiConnectorWrites' && k !== 'texting').map((k) => (k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval' || k === 'areaMeasure' ? [k, false, true] : [k, true, false])))
     expect(plan.trades).toEqual({
       add: ['Lawn care', 'Landscaping', 'Tractor / land work', 'Clean-up', 'Soft wash / pressure washing'],
       turnOn: [],
@@ -254,7 +254,7 @@ describe('switching profile', () => {
 })
 
 describe('definitions stay wired to real things (parity)', () => {
-  const todaySrc = read('lib/today.ts')
+  const todaySrc = read('lib/today.ts') + read('lib/leads-waiting.ts')
   const knownQueueIds = new Set(Array.from(todaySrc.matchAll(/(?:id: |Queue\()'([a-z-]+)'/g)).map((m) => m[1]))
 
   it.each(INDUSTRY_PROFILE_IDS)('%s', (id) => {

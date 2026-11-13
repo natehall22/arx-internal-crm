@@ -133,7 +133,7 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
       </div>
 
       <div className="mb-4 sm:mb-6">
-        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-gray-500">
+        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-gray-700">
           <span>Collected</span>
           <span>Remaining</span>
         </div>

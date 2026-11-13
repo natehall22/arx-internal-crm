@@ -51,7 +51,7 @@ const LOOKBACK_OPTIONS: { value: Lookback; label: string }[] = [
 function TrendArrow({ trend }: { trend: 'up' | 'down' | 'flat' }) {
   if (trend === 'up') return <span className="text-green-500 font-bold text-lg">↑</span>
   if (trend === 'down') return <span className="text-red-500 font-bold text-lg">↓</span>
-  return <span className="text-gray-400 font-bold text-lg">→</span>
+  return <span className="text-gray-600 font-bold text-lg">→</span>
 }
 
 function calcTargets(goals: CoachingGoals, commissionRate: number | null, liveClose: number, liveStick: number) {
@@ -109,7 +109,7 @@ function fmt(n: number | null | undefined, decimals = 0) {
 }
 
 function GapBadge({ target, actual }: { target: number | null; actual: number }) {
-  if (target === null) return <span className="text-gray-400 text-xs">—</span>
+  if (target === null) return <span className="text-gray-600 text-xs">—</span>
   const pct = target > 0 ? Math.round((actual / target) * 100) : 0
   const color = pct >= 90 ? 'text-green-600' : pct >= 60 ? 'text-yellow-600' : 'text-red-600'
   return <span className={`text-xs font-semibold ${color}`}>{pct}%</span>
@@ -390,7 +390,7 @@ export default function CoachingClient({
                   : 'Team Coaching'}
             </h1>
             {selectedMember ? (
-              <p className="text-sm text-gray-500 capitalize">
+              <p className="text-sm text-gray-700 capitalize">
                 {selectedMember.id === TEAM_COMBINED_ID
                   ? isRegionalManager && viewerRegion
                     ? `Everyone in ${viewerRegion.name} — totals summed`
@@ -400,7 +400,7 @@ export default function CoachingClient({
                     : selectedMember.role.replace(/_/g, ' ')}
               </p>
             ) : selectedRegionId ? (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-700">
                 {membersInRegionView.length} rep{membersInRegionView.length === 1 ? '' : 's'} in this region · click a card or open the combined trend
               </p>
             ) : null}
@@ -427,7 +427,7 @@ export default function CoachingClient({
               ))}
             </div>
           ) : members.length === 0 ? (
-            <p className="text-gray-500 text-sm py-10 text-center">No team members found.</p>
+            <p className="text-gray-700 text-sm py-10 text-center">No team members found.</p>
           ) : (
             <>
               {teamCombined && (
@@ -446,23 +446,23 @@ export default function CoachingClient({
                           ? `${viewerRegion.name} — combined`
                           : 'Everyone in scope — combined'}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-gray-700 mt-1">
                         Sets, sits, and sales summed across all reps below. Click for trend chart.
                       </p>
                     </div>
                     <TrendArrow trend={teamCombined.trend} />
                   </div>
                   <div className="flex gap-6 mt-4 text-sm">
-                    <span><span className="text-gray-500">Sets </span><span className="font-bold text-orange-500">{teamCombined.totals.sets}</span></span>
-                    <span><span className="text-gray-500">Sits </span><span className="font-bold text-cyan-600">{teamCombined.totals.sits}</span></span>
-                    <span><span className="text-gray-500">Sales </span><span className="font-bold text-green-600">{teamCombined.totals.sales}</span></span>
+                    <span><span className="text-gray-700">Sets </span><span className="font-bold text-orange-500">{teamCombined.totals.sets}</span></span>
+                    <span><span className="text-gray-700">Sits </span><span className="font-bold text-cyan-600">{teamCombined.totals.sits}</span></span>
+                    <span><span className="text-gray-700">Sales </span><span className="font-bold text-green-600">{teamCombined.totals.sales}</span></span>
                   </div>
                 </button>
               )}
 
               {showAdminRegionCards && (
                 <div className="mb-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">By region</p>
+                  <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">By region</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {adminRegionSections.map(sec => (
                       <button
@@ -477,9 +477,9 @@ export default function CoachingClient({
                         </div>
                         {sec.combined && (
                           <div className="flex gap-4 text-xs mb-2">
-                            <span><span className="text-gray-400">Sets </span><span className="font-semibold text-orange-500">{sec.combined.totals.sets}</span></span>
-                            <span><span className="text-gray-400">Sits </span><span className="font-semibold text-cyan-600">{sec.combined.totals.sits}</span></span>
-                            <span><span className="text-gray-400">Sales </span><span className="font-semibold text-green-600">{sec.combined.totals.sales}</span></span>
+                            <span><span className="text-gray-600">Sets </span><span className="font-semibold text-orange-500">{sec.combined.totals.sets}</span></span>
+                            <span><span className="text-gray-600">Sits </span><span className="font-semibold text-cyan-600">{sec.combined.totals.sits}</span></span>
+                            <span><span className="text-gray-600">Sales </span><span className="font-semibold text-green-600">{sec.combined.totals.sales}</span></span>
                           </div>
                         )}
                         <p className="text-xs text-amber-700 font-medium">View region →</p>
@@ -506,14 +506,14 @@ export default function CoachingClient({
                     <TrendArrow trend={member.trend} />
                   </div>
                   <p className="font-semibold text-gray-900 text-sm leading-tight">{member.name}</p>
-                  <p className="text-xs text-gray-400 capitalize mb-2">{member.role.replace(/_/g, ' ')}</p>
+                  <p className="text-xs text-gray-600 capitalize mb-2">{member.role.replace(/_/g, ' ')}</p>
                   {isAdmin && member.region_name && (
-                    <p className="text-[10px] text-gray-400 mb-1 truncate" title={member.region_name}>{member.region_name}</p>
+                    <p className="text-[10px] text-gray-600 mb-1 truncate" title={member.region_name}>{member.region_name}</p>
                   )}
                   <div className="flex gap-3 text-xs">
-                    <span><span className="text-gray-400">Sets </span><span className="font-semibold text-orange-500">{member.totals.sets}</span></span>
-                    <span><span className="text-gray-400">Sits </span><span className="font-semibold text-cyan-600">{member.totals.sits}</span></span>
-                    <span><span className="text-gray-400">Sales </span><span className="font-semibold text-green-600">{member.totals.sales}</span></span>
+                    <span><span className="text-gray-600">Sets </span><span className="font-semibold text-orange-500">{member.totals.sets}</span></span>
+                    <span><span className="text-gray-600">Sits </span><span className="font-semibold text-cyan-600">{member.totals.sits}</span></span>
+                    <span><span className="text-gray-600">Sales </span><span className="font-semibold text-green-600">{member.totals.sales}</span></span>
                   </div>
                 </button>
               ))}
@@ -529,7 +529,7 @@ export default function CoachingClient({
           {loading ? (
             <div className="h-32 animate-pulse bg-gray-100 rounded-xl" />
           ) : membersInRegionView.length === 0 ? (
-            <p className="text-gray-500 text-sm py-10 text-center">No reps in this region.</p>
+            <p className="text-gray-700 text-sm py-10 text-center">No reps in this region.</p>
           ) : (
             <>
               {regionDrillCombined && (
@@ -542,14 +542,14 @@ export default function CoachingClient({
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-1">Region total</p>
                       <p className="text-lg font-bold text-gray-900">{regionDrillCombined.name}</p>
-                      <p className="text-xs text-gray-500 mt-1">Summed across reps in this region. Click for trend chart.</p>
+                      <p className="text-xs text-gray-700 mt-1">Summed across reps in this region. Click for trend chart.</p>
                     </div>
                     <TrendArrow trend={regionDrillCombined.trend} />
                   </div>
                   <div className="flex gap-6 mt-4 text-sm">
-                    <span><span className="text-gray-500">Sets </span><span className="font-bold text-orange-500">{regionDrillCombined.totals.sets}</span></span>
-                    <span><span className="text-gray-500">Sits </span><span className="font-bold text-cyan-600">{regionDrillCombined.totals.sits}</span></span>
-                    <span><span className="text-gray-500">Sales </span><span className="font-bold text-green-600">{regionDrillCombined.totals.sales}</span></span>
+                    <span><span className="text-gray-700">Sets </span><span className="font-bold text-orange-500">{regionDrillCombined.totals.sets}</span></span>
+                    <span><span className="text-gray-700">Sits </span><span className="font-bold text-cyan-600">{regionDrillCombined.totals.sits}</span></span>
+                    <span><span className="text-gray-700">Sales </span><span className="font-bold text-green-600">{regionDrillCombined.totals.sales}</span></span>
                   </div>
                 </button>
               )}
@@ -570,11 +570,11 @@ export default function CoachingClient({
                       <TrendArrow trend={member.trend} />
                     </div>
                     <p className="font-semibold text-gray-900 text-sm leading-tight">{member.name}</p>
-                    <p className="text-xs text-gray-400 capitalize mb-2">{member.role.replace(/_/g, ' ')}</p>
+                    <p className="text-xs text-gray-600 capitalize mb-2">{member.role.replace(/_/g, ' ')}</p>
                     <div className="flex gap-3 text-xs">
-                      <span><span className="text-gray-400">Sets </span><span className="font-semibold text-orange-500">{member.totals.sets}</span></span>
-                      <span><span className="text-gray-400">Sits </span><span className="font-semibold text-cyan-600">{member.totals.sits}</span></span>
-                      <span><span className="text-gray-400">Sales </span><span className="font-semibold text-green-600">{member.totals.sales}</span></span>
+                      <span><span className="text-gray-600">Sets </span><span className="font-semibold text-orange-500">{member.totals.sets}</span></span>
+                      <span><span className="text-gray-600">Sits </span><span className="font-semibold text-cyan-600">{member.totals.sits}</span></span>
+                      <span><span className="text-gray-600">Sales </span><span className="font-semibold text-green-600">{member.totals.sales}</span></span>
                     </div>
                   </button>
                 ))}
@@ -626,7 +626,7 @@ export default function CoachingClient({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Inputs */}
                 <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Inputs</p>
+                  <p className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-3">Inputs</p>
                   <div className="space-y-3">
                     <div>
                       <label className="block text-xs text-gray-600 mb-1">Annual income goal ($)</label>
@@ -668,7 +668,7 @@ export default function CoachingClient({
                         className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm ${commissionRate ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''}`}
                       />
                       {(commissionRate || goals.commission_rate_override) && goals.avg_deal_value && (
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-xs text-gray-600 mt-1">
                           ~${Math.round(goals.avg_deal_value * (commissionRate ?? goals.commission_rate_override ?? 0) / 100).toLocaleString()}/sale
                         </p>
                       )}
@@ -700,7 +700,7 @@ export default function CoachingClient({
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-gray-600 mb-1">
-                          Close rate % <span className="text-gray-400">(live: {liveClose}%)</span>
+                          Close rate % <span className="text-gray-600">(live: {liveClose}%)</span>
                         </label>
                         <input
                           type="number"
@@ -712,7 +712,7 @@ export default function CoachingClient({
                       </div>
                       <div>
                         <label className="block text-xs text-gray-600 mb-1">
-                          Stick rate % <span className="text-gray-400">(live: {liveStick}%)</span>
+                          Stick rate % <span className="text-gray-600">(live: {liveStick}%)</span>
                         </label>
                         <input
                           type="number"
@@ -736,15 +736,15 @@ export default function CoachingClient({
 
                 {/* Backworked targets vs current pace */}
                 <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Backworked Targets</p>
+                  <p className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-3">Backworked Targets</p>
                   {!targets ? (
-                    <div className="flex items-center justify-center h-40 text-sm text-gray-400 text-center">
+                    <div className="flex items-center justify-center h-40 text-sm text-gray-600 text-center">
                       Enter an annual goal, avg deal value,<br />and commission rate to see targets.
                     </div>
                   ) : (
                     <div className="space-y-1">
                       {/* Header row */}
-                      <div className="grid grid-cols-4 gap-2 text-xs font-medium text-gray-400 pb-1 border-b border-gray-100">
+                      <div className="grid grid-cols-4 gap-2 text-xs font-medium text-gray-600 pb-1 border-b border-gray-100">
                         <span>Metric</span>
                         <span className="text-center">/ Month</span>
                         <span className="text-center">/ Week</span>
@@ -785,8 +785,8 @@ export default function CoachingClient({
                       {targets.setsPerDay !== null && (
                         <div className="grid grid-cols-4 gap-2 items-center py-2">
                           <span className="text-sm font-medium text-orange-400">Sets/day</span>
-                          <span className="text-center text-sm text-gray-400">—</span>
-                          <span className="text-center text-sm text-gray-400">—</span>
+                          <span className="text-center text-sm text-gray-600">—</span>
+                          <span className="text-center text-sm text-gray-600">—</span>
                           <span className="text-center text-sm font-bold text-orange-500">{fmt(targets.setsPerDay, 1)}/day</span>
                         </div>
                       )}

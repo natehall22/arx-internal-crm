@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Nav from '@/components/Nav'
-import Link from 'next/link'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import { toast } from '@/components/ui/toast'
@@ -186,15 +186,7 @@ export default function InspectionFeedbackAdmin() {
       <div className="max-w-5xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="mb-6">
-          <Link
-            href="/admin"
-            className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-2"
-          >
-            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to Admin
-          </Link>
+          <SettingsBackLink />
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Inspection Feedback</h1>
@@ -237,14 +229,14 @@ export default function InspectionFeedbackAdmin() {
         </div>
 
         {loading ? (
-          <div className="text-center py-8 text-gray-500">Loading...</div>
+          <div className="text-center py-8 text-gray-700">Loading...</div>
         ) : activeTab === 'pending' ? (
           /* Pending Feedback */
           sortedPending.length === 0 ? (
             <div className="bg-white rounded-xl border p-8 text-center">
               <div className="text-4xl mb-3">✓</div>
               <h3 className="text-lg font-medium text-gray-900">All caught up!</h3>
-              <p className="text-gray-500 mt-1">No pending inspection feedback requests</p>
+              <p className="text-gray-700 mt-1">No pending inspection feedback requests</p>
             </div>
           ) : (
             <>
@@ -280,14 +272,14 @@ export default function InspectionFeedbackAdmin() {
                       }`}
                     >
                       {label}{' '}
-                      <span className={selected ? 'opacity-90' : 'text-gray-400'}>({count})</span>
+                      <span className={selected ? 'opacity-90' : 'text-gray-600'}>({count})</span>
                     </button>
                   )
                 })}
               </div>
 
               {filteredPending.length === 0 ? (
-                <div className="bg-white rounded-xl border p-6 text-center text-sm text-gray-500">
+                <div className="bg-white rounded-xl border p-6 text-center text-sm text-gray-700">
                   {pendingFilter === 'all'
                     ? 'No prompts match this view.'
                     : pendingFilter === 'overdue'
@@ -311,10 +303,10 @@ export default function InspectionFeedbackAdmin() {
                           <div className="font-medium text-gray-900">
                             {item.appointment?.lead?.homeowner_name || 'Unknown'}
                           </div>
-                          <div className="text-sm text-gray-500 truncate">
+                          <div className="text-sm text-gray-700 truncate">
                             {item.appointment?.lead?.address_text || 'No address'}
                           </div>
-                          <div className="text-xs text-gray-400 mt-1">
+                          <div className="text-xs text-gray-600 mt-1">
                             Closer: {item.closer?.full_name || 'Unknown'} •{' '}
                             Appt: {item.appointment?.scheduled_for ? formatDate(item.appointment.scheduled_for) : 'N/A'}
                           </div>
@@ -373,7 +365,7 @@ export default function InspectionFeedbackAdmin() {
           /* Completed Feedback */
           completedFeedback.length === 0 ? (
             <div className="bg-white rounded-xl border p-8 text-center">
-              <p className="text-gray-500">No completed feedback in the last 7 days</p>
+              <p className="text-gray-700">No completed feedback in the last 7 days</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -394,15 +386,15 @@ export default function InspectionFeedbackAdmin() {
                             {item.outcome.replace(/_/g, ' ')}
                           </span>
                         </div>
-                        <div className="text-sm text-gray-500 truncate">
+                        <div className="text-sm text-gray-700 truncate">
                           {item.lead?.address_text || 'No address'}
                         </div>
-                        <div className="text-xs text-gray-400 mt-1">
+                        <div className="text-xs text-gray-600 mt-1">
                           Closer: {item.closer?.full_name || 'Unknown'} → 
                           Setter: {item.setter?.full_name || 'Unknown'}
                         </div>
                       </div>
-                      <div className="text-xs text-gray-400 text-right">
+                      <div className="text-xs text-gray-600 text-right">
                         {formatDate(item.completed_at)}
                       </div>
                     </div>

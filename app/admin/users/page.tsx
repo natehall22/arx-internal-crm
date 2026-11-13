@@ -3,6 +3,7 @@
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import { getRoleDisplayName, isOrgSuperuserRoleSlug, permissionCategories } from '@/lib/permissions'
 import type { User, Team, Region, UserRole, CustomRole } from '@/lib/types/database'
@@ -477,11 +478,7 @@ export default function UsersPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
-              <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
-              <span>/</span>
-              <span>Users</span>
-            </div>
+            <SettingsBackLink />
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Users</h1>
             <p className="mt-1 text-sm text-gray-600 hidden sm:block">Manage user accounts and role assignments</p>
           </div>
@@ -501,7 +498,7 @@ export default function UsersPage() {
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <div className="grid grid-cols-2 sm:flex gap-3 sm:gap-4 flex-1">
               <div className="flex-1 sm:flex-initial">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Role</label>
                 <select
                   value={filterRole}
                   onChange={(e) => setFilterRole(e.target.value)}
@@ -527,7 +524,7 @@ export default function UsersPage() {
                 </select>
               </div>
               <div className="flex-1 sm:flex-initial">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Team</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Team</label>
                 <select
                   value={filterTeam}
                   onChange={(e) => setFilterTeam(e.target.value)}
@@ -543,7 +540,7 @@ export default function UsersPage() {
               </div>
             </div>
             <div className="flex items-end justify-between sm:justify-end gap-3 sm:gap-4">
-              <span className="text-sm text-gray-500 whitespace-nowrap">
+              <span className="text-sm text-gray-700 whitespace-nowrap">
                 {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}
               </span>
               <div className="flex border border-gray-300 rounded-lg overflow-hidden">
@@ -571,7 +568,7 @@ export default function UsersPage() {
         )}
 
         {loading ? (
-          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-700">
             Loading users...
           </div>
         ) : viewMode === 'hierarchy' ? (
@@ -593,11 +590,11 @@ export default function UsersPage() {
                         <div>
                           <p className="font-semibold text-gray-900">{topManager.full_name || 'Unknown'}</p>
                           <p className="text-sm text-indigo-600">{getUserRoleDisplay(topManager)}</p>
-                          {topManager.team?.name && <p className="text-xs text-gray-500">{topManager.team.name}</p>}
+                          {topManager.team?.name && <p className="text-xs text-gray-700">{topManager.team.name}</p>}
                         </div>
                         <button
                           onClick={() => handleEdit(topManager)}
-                          className="ml-auto p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                          className="ml-auto p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -618,12 +615,12 @@ export default function UsersPage() {
                                   </div>
                                   <div className="flex-1">
                                     <p className="font-medium text-gray-900">{report.full_name || 'Unknown'}</p>
-                                    <p className="text-xs text-gray-500">{getUserRoleDisplay(report)}</p>
+                                    <p className="text-xs text-gray-700">{getUserRoleDisplay(report)}</p>
                                   </div>
-                                  <span className="text-xs text-gray-400">{report.team?.name || ''}</span>
+                                  <span className="text-xs text-gray-600">{report.team?.name || ''}</span>
                                   <button
                                     onClick={() => handleEdit(report)}
-                                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-200"
+                                    className="p-1.5 text-gray-600 hover:text-gray-900 rounded hover:bg-gray-200"
                                   >
                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -636,16 +633,16 @@ export default function UsersPage() {
                                   <div className="ml-6 mt-2 border-l border-gray-200 pl-4 space-y-2">
                                     {subReports.map(sub => (
                                       <div key={sub.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50">
-                                        <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-sm">
+                                        <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-sm">
                                           {sub.full_name?.charAt(0) || '?'}
                                         </div>
                                         <div className="flex-1">
                                           <p className="text-sm text-gray-700">{sub.full_name || 'Unknown'}</p>
-                                          <p className="text-xs text-gray-400">{getUserRoleDisplay(sub)}</p>
+                                          <p className="text-xs text-gray-600">{getUserRoleDisplay(sub)}</p>
                                         </div>
                                         <button
                                           onClick={() => handleEdit(sub)}
-                                          className="p-1 text-gray-400 hover:text-gray-600"
+                                          className="p-1 text-gray-600 hover:text-gray-900"
                                         >
                                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -667,7 +664,7 @@ export default function UsersPage() {
               {/* Unassigned users section */}
               {filteredUsers.filter(u => !u.manager_user_id && u.active && !(isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'sales_manager'].includes(u.role))).length > 0 && (
                 <div className="border border-dashed border-gray-300 rounded-xl p-4">
-                  <h3 className="text-sm font-medium text-gray-500 mb-3">Unassigned (No Manager)</h3>
+                  <h3 className="text-sm font-medium text-gray-700 mb-3">Unassigned (No Manager)</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {filteredUsers
                       .filter(u => !u.manager_user_id && u.active && !(isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'sales_manager'].includes(u.role)))
@@ -682,7 +679,7 @@ export default function UsersPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-gray-700 truncate">{user.full_name || 'Unknown'}</p>
-                            <p className="text-xs text-gray-400">{getUserRoleDisplay(user)}</p>
+                            <p className="text-xs text-gray-600">{getUserRoleDisplay(user)}</p>
                           </div>
                         </button>
                       ))}
@@ -708,13 +705,13 @@ export default function UsersPage() {
                       </div>
                       <div>
                         <p className="font-medium text-gray-900">{user.full_name || 'Unknown'}</p>
-                        <p className="text-sm text-gray-500">{user.email}</p>
+                        <p className="text-sm text-gray-700">{user.email}</p>
                       </div>
                     </div>
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       user.active 
                         ? 'bg-green-100 text-green-700' 
-                        : 'bg-gray-100 text-gray-500'
+                        : 'bg-gray-100 text-gray-700'
                     }`}>
                       {user.active ? 'Active' : 'Inactive'}
                     </span>
@@ -722,7 +719,7 @@ export default function UsersPage() {
                   
                   <div className="grid grid-cols-2 gap-2 text-sm mb-3">
                     <div>
-                      <span className="text-gray-500">Role:</span>
+                      <span className="text-gray-700">Role:</span>
                       <span className={`ml-1 px-2 py-0.5 rounded text-xs ${
                         user.custom_role 
                           ? 'bg-indigo-100 text-indigo-700' 
@@ -732,12 +729,12 @@ export default function UsersPage() {
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Team:</span>
+                      <span className="text-gray-700">Team:</span>
                       <span className="ml-1 text-gray-700">{user.team?.name || '-'}</span>
                     </div>
                     {user.manager && (
                       <div className="col-span-2">
-                        <span className="text-gray-500">Reports to:</span>
+                        <span className="text-gray-700">Reports to:</span>
                         <span className="ml-1 text-gray-700">{user.manager.full_name || user.manager.email}</span>
                       </div>
                     )}
@@ -746,7 +743,7 @@ export default function UsersPage() {
                   <div className="flex items-center justify-end gap-1 pt-2 border-t">
                     <button
                       onClick={() => handleEdit(user)}
-                      className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                       title="Edit"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -755,7 +752,7 @@ export default function UsersPage() {
                     </button>
                     <button
                       onClick={() => handleSendPasswordReset(user)}
-                      className="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                      className="p-2 text-gray-600 hover:text-blue-600 rounded-lg hover:bg-blue-50"
                       title="Send Password Reset"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -766,8 +763,8 @@ export default function UsersPage() {
                       onClick={() => handleToggleActive(user)}
                       className={`p-2 rounded-lg ${
                         user.active 
-                          ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50' 
-                          : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                          ? 'text-gray-600 hover:text-amber-600 hover:bg-amber-50' 
+                          : 'text-gray-600 hover:text-green-600 hover:bg-green-50'
                       }`}
                       title={user.active ? 'Deactivate' : 'Activate'}
                     >
@@ -783,7 +780,7 @@ export default function UsersPage() {
                     </button>
                     <button
                       onClick={() => handleDeleteUser(user)}
-                      className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                      className="p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
                       title="Delete User"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -800,14 +797,14 @@ export default function UsersPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reports To</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dashboard</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Role</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Reports To</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Team</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Region</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Dashboard</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Status</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -820,7 +817,7 @@ export default function UsersPage() {
                           </div>
                           <div>
                             <p className="font-medium text-gray-900">{user.full_name || 'Unknown'}</p>
-                            <p className="text-sm text-gray-500">{user.email}</p>
+                            <p className="text-sm text-gray-700">{user.email}</p>
                           </div>
                         </div>
                       </td>
@@ -837,7 +834,7 @@ export default function UsersPage() {
                         {user.manager ? (
                           <span className="text-sm">{user.manager.full_name || user.manager.email}</span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-600">-</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-gray-600">
@@ -859,7 +856,7 @@ export default function UsersPage() {
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
                           user.active 
                             ? 'bg-green-100 text-green-700' 
-                            : 'bg-gray-100 text-gray-500'
+                            : 'bg-gray-100 text-gray-700'
                         }`}>
                           {user.active ? 'Active' : 'Inactive'}
                         </span>
@@ -868,7 +865,7 @@ export default function UsersPage() {
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => handleEdit(user)}
-                            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                            className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                             title="Edit"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -877,7 +874,7 @@ export default function UsersPage() {
                           </button>
                           <button
                             onClick={() => handleSendPasswordReset(user)}
-                            className="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                            className="p-2 text-gray-600 hover:text-blue-600 rounded-lg hover:bg-blue-50"
                             title="Send Password Reset"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -888,8 +885,8 @@ export default function UsersPage() {
                             onClick={() => handleToggleActive(user)}
                             className={`p-2 rounded-lg ${
                               user.active 
-                                ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50' 
-                                : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                                ? 'text-gray-600 hover:text-amber-600 hover:bg-amber-50' 
+                                : 'text-gray-600 hover:text-green-600 hover:bg-green-50'
                             }`}
                             title={user.active ? 'Deactivate' : 'Activate'}
                           >
@@ -905,7 +902,7 @@ export default function UsersPage() {
                           </button>
                           <button
                             onClick={() => handleDeleteUser(user)}
-                            className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                            className="p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
                             title="Delete User"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -933,7 +930,7 @@ export default function UsersPage() {
                   </h2>
                   <button
                     onClick={() => setShowCreateModal(false)}
-                    className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                    className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1000,7 +997,7 @@ export default function UsersPage() {
                         placeholder="Min 6 characters"
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       />
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-gray-700">
                         User can change this after first login
                       </p>
                     </div>
@@ -1017,13 +1014,13 @@ export default function UsersPage() {
                         Manage Presets →
                       </Link>
                     </div>
-                    <p className="text-xs text-gray-500 mb-3">
+                    <p className="text-xs text-gray-700 mb-3">
                       Select a preset to automatically configure role and permissions. You can customize after selecting.
                     </p>
                     
                     {permissionPresets.length === 0 ? (
                       <div className="p-4 bg-gray-50 rounded-lg text-center">
-                        <p className="text-sm text-gray-500 mb-2">No presets configured yet</p>
+                        <p className="text-sm text-gray-700 mb-2">No presets configured yet</p>
                         <Link
                           href="/admin/presets"
                           className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
@@ -1061,7 +1058,7 @@ export default function UsersPage() {
                               }`}>
                                 {preset.name}
                               </p>
-                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                              <p className="text-xs text-gray-700 mt-0.5 line-clamp-2">
                                 {preset.description || `${preset.preset_permissions.length} permissions`}
                               </p>
                             </button>
@@ -1150,7 +1147,7 @@ export default function UsersPage() {
                             ))}
                         </optgroup>
                       </select>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-gray-700 mt-1">
                         Select who this user reports to for commission overrides and team structure.
                       </p>
                     </div>
@@ -1159,7 +1156,7 @@ export default function UsersPage() {
                   {/* Dashboard View */}
                   <div className="border-t pt-4">
                     <h3 className="text-sm font-medium text-gray-900 mb-2">First Login Dashboard</h3>
-                    <p className="text-xs text-gray-500 mb-3">
+                    <p className="text-xs text-gray-700 mb-3">
                       Choose the first dashboard this person sees after signing in.
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1194,7 +1191,7 @@ export default function UsersPage() {
                   {canvassingOn && (
                   <div className="border-t pt-4">
                     <h3 className="text-sm font-medium text-gray-900 mb-2">Canvass Map Pin Visibility</h3>
-                    <p className="text-xs text-gray-500 mb-3">
+                    <p className="text-xs text-gray-700 mb-3">
                       Control which pins this user can see in the canvassing app. This helps prevent data overload in large organizations.
                     </p>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -1223,7 +1220,7 @@ export default function UsersPage() {
                               {option.label}
                             </span>
                           </div>
-                          <p className="text-xs text-gray-500">{option.desc}</p>
+                          <p className="text-xs text-gray-700">{option.desc}</p>
                         </button>
                       ))}
                     </div>
@@ -1252,7 +1249,7 @@ export default function UsersPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500 mb-3">
+                    <p className="text-xs text-gray-700 mb-3">
                       Customize permissions as needed. Changes will clear the preset selection.
                     </p>
                     
@@ -1264,7 +1261,7 @@ export default function UsersPage() {
                               <span className="text-xs font-medium text-gray-700 uppercase">
                                 {category}
                               </span>
-                              <span className="text-xs text-gray-500">
+                              <span className="text-xs text-gray-700">
                                 {perms.filter(p => createPermissions.has(p.id)).length}/{perms.length}
                               </span>
                             </div>
@@ -1297,7 +1294,7 @@ export default function UsersPage() {
                         Advanced: Custom Role Override
                       </summary>
                       <div className="mt-3 space-y-3">
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-700">
                           Optionally assign a custom role instead of using the preset. Custom roles have their own permission sets defined in Admin → Roles.
                         </p>
                         <select
@@ -1350,7 +1347,7 @@ export default function UsersPage() {
                     setEditingUser(null)
                     setUserPermissions([])
                   }}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1420,7 +1417,7 @@ export default function UsersPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-sm font-medium text-gray-700">Password Reset</h3>
-                      <p className="text-xs text-gray-500 mt-0.5">Send a password reset email to this user</p>
+                      <p className="text-xs text-gray-700 mt-0.5">Send a password reset email to this user</p>
                     </div>
                     <button
                       onClick={async () => {
@@ -1472,7 +1469,7 @@ export default function UsersPage() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-700">
                     Custom roles have granular permissions. <Link href="/admin/roles" className="text-indigo-600 hover:underline">Manage roles</Link>
                   </p>
                 </div>
@@ -1493,7 +1490,7 @@ export default function UsersPage() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-700">
                     Used only if no custom role is selected
                   </p>
                 </div>
@@ -1569,7 +1566,7 @@ export default function UsersPage() {
                         ))}
                     </optgroup>
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-700">
                     Set who this user reports to for commission overrides and team structure.
                   </p>
                 </div>
@@ -1580,7 +1577,7 @@ export default function UsersPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Canvass Map Pin Visibility
                   </label>
-                  <p className="text-xs text-gray-500 mb-3">
+                  <p className="text-xs text-gray-700 mb-3">
                     Control which pins this user can see in the canvassing app.
                   </p>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -1620,7 +1617,7 @@ export default function UsersPage() {
                   <label className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
                     <div>
                       <span className="text-sm font-medium text-gray-700">Show in Reports & Leaderboards</span>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="text-xs text-gray-700 mt-0.5">
                         When enabled, this user appears in team stats, leaderboards, and reports
                       </p>
                     </div>
@@ -1651,7 +1648,7 @@ export default function UsersPage() {
                         />
                         <div>
                           <span className="text-sm text-gray-700">Use Role Default</span>
-                          <p className="text-xs text-gray-500">Sales roles can receive, Admin/Operations cannot</p>
+                          <p className="text-xs text-gray-700">Sales roles can receive, Admin/Operations cannot</p>
                         </div>
                       </label>
                       <label className="flex items-center gap-3 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
@@ -1664,7 +1661,7 @@ export default function UsersPage() {
                         />
                         <div>
                           <span className="text-sm text-gray-700">Yes - Can Receive Appointments</span>
-                          <p className="text-xs text-gray-500">User appears in closer selection and round-robin</p>
+                          <p className="text-xs text-gray-700">User appears in closer selection and round-robin</p>
                         </div>
                       </label>
                       <label className="flex items-center gap-3 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
@@ -1677,7 +1674,7 @@ export default function UsersPage() {
                         />
                         <div>
                           <span className="text-sm text-gray-700">No - Cannot Receive Appointments</span>
-                          <p className="text-xs text-gray-500">User will not appear in closer selection</p>
+                          <p className="text-xs text-gray-700">User will not appear in closer selection</p>
                         </div>
                       </label>
                     </div>
@@ -1689,7 +1686,7 @@ export default function UsersPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Dashboard View
                   </label>
-                  <p className="text-xs text-gray-500 mb-3">
+                  <p className="text-xs text-gray-700 mb-3">
                     Choose which dashboard this user sees when they log in.
                   </p>
                   <div className="grid grid-cols-2 gap-2">
@@ -1737,7 +1734,7 @@ export default function UsersPage() {
                       Manage roles →
                     </Link>
                   </div>
-                  <p className="text-xs text-gray-500 mb-3">
+                  <p className="text-xs text-gray-700 mb-3">
                     Grant specific permissions beyond their role. These are additive — they do not remove role-based permissions.
                   </p>
                   <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
@@ -1749,7 +1746,7 @@ export default function UsersPage() {
                       return (
                         <div key={category}>
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
                               {category}
                             </span>
                             <button

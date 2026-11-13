@@ -392,7 +392,7 @@ export default function CommissionWidget() {
       <div>
         <h3 className="text-sm font-medium text-gray-700 mb-3">Recent Commissions</h3>
         {commissions.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-4">No commissions yet</p>
+          <p className="text-sm text-gray-700 text-center py-4">No commissions yet</p>
         ) : (
           <div className="space-y-2">
             {commissions.map((commission) => (
@@ -404,7 +404,7 @@ export default function CommissionWidget() {
                   <p className="text-sm font-medium text-gray-900 truncate">
                     {commission.projects?.address_text || commission.opportunities?.address_text || 'Sale'}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-700">
                     {new Date(commission.created_at).toLocaleDateString()}
                   </p>
                 </div>
@@ -529,7 +529,7 @@ export default function CommissionWidget() {
                     </svg>
                   </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">No Comp Plan Assigned</h3>
-                  <p className="text-gray-500">Contact your manager to get a compensation plan assigned to your account.</p>
+                  <p className="text-gray-700">Contact your manager to get a compensation plan assigned to your account.</p>
                 </div>
               ) : (
                 <div className="space-y-6">
@@ -558,7 +558,7 @@ export default function CommissionWidget() {
                           ${compPlanDetails.unit_rate?.toLocaleString() || 0} per {compPlanDetails.unit_type || 'unit'}
                         </p>
                         {getCompPlanUnitHint(compPlanDetails.unit_type) && (
-                          <p className="text-sm text-gray-500 mt-1">
+                          <p className="text-sm text-gray-700 mt-1">
                             {getCompPlanUnitHint(compPlanDetails.unit_type)}
                           </p>
                         )}
@@ -572,7 +572,7 @@ export default function CommissionWidget() {
                                comp.type === 'percentage' ? 'Commission' :
                                comp.type === 'flat_per_job' ? 'Per Job' :
                                `Per ${formatCompPlanUnitShortLabel(comp.unit_type)}`}
-                              {comp.description && <span className="text-gray-500 text-sm ml-1">({comp.description})</span>}
+                              {comp.description && <span className="text-gray-700 text-sm ml-1">({comp.description})</span>}
                             </span>
                             <span className="font-semibold text-green-600">
                               {comp.type === 'hourly' ? `$${comp.rate}/hr` :
@@ -742,7 +742,7 @@ export default function CommissionWidget() {
                   </svg>
                 </button>
               </div>
-              <p className="text-gray-500 text-sm mt-1">
+              <p className="text-gray-700 text-sm mt-1">
                 {isSetterLikeRole(userRole) ? 'Setter' : 
                  userRole === 'manager' || userRole === 'sales_manager' ? 'Manager' : 'Closer'} Commission Calculator
               </p>
@@ -756,7 +756,7 @@ export default function CommissionWidget() {
                     Avg financed total per job
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                     <input
                       type="number"
                       value={calcAvgSalePrice}
@@ -820,7 +820,7 @@ export default function CommissionWidget() {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-lg"
                     min="0"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-700 mt-1">
                     Close rate for tiers = jobs closed ÷ sits. Align with your dashboard period when possible.
                   </p>
                 </div>
@@ -832,7 +832,7 @@ export default function CommissionWidget() {
                   <h4 className="text-sm font-semibold text-gray-700 mb-3">Commission Tiers</h4>
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-gray-500">
+                      <tr className="text-left text-gray-700">
                         <th className="pb-2">Tier (sits / close %)</th>
                         <th className="pb-2 text-right">Bonus</th>
                       </tr>

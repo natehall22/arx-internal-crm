@@ -1,10 +1,17 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import {
+  creditPersonLabel,
+  creditSelectOptions,
+  saleCreditFormProblem,
+  setSelfGenerated,
+  type CreditPerson,
+} from '@/lib/sale-credit-form'
 import SignaturePad from './SignaturePad'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { formatPhone } from '@/lib/format'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgBrandNames, useOrgFeatures } from '@/hooks/useOrgFeatures'
 import type { OrgFeatures } from '@/lib/org-features'
 
 interface ContractModalProps {
@@ -34,6 +41,7 @@ interface ContractFormData {
   projectCost: string
   totalSquares: number | null
   roofingMaterial: string
+  roofColor: string
   scopeRoofReplacement: boolean
   scopeRoofRepair: boolean
   scopeGutters: boolean
@@ -69,6 +77,7 @@ export default function ContractModal({
   const [step, setStep] = useState(1)
   /** Insurance switched off for the company (Settings → Features): no contingency agreement, no insurance payment. */
   const insuranceOn = useOrgFeatures(orgFeatures).insurance
+  const brandNames = useOrgBrandNames()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -80,6 +89,7 @@ export default function ContractModal({
     setterUserId: string
     isSelfGenerated: boolean
   } | null>(null)
+  const [creditPeople, setCreditPeople] = useState<CreditPerson[]>([])
   const [creditOriginal, setCreditOriginal] = useState<string>('')
   const [creditLocked, setCreditLocked] = useState(false)
   const [creditCanChange, setCreditCanChange] = useState(true)
@@ -95,6 +105,7 @@ export default function ContractModal({
     projectCost: projectCost ? String(projectCost) : '',
     totalSquares: totalSquares || null,
     roofingMaterial: '',
+    roofColor: '',
     scopeRoofReplacement: true,
     scopeRoofRepair: false,
     scopeGutters: false,
@@ -148,6 +159,7 @@ export default function ContractModal({
           isSelfGenerated: c.isSelfGenerated === true,
         }
         setCredit(loaded)
+        setCreditPeople(Array.isArray(c.people) ? c.people : [])
         setCreditOriginal(JSON.stringify(loaded))
         setCreditLocked(Boolean(c.locked))
         setCreditCanChange(c.canChange !== false)
@@ -162,8 +174,9 @@ export default function ContractModal({
   }, [isOpen, opportunityId])
 
   const creditApplies = formData.agreementType === 'installation' || formData.agreementType === 'repair'
+  const creditLoadedSetter = creditOriginal ? (JSON.parse(creditOriginal).setterUserId as string) || '' : ''
   const creditChanged = credit != null && JSON.stringify(credit) !== creditOriginal
-  const creditUserName = (id: string) => creditUsers.find((u) => u.id === id)?.full_name || (id ? 'Unknown' : 'None')
+  const creditUserName = (id: string) => creditPersonLabel(creditUsers, id, creditPeople)
 
   const handleInputChange = (field: keyof ContractFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -174,6 +187,10 @@ export default function ContractModal({
       case 1:
         if (!formData.customerName || !formData.projectAddress) {
           setError('Please fill in customer name and project address')
+          return false
+        }
+        if (formData.agreementType === 'installation' && !formData.roofColor.trim()) {
+          setError('Enter the color the customer chose')
           return false
         }
         if (formData.agreementType === 'installation' || formData.agreementType === 'repair') {
@@ -196,12 +213,9 @@ export default function ContractModal({
         break
       case 3:
         if (creditApplies && credit && creditCanChange) {
-          if (!credit.closerUserId) {
-            setError('Pick who closed this sale')
-            return false
-          }
-          if (credit.isSelfGenerated && credit.setterUserId && credit.setterUserId !== credit.closerUserId) {
-            setError('A self-generated sale has no separate setter. Clear the setter or untick self-generated.')
+          const creditProblem = saleCreditFormProblem(credit)
+          if (creditProblem) {
+            setError(creditProblem)
             return false
           }
           if (creditLocked && creditChanged && !creditReason.trim()) {
@@ -287,7 +301,7 @@ export default function ContractModal({
           <div className="sticky top-0 bg-white border-b px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between z-10">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Send Agreement</h2>
-              <p className="text-sm text-gray-500">Step {step} of 4</p>
+              <p className="text-sm text-gray-700">Step {step} of 4</p>
             </div>
             <button
               onClick={onClose}
@@ -306,7 +320,7 @@ export default function ContractModal({
                 key={s}
                 className={`flex-1 py-2 text-center text-sm font-medium ${s === step ? '' : 'hidden sm:block'} ${
                   s === step ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600' :
-                  s < step ? 'text-green-600' : 'text-gray-400'
+                  s < step ? 'text-green-600' : 'text-gray-600'
                 }`}
               >
                 {s === 1 && 'Project Details'}
@@ -502,6 +516,20 @@ export default function ContractModal({
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Color *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g., IKO Dynasty — Granite Black"
+                          value={formData.roofColor}
+                          maxLength={120}
+                          onChange={e => handleInputChange('roofColor', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                        <p className="mt-1 text-sm text-gray-700">The customer initials a line confirming this color.</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
                           Total Squares
                         </label>
                         <input
@@ -518,7 +546,7 @@ export default function ContractModal({
                           Project Cost *
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                           <input
                             type="number"
                           inputMode="decimal"
@@ -584,7 +612,7 @@ export default function ContractModal({
                           Project Cost (repair total) *
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                           <input
                             type="number"
                           inputMode="decimal"
@@ -630,7 +658,7 @@ export default function ContractModal({
                 {formData.agreementType === 'contingency' && (
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                     <p className="text-sm text-amber-900">
-                      This contingency agreement does not collect payment details. It authorizes ARX to help with the insurance claim and becomes active only if the claim, scope, and price are approved.
+                      This contingency agreement does not collect payment details. It authorizes {brandNames.shortName} to help with the insurance claim and becomes active only if the claim, scope, and price are approved.
                     </p>
                   </div>
                 )}
@@ -707,7 +735,7 @@ export default function ContractModal({
                       Deposit (Due At Signing)
                     </label>
                     <div className="relative w-48">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700">$</span>
                       <input
                         type="number"
                           inputMode="decimal"
@@ -759,23 +787,23 @@ export default function ContractModal({
                             style={{ color: '#2c2c2a' }}
                           >
                             <option value="">Pick the closer</option>
-                            {creditUsers.map((u) => (
-                              <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>
+                            {creditSelectOptions(creditUsers, credit.closerUserId, creditPeople).map((o) => (
+                              <option key={o.id} value={o.id}>{o.label}</option>
                             ))}
                           </select>
                         </div>
                         <div>
                           <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>Setter</label>
                           <select
-                            value={credit.isSelfGenerated ? '' : credit.setterUserId}
+                            value={credit.setterUserId}
                             disabled={!creditCanChange || credit.isSelfGenerated}
                             onChange={(e) => setCredit({ ...credit, setterUserId: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-400 rounded-lg bg-white disabled:bg-gray-100"
                             style={{ color: '#2c2c2a' }}
                           >
                             <option value="">No setter</option>
-                            {creditUsers.map((u) => (
-                              <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>
+                            {creditSelectOptions(creditUsers, credit.setterUserId, creditPeople, creditLoadedSetter ? [creditLoadedSetter] : []).map((o) => (
+                              <option key={o.id} value={o.id}>{o.label}</option>
                             ))}
                           </select>
                         </div>
@@ -785,7 +813,7 @@ export default function ContractModal({
                             className="mt-1 h-5 w-5"
                             checked={credit.isSelfGenerated}
                             disabled={!creditCanChange}
-                            onChange={(e) => setCredit({ ...credit, isSelfGenerated: e.target.checked })}
+                            onChange={(e) => setCredit(setSelfGenerated(credit, e.target.checked, creditLoadedSetter))}
                           />
                           <span>The closer found this customer themselves (self-generated, no setter)</span>
                         </label>
@@ -809,9 +837,9 @@ export default function ContractModal({
                 )}
 
                 <div className="p-4 bg-indigo-50 rounded-lg">
-                  <h3 className="font-medium text-indigo-900 mb-2">ARX Roofing & Exteriors Representative</h3>
+                  <h3 className="font-medium text-indigo-900 mb-2">{brandNames.name} Representative</h3>
                   <p className="text-sm text-indigo-700">
-                    By signing below, you confirm that you have reviewed all project details and are authorized to enter into this agreement on behalf of ARX Roofing & Exteriors LLC.
+                    By signing below, you confirm that you have reviewed all project details and are authorized to enter into this agreement on behalf of {brandNames.legalName}.
                   </p>
                 </div>
 
@@ -867,14 +895,14 @@ export default function ContractModal({
                   <div className="p-4">
                     <h4 className="font-medium text-gray-900 mb-2">Customer & Project</h4>
                     <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div><span className="text-gray-500">Type:</span>{' '}
+                      <div><span className="text-gray-700">Type:</span>{' '}
                         {formData.agreementType === 'contingency'
                           ? 'Insurance Contingency'
                           : formData.agreementType === 'repair'
                             ? 'Repair Agreement'
                             : 'Installation Agreement'}
                       </div>
-                      <div><span className="text-gray-500">Name:</span> {formData.customerName}</div>
+                      <div><span className="text-gray-700">Name:</span> {formData.customerName}</div>
                       {creditApplies && credit && (
                         <div className="col-span-2" style={{ color: '#2c2c2a' }}>
                           <span className="font-medium">Sale credit:</span> Closer {creditUserName(credit.closerUserId)}
@@ -883,9 +911,9 @@ export default function ContractModal({
                             : ` · Setter ${credit.setterUserId ? creditUserName(credit.setterUserId) : 'none'}`}
                         </div>
                       )}
-                      <div><span className="text-gray-500">Address:</span> {formData.projectAddress}</div>
-                      <div><span className="text-gray-500">Phone:</span> {formData.customerPhone ? formatPhone(formData.customerPhone) : 'N/A'}</div>
-                      <div><span className="text-gray-500">Email:</span> {formData.customerEmail || 'N/A'}</div>
+                      <div><span className="text-gray-700">Address:</span> {formData.projectAddress}</div>
+                      <div><span className="text-gray-700">Phone:</span> {formData.customerPhone ? formatPhone(formData.customerPhone) : 'N/A'}</div>
+                      <div><span className="text-gray-700">Email:</span> {formData.customerEmail || 'N/A'}</div>
                     </div>
                   </div>
 
@@ -899,7 +927,10 @@ export default function ContractModal({
                       {formData.scopeOther && <span className="px-2 py-1 bg-gray-100 rounded">{formData.scopeOther}</span>}
                     </div>
                     {formData.agreementType === 'installation' && formData.roofingMaterial && (
-                      <p className="text-sm mt-2"><span className="text-gray-500">Material:</span> {formData.roofingMaterial}</p>
+                      <p className="text-sm mt-2"><span className="text-gray-700">Material:</span> {formData.roofingMaterial}</p>
+                    )}
+                    {formData.agreementType === 'installation' && formData.roofColor && (
+                      <p className="text-sm mt-2"><span className="text-gray-700">Color:</span> {formData.roofColor}</p>
                     )}
                   </div>
 
@@ -907,15 +938,15 @@ export default function ContractModal({
                     <div className="p-4">
                       <h4 className="font-medium text-gray-900 mb-2">Payment</h4>
                       <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div><span className="text-gray-500">Project Cost:</span> ${previewNumber(formData.projectCost).toLocaleString()}</div>
-                        <div><span className="text-gray-500">Deposit:</span> ${previewNumber(formData.depositAmount).toLocaleString()}</div>
-                        <div><span className="text-gray-500">Method:</span> {formData.paymentMethod}{formData.paymentMethod === 'finance' && formData.financeCompany && ` (${formData.financeCompany})`}</div>
+                        <div><span className="text-gray-700">Project Cost:</span> ${previewNumber(formData.projectCost).toLocaleString()}</div>
+                        <div><span className="text-gray-700">Deposit:</span> ${previewNumber(formData.depositAmount).toLocaleString()}</div>
+                        <div><span className="text-gray-700">Method:</span> {formData.paymentMethod}{formData.paymentMethod === 'finance' && formData.financeCompany && ` (${formData.financeCompany})`}</div>
                         {formData.estCompletionDate && (
-                          <div><span className="text-gray-500">Est. Completion:</span> {formData.estCompletionDate}</div>
+                          <div><span className="text-gray-700">Est. Completion:</span> {formData.estCompletionDate}</div>
                         )}
                       </div>
                       {formData.agreementType === 'repair' && formData.exclusions && (
-                        <p className="text-sm mt-2 text-gray-700"><span className="text-gray-500">Notes / exclusions:</span> {formData.exclusions}</p>
+                        <p className="text-sm mt-2 text-gray-700"><span className="text-gray-700">Notes / exclusions:</span> {formData.exclusions}</p>
                       )}
                     </div>
                   ) : (
@@ -935,7 +966,7 @@ export default function ContractModal({
                       )}
                       <div className="text-sm">
                         <div>{formData.repName}</div>
-                        <div className="text-gray-500">{formData.repTitle}</div>
+                        <div className="text-gray-700">{formData.repTitle}</div>
                       </div>
                     </div>
                   </div>

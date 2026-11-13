@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -47,6 +48,7 @@ export default async function PrintKitPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="mx-auto max-w-5xl px-4 py-8">
+        <SettingsBackLink />
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Print Kit</h1>
           <p className="mt-2 text-sm text-gray-600">Printable field marketing pieces and sales leave-behinds.</p>

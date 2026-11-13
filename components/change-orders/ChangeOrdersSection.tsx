@@ -132,7 +132,7 @@ export default function ChangeOrdersSection({
       </div>
 
       {changeOrders.length === 0 ? (
-        <p className="text-gray-500 text-sm">No change orders yet.</p>
+        <p className="text-gray-700 text-sm">No change orders yet.</p>
       ) : (
         <div className="space-y-3">
           {changeOrders.map((co) => (
@@ -209,7 +209,7 @@ export default function ChangeOrdersSection({
                       'Generate PDF'
                     )}
                   </button>
-                  <p className="text-xs text-gray-500 text-right">
+                  <p className="text-xs text-gray-700 text-right">
                     No PDF was stored when this was signed. Generate it now, or ask an admin if this persists.
                   </p>
                 </div>

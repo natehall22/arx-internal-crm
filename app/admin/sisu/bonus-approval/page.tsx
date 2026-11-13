@@ -1,13 +1,6 @@
-import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-import { isPayrollAdminRole, isRegionalBonusApproverRole } from '@/lib/payroll-admin-access'
-import BonusApprovalClient from './BonusApprovalClient'
 
-export default async function BonusApprovalPage() {
-  const { profile } = await requireAuth()
-  const canAccess =
-    isPayrollAdminRole(profile.role) || isRegionalBonusApproverRole(profile.role)
-  if (!canAccess) redirect('/admin/sisu/incentives')
-
-  return <BonusApprovalClient isFullAdmin={isPayrollAdminRole(profile.role)} />
+/** Moved: bonus approval is pay, so it lives under Money (app/admin/bonuses). Old links and bookmarks land there. */
+export default function BonusApprovalMovedPage(): never {
+  redirect('/admin/bonuses')
 }

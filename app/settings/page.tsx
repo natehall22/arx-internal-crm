@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
+import ConnectAiCard from '@/components/ai-connector/ConnectAiCard'
+import ConnectedAiApps from '@/components/ai-connector/ConnectedAiApps'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -33,6 +35,8 @@ interface UserProfile {
   aiAssistantAllowlisted?: boolean
   isOwner?: boolean
 }
+
+type AiConnectorInfo = { address: string; companyName: string } | null
 
 const defaultSettings: UserSettings = {
   notifications_enabled: true,
@@ -66,7 +70,8 @@ export default function SettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
   const [googleToken, setGoogleToken] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
-  const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'suppliers' | 'announcements' | 'display'>('notifications')
+  const [aiConnector, setAiConnector] = useState<AiConnectorInfo>(null)
+  const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'connect' | 'reports' | 'suppliers' | 'announcements' | 'display'>('notifications')
   const [calendarMessage, setCalendarMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -78,6 +83,7 @@ export default function SettingsPage() {
       tab === 'calendar' ||
       tab === 'reports' ||
       tab === 'display' ||
+      tab === 'connect' ||
       (tab === 'ai' && userProfile?.aiAssistantAllowlisted)
     ) {
       setActiveTab(tab)
@@ -126,6 +132,7 @@ export default function SettingsPage() {
       if (data.profile) {
         setUserProfile(data.profile)
       }
+      setAiConnector(data.aiConnector ?? null)
 
       if (data.userSettings) {
         setSettings({
@@ -244,6 +251,7 @@ export default function SettingsPage() {
     ...(aiAssistantAllowlisted
       ? [{ id: 'ai', label: 'AI Assistant', icon: '🤖' }]
       : []),
+    ...(aiConnector ? [{ id: 'connect', label: 'Connect your AI', icon: '🔌' }] : []),
     { id: 'reports', label: 'My Reports', icon: '📊' },
     ...(userProfile?.isOwner ? [{ id: 'suppliers', label: 'Suppliers', icon: '🚚' }, { id: 'announcements', label: 'Announcements', icon: '📣' }] : []),
     { id: 'display', label: 'Display', icon: '🎨' },
@@ -262,7 +270,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-            <p className="text-gray-500">Manage your preferences and integrations</p>
+            <p className="text-gray-700">Manage your preferences and integrations</p>
           </div>
         </div>
 
@@ -275,7 +283,7 @@ export default function SettingsPage() {
               className={`min-h-[44px] px-4 py-3 font-medium text-sm border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
                 activeTab === tab.id
                   ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-gray-700 hover:text-gray-900'
               }`}
             >
               <span>{tab.icon}</span>
@@ -294,7 +302,7 @@ export default function SettingsPage() {
                 <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                   <div>
                     <p className="font-medium text-gray-900">Enable Notifications</p>
-                    <p className="text-sm text-gray-500">Receive notifications about your activities</p>
+                    <p className="text-sm text-gray-700">Receive notifications about your activities</p>
                   </div>
                   <input
                     type="checkbox"
@@ -309,7 +317,7 @@ export default function SettingsPage() {
                     <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-900">Email Notifications</p>
-                        <p className="text-sm text-gray-500">Receive notifications via email</p>
+                        <p className="text-sm text-gray-700">Receive notifications via email</p>
                       </div>
                       <input
                         type="checkbox"
@@ -322,7 +330,7 @@ export default function SettingsPage() {
                     <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-900">Push Notifications</p>
-                        <p className="text-sm text-gray-500">Receive push notifications in browser/app</p>
+                        <p className="text-sm text-gray-700">Receive push notifications in browser/app</p>
                       </div>
                       <input
                         type="checkbox"
@@ -344,7 +352,7 @@ export default function SettingsPage() {
                           <label key={type.key} className="flex items-center justify-between p-3 border rounded-lg">
                             <div>
                               <p className="font-medium text-gray-900 text-sm">{type.label}</p>
-                              <p className="text-xs text-gray-500">{type.desc}</p>
+                              <p className="text-xs text-gray-700">{type.desc}</p>
                             </div>
                             <input
                               type="checkbox"
@@ -397,7 +405,7 @@ export default function SettingsPage() {
                     </div>
                     <button 
                       onClick={() => setCalendarMessage(null)}
-                      className="text-gray-500 hover:text-gray-700"
+                      className="text-gray-700 hover:text-gray-900"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -417,7 +425,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">Google Calendar</p>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-700">
                         {googleToken ? 'Connected' : 'Not connected'}
                       </p>
                     </div>
@@ -526,12 +534,24 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* Connect your AI Tab (also reached by ?tab=connect and /settings/ai-apps; blank-page guard when the company has it off) */}
+        {activeTab === 'connect' && (aiConnector ? (
+          <div className="space-y-4">
+            <ConnectAiCard {...aiConnector} />
+            <ConnectedAiApps />
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <p className="text-base text-ink">Your company has not turned on AI apps. Ask an owner to turn on the AI connector in Settings.</p>
+          </div>
+        ))}
+
         {/* AI Tab */}
         {activeTab === 'ai' && aiAssistantAllowlisted && (
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-2">AI Assistant</h2>
-              <p className="text-gray-500 text-sm mb-4">
+              <p className="text-gray-700 text-sm mb-4">
                 A read-only assistant for CRM navigation and guidance — it does not edit records, send messages, or write notes on your behalf.
               </p>
 
@@ -539,7 +559,7 @@ export default function SettingsPage() {
                 <label className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-indigo-100">
                   <div>
                     <p className="font-medium text-gray-900">Enable AI Assistant</p>
-                    <p className="text-sm text-gray-500">Turn on the chat assistant for CRM navigation and workflow guidance</p>
+                    <p className="text-sm text-gray-700">Turn on the chat assistant for CRM navigation and workflow guidance</p>
                   </div>
                   <input
                     type="checkbox"
@@ -570,7 +590,7 @@ export default function SettingsPage() {
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-2">My Reports</h2>
-              <p className="text-gray-500 text-sm mb-4">
+              <p className="text-gray-700 text-sm mb-4">
                 Create and manage custom reports based on your permissions
               </p>
               
@@ -603,7 +623,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">View All Reports</p>
-                      <p className="text-sm text-gray-500">Access your reports and team dashboards</p>
+                      <p className="text-sm text-gray-700">Access your reports and team dashboards</p>
                     </div>
                   </div>
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

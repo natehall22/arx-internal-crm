@@ -9,12 +9,15 @@ import {
   loadDealSaleCredit,
   diffSaleCredit,
   SALE_CREDIT_EDIT_ROLES,
+  isSelfGenSetterClearOnly,
   type SaleCreditChange,
 } from '@/lib/deal-sale-credit'
 import { isSuperAdmin } from '@/lib/super-admin'
+import { cleanRoofColor } from '@/lib/contracts/terms'
 import { buildContractReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { newSigningTokenColumns } from '@/lib/signing-tokens'
+import { isMissingColumnError } from '@/lib/missing-column'
 import { getSigningProvider } from '@/lib/signing/provider'
 
 export async function POST(request: NextRequest) {
@@ -45,6 +48,7 @@ export async function POST(request: NextRequest) {
       projectCost,
       totalSquares,
       roofingMaterial,
+      roofColor,
       scopeRoofReplacement,
       scopeRoofRepair,
       scopeGutters,
@@ -85,6 +89,9 @@ export async function POST(request: NextRequest) {
       safeAgreementType === 'contingency' || safeAgreementType === 'repair'
         ? null
         : (roofingMaterial || null)
+    // The color the customer picked, typed by the rep; the customer initials a line confirming it. Installation only —
+    // repair and contingency agreements have no color acknowledgement.
+    const safeRoofColor = safeAgreementType === 'installation' ? cleanRoofColor(roofColor) : null
     const safeEstCompletionDate = safeAgreementType === 'contingency' ? null : (estCompletionDate || null)
     const safeExclusions = safeAgreementType === 'contingency' ? null : (exclusions || null)
     const safeAdditionalProducts =
@@ -106,6 +113,13 @@ export async function POST(request: NextRequest) {
             ? 'Customer name, project address, and project cost are required'
             : 'Customer name and project address are required',
         },
+        { status: 400 }
+      )
+    }
+
+    if (safeAgreementType === 'installation' && !safeRoofColor) {
+      return NextResponse.json(
+        { error: 'Enter the color the customer chose' },
         { status: 400 }
       )
     }
@@ -158,7 +172,7 @@ export async function POST(request: NextRequest) {
       if (!SALE_CREDIT_EDIT_ROLES.has(String(profile.role || '').toLowerCase()) && !isSuperAdmin(profile)) {
         const stored = await loadDealSaleCredit(supabase, profile.org_id, opportunityId)
         const changes = stored ? diffSaleCredit(stored.credit, next) : next
-        if (Object.keys(changes).length > 0) {
+        if (Object.keys(changes).length > 0 && !(stored && isSelfGenSetterClearOnly(stored.credit, changes))) {
           return NextResponse.json(
             { error: 'Only an owner or admin can change who gets credit for this sale.' },
             { status: 403 }
@@ -203,9 +217,7 @@ export async function POST(request: NextRequest) {
     // The link's token is shown once, here; the row keeps only its hash (and an encrypted copy for "Copy link").
     const { token: signingToken, columns: signingTokenColumns } = newSigningTokenColumns('contract')
 
-    const { data: contract, error: insertError } = await supabase
-      .from('order_form_contracts')
-      .insert({
+    const contractRow: Record<string, unknown> = {
         ...signingTokenColumns,
         org_id: profile.org_id,
         agreement_type: safeAgreementType,
@@ -242,11 +254,20 @@ export async function POST(request: NextRequest) {
         rep_ip: clientIp,
         status: 'pending_customer',
         created_by: profile.id,
-      })
-      .select('*')
-      .single()
+        // Only an installation agreement carries a color, and only then is the key sent: a deploy that lands before
+        // migration 202611230060 must not break every other contract.
+        ...(safeRoofColor ? { roof_color: safeRoofColor } : {}),
+    }
+    const insertContract = (row: Record<string, unknown>) =>
+      supabase.from('order_form_contracts').insert(row).select('*').single()
+    let { data: contract, error: insertError } = await insertContract(contractRow)
+    if (insertError && isMissingColumnError(insertError, 'roof_color')) {
+      console.warn('[contracts/create] order_form_contracts.roof_color is missing (migration 202611230060 not applied); retrying without it')
+      const { roof_color: _skipped, ...withoutColor } = contractRow
+      ;({ data: contract, error: insertError } = await insertContract(withoutColor))
+    }
 
-    if (insertError) {
+    if (insertError || !contract) {
       console.error('Error creating contract:', insertError)
       return NextResponse.json(
         { error: 'Failed to create contract' },

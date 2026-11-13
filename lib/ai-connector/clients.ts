@@ -78,8 +78,10 @@ export function validateRegistration(body: unknown, extra: readonly string[]): {
     if (!clean.includes(n)) clean.push(n)
   }
   const grants = b.grant_types
-  if (grants !== undefined && (!Array.isArray(grants) || !grants.every((g) => g === 'authorization_code' || g === 'refresh_token'))) {
-    return { ok: false, error: 'invalid_client_metadata', description: 'Only authorization_code and refresh_token grants are supported' }
+  // An app may list grants we don't offer (Claude's metadata document also lists jwt-bearer). That's fine: the token
+  // endpoint only ever honours authorization_code / refresh_token. What we need is that it can use authorization_code.
+  if (grants !== undefined && (!Array.isArray(grants) || !grants.every((g) => typeof g === 'string') || !grants.includes('authorization_code'))) {
+    return { ok: false, error: 'invalid_client_metadata', description: 'The app must support the authorization_code grant' }
   }
   const types = b.response_types
   if (types !== undefined && (!Array.isArray(types) || !types.every((t) => t === 'code'))) {

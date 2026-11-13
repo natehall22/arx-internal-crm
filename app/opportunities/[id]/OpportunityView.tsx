@@ -759,7 +759,7 @@ export default async function OpportunityView({
             <div className="flex items-start justify-between gap-4 mb-4">
               <div className="min-w-0">
                 <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words">{customerName}</h1>
-                <p className="text-gray-500 mt-0.5 text-sm sm:text-base break-words">{opportunity.address_text || 'No address'}</p>
+                <p className="text-gray-700 mt-0.5 text-sm sm:text-base break-words">{opportunity.address_text || 'No address'}</p>
                 <div className="flex flex-wrap items-center gap-2 mt-2">
                   <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full capitalize ${
                     opportunityStatusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
@@ -818,11 +818,11 @@ export default async function OpportunityView({
             {/* Info grid — compact */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 pt-4 border-t text-sm">
               <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Setter</p>
+                <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Setter</p>
                 <p className="text-gray-900 mt-0.5">{setter?.full_name || '—'}</p>
               </div>
               <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Closer</p>
+                <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Closer</p>
                 <p className="text-gray-900 mt-0.5">{closer?.full_name || '—'}</p>
               </div>
               <ReferredByPicker
@@ -831,7 +831,7 @@ export default async function OpportunityView({
                 canEdit={canSetReferredBy(profile.role, await getPartnerAccess(supabase, authUser.id, profile))}
               />
               <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Customer</p>
+                <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Customer</p>
                 {opportunity.customer_id ? (
                   <>
                     {viewerPermissionNames.has('customers:view') || isOrgSuperuserRoleSlug(profile.role) ? (
@@ -858,7 +858,7 @@ export default async function OpportunityView({
               </div>
               {opportunity.lead_id && (
                 <div>
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Lead</p>
+                  <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Lead</p>
                   <Link href={`/leads/${opportunity.lead_id}`} className="text-indigo-600 hover:text-indigo-800 mt-0.5 inline-block">
                     {leadRow?.homeowner_name || 'View lead'}
                   </Link>
@@ -982,7 +982,7 @@ export default async function OpportunityView({
             <h2 className="text-xl font-bold text-gray-900 mb-4">Canvass Notes</h2>
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{leadRow.canvass_notes}</p>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-gray-700 mt-2">
                 Notes from initial canvass visit
               </p>
             </div>
@@ -1013,7 +1013,7 @@ export default async function OpportunityView({
                      opportunityForInspectionUi.inspection_outcome}
                   </span>
                   {opportunityForInspectionUi.inspection_outcome_at && (
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-700">
                       {new Date(opportunityForInspectionUi.inspection_outcome_at).toLocaleString()}
                     </span>
                   )}
@@ -1026,7 +1026,7 @@ export default async function OpportunityView({
 
             {inspectionUpdates && inspectionUpdates.length > 0 && (
               <div className="space-y-3">
-                <h3 className="text-sm font-medium text-gray-500">Feedback History</h3>
+                <h3 className="text-sm font-medium text-gray-700">Feedback History</h3>
                 {inspectionUpdates.map((update: any) => (
                   <div key={update.id} className="p-3 border rounded-lg">
                     <div className="flex items-center justify-between mb-2">
@@ -1039,7 +1039,7 @@ export default async function OpportunityView({
                       }`}>
                         {update.outcome}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-700">
                         {new Date(update.created_at).toLocaleString()}
                       </span>
                     </div>
@@ -1174,7 +1174,7 @@ export default async function OpportunityView({
                           {measurement.status.charAt(0).toUpperCase() + measurement.status.slice(1)}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className="text-xs text-gray-600 mt-1">
                         {new Date(measurement.created_at).toLocaleDateString()}
                       </p>
                     </div>
@@ -1184,22 +1184,22 @@ export default async function OpportunityView({
                         <p className="text-2xl font-bold text-gray-900">
                           {measurement.total_squares?.toFixed(1) || '—'}
                         </p>
-                        <p className="text-xs text-gray-500">squares</p>
+                        <p className="text-xs text-gray-700">squares</p>
                       </div>
                     </div>
                   </div>
                   {measurement.status === 'completed' && (
                     <div className="mt-3 pt-3 border-t grid grid-cols-3 gap-4 text-sm">
                       <div>
-                        <span className="text-gray-500">Area:</span>
+                        <span className="text-gray-700">Area:</span>
                         <span className="ml-1 font-medium">{measurement.total_area_sqft?.toLocaleString() || '—'} sqft</span>
                       </div>
                       <div>
-                        <span className="text-gray-500">Pitch:</span>
+                        <span className="text-gray-700">Pitch:</span>
                         <span className="ml-1 font-medium">{measurement.predominant_pitch || '—'}</span>
                       </div>
                       <div>
-                        <span className="text-gray-500">Facets:</span>
+                        <span className="text-gray-700">Facets:</span>
                         <span className="ml-1 font-medium">{measurement.facet_count || '—'}</span>
                       </div>
                     </div>
@@ -1212,7 +1212,7 @@ export default async function OpportunityView({
               <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
               </svg>
-              <p className="text-gray-500 text-sm mb-3">No roof measurements yet</p>
+              <p className="text-gray-700 text-sm mb-3">No roof measurements yet</p>
               {measureToolEnabled ? (
                 <Link
                   href={`/tools/roof-measure?opportunity_id=${params.id}&address=${encodeURIComponent(opportunity.address_text || '')}`}
@@ -1224,7 +1224,7 @@ export default async function OpportunityView({
                   Measure with ARX Tool
                 </Link>
               ) : (
-                <p className="text-gray-400 text-xs">
+                <p className="text-gray-600 text-xs">
                   In-house measurement tool is disabled. Use external integrations.
                 </p>
               )}
@@ -1246,7 +1246,7 @@ export default async function OpportunityView({
               </a>
             </div>
           ) : (
-            <p className="text-sm text-gray-500 mb-4">No design PDF uploaded yet.</p>
+            <p className="text-sm text-gray-700 mb-4">No design PDF uploaded yet.</p>
           )}
           <DesignPdfUpload opportunityId={params.id} />
         </div>
@@ -1292,8 +1292,8 @@ export default async function OpportunityView({
                             {proposal.status.charAt(0).toUpperCase() + proposal.status.slice(1)}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-500 mt-1">{proposal.title || 'Untitled Proposal'}</p>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-sm text-gray-700 mt-1">{proposal.title || 'Untitled Proposal'}</p>
+                        <p className="text-xs text-gray-600 mt-1">
                           Created {new Date(proposal.created_at).toLocaleDateString()}
                         </p>
                       </div>
@@ -1322,7 +1322,7 @@ export default async function OpportunityView({
               <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              <p className="text-gray-500 text-sm mb-3">No proposals created yet</p>
+              <p className="text-gray-700 text-sm mb-3">No proposals created yet</p>
               <Link
                 href={proposalBuilderUrl}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
@@ -1370,8 +1370,8 @@ export default async function OpportunityView({
               <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              <p className="text-gray-500 text-sm mb-2">No contracts created yet</p>
-              <p className="text-xs text-gray-400">
+              <p className="text-gray-700 text-sm mb-2">No contracts created yet</p>
+              <p className="text-xs text-gray-600">
                 {acceptedProposal 
                   ? 'Click "Create Contract" to generate an order form for signing'
                   : 'Create and accept a proposal first, then create a contract'}
@@ -1411,7 +1411,7 @@ export default async function OpportunityView({
                       <span className="text-sm font-medium text-gray-900">
                         {activity.users?.full_name || 'Unknown'}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-700">
                         {new Date(activity.created_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -1422,7 +1422,7 @@ export default async function OpportunityView({
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No activities</p>
+                <p className="text-gray-700 text-sm">No activities</p>
               )}
             </div>
           </div>
@@ -1449,7 +1449,7 @@ export default async function OpportunityView({
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{file.file_name}</p>
-                          <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
+                          <p className="text-xs text-gray-700 capitalize">{file.tag}</p>
                         </div>
                       </div>
                       {fileUrl ? (
@@ -1471,7 +1471,7 @@ export default async function OpportunityView({
                   )
                 })
               ) : (
-                <p className="text-gray-500 text-sm">No files</p>
+                <p className="text-gray-700 text-sm">No files</p>
               )}
             </div>
           </div>

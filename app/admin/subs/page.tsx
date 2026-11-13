@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
-import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
+import { useOrgBrandNames, useOrgProfile } from '@/hooks/useOrgFeatures'
 import { BASE_TERMS } from '@/lib/industry-profiles'
-import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@/components/ui/button'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
@@ -71,11 +71,11 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // is the SAME account the availability read acts as. Hardcoding it, or reading a
 // separate env var, would let the address crews are told drift away from the
 // calendar anyone actually looks at.
-function buildCalendarShareInstructions(shareEmail: string | null): string {
+function buildCalendarShareInstructions(shareEmail: string | null, company: string): string {
   const address = shareEmail || '[set an install scheduling account in Ops settings]'
-  return `Share your calendar with ARX (optional)
+  return `Share your calendar with ${company} (optional)
 
-This lets us see when your crew is already busy so we don't double-book you. ARX will only ever see that a time is "busy" — never the appointment details, never what the job is.
+This lets us see when your crew is already busy so we don't double-book you. ${company} will only ever see that a time is "busy" — never the appointment details, never what the job is.
 
 1. On a computer, open Google Calendar (calendar.google.com).
 2. Click the gear icon in the top right, then "Settings".
@@ -85,18 +85,19 @@ This lets us see when your crew is already busy so we don't double-book you. ARX
 6. Under permissions, choose "See only free/busy (hide details)".
 7. Click "Send".
 
-That's it. ARX will only see when you're busy, never any details about the appointment. This is optional — it just helps us schedule installs more accurately around your other jobs.`
+That's it. ${company} will only see when you're busy, never any details about the appointment. This is optional — it just helps us schedule installs more accurately around your other jobs.`
 }
 
 export default function SubContractorsPage() {
   const router = useRouter()
   // The company's word for subcontractors (industry profile). The default profile keeps this page's own spelling.
   const subsTerm = useOrgProfile().terms.subs
+  const brandNames = useOrgBrandNames()
   const subsHeading = subsTerm === BASE_TERMS.subs ? 'Sub-Contractors' : subsTerm
   const [subs, setSubs] = useState<SubContractor[]>([])
-  /** The ARX account crews share their calendar with — server-resolved, see the API route. */
+  /** The company account crews share their calendar with — server-resolved, see the API route. */
   const [installSchedulingEmail, setInstallSchedulingEmail] = useState<string | null>(null)
-  const calendarShareInstructions = buildCalendarShareInstructions(installSchedulingEmail)
+  const calendarShareInstructions = buildCalendarShareInstructions(installSchedulingEmail, brandNames.shortName)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingSub, setEditingSub] = useState<SubContractor | null>(null)
@@ -366,15 +367,13 @@ export default function SubContractorsPage() {
       
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Settings
-          </Link>
+          <SettingsBackLink />
         </div>
 
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">{subsHeading}</h1>
-            <p className="text-gray-500 mt-1">Manage your sub-contractor network</p>
+            <p className="text-gray-700 mt-1">Manage your sub-contractor network</p>
           </div>
           <button
             onClick={() => openModal()}
@@ -391,19 +390,19 @@ export default function SubContractorsPage() {
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-gray-900">{subs.length}</div>
-            <div className="text-sm text-gray-500">Total Subs</div>
+            <div className="text-sm text-gray-700">Total Subs</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-green-600">
               {subs.filter(s => s.active).length}
             </div>
-            <div className="text-sm text-gray-500">Active</div>
+            <div className="text-sm text-gray-700">Active</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-gray-600">
               {subs.filter(s => !s.active).length}
             </div>
-            <div className="text-sm text-gray-500">Inactive</div>
+            <div className="text-sm text-gray-700">Inactive</div>
           </div>
         </div>
 
@@ -416,7 +415,7 @@ export default function SubContractorsPage() {
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No sub-contractors yet</h3>
-            <p className="text-gray-500 mb-4">Add your first sub-contractor to get started</p>
+            <p className="text-gray-700 mb-4">Add your first sub-contractor to get started</p>
             <button
               onClick={() => openModal()}
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -532,9 +531,9 @@ export default function SubContractorsPage() {
                     style={{ color: '#2c2c2a' }}
                   />
                   <p className="text-sm mt-1" style={{ color: '#2c2c2a' }}>
-                    Only needed if the calendar the crew shares with ARX (see below) is a{' '}
+                    Only needed if the calendar the crew shares with {brandNames.shortName} (see below) is a{' '}
                     <strong>different</strong> address than the scheduling email above.{' '}
-                    <strong>Leaving this blank is the normal case</strong> — ARX will check the
+                    <strong>Leaving this blank is the normal case</strong> — {brandNames.shortName} will check the
                     scheduling email&apos;s calendar for availability instead.
                   </p>
                 </div>
@@ -565,7 +564,7 @@ export default function SubContractorsPage() {
                   {(!editingSub || !editingSub.calendar_share_verified_at) && (
                     <div className="mt-3">
                       <p className="text-sm" style={{ color: '#2c2c2a' }}>
-                        Text or read these steps to the crew so ARX can see when they&apos;re already
+                        Text or read these steps to the crew so {brandNames.shortName} can see when they&apos;re already
                         busy before booking a new install:
                       </p>
                       <pre

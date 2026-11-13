@@ -6,6 +6,7 @@ import { loadExtraRedirectUris, parseExtraRedirectUris } from '@/lib/ai-connecto
 import { AI_CONNECTOR_FEATURE, AI_WRITES_FEATURE, BUILTIN_REDIRECT_URIS, WRITE_SCOPE } from '@/lib/ai-connector/config'
 import { listAppliedChanges } from '@/lib/ai-connector/changes-list'
 import { listGrants, revokeAllForUser, revokeGrant } from '@/lib/ai-connector/store'
+import { loadConnectCard } from '@/lib/ai-connector/connect-card'
 import { crossSiteWrite } from '@/lib/online-payments/access'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { mergeOrgSettings } from '@/lib/org-settings'
@@ -28,17 +29,18 @@ async function owner(): Promise<Owner | NextResponse> {
 }
 
 /** GET — owners: is it on, who is connected, the app addresses allowed, and the audit log. (The on/off switch itself is Settings → Features.) */
-export async function GET() {
+export async function GET(request: Request) {
   const o = await owner()
   if (o instanceof NextResponse) return o
   const admin = createServiceClient()
-  const [enabled, writesEnabled, grants, audit, extra, changes] = await Promise.all([
+  const [enabled, writesEnabled, grants, audit, extra, changes, connectCard] = await Promise.all([
     isOrgFeatureOn(o.orgId, AI_CONNECTOR_FEATURE),
     isOrgFeatureOn(o.orgId, AI_WRITES_FEATURE),
     listGrants(admin, o.orgId),
     listAudit(admin, o.orgId, { limit: 100 }),
     loadExtraRedirectUris(admin, o.orgId),
     listAppliedChanges(admin, o.orgId, 100),
+    loadConnectCard(request, o.orgId).catch(() => null),
   ])
   const ids = Array.from(new Set([...grants.map((g) => g.user_id), ...audit.map((a) => a.user_id).filter((x): x is string => !!x), ...changes.map((c) => c.user_id)]))
   const names = new Map<string, string>()
@@ -48,6 +50,7 @@ export async function GET() {
   }
   return NextResponse.json({
     enabled,
+    connectCard,
     writesEnabled,
     builtinRedirectUris: BUILTIN_REDIRECT_URIS,
     extraRedirectUris: extra,

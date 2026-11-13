@@ -185,21 +185,21 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
       <div className="p-3 sm:p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-base sm:text-lg font-semibold text-gray-900">Attached sales pipeline</h2>
-          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-gray-700 mt-0.5">
             Signed installation sales tied to you or your team as they move through production.
           </p>
         </div>
         <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-3">
           <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">Sales</p>
+            <p className="text-[11px] uppercase tracking-wide text-gray-700">Sales</p>
             <p className="text-sm font-semibold text-gray-900">{summary?.count ?? 0}</p>
           </div>
           <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">Volume</p>
+            <p className="text-[11px] uppercase tracking-wide text-gray-700">Volume</p>
             <p className="text-sm font-semibold text-gray-900">{formatAttachedSalesMoney(summary?.totalVolume ?? 0)}</p>
           </div>
           <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">Progress</p>
+            <p className="text-[11px] uppercase tracking-wide text-gray-700">Progress</p>
             <p className="text-sm font-semibold text-gray-900">{summary?.averageProgress ?? 0}%</p>
           </div>
         </div>
@@ -220,7 +220,7 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
       ) : error ? (
         <div className="p-4 text-sm text-rose-700 bg-rose-50">{error}</div>
       ) : sales.length === 0 ? (
-        <div className="p-6 text-center text-sm text-gray-500">
+        <div className="p-6 text-center text-sm text-gray-700">
           No attached installation sales in this period yet.
         </div>
       ) : (
@@ -237,21 +237,21 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold text-gray-900 truncate">{sale.customerName}</p>
-                      <span className="text-xs font-medium text-gray-500">{sale.attachment}</span>
+                      <span className="text-xs font-medium text-gray-700">{sale.attachment}</span>
                       {sale.jobNumber && (
-                        <span className="text-xs text-gray-400">{sale.jobNumber}</span>
+                        <span className="text-xs text-gray-600">{sale.jobNumber}</span>
                       )}
                     </div>
                     <p className="text-xs sm:text-sm text-gray-600 truncate mt-0.5">
                       <span className="font-medium text-gray-700">Address:</span>{' '}
                       {sale.projectAddress || 'No address on contract'}
                     </p>
-                    {people && <p className="text-xs text-gray-400 mt-1 truncate">{people}</p>}
+                    {people && <p className="text-xs text-gray-600 mt-1 truncate">{people}</p>}
                   </div>
                   <div className="flex items-center justify-between lg:justify-end gap-3 flex-shrink-0">
                     <div className="text-right">
                       <p className="text-sm font-semibold text-gray-900">{formatAttachedSalesMoney(sale.saleAmount)}</p>
-                      <p className="text-xs text-gray-400">Signed {formatAttachedSalesDate(sale.signedAt)}</p>
+                      <p className="text-xs text-gray-600">Signed {formatAttachedSalesDate(sale.signedAt)}</p>
                     </div>
                     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${tone.chip}`}>
                       <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
@@ -267,7 +267,7 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
                       style={{ width: `${Math.max(8, Math.min(sale.progressPercent, 100))}%` }}
                     />
                   </div>
-                  <div className="mt-1.5 flex items-center justify-between text-[11px] text-gray-400">
+                  <div className="mt-1.5 flex items-center justify-between text-[11px] text-gray-600">
                     <span>Signed</span>
                     <span>Materials</span>
                     <span>Scheduled</span>
@@ -351,8 +351,6 @@ interface DashboardClientProps {
     sales: { current: number; goal: number }
   }
   pendingPrompts: any[]
-  upcomingAppointments: any[]
-  recentActivities: any[]
   settings: any
   teamMemberStats?: TeamMemberStat[]
   setterTeamStats?: TeamMemberStat[]
@@ -449,18 +447,18 @@ function MyGoalsWidget({ currentUserId }: { currentUserId?: string }) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-gray-900">My Goals</span>
           {annualGoal && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-700">
               ${Number(annualGoal).toLocaleString()}/yr
             </span>
           )}
         </div>
         <div className="flex items-center gap-3">
           {targets && (
-            <span className="text-xs text-gray-500 hidden sm:block">
+            <span className="text-xs text-gray-700 hidden sm:block">
               {targets.setsPerDay} sets/day · {targets.sitsPerWeek} sits/wk · {targets.salesPerMonth} sales/mo
             </span>
           )}
-          <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+          <span className="text-gray-600 text-sm">{open ? '▲' : '▼'}</span>
         </div>
       </button>
       {open && (
@@ -469,7 +467,7 @@ function MyGoalsWidget({ currentUserId }: { currentUserId?: string }) {
             <div className="h-12 animate-pulse bg-gray-100 rounded" />
           ) : !goals ? (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">No goals set yet.</p>
+              <p className="text-sm text-gray-700">No goals set yet.</p>
               <Link
                 href="/reports/coaching"
                 className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
@@ -483,20 +481,20 @@ function MyGoalsWidget({ currentUserId }: { currentUserId?: string }) {
                 {targets ? (
                   <>
                     <div>
-                      <p className="text-xs text-gray-400">Sets/day needed</p>
+                      <p className="text-xs text-gray-600">Sets/day needed</p>
                       <p className="text-xl font-bold text-orange-500">{targets.setsPerDay}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Sits/week needed</p>
+                      <p className="text-xs text-gray-600">Sits/week needed</p>
                       <p className="text-xl font-bold text-cyan-600">{targets.sitsPerWeek}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Sales/month needed</p>
+                      <p className="text-xs text-gray-600">Sales/month needed</p>
                       <p className="text-xl font-bold text-green-600">{targets.salesPerMonth}</p>
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-gray-400">Complete goal inputs to see daily targets.</p>
+                  <p className="text-sm text-gray-600">Complete goal inputs to see daily targets.</p>
                 )}
               </div>
               <Link
@@ -519,8 +517,6 @@ export default function DashboardClient({
   stats,
   progress: _progressSsr,
   pendingPrompts,
-  upcomingAppointments,
-  recentActivities,
   settings,
   teamMemberStats = [],
   setterTeamStats = [],
@@ -535,8 +531,6 @@ export default function DashboardClient({
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null
   )
-  const [customReports, setCustomReports] = useState<any[]>([])
-  const [reportData, setReportData] = useState<Record<string, any[]>>({})
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('week')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -565,7 +559,6 @@ export default function DashboardClient({
   const [compPlanDetails, setCompPlanDetails] = useState<CompPlanDetails | null>(null)
   const [showCompPlanModal, setShowCompPlanModal] = useState(false)
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
-  const [mounted, setMounted] = useState(false)
   /** First timeframe-driven fetch: avoid skeleton/spinner when SSR already matched default "week". */
   const initialTimeframeFetchRef = useRef(true)
   // Calculator inputs - dynamic based on plan type
@@ -596,8 +589,6 @@ export default function DashboardClient({
   }, [personalStats.sits, personalStats.closeRate])
 
   useEffect(() => {
-    setMounted(true)
-    loadDashboardReports()
     loadWeeklyPay()
     loadCompPlanDetails()
   }, [])
@@ -765,36 +756,6 @@ export default function DashboardClient({
     }
   }
 
-  const loadDashboardReports = async () => {
-    if (profile.role === 'canvasser') return
-    try {
-      const res = await fetch('/api/reports/saved?dashboard=true')
-      const data = await res.json()
-      if (!res.ok) return
-      const reports = (data.reports || []).slice(0, 4)
-      setCustomReports(reports)
-      // Each pinned report runs through the one report runner (/api/reports/run).
-      for (const report of reports) {
-        try {
-          const dataRes = await fetch('/api/reports/run', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ spec: report.spec }),
-          })
-          if (!dataRes.ok) throw new Error('report failed')
-          const result = await dataRes.json()
-          const rows = (result.result?.rows || []).map((r: any) => ({ label: r.group ?? '', value: Number(r.value) || 0 }))
-          setReportData(prev => ({ ...prev, [report.id]: rows }))
-        } catch {
-          // Not the same as "no data": e.g. the role lost access to that report.
-          setReportData(prev => ({ ...prev, [report.id]: null as any }))
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load dashboard reports:', error)
-    }
-  }
-
   const handleStatusComplete = async (data: {
     outcome: string
     notes: string
@@ -956,42 +917,11 @@ export default function DashboardClient({
             style={{ width: `${percentage}%` }}
           />
         </div>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-gray-700 mt-1">
           {percentage.toFixed(0)}% of weekly goal
         </p>
       </div>
     )
-  }
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString)
-    // Use Eastern timezone for consistent display
-    return date.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit',
-      hour12: true,
-      timeZone: 'America/New_York'
-    })
-  }
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    
-    // Compare dates in Eastern timezone
-    const dateStr = date.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
-    const todayStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-    const tomorrowStr = tomorrow.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
-    
-    if (dateStr === todayStr) return 'Today'
-    if (dateStr === tomorrowStr) return 'Tomorrow'
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric',
-      timeZone: 'America/New_York'
-    })
   }
 
   return (
@@ -1025,7 +955,7 @@ export default function DashboardClient({
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
               Welcome back, {profile.full_name?.split(' ')[0] || 'there'}!
             </h1>
-            <p className="text-gray-500 text-sm sm:text-base mt-1">
+            <p className="text-gray-700 text-sm sm:text-base mt-1">
               {isDashboardPersonalKpiOrgWide(profile.role)
                 ? `Organization-wide performance overview for ${timeFrameLabel[timeFrame]}`
                 : `Here's your performance overview for ${timeFrameLabel[timeFrame]}`}
@@ -1063,7 +993,7 @@ export default function DashboardClient({
                   aria-label="Custom range start date"
                   className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-900 focus:ring-2 focus:ring-indigo-500"
                 />
-                <span className="text-gray-400 text-sm">to</span>
+                <span className="text-gray-600 text-sm">to</span>
                 <input
                   type="date"
                   value={customEndDate}
@@ -1105,7 +1035,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Doors Knocked</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Doors Knocked</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.doorsKnocked}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1114,12 +1044,12 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Contacts</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Contacts</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.contacts}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1128,12 +1058,12 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Set</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Inspections Set</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.inspectionsSet}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1142,12 +1072,12 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Sits</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Sits</p>
                   <p className="text-xl sm:text-2xl font-bold text-cyan-600">{personalStats.sits}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1156,12 +1086,12 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Sales</p>
                   <p className="text-xl sm:text-2xl font-bold text-green-600">{personalStats.sales}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1170,7 +1100,7 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
           </div>
         ) : (
@@ -1178,7 +1108,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Doors Knocked</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Doors Knocked</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.doorsKnocked}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1187,12 +1117,12 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Set</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Inspections Set</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.inspectionsSet}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1201,12 +1131,12 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Sits</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Sits</p>
                   <p className="text-xl sm:text-2xl font-bold text-cyan-600">{personalStats.sits}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1215,12 +1145,12 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Sales</p>
                   <p className="text-xl sm:text-2xl font-bold text-green-600">{personalStats.sales}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1229,7 +1159,7 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div
               className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100"
@@ -1237,7 +1167,7 @@ export default function DashboardClient({
             >
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Close Rate</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Close Rate</p>
                   <p className="text-xl sm:text-2xl font-bold text-indigo-600">
                   {personalStats.closeRate != null ? `${personalStats.closeRate}%` : '—'}
                 </p>
@@ -1248,7 +1178,7 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div
               className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100"
@@ -1256,7 +1186,7 @@ export default function DashboardClient({
             >
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Efficiency</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">Efficiency</p>
                   <p className="text-xl sm:text-2xl font-bold text-purple-600">
                   {personalStats.efficiency != null ? `${personalStats.efficiency}%` : '—'}
                 </p>
@@ -1267,7 +1197,7 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
+              <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
           </div>
         )}
@@ -1328,11 +1258,11 @@ export default function DashboardClient({
             <div className="p-3 sm:p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900">Team scoreboard</h2>
               <div className="flex items-center gap-2 sm:gap-3">
-                <div className="text-xs sm:text-sm text-gray-500 text-right sm:text-left">
+                <div className="text-xs sm:text-sm text-gray-700 text-right sm:text-left">
                   <span className="whitespace-nowrap">{teamMemberCount} reps</span>
                   {isManager && distinctDealCounts && !loadingStats && (
                     <span
-                      className="block sm:inline sm:ml-2 text-gray-400 text-[11px] sm:text-xs mt-0.5 sm:mt-0"
+                      className="block sm:inline sm:ml-2 text-gray-600 text-[11px] sm:text-xs mt-0.5 sm:mt-0"
                       title="Setter and closer tables can both credit the same job, so unique totals are shown separately."
                     >
                       Unique: {distinctDealCounts.sitOpportunitiesInPeriod} sits ·{' '}
@@ -1344,7 +1274,7 @@ export default function DashboardClient({
             </div>
 
             {loadingStats ? (
-              <div className="p-8 text-center text-gray-500">
+              <div className="p-8 text-center text-gray-700">
                 <div className="flex items-center justify-center gap-2">
                   <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -1373,7 +1303,7 @@ export default function DashboardClient({
                               ) : index === 2 ? (
                                 <span className="text-xl">🥉</span>
                               ) : (
-                                <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
+                                <span className="text-sm font-medium text-gray-700">#{index + 1}</span>
                               )}
                             </div>
                             <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
@@ -1383,45 +1313,45 @@ export default function DashboardClient({
                             </div>
                             <div className="min-w-0 flex-1">
                               <p className="font-medium text-gray-900 truncate">{member.name}</p>
-                              <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                              <p className="text-xs text-gray-700 capitalize">{member.role.replace('_', ' ')}</p>
                             </div>
                           </div>
                           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-center">
                             <div>
-                              <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-600'}`}>
                                 {member.doorsKnocked}
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-gray-700">
                                 Doors{' '}
-                                <span className="text-gray-400">(pins · {timeFrameLabel[timeFrame]})</span>
+                                <span className="text-gray-600">(pins · {timeFrameLabel[timeFrame]})</span>
                               </p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-600'}`}>
                                 {member.contacts || 0}
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-gray-700">
                                 Contacts{' '}
-                                <span className="text-gray-400">({timeFrameLabel[timeFrame]})</span>
+                                <span className="text-gray-600">({timeFrameLabel[timeFrame]})</span>
                               </p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-600'}`}>
                                 {member.inspectionsSet}
                               </p>
-                              <p className="text-xs text-gray-500">Insp. set</p>
+                              <p className="text-xs text-gray-700">Insp. set</p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-600'}`}>
                                 {member.sits ?? 0}
                               </p>
-                              <p className="text-xs text-gray-500">Sits</p>
+                              <p className="text-xs text-gray-700">Sits</p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-600'}`}>
                                 {member.sales}
                               </p>
-                              <p className="text-xs text-gray-500">Sales</p>
+                              <p className="text-xs text-gray-700">Sales</p>
                             </div>
                           </div>
                         </div>
@@ -1431,23 +1361,23 @@ export default function DashboardClient({
                       <table className="w-full">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Rank</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Rep</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Doors
-                              <span className="block font-normal normal-case text-gray-400">
+                              <span className="block font-normal normal-case text-gray-600">
                                 (pins · {timeFrameLabel[timeFrame]})
                               </span>
                             </th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Contacts
-                              <span className="block font-normal normal-case text-gray-400">
+                              <span className="block font-normal normal-case text-gray-600">
                                 ({timeFrameLabel[timeFrame]})
                               </span>
                             </th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. set</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sits</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Insp. set</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sits</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sales</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -1465,7 +1395,7 @@ export default function DashboardClient({
                                   ) : index === 2 ? (
                                     <span className="text-xl">🥉</span>
                                   ) : (
-                                    <span className="text-sm font-medium text-gray-500">{index + 1}</span>
+                                    <span className="text-sm font-medium text-gray-700">{index + 1}</span>
                                   )}
                                 </div>
                               </td>
@@ -1478,32 +1408,32 @@ export default function DashboardClient({
                                   </div>
                                   <div>
                                     <p className="font-medium text-gray-900">{member.name}</p>
-                                    <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                                    <p className="text-xs text-gray-700 capitalize">{member.role.replace('_', ' ')}</p>
                                   </div>
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-600'}`}>
                                   {member.doorsKnocked}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-600'}`}>
                                   {member.contacts || 0}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-600'}`}>
                                   {member.inspectionsSet}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-600'}`}>
                                   {member.sits ?? 0}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-600'}`}>
                                   {member.sales}
                                 </span>
                               </td>
@@ -1533,7 +1463,7 @@ export default function DashboardClient({
                               ) : index === 2 ? (
                                 <span className="text-xl">🥉</span>
                               ) : (
-                                <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
+                                <span className="text-sm font-medium text-gray-700">#{index + 1}</span>
                               )}
                             </div>
                             <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
@@ -1543,68 +1473,68 @@ export default function DashboardClient({
                             </div>
                             <div className="min-w-0 flex-1">
                               <p className="font-medium text-gray-900 truncate">{member.name}</p>
-                              <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                              <p className="text-xs text-gray-700 capitalize">{member.role.replace('_', ' ')}</p>
                             </div>
                           </div>
                           <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 text-center">
                             <div>
-                              <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-600'}`}>
                                 {member.doorsKnocked}
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-gray-700">
                                 Doors{' '}
-                                <span className="text-gray-400">(pins · {timeFrameLabel[timeFrame]})</span>
+                                <span className="text-gray-600">(pins · {timeFrameLabel[timeFrame]})</span>
                               </p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${(member.contacts ?? 0) > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${(member.contacts ?? 0) > 0 ? 'text-purple-600' : 'text-gray-600'}`}>
                                 {member.contacts ?? 0}
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-gray-700">
                                 Contacts{' '}
-                                <span className="text-gray-400">({timeFrameLabel[timeFrame]})</span>
+                                <span className="text-gray-600">({timeFrameLabel[timeFrame]})</span>
                               </p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${(member.inspectionsSet ?? 0) > 0 ? 'text-orange-500' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${(member.inspectionsSet ?? 0) > 0 ? 'text-orange-500' : 'text-gray-600'}`}>
                                 {member.inspectionsSet ?? 0}
                               </p>
-                              <p className="text-xs text-gray-500">Set</p>
+                              <p className="text-xs text-gray-700">Set</p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${(member.inspectionsReceived ?? 0) > 0 ? 'text-sky-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${(member.inspectionsReceived ?? 0) > 0 ? 'text-sky-600' : 'text-gray-600'}`}>
                                 {member.inspectionsReceived ?? 0}
                               </p>
-                              <p className="text-xs text-gray-500">Recv.</p>
+                              <p className="text-xs text-gray-700">Recv.</p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-600'}`}>
                                 {member.sits ?? 0}
                               </p>
-                              <p className="text-xs text-gray-500">Sits</p>
+                              <p className="text-xs text-gray-700">Sits</p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-600'}`}>
                                 {member.sales}
                               </p>
-                              <p className="text-xs text-gray-500">Sales</p>
+                              <p className="text-xs text-gray-700">Sales</p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-600'}`}>
                                 {member.closeRate === '—' ? '—' : `${member.closeRate}%`}
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-gray-700">
                                 Close %{' '}
-                                <span className="text-gray-400">({timeFrameLabel[timeFrame]})</span>
+                                <span className="text-gray-600">({timeFrameLabel[timeFrame]})</span>
                               </p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-600'}`}>
                                 {member.efficiency === '—' ? '—' : `${member.efficiency}%`}
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-gray-700">
                                 Effic. %{' '}
-                                <span className="text-gray-400">({timeFrameLabel[timeFrame]})</span>
+                                <span className="text-gray-600">({timeFrameLabel[timeFrame]})</span>
                               </p>
                             </div>
                           </div>
@@ -1615,39 +1545,39 @@ export default function DashboardClient({
                       <table className="w-full">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Rank</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Rep</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Doors
-                              <span className="block font-normal normal-case text-gray-400">
+                              <span className="block font-normal normal-case text-gray-600">
                                 (pins · {timeFrameLabel[timeFrame]})
                               </span>
                             </th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Contacts
-                              <span className="block font-normal normal-case text-gray-400">
+                              <span className="block font-normal normal-case text-gray-600">
                                 ({timeFrameLabel[timeFrame]})
                               </span>
                             </th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. set</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Insp. set</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Insp. recv.
-                              <span className="block font-normal normal-case text-gray-400">(assigned closer)</span>
+                              <span className="block font-normal normal-case text-gray-600">(assigned closer)</span>
                             </th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sits</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sits</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sales</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Close %
-                              <span className="block font-normal normal-case text-gray-400">
+                              <span className="block font-normal normal-case text-gray-600">
                                 ({timeFrameLabel[timeFrame]})
                               </span>
                             </th>
                             <th
-                              className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"
+                              className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider"
                               title="Sales ÷ appointments on this closer's calendar in the period (not the same as sits ÷ insp. received)."
                             >
                               Effic. %
-                              <span className="block font-normal normal-case text-gray-400">
+                              <span className="block font-normal normal-case text-gray-600">
                                 ({timeFrameLabel[timeFrame]})
                               </span>
                             </th>
@@ -1668,7 +1598,7 @@ export default function DashboardClient({
                                   ) : index === 2 ? (
                                     <span className="text-xl">🥉</span>
                                   ) : (
-                                    <span className="text-sm font-medium text-gray-500">{index + 1}</span>
+                                    <span className="text-sm font-medium text-gray-700">{index + 1}</span>
                                   )}
                                 </div>
                               </td>
@@ -1681,47 +1611,47 @@ export default function DashboardClient({
                                   </div>
                                   <div>
                                     <p className="font-medium text-gray-900">{member.name}</p>
-                                    <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                                    <p className="text-xs text-gray-700 capitalize">{member.role.replace('_', ' ')}</p>
                                   </div>
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-600'}`}>
                                   {member.doorsKnocked}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${(member.contacts ?? 0) > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${(member.contacts ?? 0) > 0 ? 'text-purple-600' : 'text-gray-600'}`}>
                                   {member.contacts ?? 0}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${(member.inspectionsSet ?? 0) > 0 ? 'text-orange-500' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${(member.inspectionsSet ?? 0) > 0 ? 'text-orange-500' : 'text-gray-600'}`}>
                                   {member.inspectionsSet ?? 0}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${(member.inspectionsReceived ?? 0) > 0 ? 'text-sky-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${(member.inspectionsReceived ?? 0) > 0 ? 'text-sky-600' : 'text-gray-600'}`}>
                                   {member.inspectionsReceived ?? 0}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-600'}`}>
                                   {member.sits ?? 0}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-600'}`}>
                                   {member.sales}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-600'}`}>
                                   {member.closeRate === '—' ? '—' : `${member.closeRate}%`}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-600'}`}>
                                   {member.efficiency === '—' ? '—' : `${member.efficiency}%`}
                                 </span>
                               </td>
@@ -1734,7 +1664,7 @@ export default function DashboardClient({
                 )}
 
                 {filteredSetterStats.length === 0 && filteredCloserStats.length === 0 && (
-                  <div className="p-8 text-center text-gray-500">No team member stats available</div>
+                  <div className="p-8 text-center text-gray-700">No team member stats available</div>
                 )}
               </>
             )}
@@ -1747,7 +1677,7 @@ export default function DashboardClient({
             {/* Weekly Progress */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Progress vs goals</h2>
-              <p className="text-xs text-gray-500 mb-3 sm:mb-4 capitalize">
+              <p className="text-xs text-gray-700 mb-3 sm:mb-4 capitalize">
                 Your pace for {timeFrameLabel[timeFrame]} against the goals in settings.
               </p>
               <ProgressBar
@@ -1775,67 +1705,6 @@ export default function DashboardClient({
                 color="bg-green-500"
               />
             </div>
-
-            {/* Upcoming Appointments - hidden for canvassers */}
-            {profile.role !== 'canvasser' && (
-            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <div className="flex items-center justify-between mb-3 sm:mb-4">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Upcoming Appointments</h2>
-                <Link href="/appointments" className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-700">
-                  View all
-                </Link>
-              </div>
-              {upcomingAppointments.length === 0 ? (
-                <p className="text-gray-500 text-sm py-4">No upcoming appointments</p>
-              ) : (
-                <div className="space-y-2 sm:space-y-3">
-                  {upcomingAppointments.map((apt) => {
-                    const customerName = apt.leads?.homeowner_name?.trim()
-                    const address = apt.leads?.address_text || apt.address_text || ''
-                    const linkHref = apt.opportunity_id 
-                      ? `/opportunities/${apt.opportunity_id}` 
-                      : apt.lead_id 
-                        ? `/leads/${apt.lead_id}`
-                        : '/appointments'
-                    
-                    return (
-                      <Link
-                        key={apt.id}
-                        href={linkHref}
-                        className="flex items-center gap-3 sm:gap-4 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                      >
-                        <div className="w-12 sm:w-14 text-center flex-shrink-0">
-                          <p className="text-xs text-gray-500" suppressHydrationWarning>{mounted ? formatDate(apt.scheduled_for) : ''}</p>
-                          <p className="text-base sm:text-lg font-bold text-gray-900" suppressHydrationWarning>{mounted ? formatTime(apt.scheduled_for) : ''}</p>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          {customerName ? (
-                            <>
-                              <p className="font-medium text-gray-900 truncate text-sm sm:text-base">
-                                {customerName}
-                              </p>
-                              <p className="text-xs sm:text-sm text-gray-500 truncate">
-                                {address || 'No address'}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="font-medium text-gray-900 truncate text-sm sm:text-base">
-                              {address || 'No address'}
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-indigo-600 flex-shrink-0">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </div>
-                      </Link>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-            )}
 
             {/* Account Overview - show different content for canvassers */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
@@ -1875,77 +1744,6 @@ export default function DashboardClient({
               </div>
             </div>
 
-            {/* Custom Reports Widgets - hidden for canvassers */}
-            {customReports.length > 0 && profile.role !== 'canvasser' && (
-              <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-                <div className="flex items-center justify-between mb-3 sm:mb-4">
-                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">Custom Reports</h2>
-                  <Link href="/reports/explore" className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-700">
-                    View all
-                  </Link>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  {customReports.slice(0, 4).map((report) => {
-                    const rawData = reportData[report.id]
-                    const failed = rawData === null
-                    const data = rawData || []
-                    const maxValue = Math.max(...data.map((d: any) => d.value || 0), 1)
-                    const isLoading = reportData[report.id] === undefined
-                    
-                    return (
-                      <Link 
-                        key={report.id} 
-                        href="/reports/explore"
-                        className="border rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-                      >
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-lg">
-                            📊
-                          </span>
-                          <h3 className="font-medium text-gray-900 text-sm">{report.name}</h3>
-                        </div>
-                        
-                        {isLoading ? (
-                          <div className="flex items-center justify-center py-4">
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600" />
-                          </div>
-                        ) : failed ? (
-                          <div className="text-center py-4">
-                            <p className="text-sm text-gray-600">Not available for your role</p>
-                          </div>
-                        ) : data.length === 0 ? (
-                          <div className="text-center py-4">
-                            <p className="text-sm text-gray-500">No data for this period</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {data.slice(0, 3).map((item: any, idx: number) => (
-                              <div key={idx}>
-                                <div className="flex justify-between text-xs mb-1">
-                                  <span className="text-gray-600 truncate">{item.label || 'Unknown'}</span>
-                                  <span className="font-medium text-gray-900">{(item.value || 0).toLocaleString()}</span>
-                                </div>
-                                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-indigo-500 rounded-full"
-                                    style={{ width: `${((item.value || 0) / maxValue) * 100}%` }}
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                            {data.length > 3 && (
-                              <p className="text-xs text-gray-400 text-center pt-1">
-                                +{data.length - 3} more
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </Link>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Sidebar */}
@@ -1985,82 +1783,6 @@ export default function DashboardClient({
               'sales_manager',
               'regional_manager',
             ].includes(profile?.role || '') && <CommissionWidget />}
-
-            {/* Recent Activity */}
-            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Recent Activity</h2>
-              {recentActivities.length === 0 ? (
-                <p className="text-gray-500 text-sm">No recent activity</p>
-              ) : (
-                <div className="space-y-4">
-                  {recentActivities.slice(0, 5).map((activity: any) => (
-                    <div key={activity.id} className="flex gap-3">
-                      <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-xs font-medium text-gray-600">
-                          {activity.users?.full_name?.charAt(0) || '?'}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-900">
-                          <span className="font-medium">{activity.users?.full_name || 'Unknown'}</span>
-                          {' '}
-                          <span className="text-gray-500">{activity.type.replace('_', ' ')}</span>
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">{activity.body}</p>
-                        <p className="text-xs text-gray-400 mt-1" suppressHydrationWarning>
-                          {mounted ? new Date(activity.created_at).toLocaleDateString() : ''}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Quick Actions */}
-            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Quick Actions</h2>
-              <div className="space-y-2">
-                {orgFeatures.canvassing && (
-                <Link
-                  href="/canvass"
-                  className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </div>
-                  <span className="font-medium text-gray-900 text-sm sm:text-base">Start Canvassing</span>
-                </Link>
-                )}
-                <Link
-                  href="/leads/new"
-                  className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </div>
-                  <span className="font-medium text-gray-900 text-sm sm:text-base">Add New Lead</span>
-                </Link>
-                {profile.role !== 'canvasser' && (
-                  <Link
-                    href="/reports"
-                    className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <svg className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                      </svg>
-                    </div>
-                    <span className="font-medium text-gray-900 text-sm sm:text-base">View Reports</span>
-                  </Link>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -2099,7 +1821,7 @@ export default function DashboardClient({
                     </svg>
                   </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">No Comp Plan Assigned</h3>
-                  <p className="text-gray-500">Contact your manager to get a compensation plan assigned to your account.</p>
+                  <p className="text-gray-700">Contact your manager to get a compensation plan assigned to your account.</p>
                 </div>
               ) : (
                 <div className="space-y-4 sm:space-y-6">
@@ -2128,7 +1850,7 @@ export default function DashboardClient({
                           ${compPlanDetails.unit_rate?.toLocaleString() || 0} per {compPlanDetails.unit_type || 'unit'}
                         </p>
                         {getCompPlanUnitHint(compPlanDetails.unit_type) && (
-                          <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                          <p className="text-xs sm:text-sm text-gray-700 mt-1">
                             {getCompPlanUnitHint(compPlanDetails.unit_type)}
                           </p>
                         )}
@@ -2142,7 +1864,7 @@ export default function DashboardClient({
                                comp.type === 'percentage' ? 'Commission' :
                                comp.type === 'flat_per_job' ? 'Per Job' :
                                `Per ${formatCompPlanUnitShortLabel(comp.unit_type)}`}
-                              {comp.description && <span className="text-gray-500 text-xs ml-1">({comp.description})</span>}
+                              {comp.description && <span className="text-gray-700 text-xs ml-1">({comp.description})</span>}
                             </span>
                             <span className="font-semibold text-green-600">
                               {comp.type === 'hourly' ? `$${comp.rate}/hr` :
@@ -2270,7 +1992,7 @@ export default function DashboardClient({
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg sm:text-xl font-bold text-gray-900">{compPlanDetails.name} Calculator</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-xs text-gray-700 mt-0.5">
                     {compPlanDetails.plan_type === 'hourly' ? 'Hourly Rate' :
                      compPlanDetails.plan_type === 'unit_based' ? 'Per Unit' :
                      compPlanDetails.plan_type === 'flat_rate' ? 'Flat Rate per Job' :
@@ -2551,7 +2273,7 @@ export default function DashboardClient({
               {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
                 <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                   <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Commission Tiers</h4>
-                  <p className="text-xs text-gray-500 mb-2">
+                  <p className="text-xs text-gray-700 mb-2">
                     Highlights the tier that matches your current team stats (sits / close rate).
                   </p>
                   <div className="space-y-2">
@@ -2569,7 +2291,7 @@ export default function DashboardClient({
                               nextMinVolume: nextTier?.min_volume ?? null,
                             })}
                           </span>
-                          <span className={`text-sm font-semibold ${isActive ? 'text-green-600' : 'text-gray-500'}`}>
+                          <span className={`text-sm font-semibold ${isActive ? 'text-green-600' : 'text-gray-700'}`}>
                             {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
                             {isActive && ' ✓'}
                           </span>

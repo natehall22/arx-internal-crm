@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { PageHeader } from '@/components/ui'
 import { requireAuth } from '@/lib/auth'
 import { isSuperAdmin } from '@/lib/super-admin'
@@ -17,6 +18,7 @@ export default async function JobSetupPage() {
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
+        <SettingsBackLink />
         <PageHeader title="Job setup" subtitle="Your company's own lists for jobs. Only owners can change these." />
         <JobSetupClient />
       </main>

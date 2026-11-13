@@ -241,6 +241,9 @@ describe('registration + redirect allow-list', () => {
     expect(validateRegistration({ redirect_uris: ['https://evil.test/cb'] }, [])).toMatchObject({ ok: false, error: 'invalid_redirect_uri' })
     expect(validateRegistration({ redirect_uris: [] }, [])).toMatchObject({ ok: false })
     expect(validateRegistration({ redirect_uris: [CLAUDE], grant_types: ['password'] }, [])).toMatchObject({ ok: false, error: 'invalid_client_metadata' })
+    // Claude's real metadata document (2026-11) lists jwt-bearer too; it must still be accepted.
+    expect(validateRegistration({ redirect_uris: [CLAUDE], grant_types: ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'], response_types: ['code'] }, [])).toMatchObject({ ok: true })
+    expect(validateRegistration({ redirect_uris: [CLAUDE], grant_types: ['refresh_token'] }, [])).toMatchObject({ ok: false })
     const ok = validateRegistration({ redirect_uris: [CLAUDE], client_name: '<b>Claude</b>' }, [])
     expect(ok).toMatchObject({ ok: true, value: { client_name: 'bClaude/b' } })
   })

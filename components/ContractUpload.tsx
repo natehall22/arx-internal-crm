@@ -69,7 +69,7 @@ export default function ContractUpload({ opportunityId }: ContractUploadProps) {
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
       <h2 className="text-xl font-bold text-gray-900 mb-4">Signed Contract</h2>
-      <p className="text-sm text-gray-500 mb-4">
+      <p className="text-sm text-gray-700 mb-4">
         Upload the signed contract to convert this opportunity into a project.
       </p>
 

@@ -85,7 +85,7 @@ export default function MeasurementsListPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Roof Measurements</h1>
-            <p className="text-gray-500 mt-1">All saved roof measurements</p>
+            <p className="text-gray-700 mt-1">All saved roof measurements</p>
           </div>
           <Link
             href="/tools/roof-measure"
@@ -113,25 +113,25 @@ export default function MeasurementsListPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-gray-900">{measurements.length}</div>
-            <div className="text-sm text-gray-500">Total Measurements</div>
+            <div className="text-sm text-gray-700">Total Measurements</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-indigo-600">
               {measurements.filter(m => m.source === 'in_house').length}
             </div>
-            <div className="text-sm text-gray-500">ARX Measured</div>
+            <div className="text-sm text-gray-700">ARX Measured</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-blue-600">
               {measurements.filter(m => ['eagleview', 'roofr', 'gaf_quickmeasure'].includes(m.source)).length}
             </div>
-            <div className="text-sm text-gray-500">External Reports</div>
+            <div className="text-sm text-gray-700">External Reports</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-green-600">
               {measurements.reduce((sum, m) => sum + (m.total_squares || 0), 0).toFixed(0)}
             </div>
-            <div className="text-sm text-gray-500">Total Squares</div>
+            <div className="text-sm text-gray-700">Total Squares</div>
           </div>
         </div>
 
@@ -144,7 +144,7 @@ export default function MeasurementsListPage() {
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No measurements yet</h3>
-            <p className="text-gray-500 mb-4">Start measuring roofs to build your database</p>
+            <p className="text-gray-700 mb-4">Start measuring roofs to build your database</p>
             <Link
               href="/tools/roof-measure"
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -157,13 +157,13 @@ export default function MeasurementsListPage() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Address</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Squares</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pitch</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sections</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Address</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Source</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Squares</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Pitch</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Sections</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Date</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -200,7 +200,7 @@ export default function MeasurementsListPage() {
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {measurement.facet_count || '-'}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
+                      <td className="px-6 py-4 text-sm text-gray-700">
                         {new Date(measurement.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4 text-right">

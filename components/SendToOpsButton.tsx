@@ -127,7 +127,7 @@ export default function SendToOpsButton({
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b">
               <h2 className="text-xl font-bold text-gray-900">Send to Operations</h2>
-              <p className="text-gray-500 text-sm mt-1">
+              <p className="text-gray-700 text-sm mt-1">
                 Create a production job for scheduling and installation
               </p>
             </div>
@@ -137,7 +137,7 @@ export default function SendToOpsButton({
                   Contract / sale amount
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-2 text-gray-500">$</span>
+                  <span className="absolute left-3 top-2 text-gray-700">$</span>
                   <input
                     type="number"
                     value={saleAmount}
@@ -147,7 +147,7 @@ export default function SendToOpsButton({
                     step="0.01"
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-700 mt-1">
                   Prefilled from the signed agreement or latest change order when available. Leave
                   blank to use the same automatic total the server calculates. Dealer fee, financing program, and
                   payroll snapshot fields are taken from the accepted proposal when that proposal carries

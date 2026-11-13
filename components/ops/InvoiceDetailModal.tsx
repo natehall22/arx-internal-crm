@@ -204,7 +204,7 @@ export default function InvoiceDetailModal({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors"
           >
             <span className="text-lg">✕</span>
           </button>

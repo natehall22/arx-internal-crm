@@ -1,8 +1,8 @@
 import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
 import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import JobProfitTable from '@/components/admin/JobProfitTable'
 import { requireAuth } from '@/lib/auth'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
@@ -299,9 +299,7 @@ export default async function AdminJobProfitTrackerPage({
       <Nav />
       <main className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6">
-          <Link href="/admin" className="text-sm font-medium text-indigo-600 hover:text-indigo-800">
-            ← Settings
-          </Link>
+          <SettingsBackLink />
         </div>
 
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -314,7 +312,7 @@ export default async function AdminJobProfitTrackerPage({
 
           <form className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 text-sm shadow-sm sm:grid-cols-2 lg:grid-cols-5">
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Status</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">Status</span>
               <select
                 name="status"
                 defaultValue={status}
@@ -334,7 +332,7 @@ export default async function AdminJobProfitTrackerPage({
               </select>
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">From</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">From</span>
               <input
                 type="date"
                 name="from"
@@ -343,7 +341,7 @@ export default async function AdminJobProfitTrackerPage({
               />
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">To</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">To</span>
               <input
                 type="date"
                 name="to"
@@ -352,7 +350,7 @@ export default async function AdminJobProfitTrackerPage({
               />
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Source Filter</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">Source Filter</span>
               <select
                 name="source"
                 defaultValue={sourceFilter}
@@ -363,7 +361,7 @@ export default async function AdminJobProfitTrackerPage({
               </select>
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Search</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-700">Search</span>
               <div className="mt-1 flex gap-2">
                 <input
                   type="search"

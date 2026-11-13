@@ -10,6 +10,7 @@
     "project_cost": 18450.5,
     "total_squares": 31,
     "roofing_material": "IKO Dynasty",
+    "roof_color": "Granite Black",
     "scope_roof_replacement": true,
     "scope_gutters": true,
     "scope_other": "Skylight reflash",
@@ -23,7 +24,7 @@
     "customer_print_name": "Jane Q. Homeowner",
     "customer_initials_change_orders": "JQH",
     "customer_initials_property_condition": "JQH",
-    "customer_initials_landscaping": "JQH",
+    "customer_initials_color": "JQH",
     "customer_initials_insurance": "JQH",
     "rep_name": "Sam Rep",
     "rep_title": "Project Consultant",
@@ -109,7 +110,7 @@
     "adjustments": []
   },
   "sha256": {
-    "contract_installation": "f06021f7965bf9077a9e11475b23f35cd4f1dab2bca3d73fc95dc4bf2696e52f",
+    "contract_installation": "c296541533b219ff4b90d0855e5e5773281a4e3caad78274abedd0dc1840035d",
     "contract_contingency": "b5a2442d65b61c3b5673650019b99608ea9d1dd8be0e945832f242cf7ce838b5",
     "contract_repair": "6779412ed1fef8b98d65fbcfb49eaaae487ca571e8ae8a44bada1d5775da8b9f",
     "change_order": "07816bb4912360805688a731e6944705bf3174ede0137e3ebe1857d415123dbe",

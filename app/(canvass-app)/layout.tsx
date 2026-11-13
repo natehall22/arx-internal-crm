@@ -24,6 +24,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
+  // Android Chrome: the on-screen keyboard shrinks the page instead of covering the bottom of the form
+  interactiveWidget: 'resizes-content',
   themeColor: '#4F46E5',
 }
 

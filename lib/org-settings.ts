@@ -65,10 +65,14 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('quickbooks' in set || remove.includes('quickbooks'))) return { error: 'quickbooks is saved at path [quickbooks]' }
   // Quote approval (deposit default, link life, terms) is only ever written at path ['quoteApproval'] (owners, /api/admin/quote-approval).
   if (path.length === 0 && ('quoteApproval' in set || remove.includes('quoteApproval'))) return { error: 'quoteApproval is saved at path [quoteApproval]' }
+  // Measure yard materials settings (mulch depth, pine straw coverage) are only ever written at path ['areaMeasure'] (owners, /api/area-measure/settings).
+  if (path.length === 0 && ('areaMeasure' in set || remove.includes('areaMeasure'))) return { error: 'areaMeasure is saved at path [areaMeasure]' }
   // Signing choices (consent step, reminders, copies) are only ever written at path ['signing'] (owners, /api/admin/signing).
   if (path.length === 0 && ('signing' in set || remove.includes('signing'))) return { error: 'signing is saved at path [signing]' }
   // Crew incentive rules (lawn_landscape only) are only ever written at path ['crewIncentives'] (owners, /api/admin/crew-incentives).
   if (path.length === 0 && ('crewIncentives' in set || remove.includes('crewIncentives'))) return { error: 'crewIncentives is saved at path [crewIncentives]' }
+  // Lead intake (routing mode, people, services, reminder hours) is only ever written at path ['leadIntake'] (/api/admin/lead-routing).
+  if (path.length === 0 && ('leadIntake' in set || remove.includes('leadIntake'))) return { error: 'leadIntake is saved at path [leadIntake]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

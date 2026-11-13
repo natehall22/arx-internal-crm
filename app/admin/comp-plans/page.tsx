@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import CompanyCommissionRatesCard from '@/components/admin/CompanyCommissionRatesCard'
 import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
@@ -1008,9 +1009,7 @@ export default function CompPlansPage() {
       <Nav />
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Settings
-          </Link>
+          <SettingsBackLink />
         </div>
 
         <div className="flex items-center justify-between mb-8">
@@ -1047,7 +1046,7 @@ export default function CompPlansPage() {
             className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
               activeTab === 'plans'
                 ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-700 hover:text-gray-900'
             }`}
           >
             Comp Plans ({compPlans.length})
@@ -1057,7 +1056,7 @@ export default function CompPlansPage() {
             className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
               activeTab === 'assignments'
                 ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-700 hover:text-gray-900'
             }`}
           >
             User Assignments ({userAssignments.length})
@@ -1067,7 +1066,7 @@ export default function CompPlansPage() {
             className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
               activeTab === 'overrides'
                 ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-700 hover:text-gray-900'
             }`}
           >
             Per-Job Overrides
@@ -1093,9 +1092,9 @@ export default function CompPlansPage() {
                         <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">Manager</span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">{plan.description}</p>
+                    <p className="text-sm text-gray-700 mt-1">{plan.description}</p>
                   </div>
-                  <span className={`px-2 py-1 text-xs rounded-full ${plan.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <span className={`px-2 py-1 text-xs rounded-full ${plan.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
                     {plan.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </div>
@@ -1167,27 +1166,27 @@ export default function CompPlansPage() {
 
                 <div className="space-y-2 mb-4">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Type</span>
+                    <span className="text-gray-700">Type</span>
                     <span className="font-medium">{planTypeLabels[plan.plan_type]}</span>
                   </div>
                   
                   {plan.plan_type === 'flat_rate' && plan.flat_amount && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Amount</span>
+                      <span className="text-gray-700">Amount</span>
                       <span className="font-medium text-green-600">${plan.flat_amount}</span>
                     </div>
                   )}
                   
                   {plan.plan_type === 'percentage' && plan.base_percentage && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Rate</span>
+                      <span className="text-gray-700">Rate</span>
                       <span className="font-medium text-green-600">{plan.base_percentage}%</span>
                     </div>
                   )}
                   
                   {plan.plan_type === 'tiered' && plan.tiers && (
                     <div className="text-sm">
-                      <span className="text-gray-500">Tiers:</span>
+                      <span className="text-gray-700">Tiers:</span>
                       <div className="mt-1 space-y-1">
                         {plan.tiers.map((tier, i) => (
                           <div key={i} className="text-xs bg-gray-50 px-2 py-1 rounded">
@@ -1200,7 +1199,7 @@ export default function CompPlansPage() {
 
                   {plan.volume_bonuses && plan.volume_bonuses.length > 0 && (
                     <div className="text-sm">
-                      <span className="text-gray-500">Bonus tiers:</span>
+                      <span className="text-gray-700">Bonus tiers:</span>
                       <div className="mt-1 space-y-1">
                         {plan.volume_bonuses.map((vb, i) => (
                           <div key={i} className="text-xs bg-blue-50 px-2 py-1 rounded">
@@ -1285,7 +1284,7 @@ export default function CompPlansPage() {
 
             {compPlans.length === 0 && (
               <div className="col-span-full text-center py-12 bg-white rounded-xl border">
-                <p className="text-gray-500">No comp plans created yet</p>
+                <p className="text-gray-700">No comp plans created yet</p>
                 <button
                   onClick={() => setShowPlanModal(true)}
                   className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -1349,12 +1348,12 @@ export default function CompPlansPage() {
               <table className="block w-full md:table md:min-w-[1180px]">
                 <thead className="hidden bg-gray-50 border-b md:table-header-group">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Reports To</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Direct Reports</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Primary Sales Plan</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Management Overlay</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Current Reports To</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Current Direct Reports</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Primary Sales Plan</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Management Overlay</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="block divide-y md:table-row-group">
@@ -1370,10 +1369,10 @@ export default function CompPlansPage() {
                     <tr key={user.id} className="block p-4 hover:bg-gray-50 align-top md:table-row md:p-0">
                       <td className="block px-0 py-2 md:table-cell md:px-6 md:py-4">
                         <div className="font-medium text-gray-900">{user.full_name}</div>
-                        <div className="mt-1 text-xs text-gray-500">{compPlanRoleLabel(user.role)}</div>
+                        <div className="mt-1 text-xs text-gray-700">{compPlanRoleLabel(user.role)}</div>
                       </td>
                       <td className="block px-0 py-2 text-sm md:table-cell md:px-6 md:py-4">
-                        <div className="mb-1 text-xs font-medium uppercase text-gray-500 md:hidden">Current Reports To</div>
+                        <div className="mb-1 text-xs font-medium uppercase text-gray-700 md:hidden">Current Reports To</div>
                         {manager ? (
                           <span className="text-gray-900">{manager.full_name}</span>
                         ) : (
@@ -1383,22 +1382,22 @@ export default function CompPlansPage() {
                         )}
                       </td>
                       <td className="block px-0 py-2 text-sm text-gray-700 md:table-cell md:px-6 md:py-4">
-                        <div className="mb-1 text-xs font-medium uppercase text-gray-500 md:hidden">Current Direct Reports</div>
+                        <div className="mb-1 text-xs font-medium uppercase text-gray-700 md:hidden">Current Direct Reports</div>
                         <div className="font-medium">{directReports.length}</div>
                         {directReports.length > 0 && (
-                          <div className="mt-1 max-w-[220px] text-xs text-gray-500">
+                          <div className="mt-1 max-w-[220px] text-xs text-gray-700">
                             {directReports.map((report) => report.full_name).join(', ')}
                           </div>
                         )}
                       </td>
                       <td className="block px-0 py-2 text-sm md:table-cell md:px-6 md:py-4">
-                        <div className="mb-1 text-xs font-medium uppercase text-gray-500 md:hidden">Primary Sales Plan</div>
+                        <div className="mb-1 text-xs font-medium uppercase text-gray-700 md:hidden">Primary Sales Plan</div>
                         {primaryAssignment ? (
                           <>
                             <div className="font-medium text-gray-900">
                               {primaryAssignment.comp_plans?.name || 'Unknown plan'}
                             </div>
-                            <div className="mt-1 text-xs text-gray-500">
+                            <div className="mt-1 text-xs text-gray-700">
                               {formatEffectiveRange(primaryAssignment.effective_from, primaryAssignment.effective_to)}
                             </div>
                             <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -1411,7 +1410,7 @@ export default function CompPlansPage() {
                               {primaryStatus}
                             </span>
                             {primaryAssignment.override_percentage != null && (
-                              <div className="mt-1 text-xs text-gray-500">
+                              <div className="mt-1 text-xs text-gray-700">
                                 Personal plan rate override: {primaryAssignment.override_percentage}%
                               </div>
                             )}
@@ -1436,9 +1435,9 @@ export default function CompPlansPage() {
                         )}
                       </td>
                       <td className="block px-0 py-2 text-sm md:table-cell md:px-6 md:py-4">
-                        <div className="mb-1 text-xs font-medium uppercase text-gray-500 md:hidden">Management Overlay</div>
+                        <div className="mb-1 text-xs font-medium uppercase text-gray-700 md:hidden">Management Overlay</div>
                         {!managerEligible ? (
-                          <span className="text-gray-400">Not eligible for this role</span>
+                          <span className="text-gray-600">Not eligible for this role</span>
                         ) : overlays.length > 0 ? (
                           <div className="space-y-3">
                             {overlays.map(({ assignment, rate, status }) => (
@@ -1449,7 +1448,7 @@ export default function CompPlansPage() {
                                 <div className="mt-1 text-xs text-gray-600">
                                   {assignment.comp_plans?.name || 'Unknown overlay plan'} · {status}
                                 </div>
-                                <div className="mt-1 text-xs text-gray-500">
+                                <div className="mt-1 text-xs text-gray-700">
                                   {formatEffectiveRange(assignment.effective_from, assignment.effective_to)}
                                 </div>
                                 {status === 'Ending' && (
@@ -1484,7 +1483,7 @@ export default function CompPlansPage() {
                             <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
                               No management overlay
                             </span>
-                            <div className="mt-2 text-xs text-gray-500">
+                            <div className="mt-2 text-xs text-gray-700">
                               {directReports.length > 0
                                 ? 'Hierarchy is ready; assign a setter or closer overlay.'
                                 : 'No direct reports are assigned.'}
@@ -1532,7 +1531,7 @@ export default function CompPlansPage() {
                 </tbody>
               </table>
               {users.length === 0 && (
-                <div className="text-center py-12 text-gray-500">
+                <div className="text-center py-12 text-gray-700">
                   No active users available
                 </div>
               )}
@@ -1877,7 +1876,7 @@ export default function CompPlansPage() {
                       {planForm.tiers.map((tier, index) => (
                         <div key={index} className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
                           <div className="flex-1">
-                            <label className="text-xs text-gray-500">Min ($)</label>
+                            <label className="text-xs text-gray-700">Min ($)</label>
                             <input
                               type="number"
                               value={tier.min}
@@ -1886,7 +1885,7 @@ export default function CompPlansPage() {
                             />
                           </div>
                           <div className="flex-1">
-                            <label className="text-xs text-gray-500">Max ($)</label>
+                            <label className="text-xs text-gray-700">Max ($)</label>
                             <input
                               type="number"
                               value={tier.max}
@@ -1896,7 +1895,7 @@ export default function CompPlansPage() {
                             />
                           </div>
                           <div className="w-20">
-                            <label className="text-xs text-gray-500">Rate (%)</label>
+                            <label className="text-xs text-gray-700">Rate (%)</label>
                             <input
                               type="number"
                               step="0.1"
@@ -1915,7 +1914,7 @@ export default function CompPlansPage() {
                       ))}
                       <button
                         onClick={addTier}
-                        className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-indigo-300 hover:text-indigo-600"
+                        className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-700 hover:border-indigo-300 hover:text-indigo-600"
                       >
                         + Add Tier
                       </button>
@@ -2051,7 +2050,7 @@ export default function CompPlansPage() {
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Bonus Tiers (Sliding Scale)</label>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="text-xs text-gray-700 mt-0.5">
                         Bonus tiers by monthly sit count (setters) or close rate % (closers).
                         Use % add or a flat $ bonus per sale.
                       </p>
@@ -2139,7 +2138,7 @@ export default function CompPlansPage() {
                     </div>
                   ) : (
                     <div className="text-center py-4 border-2 border-dashed border-gray-200 rounded-lg">
-                      <p className="text-sm text-gray-500">No bonus tiers configured</p>
+                      <p className="text-sm text-gray-700">No bonus tiers configured</p>
                       <button
                         type="button"
                         onClick={addVolumeBonus}
@@ -2375,7 +2374,7 @@ export default function CompPlansPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Personal Plan Rate Override (%) <span className="text-gray-400 font-normal">- Optional</span>
+                    Personal Plan Rate Override (%) <span className="text-gray-600 font-normal">- Optional</span>
                   </label>
                   <input
                     type="number"

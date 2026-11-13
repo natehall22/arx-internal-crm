@@ -125,7 +125,7 @@ export default function LinkProjectToCustomerButton({ customerId, customerName }
             <div className="px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-2">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Link a project to this customer</h2>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-gray-700 mt-1">
                   Choose a project that should appear on this account. Unlinked projects are listed
                   by default; turn on the option below if the job is linked to the wrong account.
                 </p>
@@ -134,7 +134,7 @@ export default function LinkProjectToCustomerButton({ customerId, customerName }
                 type="button"
                 onClick={() => setOpen(false)}
                 disabled={submitting}
-                className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                className="text-gray-600 hover:text-gray-900 disabled:opacity-50"
                 aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -158,13 +158,13 @@ export default function LinkProjectToCustomerButton({ customerId, customerName }
 
             <div className="overflow-y-auto flex-1 px-5 py-3 min-h-[12rem]">
               {loading && (
-                <p className="text-sm text-gray-500">Loading projects…</p>
+                <p className="text-sm text-gray-700">Loading projects…</p>
               )}
               {!loading && error && (
                 <p className="text-sm text-red-600">{error}</p>
               )}
               {!loading && !error && rows.length === 0 && (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-700">
                   No projects to link from this list. Unlinked projects appear here first. If the job is
                   under another customer, turn on the option above. You can also confirm the project exists
                   from the main Projects page.

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import MoveSignedDocuments from '@/components/signed-import/MoveSignedDocuments'
 import { PageHeader } from '@/components/ui'
 import { requireAuth } from '@/lib/auth'
@@ -16,6 +17,7 @@ export default async function MoveSignedDocumentsPage() {
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
+        <SettingsBackLink />
         <PageHeader title="Move signed documents" subtitle="Bring contracts you already signed in another tool into each customer’s documents. They are kept as read-only copies, and the whole import can be undone." />
         <MoveSignedDocuments />
       </main>

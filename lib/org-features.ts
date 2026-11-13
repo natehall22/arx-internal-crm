@@ -37,7 +37,7 @@ export const ORG_FEATURE_DEFS = {
   },
   incentives: {
     label: 'Sisu incentives',
-    description: 'Heats, badges, leaderboard, accountability goals and the Incentives page. Setter ramp and bonus approval (pay) stay.',
+    description: 'Heats, badges, leaderboard, accountability goals and the Incentives page. Setter ramp (pay) and bonus approval (Money → Bonuses) stay.',
   },
   stormAlerts: {
     label: 'Storm alerts',
@@ -100,6 +100,11 @@ export const ORG_FEATURE_DEFS = {
   customerPortal: {
     label: 'Customer portal',
     description: 'Customers sign in with a link emailed to them and see their own visits, invoices, quotes, shared documents and plan, pay, and message you. Nothing internal is ever shown.',
+    defaultOn: false,
+  },
+  areaMeasure: {
+    label: 'Measure yard (lawn & bed areas)',
+    description: 'Draw lawns, beds, cut-outs and edging on the satellite photo of a property to get square feet, acres, feet of edging and an estimate of mulch or pine straw. Saved to the customer or lead with the older measurements kept.',
     defaultOn: false,
   },
   quoteApproval: {

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import CustomerPortalSettings from '@/components/admin/CustomerPortalSettings'
 import { PageHeader } from '@/components/ui'
 import { requireAuth } from '@/lib/auth'
@@ -21,6 +22,7 @@ export default async function CustomerPortalPage() {
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
+        <SettingsBackLink />
         <PageHeader title="Customer portal" subtitle="Your customers see their project, photos, documents and invoices at your own web address." />
         <CustomerPortalSettings initial={initial} />
       </main>

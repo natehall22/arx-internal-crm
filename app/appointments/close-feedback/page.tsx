@@ -259,28 +259,28 @@ export default function CloseAppointmentFeedbackPage() {
 
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Close Appointment Feedback</h1>
-          <p className="text-gray-500">Record the outcome of your close appointment</p>
+          <p className="text-gray-700">Record the outcome of your close appointment</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Opportunity Details</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
-              <p className="text-gray-500">Customer</p>
+              <p className="text-gray-700">Customer</p>
               <p className="font-medium text-gray-900">{customerName}</p>
             </div>
             <div>
-              <p className="text-gray-500">Closer</p>
+              <p className="text-gray-700">Closer</p>
               <p className="font-medium text-gray-900">{closerName || '—'}</p>
             </div>
             <div className="sm:col-span-2">
-              <p className="text-gray-500">Close appointment scheduled</p>
+              <p className="text-gray-700">Close appointment scheduled</p>
               <p className="font-medium text-gray-900">
                 {scheduledFor ? formatEt(scheduledFor) + ' (ET)' : '—'}
               </p>
             </div>
             <div className="sm:col-span-2">
-              <p className="text-gray-500">Address</p>
+              <p className="text-gray-700">Address</p>
               <p className="font-medium text-gray-900">{address}</p>
             </div>
           </div>
@@ -333,7 +333,7 @@ export default function CloseAppointmentFeedbackPage() {
                     </div>
                     <div>
                       <p className="font-semibold text-gray-900">{row.label}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{row.description}</p>
+                      <p className="text-xs text-gray-700 mt-0.5">{row.description}</p>
                     </div>
                   </div>
                 </button>

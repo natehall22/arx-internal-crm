@@ -186,9 +186,9 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
       </div>
 
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p className="text-sm text-gray-700">Loading...</p>
       ) : workOrders.length === 0 ? (
-        <p className="text-sm text-gray-500">No work orders for this job</p>
+        <p className="text-sm text-gray-700">No work orders for this job</p>
       ) : (
         <div className="space-y-3">
           {openWorkOrders.map(wo => (
@@ -200,13 +200,13 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-mono text-gray-500">{wo.work_order_number}</span>
+                    <span className="text-xs font-mono text-gray-700">{wo.work_order_number}</span>
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[wo.status] || 'bg-gray-100 text-gray-600'}`}>
                       {wo.status.replace('_', ' ')}
                     </span>
                   </div>
                   <p className="text-sm font-medium text-gray-900 mt-1 break-words">{wo.title}</p>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-gray-500">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-gray-700">
                     <span>{typeLabels[wo.work_order_type] || wo.work_order_type}</span>
                     {wo.scheduled_date && (
                       <>
@@ -259,7 +259,7 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-mono text-gray-500">{wo.work_order_number}</span>
+                              <span className="text-xs font-mono text-gray-700">{wo.work_order_number}</span>
                               <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800">
                                 Completed
                               </span>
@@ -278,7 +278,7 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                           <p className="text-xs text-gray-600 mb-2">
                             Completed by: <span className="font-medium">{completedByName}</span>
                             {wo.completed_at && (
-                              <span className="text-gray-400 ml-2">
+                              <span className="text-gray-600 ml-2">
                                 {new Date(wo.completed_at).toLocaleDateString()}
                               </span>
                             )}
@@ -288,7 +288,7 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                         {/* Sub Completion Note */}
                         {wo.sub_completion_notes && (
                           <div className="mb-3">
-                            <p className="text-xs font-medium text-gray-500 mb-1">Completion Note:</p>
+                            <p className="text-xs font-medium text-gray-700 mb-1">Completion Note:</p>
                             <p className="text-sm text-gray-700 bg-white p-2 rounded border">
                               {wo.sub_completion_notes}
                             </p>
@@ -300,7 +300,7 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                           <div className="space-y-2">
                             {workDonePhotos.length > 0 && (
                               <div>
-                                <p className="text-xs font-medium text-gray-500 mb-1">
+                                <p className="text-xs font-medium text-gray-700 mb-1">
                                   Work Done Photos ({workDonePhotos.length})
                                 </p>
                                 <div className="grid grid-cols-4 gap-1">
@@ -333,7 +333,7 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                             
                             {cleanupPhotos.length > 0 && (
                               <div>
-                                <p className="text-xs font-medium text-gray-500 mb-1">
+                                <p className="text-xs font-medium text-gray-700 mb-1">
                                   Cleanup Photos ({cleanupPhotos.length})
                                 </p>
                                 <div className="grid grid-cols-4 gap-1">

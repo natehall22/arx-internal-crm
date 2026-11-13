@@ -62,12 +62,78 @@ async function mockJob0037(page: Page) {
   await page.route('**/api/ops/jobs/*/run-sheet/email', (route) => route.fulfill(json({ recipients: [{ email: 'sparky@example.test', name: 'Sparky Roofing LLC' }] })))
 }
 
+/**
+ * Measure yard: Google Maps is replaced by a tiny stand-in served for the maps script. A click on the map div is a tap
+ * (1 px = 0.000001 degree); computeArea / computeLength are planar maths on the same numbers, so areas are checkable.
+ * Markers are listed on window.__yardMarkers so a test can "drag" one.
+ */
+const YARD_MAPS_STUB = `(function () {
+  class LatLng { constructor(a, b) { this._a = a; this._b = b } lat() { return this._a } lng() { return this._b } }
+  const ll = (p) => (p instanceof LatLng ? p : new LatLng(p.lat, p.lng))
+  class Base { constructor(o) { this.o = o || {}; this.l = {} } addListener(n, f) { (this.l[n] = this.l[n] || []).push(f); return { remove() {} } } emit(n, e) { (this.l[n] || []).forEach((f) => f(e)) } setMap(m) { this.map = m } }
+  class Map extends Base {
+    constructor(div, o) { super(o); this.c = ll(o.center); div.style.background = '#556b2f'; const self = this
+      div.addEventListener('click', (ev) => { const r = div.getBoundingClientRect(); const dx = ev.clientX - r.left - r.width / 2; const dy = ev.clientY - r.top - r.height / 2
+        self.emit('click', { latLng: new LatLng(self.c.lat() - dy * 1e-6, self.c.lng() + dx * 1e-6) }) }) }
+    getCenter() { return this.c } setCenter(c) { this.c = ll(c) } setZoom() {} fitBounds() {}
+  }
+  class Marker extends Base { constructor(o) { super(o); this.map = o.map; window.__yardMarkers = window.__yardMarkers || []; window.__yardMarkers.push(this) } setMap(m) { this.map = m; if (!m) window.__yardMarkers = (window.__yardMarkers || []).filter((x) => x !== this) } }
+  class Poly extends Base {}
+  class Bounds { extend() {} }
+  class Geocoder { geocode(req, cb) { cb([{ geometry: { location: new LatLng(30.2, -84.3) } }], 'OK') } }
+  const M = 111320
+  const xy = (p) => { const q = ll(p); return [q.lng() * M * Math.cos((q.lat() * Math.PI) / 180), q.lat() * M] }
+  window.google = { maps: { Map, Marker, Polygon: Poly, Polyline: Poly, LatLng, LatLngBounds: Bounds, Geocoder, SymbolPath: { CIRCLE: 0 },
+    geometry: { spherical: {
+      computeArea(path) { const pts = path.map(xy); let a = 0; for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; a += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1] } return Math.abs(a) / 2 },
+      computeLength(path) { const pts = path.map(xy); let d = 0; for (let i = 1; i < pts.length; i++) d += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return d },
+    } } } }
+})()`
+
+async function mockYardMaps(page: Page) {
+  await page.route('https://maps.googleapis.com/maps/api/js**', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: YARD_MAPS_STUB }))
+}
+
+/** Tap the corners of a square (px) on the fake map, starting at (x, y). */
+async function tapSquare(page: Page, x: number, y: number, size: number) {
+  const map = page.getByTestId('yard-map')
+  for (const [dx, dy] of [[0, 0], [size, 0], [size, size], [0, size]]) await map.click({ position: { x: x + dx, y: y + dy } })
+}
+
+async function drawShape(page: Page, label: string, x: number, y: number, size: number) {
+  await page.getByRole('button', { name: label, exact: true }).click()
+  await tapSquare(page, x, y, size)
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+}
+
+const sqftOf = (text: string) => Number((text.match(/([\d,]+) sq ft/) ?? [])[1]?.replace(/,/g, '') ?? NaN)
+
+/** Last POST body the save route was sent (the mock answers 201). */
+async function captureYardSave(page: Page) {
+  const sent: unknown[] = []
+  await page.route('**/api/area-measure', async (route) => {
+    if (route.request().method() === 'POST') {
+      sent.push(route.request().postDataJSON())
+      return route.fulfill(json({ measurement: { id: 'm9' } }, 201))
+    }
+    return route.fulfill(json({ rows: [] }))
+  })
+  return sent
+}
+
+const yardScreenMock = async (p: Page) => {
+  await mockYardMaps(p)
+}
+
 type Screen = { name: string; path: string; ready: string; mock?: (page: Page) => Promise<void>; states?: Array<{ name: string; run: (page: Page) => Promise<void> }> }
 
 const SCREENS: Screen[] = [
   { name: 'force-paid-dialog', path: '/dev-harness/force-paid', ready: 'textarea, input' },
   { name: 'sale-credit-confirm', path: '/dev-harness/sale-credit', ready: 'text=Send Agreement',
     states: [{ name: 'credit-step', run: async (p) => {
+      // installation agreements need the roof color the customer initials (Nathan, 2026-11-12)
+      const color = p.getByPlaceholder(/Granite Black/)
+      if (await color.isVisible().catch(() => false)) await color.fill('IKO Dynasty — Granite Black')
       for (let i = 0; i < 3; i++) {
         if (await p.getByText('Sale credit', { exact: true }).first().isVisible().catch(() => false)) break
         await p.getByRole('button', { name: 'Next' }).click()
@@ -84,7 +150,16 @@ const SCREENS: Screen[] = [
   { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
   { name: 'pay-banners', path: '/dev-harness/pay-banners', ready: 'text=Mark' },
   { name: 'suppliers-admin', path: '/dev-harness/suppliers-admin', ready: 'text=Suppliers',
-    states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit vendor') } }] },
+    states: [
+      { name: 'back-link', run: async (p) => {
+        // every Settings sub-page opens with "← Settings": 44px tall, above the title
+        const back = await p.getByTestId('settings-back-link').boundingBox()
+        const title = await p.getByRole('heading', { level: 1 }).boundingBox()
+        if (!back || back.height < 44) throw new Error(`settings back link under 44px: ${back?.height}`)
+        if (!title || back.y + back.height > title.y + 1) throw new Error('settings back link is not above the title')
+      } },
+      { name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit vendor') } },
+    ] },
   { name: 'announcement-banner', path: '/dev-harness/announcement-banner', ready: 'text=See what',
     states: [{ name: 'size', run: async (p) => {
       const box = await p.getByRole('region', { name: "What's new" }).boundingBox()
@@ -205,10 +280,24 @@ const SCREENS: Screen[] = [
     ] },
   { name: 'job-sheets-editor', path: '/dev-harness/job-sheets', ready: 'text=Scope of work',
     states: [{ name: 'editing', run: async (p) => { await p.locator('textarea').first().click(); await p.locator('textarea').first().fill('Edited scope for the crew.'); await p.waitForTimeout(200) } }] },
-  { name: 'dashboard-tiles', path: '/dev-harness/dashboard', ready: 'text=Doors' },
+  { name: 'dashboard-tiles', path: '/dev-harness/dashboard', ready: 'text=Doors',
+    states: [{ name: 'numbers-only', run: async (p) => {
+      // The sections that duplicated other screens are gone (Today has appointments; the menu has actions and Reports).
+      for (const gone of ['Upcoming Appointments', 'Quick Actions', 'Recent Activity', 'Custom Reports']) {
+        if ((await p.getByText(gone, { exact: true }).count()) > 0) throw new Error(`dashboard still shows "${gone}"`)
+      }
+      await p.getByText('Progress vs goals').waitFor()
+    } }] },
+  { name: 'bonuses', path: '/dev-harness/bonuses', ready: 'text=Bonuses', mock: async (p) => {
+    const line = (id: string, name: string, type: string, amount: number) => ({ id, org_id: 'o1', payroll_period_id: 'p1', user_id: `u-${id}`, bonus_type: type, amount, description: 'Week 1: 400 doors and 4 inspections', status: 'pending_approval', reviewed_by: null, reviewed_at: null, review_note: null, created_at: '2026-11-09T12:00:00Z', user: { id: `u-${id}`, full_name: name, role: 'setter' }, period: { id: 'p1', period_label: 'Nov 2 - Nov 8', cutoff_at: null, lock_at: null, scheduled_pay_date: '2026-11-13T12:00:00Z', status: 'open' }, reviewer: null })
+    await p.route('**/api/admin/payroll/bonus-lines**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ bonus_lines: [line('1', 'Jordan Setter', 'sisu_444', 250), line('2', 'Riley Setter', 'manual', 100)] }) }))
+  }, states: [{ name: 'cards', run: async (p) => { await p.getByRole('button', { name: 'Approve' }).first().waitFor() } }] },
   { name: 'nav-shell', path: '/dev-harness/nav', ready: 'text=Page content',
     states: [{ name: 'search-open', run: async (p) => { await p.route('**/api/search**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [{ kind: 'customer', id: 'c1', title: 'ASHLEY GAINES', subtitle: '1001 LYERLY RIDGE RD NW, CONCORD NC 28027 · (704)707-6274', href: '#' }, { kind: 'proposal', id: 'p1', title: 'ASHLEY P GAINES · #P-00118', subtitle: '(704)707-6274 · accepted', href: '#' }, { kind: 'job', id: 'j1', title: 'Job 26-0026', subtitle: '1001 LYERLY RIDGE RD NW · complete', href: '#' }] }) }));
-      await p.getByRole('button', { name: 'Search' }).first().click(); await p.getByRole('combobox', { name: 'Search' }).fill('gaienes'); await p.waitForSelector('text=ASHLEY GAINES') } }, { name: 'more-open', run: async (p) => { await p.getByRole('button', { name: 'More' }).click(); await p.waitForSelector('[role=dialog] >> text=Logout') } }] },
+      await p.getByRole('button', { name: 'Search' }).first().click(); await p.getByRole('combobox', { name: 'Search' }).fill('gaienes'); await p.waitForSelector('text=ASHLEY GAINES') } }, { name: 'more-open', run: async (p) => { await p.getByRole('button', { name: 'More' }).click(); await p.waitForSelector('[role=dialog] >> text=Logout')
+      // Dashboard, Reports and Sisu live in More, never as a 6th bottom tab
+      for (const l of ['Dashboard', 'Reports', 'Sisu']) await p.locator('[role=dialog]').getByRole('link', { name: l, exact: true }).waitFor()
+      for (const l of ['Dashboard', 'Reports', 'Sisu']) if ((await p.locator('nav[aria-label="Main"]').getByRole('link', { name: l, exact: true }).count()) > 0 && (await p.locator('nav[aria-label="Main"]').getByRole('link', { name: l, exact: true }).first().isVisible())) throw new Error(`${l} must not be a bottom tab`) } }] },
   { name: 'job-setup', path: '/dev-harness/job-setup', ready: 'text=Solar panel removal & reinstall', mock: async (p) => {
     await p.route('**/api/admin/job-setup/trades', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(JOB_SETUP_TRADES) }))
   },
@@ -359,6 +448,19 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'told', run: async (p) => { await p.getByRole('button', { name: 'On my way' }).first().click(); await p.waitForSelector('text=Customer told you’re on the way') } },
     ] },
+  { name: 'new-lead-form', path: '/dev-harness/new-lead', ready: 'text=Service requested',
+    mock: async (p) => {
+      await p.route('**/api/leads/scheduling-resources**', (route) => route.fulfill(json({ closers: [], inspectionTypes: [] })))
+      await p.route('**/api/leads', (route) => route.fulfill(json({ id: 'l1' })))
+    } },
+  { name: 'lead-routing-settings', path: '/dev-harness/lead-routing-settings', ready: 'text=Who gets new leads',
+    mock: async (p) => {
+      await p.route('**/api/admin/lead-routing', (route) => route.fulfill(json({ ok: true })))
+    },
+    states: [
+      { name: 'rotate', run: async (p) => { await p.getByRole('radio', { name: /Take turns/ }).first().click(); await p.waitForSelector('text=Who takes turns') } },
+      { name: 'dirty', run: async (p) => { await p.getByRole('switch').click(); await p.waitForSelector('text=Save changes') } },
+    ] },
   { name: 'customer-messages-settings', path: '/dev-harness/customer-messages-settings', ready: 'text=Visit reminder',
     mock: async (p) => {
       await p.route('**/api/admin/customer-messages', (route) => route.fulfill(json({ ok: true })))
@@ -441,6 +543,7 @@ const SCREENS: Screen[] = [
       { name: 'editor', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=After each visit') } },
       { name: 'push-preview', run: async (p) => { await p.getByRole('button', { name: 'Plans & history' }).first().click(); await p.waitForSelector('text=New prices start on (optional)'); await p.getByRole('button', { name: /Update plans/ }).click(); await p.waitForSelector('text=4 plans: 8 upcoming visits removed') } },
     ] },
+  { name: 'connect-ai', path: '/dev-harness/connect-ai', ready: 'text=Connect your AI' },
   { name: 'settings-hub', path: '/dev-harness/settings-hub', ready: 'text=People & access',
     states: [{ name: 'searching', run: async (p) => { await p.getByRole('searchbox').fill('commission'); await p.waitForTimeout(200) } }] },
   { name: 'today-queues', path: '/dev-harness/today', ready: 'text=Proposals waiting for a signature' },
@@ -640,6 +743,101 @@ const SCREENS: Screen[] = [
       { name: 'advances', run: async (p) => { await p.waitForSelector('text=still owed'); await p.getByRole('button', { name: 'Record an advance' }).click(); await p.waitForSelector('text=Take it back') } },
       { name: 'schedule-sheet', run: async (p) => { await p.getByRole('button', { name: 'Change', exact: true }).first().click(); await p.getByLabel('Week starts on').selectOption('1'); await p.waitForSelector('text=First week on it') } },
     ] },
+  { name: 'area-measure', path: '/dev-harness/area-measure', ready: '[data-testid=yard-map]', mock: yardScreenMock,
+    states: [
+      { name: 'draw-lawn', run: async (p) => {
+        await p.getByRole('button', { name: '+ Lawn', exact: true }).click()
+        await p.getByTestId('yard-map').click({ position: { x: 60, y: 60 } })
+        await p.getByTestId('yard-map').click({ position: { x: 260, y: 60 } })
+        await p.waitForSelector('text=2 points')
+        await p.getByTestId('yard-map').click({ position: { x: 260, y: 220 } })
+        await p.waitForSelector('[data-testid=yard-live]')
+        const live = sqftOf(await p.getByTestId('yard-live').innerText())
+        if (!(live > 1000)) throw new Error(`live area looks wrong: ${live}`)
+        await p.getByRole('button', { name: 'Done', exact: true }).click()
+        await p.waitForSelector('[data-testid=yard-totals] >> text=Lawn')
+        const totals = sqftOf(await p.getByTestId('yard-totals').innerText())
+        if (Math.abs(totals - live) > 1) throw new Error(`total ${totals} should equal the shape ${live}`)
+      } },
+      { name: 'undo-last-point', run: async (p) => {
+        await p.getByRole('button', { name: '+ Lawn', exact: true }).click()
+        for (const [x, y] of [[50, 50], [200, 50], [200, 200]]) await p.getByTestId('yard-map').click({ position: { x, y } })
+        await p.getByRole('button', { name: 'Undo point' }).click()
+        await p.waitForSelector('text=2 points. Keep tapping.')
+      } },
+      { name: 'cutout-comes-out-of-lawn', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 240)
+        const lawn = sqftOf(await p.getByTestId('yard-totals').innerText())
+        await drawShape(p, '+ Cut-out', 100, 100, 60)
+        await p.waitForSelector('text=Lawn (after cut-outs)')
+        const net = sqftOf(await p.getByTestId('yard-totals').innerText())
+        if (!(net < lawn)) throw new Error(`cut-out did not reduce the lawn: ${lawn} -> ${net}`)
+      } },
+      { name: 'bed-materials-and-save', run: async (p) => {
+        const sent = await captureYardSave(p)
+        await drawShape(p, '+ Lawn', 40, 40, 240)
+        await drawShape(p, '+ Bed', 60, 60, 108)
+        await p.waitForSelector('[data-testid=yard-materials] >> text=est.')
+        const mat = await p.getByTestId('yard-materials').innerText()
+        if (!/Mulch: est\. [\d.]+ cu yd at 3 in/.test(mat) || !/Pine straw: est\. \d+ bales? at 50 sq ft per bale/.test(mat)) throw new Error(`materials text: ${mat}`)
+        await p.getByRole('button', { name: 'Save measurement' }).click()
+        await p.waitForSelector('[data-testid=yard-save-msg] >> text=Saved')
+        const body = sent[0] as { customerId: string; shapes: Array<{ type: string }> }
+        if (body.customerId !== 'cust-1' || body.shapes.length !== 2) throw new Error(`bad save body ${JSON.stringify(body).slice(0, 200)}`)
+      } },
+      { name: 'drag-a-point', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 200)
+        await p.waitForSelector('text=Drag the round points')
+        const before = sqftOf(await p.getByTestId('yard-totals').innerText())
+        await p.evaluate(() => {
+          const g = (window as any).google.maps
+          const m = (window as any).__yardMarkers[1]
+          const c = m.o.position
+          m.emit('dragend', { latLng: new g.LatLng(c.lat, c.lng + 0.0002) })
+        })
+        await p.waitForFunction((b) => { const t = document.querySelector('[data-testid=yard-totals]')?.textContent ?? ''; const n = Number((t.match(/([\d,]+) sq ft/) ?? [])[1]?.replace(/,/g, '')); return n > b + 100 }, before)
+      } },
+      { name: 'owner-changes-numbers', run: async (p) => {
+        await p.route('**/api/area-measure/settings', (route) => route.fulfill(json({ settings: { mulchDepthIn: 4, strawSqftPerBale: 40 }, canEdit: true })))
+        await drawShape(p, '+ Bed', 60, 60, 108)
+        await p.getByRole('button', { name: 'Change mulch and pine straw numbers' }).click()
+        await p.getByLabel('Mulch depth (inches)').fill('4')
+        await p.getByLabel('Pine straw: sq ft per bale').fill('40')
+        await p.getByRole('button', { name: 'Save for the company' }).click()
+        await p.waitForSelector('text=Saved for the whole company.')
+        await p.waitForSelector('[data-testid=yard-materials] >> text=at 4 in deep')
+        // the help text shows the company's saved number, not just the starting one
+        await p.waitForSelector('text=Your company uses 4 now (starting number 3)')
+        await p.waitForSelector('text=Your company uses 40 now (starting number 50)')
+      } },
+      { name: 'lines-cross-redraw', run: async (p) => {
+        await p.getByRole('button', { name: '+ Lawn', exact: true }).click()
+        for (const [x, y] of [[60, 60], [240, 220], [240, 60], [60, 220]]) await p.getByTestId('yard-map').click({ position: { x, y } })
+        await p.waitForSelector('[data-testid=yard-status] >> text=Lines cross — redraw')
+        if (!(await p.getByRole('button', { name: 'Done', exact: true }).isDisabled())) throw new Error('Done must be off while lines cross')
+        await p.getByRole('button', { name: 'Undo point' }).click()
+        await p.waitForSelector('text=3 points. Tap more, or press Done.')
+        if (await p.getByRole('button', { name: 'Done', exact: true }).isDisabled()) throw new Error('Done should come back once the lines no longer cross')
+      } },
+      { name: 'long-save-message-stays-visible', run: async (p) => {
+        await p.route('**/api/area-measure', (route) => route.request().method() === 'POST'
+          ? route.fulfill(json({ error: 'Shape 1: the area does not match the outline, measure it again. If it keeps happening, close this screen, open it again from the customer file, and draw the shape once more before saving.' }, 400))
+          : route.fulfill(json({ rows: [] })))
+        await drawShape(p, '+ Lawn', 40, 40, 200)
+        await p.getByRole('button', { name: 'Save measurement' }).click()
+        await p.waitForSelector('[data-testid=yard-save-msg]')
+        await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+        const gap = await p.evaluate(() => {
+          const bar = document.querySelector('[data-testid=yard-save-msg]')!.closest('div.fixed') as HTMLElement
+          const lastCard = document.querySelector('[data-testid=yard-totals]')!.parentElement as HTMLElement
+          return bar.getBoundingClientRect().top - lastCard.getBoundingClientRect().bottom
+        })
+        if (gap < 0) throw new Error(`content runs ${-gap}px behind the Save bar`)
+      } },
+    ] },
+  { name: 'area-measure-readonly', path: '/dev-harness/area-measure-readonly', ready: 'text=Open this from a customer or lead to save it.', mock: yardScreenMock },
+  { name: 'yard-card', path: '/dev-harness/yard-card', ready: '[data-testid=yard-card]',
+    states: [{ name: 'older-open', run: async (p) => { await p.getByText('Older measurements (1)').click(); await p.waitForSelector('text=lawn 11,800 sq ft') } }] },
 ]
 
 /** Interactive elements a thumb has to hit. Inline text links inside a sentence are exempt. */
@@ -709,3 +907,117 @@ for (const screen of SCREENS) {
     }
   })
 }
+
+// Proposal builder step 3 (roofing type + tear-off question): no sideways scroll, tear-off buttons >= 44px and inside the screen.
+// Its own test, not a SCREENS case: the builder's step bar and other controls are older and fail the generic tap-target sweep.
+test('proposal-builder / step 3 tear-off buttons fit the phone', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/proposals/builder**', (route) => route.fulfill(json({
+    role: 'admin', roofingTypes: [{ id: 'rt1', name: 'Asphalt Shingles', price_per_square: 451.2, is_default: true }],
+    pricebookItems: [], adders: [], priceLists: [], templates: [], financingPrograms: [],
+    measurement: { id: 'm1', total_squares: 11.75, suggested_waste_percent: 12 },
+  })))
+  await page.goto('/dev-harness/proposal-builder?opportunity_id=opp-1&measurement_id=m1')
+  await page.getByRole('button', { name: '3', exact: true }).click()
+  await page.waitForSelector('text=Is this a tear-off job?')
+  const yes = page.getByRole('button', { name: /Yes, Tear-off Required/ })
+  const no = page.getByRole('button', { name: /No, Overlay\/New/ })
+  const vw = page.viewportSize()!.width
+  for (const b of [yes, no]) {
+    const r = (await b.boundingBox())!
+    expect(r.height).toBeGreaterThanOrEqual(43.5)
+    expect(r.x).toBeGreaterThanOrEqual(0)
+    expect(r.x + r.width).toBeLessThanOrEqual(vw)
+  }
+  const culprits = await page.evaluate(() => {
+    const w = document.documentElement.clientWidth
+    const out: string[] = []
+    document.querySelectorAll('body *').forEach((el) => {
+      const r = (el as HTMLElement).getBoundingClientRect()
+      if (r.right <= w + 1 || r.width === 0) return
+      let q = el.parentElement
+      while (q && q !== document.body) { const o = getComputedStyle(q).overflowX; if (o === 'auto' || o === 'scroll' || o === 'hidden') return; q = q.parentElement }
+      out.push(`${el.tagName.toLowerCase()}.${String((el as HTMLElement).className).slice(0, 70)} "${(el.textContent || '').trim().slice(0, 30)}" right=${Math.round(r.right)}`)
+    })
+    return out.slice(0, 8)
+  })
+  expect(culprits, 'elements past the right edge').toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(vw)
+})
+
+// The AI assistant launcher lives in the nav ("Ask AI"), never as a floating circle (Nathan: "AI widget is still in the way").
+// Mock an allowlisted user so a floating launcher WOULD render, then check nothing fixed sits on a page's primary button.
+async function mockAllowlistedAssistant(page: Page) {
+  await page.route('**/api/settings', (route) => route.fulfill(json({ profile: { aiAssistantAllowlisted: true }, userSettings: { ai_enabled: true } })))
+}
+
+/** Fixed/sticky elements (other than the button's own ancestors) whose box covers any part of the button. */
+async function fixedOverlapping(page: Page, target: ReturnType<Page['locator']>) {
+  await target.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  await page.waitForTimeout(200)
+  return target.evaluate((el) => {
+    const b = el.getBoundingClientRect()
+    const out: string[] = []
+    document.querySelectorAll<HTMLElement>('body *').forEach((f) => {
+      if (f === el || f.contains(el) || el.contains(f)) return
+      const cs = getComputedStyle(f)
+      if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') return
+      if (!(f.textContent || '').trim() && !f.querySelector('button, a, input, svg')) return // a bare modal backdrop is not a control
+      const r = f.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) return
+      const w = Math.min(r.right, b.right) - Math.max(r.left, b.left)
+      const h = Math.min(r.bottom, b.bottom) - Math.max(r.top, b.top)
+      if (w > 1 && h > 1) out.push(`${f.tagName.toLowerCase()}.${String(f.className).slice(0, 60)} "${(f.textContent || '').trim().slice(0, 30)}" covers ${Math.round(w)}x${Math.round(h)}px`)
+    })
+    return out
+  })
+}
+
+test('no floating assistant button on the sale-credit screen', async ({ page }) => {
+  await mockApi(page)
+  await mockAllowlistedAssistant(page)
+  await page.goto('/dev-harness/sale-credit')
+  await page.waitForSelector('text=Send Agreement')
+  await page.waitForTimeout(800) // the assistant's allowlist check has answered by now
+  expect(await page.locator('button[title="AI Assistant"]').count()).toBe(0)
+  // the agreement modal's primary action (Next, then Create & Send Agreement) and its bottom-most field
+  const next = page.getByRole('button', { name: 'Next' })
+  expect(await fixedOverlapping(page, next), 'fixed elements covering the Next button').toEqual([])
+  const lastField = page.locator('input:visible, textarea:visible, select:visible').last()
+  expect(await fixedOverlapping(page, lastField), 'fixed elements covering the last field').toEqual([])
+})
+
+test('no floating assistant button on the proposal builder', async ({ page }) => {
+  await mockApi(page)
+  await mockAllowlistedAssistant(page)
+  await page.route('**/api/proposals/builder**', (route) => route.fulfill(json({
+    role: 'admin', roofingTypes: [{ id: 'rt1', name: 'Asphalt Shingles', price_per_square: 451.2, is_default: true }],
+    pricebookItems: [], adders: [], priceLists: [], templates: [], financingPrograms: [],
+    measurement: { id: 'm1', total_squares: 11.75, suggested_waste_percent: 12 },
+  })))
+  await page.goto('/dev-harness/proposal-builder?opportunity_id=opp-1&measurement_id=m1')
+  await page.getByRole('button', { name: '3', exact: true }).click()
+  await page.waitForSelector('text=Is this a tear-off job?')
+  await page.waitForTimeout(800)
+  expect(await page.locator('button[title="AI Assistant"]').count()).toBe(0)
+  const cont = page.getByRole('button', { name: /Continue to Pricing/ })
+  expect(await fixedOverlapping(page, cont), 'fixed elements covering Continue to Pricing').toEqual([])
+})
+
+test('Ask AI in the top bar opens the assistant panel', async ({ page }) => {
+  await mockApi(page)
+  await mockAllowlistedAssistant(page)
+  await page.goto('/dev-harness/nav')
+  await page.waitForSelector('text=Page content')
+  await page.getByRole('button', { name: 'Ask AI' }).click()
+  await expect(page.getByRole('heading', { name: 'AI Assistant' })).toBeVisible()
+})
+
+test('Ask AI is not shown to someone who is not on the assistant list', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/settings', (route) => route.fulfill(json({ profile: { aiAssistantAllowlisted: false }, userSettings: {} })))
+  await page.goto('/dev-harness/nav')
+  await page.waitForSelector('text=Page content')
+  await page.waitForTimeout(800)
+  await expect(page.getByRole('button', { name: 'Ask AI' })).toHaveCount(0)
+})

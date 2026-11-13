@@ -171,7 +171,7 @@ export default function ProductionCalendarClient({ jobs, crews, canJobBoard, emb
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Production Calendar</h1>
-            <p className="text-gray-500 text-sm">View and manage scheduled jobs</p>
+            <p className="text-gray-700 text-sm">View and manage scheduled jobs</p>
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -271,7 +271,7 @@ export default function ProductionCalendarClient({ jobs, crews, canJobBoard, emb
                   key={idx}
                   className={`p-3 text-center border-r last:border-r-0 ${isToday(date) ? 'bg-indigo-50' : ''}`}
                 >
-                  <div className="text-xs text-gray-500 uppercase">{DAYS_OF_WEEK[date.getDay()]}</div>
+                  <div className="text-xs text-gray-700 uppercase">{DAYS_OF_WEEK[date.getDay()]}</div>
                   <div className={`text-lg font-semibold ${isToday(date) ? 'text-indigo-600' : 'text-gray-900'}`}>
                     {date.getDate()}
                   </div>
@@ -288,7 +288,7 @@ export default function ProductionCalendarClient({ jobs, crews, canJobBoard, emb
                     className={`p-2 border-r last:border-r-0 ${isToday(date) ? 'bg-indigo-50/30' : ''}`}
                   >
                     {dayJobs.length === 0 ? (
-                      <div className="text-center text-gray-400 text-xs py-4">
+                      <div className="text-center text-gray-600 text-xs py-4">
                         No jobs
                       </div>
                     ) : (
@@ -305,7 +305,7 @@ export default function ProductionCalendarClient({ jobs, crews, canJobBoard, emb
           <div className="bg-white rounded-lg border overflow-hidden">
             <div className="grid grid-cols-7 border-b bg-gray-50">
               {DAYS_OF_WEEK.map((day) => (
-                <div key={day} className="p-3 text-center text-xs font-medium text-gray-500 uppercase">
+                <div key={day} className="p-3 text-center text-xs font-medium text-gray-700 uppercase">
                   {day}
                 </div>
               ))}
@@ -321,7 +321,7 @@ export default function ProductionCalendarClient({ jobs, crews, canJobBoard, emb
                   >
                     <div
                       className={`text-sm font-medium mb-1 ${
-                        isToday(date) ? 'text-indigo-600' : isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
+                        isToday(date) ? 'text-indigo-600' : isCurrentMonth ? 'text-gray-900' : 'text-gray-600'
                       }`}
                     >
                       {date.getDate()}
@@ -341,7 +341,7 @@ export default function ProductionCalendarClient({ jobs, crews, canJobBoard, emb
                         </div>
                       ))}
                       {dayJobs.length > 3 && (
-                        <div className="text-xs text-gray-500 pl-1">+{dayJobs.length - 3} more</div>
+                        <div className="text-xs text-gray-700 pl-1">+{dayJobs.length - 3} more</div>
                       )}
                     </div>
                   </div>
@@ -354,23 +354,23 @@ export default function ProductionCalendarClient({ jobs, crews, canJobBoard, emb
         <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-gray-900">{jobs.length}</div>
-            <div className="text-sm text-gray-500">Scheduled Jobs</div>
+            <div className="text-sm text-gray-700">Scheduled Jobs</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-indigo-600">
               {jobs.filter((j) => j.status === 'in_progress').length}
             </div>
-            <div className="text-sm text-gray-500">In Progress</div>
+            <div className="text-sm text-gray-700">In Progress</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-purple-600">{getJobsForDate(new Date()).length}</div>
-            <div className="text-sm text-gray-500">Today</div>
+            <div className="text-sm text-gray-700">Today</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-green-600">
               {weekDates.reduce((sum, date) => sum + getJobsForDate(date).length, 0)}
             </div>
-            <div className="text-sm text-gray-500">This Week</div>
+            <div className="text-sm text-gray-700">This Week</div>
           </div>
         </div>
       </div>

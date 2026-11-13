@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 
 export default function ResendMorningEmailsPage() {
   const [sending, setSending] = useState(false)
@@ -52,9 +52,7 @@ export default function ResendMorningEmailsPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="mx-auto max-w-2xl px-4 py-8">
-        <Link href="/admin/email-blasts" className="text-sm text-gray-600 hover:text-gray-900">
-          ← Back to Email Blasts
-        </Link>
+        <SettingsBackLink href="/admin/email-blasts" label="Email blasts" />
 
         <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h1 className="text-2xl font-bold text-gray-900">Resend Today&apos;s Morning Emails</h1>

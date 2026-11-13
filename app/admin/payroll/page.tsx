@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { Suspense } from 'react'
 
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import PayWeekClient from '@/components/payroll/PayWeekClient'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
 
@@ -16,6 +17,7 @@ export default function PayrollPage() {
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
+        <SettingsBackLink />
         <Suspense fallback={null}>
           <PayWeekClient />
         </Suspense>

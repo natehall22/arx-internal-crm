@@ -106,7 +106,7 @@ export const SUPPLIERS = {
 
 export const HARNESS_CONTRACT = {
   id: 'c1', agreement_type: 'installation', customer_name: 'Pat Customer', customer_email: 'pat@example.test', customer_phone: '7045550100',
-  project_address: '12 Elm Street, Concord NC 28025', project_cost: 16325, total_squares: 28, roofing_material: 'Owens Corning Duration — Driftwood',
+  project_address: '12 Elm Street, Concord NC 28025', project_cost: 16325, total_squares: 28, roofing_material: 'Owens Corning Duration', roof_color: 'Driftwood',
   scope_roof_replacement: true, scope_roof_repair: false, scope_gutters: true, scope_siding: false, scope_other: null,
   payment_method: 'finance', finance_company: 'GoodLeap', deposit_amount: 1000, est_completion_date: '2026-11-20',
   exclusions: 'Interior repairs, chimney masonry.', additional_products: null, notes: null,
@@ -159,7 +159,7 @@ export const HARNESS_RUN_SHEET = {
     heads_up: sheetField('heads_up', 'Read before you start', 'HOA requires 8am start. Dog in backyard.'),
   },
   headsUp: [{ label: 'HOA', body: 'HOA requires 8am start.' }, { label: null, body: 'Dog in backyard — call before entering.' }],
-  signedContracts: [{ id: 'k1', signedAt: '2026-10-01T12:00:00Z', agreementType: 'installation', pdfUrl: null, roofingMaterial: 'Duration', scopeOther: null, additionalProducts: null, exclusions: 'Interior repairs', notes: 'Deductible $1,500 paid at signing.' }],
+  signedContracts: [{ id: 'k1', signedAt: '2026-10-01T12:00:00Z', agreementType: 'installation', pdfUrl: null, roofingMaterial: 'Duration', roofColor: 'Driftwood', scopeOther: null, additionalProducts: null, exclusions: 'Interior repairs', notes: 'Deductible $1,500 paid at signing.' }],
   anyEdits: true, overridesUpdatedAt: '2026-10-20T12:00:00Z', generatedAt: '2026-10-21T12:00:00Z',
 }
 
@@ -1069,3 +1069,8 @@ export const HARNESS_CREW_SCOREBOARD = {
     },
   ],
 }
+/** Saved yard measurements for the Customer File card: Home has two (newest + one older), Rental on Oak has none. */
+export const HARNESS_YARD_ROWS = [
+  { id: 'm2', customer_id: 'cust-1', property_id: 'p1', opportunity_id: null, lead_id: null, address_text: '1 Harness Way', lat: 30.176, lng: -84.375, shapes: [], lawn_sqft: 12400, bed_sqft: 1080, cutout_sqft: 2600, line_feet: 340, totals: { materials: { mulchCuYd: 10, strawBales: 22, mulchDepthIn: 3, strawSqftPerBale: 50 } }, settings: { mulchDepthIn: 3, strawSqftPerBale: 50 }, created_by: 'u1', created_at: '2026-11-10T15:00:00Z' },
+  { id: 'm1', customer_id: 'cust-1', property_id: 'p1', opportunity_id: null, lead_id: null, address_text: '1 Harness Way', lat: 30.176, lng: -84.375, shapes: [], lawn_sqft: 11800, bed_sqft: 900, cutout_sqft: 2600, line_feet: 300, totals: {}, settings: {}, created_by: 'u1', created_at: '2026-06-02T15:00:00Z' },
+]

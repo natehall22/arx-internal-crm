@@ -16,7 +16,7 @@ interface Props {
 
 const tabBase =
   'flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 transition-all duration-150 active:scale-[0.96] select-none'
-const tabIdle = 'text-gray-500 hover:text-indigo-600'
+const tabIdle = 'text-gray-700 hover:text-indigo-600'
 const tabActive = 'text-indigo-600 bg-indigo-50'
 
 /** Sisu brand mark: cut S on black tile (see public/brand/sisu-mark.svg). */

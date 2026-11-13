@@ -7,6 +7,9 @@
 import { notFound } from 'next/navigation'
 import { useState } from 'react'
 
+import AreaMeasureClient from '@/components/area-measure/AreaMeasureClient'
+import YardMeasureCard from '@/components/area-measure/YardMeasureCard'
+import { HARNESS_YARD_ROWS } from '@/e2e/fixtures'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
@@ -25,6 +28,7 @@ import type { TimeWeek } from '@/lib/time-tracking-db'
 import WhatsNewView from '@/components/WhatsNewView'
 import { ROLE_GROUPS } from '@/lib/announcements'
 import { WHATS_NEW_SHOTS } from '@/lib/whats-new-shots'
+import ConnectAiCard from '@/components/ai-connector/ConnectAiCard'
 import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
 import PurchaseOrdersCard from '@/components/ops/PurchaseOrdersCard'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
@@ -59,12 +63,14 @@ import WorkOrdersClient from '@/app/work-orders/WorkOrdersClient'
 import CustomersPageClient from '@/components/customers/CustomersPageClient'
 import JobProfitTable from '@/components/admin/JobProfitTable'
 import ProposalsPage from '@/app/proposals/page'
+import ProposalBuilderPage from '@/app/proposals/builder/page'
 import LeadsClient from '@/app/leads/LeadsClient'
 import OpportunitiesPage from '@/app/opportunities/page'
 import JobDetailClient from '@/app/ops/jobs/[id]/JobDetailClient'
 import { HARNESS_JOB, HARNESS_JOB_0037 } from '@/e2e/fixtures'
 import AnnouncementBanner from '@/components/AnnouncementBanner'
 import AnnouncementsClient from '@/app/admin/announcements/AnnouncementsClient'
+import BonusApprovalClient from '@/app/admin/bonuses/BonusApprovalClient'
 import ContractModal from '@/components/contracts/ContractModal'
 import ExploreClient from '@/app/reports/explore/ExploreClient'
 import ReportsPage from '@/app/reports/page'
@@ -133,6 +139,8 @@ import CustomerMessagesSettings from '@/components/admin/CustomerMessagesSetting
 import TextingSettings from '@/components/admin/TextingSettings'
 import { TextCustomerDialog } from '@/components/customer/TextCustomer'
 import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
+import LeadRoutingSettings from '@/components/admin/LeadRoutingSettings'
+import LeadFormWithReferral from '@/components/LeadFormWithReferral'
 import { MESSAGE_KINDS, describeMessages, quietHoursPhrase, readCustomerMessageSettings, sampleMessages } from '@/lib/customer-messages'
 
 const HARNESS_MESSAGE_SETTINGS = readCustomerMessageSettings({ visitReminder: true, visitWindow: 'between 8 AM and 5 PM', visitDone: true, invoiceReminder: true })
@@ -417,7 +425,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false }} />
         </div>
       )
     case 'org-profile':
@@ -522,8 +530,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <ExploreClient />
     case 'job-sheets':
       return <JobSheetsEditor initialSheet={HARNESS_RUN_SHEET as never} canEdit scope={null} coverage={{} as never} showOrder={false} />
+    case 'bonuses':
+      return <div className="min-h-screen bg-surface-subtle"><main className="mx-auto max-w-3xl px-4 py-4"><BonusApprovalClient isFullAdmin /></main></div>
     case 'dashboard':
-      return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} upcomingAppointments={[]} recentActivities={[]} settings={{}} />
+      return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} settings={{}} />
     case 'whats-new': {
       // Every role group, as the real page renders it (same component + same screenshot table).
       return (
@@ -543,6 +553,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <main className="p-4"><h1 className="text-ui-xl font-bold text-ink">Page content</h1></main>
         </div>
       )
+    case 'connect-ai':
+      return <div className="mx-auto max-w-3xl p-4"><ConnectAiCard address="https://crm.example.com/mcp" companyName="Example Roofing" /></div>
     case 'settings-hub':
       return <div className="mx-auto max-w-6xl p-4"><h1 className="text-ui-xl font-bold text-ink">Settings</h1><SettingsHub groups={visibleSettingsGroups({ canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true })} /></div>
     case 'today':
@@ -567,6 +579,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS} query="" /></div>
     case 'proposals':
       return <ProposalsPage />
+    case 'proposal-builder':
+      return <ProposalBuilderPage />
     case 'leads':
       return <LeadsClient profile={{ id: 'u1', org_id: 'org-1', role: 'admin' }} canViewInbound campaigns={[{ id: 'cm1', name: 'Fall storm' }]} leadSources={[{ id: 'ls1', name: 'Website' }]} users={[{ id: 'u1', full_name: 'Jordan Setter' }]} />
     case 'job-profit':
@@ -626,6 +640,33 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <HoursToBill />
     case 'job-hourly':
       return <div className="mx-auto max-w-md p-4"><JobHourlyCard jobId="dddddddd-0000-4000-8000-000000000001" /></div>
+    case 'new-lead':
+      return (
+        <div className="mx-auto max-w-3xl p-4">
+          <LeadFormWithReferral
+            orgId="o1"
+            userId="p1"
+            nameLabel="Customer / company name"
+            serviceChoices={['Weekly lawn care', 'Pressure washing']}
+            ownerChoices={[{ id: 'p1', name: 'Jordan Rivera' }, { id: 'p2', name: 'Sam Okafor-Whitfield' }]}
+          />
+        </div>
+      )
+    case 'lead-routing-settings':
+      return (
+        <div className="mx-auto max-w-3xl p-4">
+          <LeadRoutingSettings
+            initial={{
+              routing: { mode: 'service', userIds: [], rules: [{ service: 'Weekly lawn care', userIds: ['p1'] }, { service: 'Pressure washing', userIds: ['p1', 'p2'] }] },
+              reminder: { enabled: true, hours: 24 },
+              leadOwnerId: null,
+              people: [{ id: 'p1', name: 'Jordan Rivera' }, { id: 'p2', name: 'Sam Okafor-Whitfield' }],
+              sources: [{ id: 's1', name: 'Website Contact Form', routing: null, autoAssignUserId: null, services: ['Weekly lawn care', 'Pressure washing'] }],
+              services: ['Weekly lawn care', 'Pressure washing'],
+            }}
+          />
+        </div>
+      )
     case 'customer-messages-settings':
       return <div className="mx-auto max-w-3xl p-4"><CustomerMessagesSettings initial={HARNESS_MESSAGES_VIEW} /></div>
     case 'texting-settings':
@@ -734,6 +775,44 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <CustomFieldsCard entity="customer" recordId="cust-2" definitions={[]} initialValues={{}} canEdit />
           <PropertiesCard customerId="cust-2" initial={[{ ...(HARNESS_PROPERTIES[1] as Property), label: null, customer_id: 'cust-2' }]} ready canEdit accessNotes propertyFields={[]} />
           <CustomerDocumentsCard customerId="cust-2" initial={[]} canUpload properties={[]} />
+        </div>
+      )
+    case 'area-measure':
+      return (
+        <AreaMeasureClient
+          address="1 Harness Way, Crawfordville, FL"
+          lat={30.176}
+          lng={-84.375}
+          refs={{ customerId: 'cust-1', propertyId: null, opportunityId: null, leadId: null }}
+          forLabel="Pat Lee"
+          canSave
+          cannotSaveReason={null}
+          settings={{ mulchDepthIn: 3, strawSqftPerBale: 50 }}
+          canEditSettings
+          backHref="/dev-harness/yard-card"
+          mapsApiKey="harness-key"
+        />
+      )
+    case 'area-measure-readonly':
+      return (
+        <AreaMeasureClient
+          address={null}
+          lat={null}
+          lng={null}
+          refs={{ customerId: null, propertyId: null, opportunityId: null, leadId: null }}
+          forLabel={null}
+          canSave={false}
+          cannotSaveReason="Open this from a customer or lead to save it."
+          settings={{ mulchDepthIn: 3, strawSqftPerBale: 50 }}
+          canEditSettings={false}
+          backHref="/dev-harness/yard-card"
+          mapsApiKey="harness-key"
+        />
+      )
+    case 'yard-card':
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <YardMeasureCard customerId="cust-1" opportunityId="opp-1" rows={HARNESS_YARD_ROWS as never} properties={[{ id: 'p1', name: 'Home' }, { id: 'p2', name: 'Rental on Oak' }]} canMeasure />
         </div>
       )
     case 'job-setup':

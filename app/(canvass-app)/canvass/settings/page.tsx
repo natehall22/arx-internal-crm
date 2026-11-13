@@ -138,8 +138,8 @@ export default function CanvassSettingsPage() {
             </div>
             <div>
               <h2 className="font-semibold text-gray-900">{profile?.full_name}</h2>
-              <p className="text-sm text-gray-500">{profile?.email}</p>
-              <p className="text-xs text-gray-400 capitalize">{profile?.role}</p>
+              <p className="text-sm text-gray-700">{profile?.email}</p>
+              <p className="text-xs text-gray-600 capitalize">{profile?.role}</p>
             </div>
           </div>
         </div>
@@ -148,13 +148,13 @@ export default function CanvassSettingsPage() {
         <div className="bg-white rounded-xl shadow-sm divide-y">
           <div className="p-4">
             <h3 className="font-semibold text-gray-900 mb-1">App Settings</h3>
-            <p className="text-xs text-gray-500">Configure canvassing behavior</p>
+            <p className="text-xs text-gray-700">Configure canvassing behavior</p>
           </div>
 
           <div className="p-4 flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-900">Auto-sync when online</p>
-              <p className="text-xs text-gray-500">Automatically sync pins when connected</p>
+              <p className="text-xs text-gray-700">Automatically sync pins when connected</p>
             </div>
             <button
               onClick={() => updateSetting('autoSync', !settings.autoSync)}
@@ -171,7 +171,7 @@ export default function CanvassSettingsPage() {
           <div className="p-4 flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-900">High accuracy GPS</p>
-              <p className="text-xs text-gray-500">Uses more battery but more precise</p>
+              <p className="text-xs text-gray-700">Uses more battery but more precise</p>
             </div>
             <button
               onClick={() => updateSetting('highAccuracyGPS', !settings.highAccuracyGPS)}
@@ -188,7 +188,7 @@ export default function CanvassSettingsPage() {
           <div className="p-4 flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-900">Show map legend</p>
-              <p className="text-xs text-gray-500">Display pin color legend on map</p>
+              <p className="text-xs text-gray-700">Display pin color legend on map</p>
             </div>
             <button
               onClick={() => updateSetting('showLegend', !settings.showLegend)}
@@ -205,7 +205,7 @@ export default function CanvassSettingsPage() {
           <div className="p-4 flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-900">Vibration feedback</p>
-              <p className="text-xs text-gray-500">Vibrate when dropping pins</p>
+              <p className="text-xs text-gray-700">Vibrate when dropping pins</p>
             </div>
             <button
               onClick={() => updateSetting('vibration', !settings.vibration)}
@@ -223,7 +223,7 @@ export default function CanvassSettingsPage() {
         {/* Map loading (viewport-only) */}
         <div className="bg-white rounded-xl shadow-sm p-4">
           <h3 className="font-semibold text-gray-900 mb-1">Map loading</h3>
-          <p className="text-xs text-gray-500 mb-2">Pins load as you pan and zoom (viewport mode).</p>
+          <p className="text-xs text-gray-700 mb-2">Pins load as you pan and zoom (viewport mode).</p>
           <p className="text-xs text-indigo-600 bg-indigo-50 p-2 rounded">
             Suited for large territories: supports high pin counts with marker clustering. Offline-created pins still sync when you&apos;re back online.
           </p>
@@ -245,7 +245,7 @@ export default function CanvassSettingsPage() {
               </svg>
               <div>
                 <p className="font-medium text-gray-900">Install App</p>
-                <p className="text-xs text-gray-500">Add to home screen for quick access</p>
+                <p className="text-xs text-gray-700">Add to home screen for quick access</p>
               </div>
             </div>
             <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -263,7 +263,7 @@ export default function CanvassSettingsPage() {
               </svg>
               <div>
                 <p className="font-medium text-gray-900">Clear Cache</p>
-                <p className="text-xs text-gray-500">Remove offline data and cached files</p>
+                <p className="text-xs text-gray-700">Remove offline data and cached files</p>
               </div>
             </div>
             <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -289,7 +289,7 @@ export default function CanvassSettingsPage() {
               </svg>
               <div>
                 <p className="font-medium text-gray-900">Open Full CRM</p>
-                <p className="text-xs text-gray-500">Access the complete CRM dashboard</p>
+                <p className="text-xs text-gray-700">Access the complete CRM dashboard</p>
               </div>
             </div>
             <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -307,7 +307,7 @@ export default function CanvassSettingsPage() {
         </button>
 
         {/* Version */}
-        <p className="text-center text-xs text-gray-400 pt-4">
+        <p className="text-center text-xs text-gray-600 pt-4">
           Canvass App v1.0.0
         </p>
       </div>
@@ -317,7 +317,7 @@ export default function CanvassSettingsPage() {
         <div className="flex items-stretch gap-1 max-w-lg mx-auto">
           <Link
             href="/canvass"
-            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-500 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
+            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-700 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -326,7 +326,7 @@ export default function CanvassSettingsPage() {
           </Link>
           <Link
             href="/sisu"
-            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-500 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
+            className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-700 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
           >
             {/* Sisu cut-S mark (see public/brand/sisu-mark.svg) */}
             <svg className="w-6 h-6" viewBox="0 0 64 64" fill="none" aria-hidden="true">

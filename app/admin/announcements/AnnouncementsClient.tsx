@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 
 import { DEFAULT_WINDOW_DAYS, MAX_LINES_PER_GROUP, ROLE_GROUPS, ROLE_GROUP_LABELS, type AnnouncementBody, type RoleGroup } from '@/lib/announcements'
 
@@ -84,6 +85,7 @@ export default function AnnouncementsClient() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24 text-[#2c2c2a]">
+      <SettingsBackLink />
       <h1 className="mb-1 mt-0 text-2xl font-bold">Announcements</h1>
       <p className="mb-4 text-sm">The &quot;What&apos;s new&quot; banner. Each role gets its own short copy (at most {MAX_LINES_PER_GROUP} lines). It shows between the start and end dates and stops on its own.</p>
       {message && <p role="status" className="mb-3 rounded-lg border border-[#d3d1c7] bg-white p-3 text-sm">{message}</p>}

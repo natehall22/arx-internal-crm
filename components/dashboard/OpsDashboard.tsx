@@ -159,7 +159,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="flex items-center gap-2 text-gray-500">
+        <div className="flex items-center gap-2 text-gray-700">
           <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -182,7 +182,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
           >
             <div className="flex items-center justify-between">
               <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Active Jobs</p>
+                <p className="text-xs sm:text-sm text-gray-700 truncate">Active Jobs</p>
                 <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.activeJobs}</p>
               </div>
               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -196,7 +196,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
           <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
             <div className="flex items-center justify-between">
               <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Active Jobs</p>
+                <p className="text-xs sm:text-sm text-gray-700 truncate">Active Jobs</p>
                 <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.activeJobs}</p>
               </div>
               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -212,7 +212,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
         <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-xs sm:text-sm text-gray-500 truncate">Open Work Orders</p>
+              <p className="text-xs sm:text-sm text-gray-700 truncate">Open Work Orders</p>
               <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.openWorkOrders}</p>
             </div>
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -227,7 +227,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
         <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-xs sm:text-sm text-gray-500 truncate">Pending Materials</p>
+              <p className="text-xs sm:text-sm text-gray-700 truncate">Pending Materials</p>
               <p className="text-xl sm:text-2xl font-bold text-amber-600">{stats.pendingMaterials}</p>
             </div>
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -242,7 +242,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
         <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-xs sm:text-sm text-gray-500 truncate">Outstanding</p>
+              <p className="text-xs sm:text-sm text-gray-700 truncate">Outstanding</p>
               <p className="text-xl sm:text-2xl font-bold text-red-600">{formatCurrency(stats.outstandingPayments)}</p>
             </div>
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -256,7 +256,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
 
       {/* Period production metrics (aligned with sales dashboard timeframes) */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-700">
           Production metrics for{' '}
           <span className="text-gray-800 font-medium">{opsTimeFrameLabel[opsTimeframe]}</span>
         </p>
@@ -281,7 +281,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
         <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-xs sm:text-sm text-gray-500 truncate">Jobs sold</p>
+              <p className="text-xs sm:text-sm text-gray-700 truncate">Jobs sold</p>
               <p className="text-xl sm:text-2xl font-bold text-emerald-700 tabular-nums">
                 {opsMetricsLoading ? '—' : opsMetrics.jobsSold}
               </p>
@@ -296,7 +296,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
         <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-xs sm:text-sm text-gray-500 truncate">Installations</p>
+              <p className="text-xs sm:text-sm text-gray-700 truncate">Installations</p>
               <p className="text-xl sm:text-2xl font-bold text-sky-700 tabular-nums">
                 {opsMetricsLoading ? '—' : opsMetrics.installations}
               </p>
@@ -311,7 +311,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
         <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-xs sm:text-sm text-gray-500 truncate">Cancellations</p>
+              <p className="text-xs sm:text-sm text-gray-700 truncate">Cancellations</p>
               <p className="text-xl sm:text-2xl font-bold text-rose-700 tabular-nums">
                 {opsMetricsLoading ? '—' : opsMetrics.cancellations}
               </p>
@@ -338,7 +338,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
         {jobsNeedingAttention.length === 0 ? (
           <div className="p-8 text-center">
             <div className="text-3xl mb-2">✓</div>
-            <p className="text-gray-500">All jobs are on track</p>
+            <p className="text-gray-700">All jobs are on track</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
@@ -348,10 +348,10 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-medium text-gray-900">{job.job_number}</span>
-                      <span className="text-gray-400">•</span>
+                      <span className="text-gray-600">•</span>
                       <span className="text-gray-600 truncate">{job.customer_name}</span>
                     </div>
-                    <p className="text-sm text-gray-500 truncate mb-2">{job.address_text}</p>
+                    <p className="text-sm text-gray-700 truncate mb-2">{job.address_text}</p>
                     <div className="flex flex-wrap gap-1">
                       {job.issues.map((issue, idx) => (
                         <span
@@ -370,7 +370,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     {job.assigned_pm && (
-                      <span className="text-xs text-gray-500">{job.assigned_pm}</span>
+                      <span className="text-xs text-gray-700">{job.assigned_pm}</span>
                     )}
                     {canJobBoard ? (
                       <Link
@@ -397,7 +397,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
           </div>
           {recentOrders.length === 0 ? (
             <div className="p-8 text-center">
-              <p className="text-gray-500">No recent material orders</p>
+              <p className="text-gray-700">No recent material orders</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -415,7 +415,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
                       </div>
                       <p className="text-sm text-gray-900 truncate">{order.description}</p>
                       {order.supplier && (
-                        <p className="text-xs text-gray-500 truncate">{order.supplier}</p>
+                        <p className="text-xs text-gray-700 truncate">{order.supplier}</p>
                       )}
                     </div>
                     <div className="flex flex-col items-end gap-1">
@@ -453,7 +453,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
           </div>
           {openWorkOrders.length === 0 ? (
             <div className="p-8 text-center">
-              <p className="text-gray-500">No open work orders</p>
+              <p className="text-gray-700">No open work orders</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -475,10 +475,10 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
                       </div>
                       <p className="text-sm text-gray-900">{wo.work_type}</p>
                       {wo.sub_name && (
-                        <p className="text-xs text-gray-500">{wo.sub_name}</p>
+                        <p className="text-xs text-gray-700">{wo.sub_name}</p>
                       )}
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-gray-700">
                       {formatDate(wo.assigned_at)}
                     </div>
                   </div>

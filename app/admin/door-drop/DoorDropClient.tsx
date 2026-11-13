@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { formatPhone } from '@/lib/format'
 
 type RepInfo = {
@@ -48,6 +49,7 @@ export default function DoorDropClient() {
       <div className="no-print">
         <Nav />
         <div className="mx-auto max-w-5xl px-4 py-6">
+          <SettingsBackLink />
           <div className="rounded-t-lg bg-[#1B3A6B] px-5 py-4 text-white shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>

@@ -45,7 +45,7 @@ describe('resolveOrgFeatures (pure)', () => {
     expect(resolveOrgFeatures({})).toEqual(DEFAULT_ORG_FEATURES)
     expect(resolveOrgFeatures({ pricing: { p: 1 }, brand: { shortName: 'X' } })).toEqual(DEFAULT_ORG_FEATURES)
     // Every original feature is ON; only modules the original company never had default OFF.
-    expect(ORG_FEATURE_KEYS.filter((k) => !DEFAULT_ORG_FEATURES[k])).toEqual(['servicePlans', 'timeTracking', 'hourlyBilling', 'projectTools', 'onlinePayments', 'quickbooks', 'customerMessages', 'texting', 'aiConnector', 'aiConnectorWrites', 'customerPortal', 'quoteApproval'])
+    expect(ORG_FEATURE_KEYS.filter((k) => !DEFAULT_ORG_FEATURES[k])).toEqual(['servicePlans', 'timeTracking', 'hourlyBilling', 'projectTools', 'onlinePayments', 'quickbooks', 'customerMessages', 'texting', 'aiConnector', 'aiConnectorWrites', 'customerPortal', 'areaMeasure', 'quoteApproval'])
   })
   it('a default-OFF feature (service plans) turns on only with an explicit true', () => {
     expect(resolveOrgFeatures({ features: { servicePlans: true } }).servicePlans).toBe(true)
@@ -117,9 +117,9 @@ describe('loadOrgFeatures / orgFeatureOffResponse', () => {
 describe('entry points hide when a feature is off', () => {
   const flags = { isOpsOnly: false, canSeeOpsDashboard: false, canSeeJobBoard: false, canSeeInsideSales: false, projectsBarred: false, salesDocBarred: false, customerRecords: false, reports: false, isPayrollAdmin: true, earnsPay: false, payWeek: true }
   const owner = (features?: NavContext['features']): NavContext => ({ permsReady: true, role: 'owner', fullAccess: true, permissionNames: new Set(), flags, features })
-  const leaves = (c: NavContext) => visibleNav(c).sections.flatMap((s) => s.children.map((l) => l.href))
+  const leaves = (c: NavContext) => visibleNav(c).sections.flatMap((s) => (s.children.length ? s.children.map((l) => l.href) : [s.href]))
 
-  it('nav: Canvass and Incentives disappear; nothing else changes', () => {
+  it('nav: Canvass and Sisu disappear; nothing else changes', () => {
     const on = visibleNav(owner())
     expect(on.canvass).toBe(true)
     expect(leaves(owner())).toContain('/sisu')
@@ -128,7 +128,7 @@ describe('entry points hide when a feature is off', () => {
     expect(leaves(off)).toEqual(leaves(owner()).filter((h) => h !== '/sisu'))
     expect(visibleNav(owner({ insurance: false, roofMeasure: false, squaresPricing: false }))).toEqual(on)
   })
-  it('settings hub: Work areas / Roof measure tool links hide (Incentives stays — it holds pay tools); Features is super admins only', () => {
+  it('settings hub: Work areas / Roof measure tool links hide (Sisu program stays — it holds the setter-ramp pay tool); Features is super admins only', () => {
     const all = { canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true, canOwner: true, canSuperAdmin: true }
     const hrefs = (g: ReturnType<typeof visibleSettingsGroups>) => g.flatMap((x) => x.items.map((i) => i.href))
     const on = hrefs(visibleSettingsGroups(all))

@@ -341,7 +341,7 @@ export default function TeamLaneView({
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-x-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-96 text-gray-500">Loading team calendar...</div>
+          <div className="flex items-center justify-center h-96 text-gray-700">Loading team calendar...</div>
         ) : (
           <div className="flex min-w-full">
             <div className="flex-shrink-0 border-r bg-white" style={{ width: TIME_COL_WIDTH }}>
@@ -350,7 +350,7 @@ export default function TeamLaneView({
                 <div
                   key={hour}
                   style={{ height: ROW_HEIGHT }}
-                  className="border-b px-1 pt-1 text-[11px] text-right text-gray-500"
+                  className="border-b px-1 pt-1 text-[11px] text-right text-gray-700"
                 >
                   {formatHour(hour)}
                 </div>
@@ -461,7 +461,7 @@ export default function TeamLaneView({
                 <div key={closer.id} className="flex-shrink-0 border-r" style={{ minWidth: 220, width: 260 }}>
                   <div className="h-12 border-b px-3 py-1.5 bg-gray-50">
                     <p className="text-sm font-semibold text-gray-900 truncate">{closer.full_name || 'Unknown'}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-700">
                       {closerAppointments.length} appt{closerAppointments.length === 1 ? '' : 's'}
                     </p>
                   </div>
@@ -502,7 +502,7 @@ export default function TeamLaneView({
                     ))}
 
                     {closerAppointments.length === 0 && (
-                      <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400">
+                      <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-600">
                         No appointments
                       </div>
                     )}
@@ -512,7 +512,7 @@ export default function TeamLaneView({
             })}
 
             {!loading && closers.length === 0 && appointments.length === 0 && (
-              <div className="flex items-center justify-center flex-1 min-h-[320px] text-sm text-gray-500">
+              <div className="flex items-center justify-center flex-1 min-h-[320px] text-sm text-gray-700">
                 No members found for this scope.
               </div>
             )}
@@ -531,35 +531,35 @@ export default function TeamLaneView({
             </h3>
             <div className="space-y-1.5 text-sm">
               <p>
-                <span className="text-gray-500">Time:</span>{' '}
+                <span className="text-gray-700">Time:</span>{' '}
                 <span className="text-gray-900">
                   {new Date(selectedAppointment.scheduled_for).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                 </span>
               </p>
               <p>
-                <span className="text-gray-500">Duration:</span>{' '}
+                <span className="text-gray-700">Duration:</span>{' '}
                 <span className="text-gray-900">{selectedAppointment.duration_minutes || 60} min</span>
               </p>
               <p>
-                <span className="text-gray-500">Address:</span>{' '}
+                <span className="text-gray-700">Address:</span>{' '}
                 <span className="text-gray-900">{selectedAppointment.address_text || 'No address'}</span>
               </p>
               <p>
-                <span className="text-gray-500">Phone:</span>{' '}
+                <span className="text-gray-700">Phone:</span>{' '}
                 <span className="text-gray-900"><PhoneLink value={selectedAppointment.lead?.phone} empty="No phone" /></span>
               </p>
               <p>
-                <span className="text-gray-500">Closer:</span>{' '}
+                <span className="text-gray-700">Closer:</span>{' '}
                 <span className={selectedAppointment.closer_user_id ? 'text-gray-900' : 'text-amber-800 font-medium'}>
                   {selectedAppointment.closer_name || (selectedAppointment.closer_user_id ? 'Unknown' : 'Unassigned')}
                 </span>
               </p>
               <p>
-                <span className="text-gray-500">Setter:</span>{' '}
+                <span className="text-gray-700">Setter:</span>{' '}
                 <span className="text-gray-900">{selectedAppointment.canvasser_name || 'Unknown'}</span>
               </p>
               <p>
-                <span className="text-gray-500">Status:</span>{' '}
+                <span className="text-gray-700">Status:</span>{' '}
                 <span className={`inline-flex rounded-full px-1.5 py-0.5 text-xs font-medium ${statusColor(selectedAppointment.status)}`}>
                   {selectedAppointment.status}
                 </span>

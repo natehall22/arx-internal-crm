@@ -224,7 +224,7 @@ describe('resolveCompanyFence precedence', () => {
 })
 
 test('SQL migration mirrors the TS subdomain rule and reserved list', () => {
-  const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/202611100070_org_subdomain.sql'), 'utf8')
+  const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/202611230090_reserve_arx_subdomain.sql'), 'utf8')
   expect(sql).toContain(`subdomain ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'`)
   expect(SUBDOMAIN_RE.source).toBe('^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$')
   const list = sql.match(/subdomain not in \(([\s\S]*?)\)/)?.[1] ?? ''

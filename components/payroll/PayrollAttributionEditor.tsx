@@ -123,7 +123,7 @@ export default function PayrollAttributionEditor({
   return (
     <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
       <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Payroll attribution</h2>
-      <p className="text-xs text-gray-500 mb-4">
+      <p className="text-xs text-gray-700 mb-4">
         Setter and closer were confirmed when the contract was signed and decide who is paid. Only an owner
         can change them now, and the reason is saved.
       </p>
