@@ -940,3 +940,80 @@ test('proposal-builder / step 3 tear-off buttons fit the phone', async ({ page }
   expect(culprits, 'elements past the right edge').toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(vw)
 })
+
+// The AI assistant launcher lives in the nav ("Ask AI"), never as a floating circle (Nathan: "AI widget is still in the way").
+// Mock an allowlisted user so a floating launcher WOULD render, then check nothing fixed sits on a page's primary button.
+async function mockAllowlistedAssistant(page: Page) {
+  await page.route('**/api/settings', (route) => route.fulfill(json({ profile: { aiAssistantAllowlisted: true }, userSettings: { ai_enabled: true } })))
+}
+
+/** Fixed/sticky elements (other than the button's own ancestors) whose box covers any part of the button. */
+async function fixedOverlapping(page: Page, target: ReturnType<Page['locator']>) {
+  await target.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  await page.waitForTimeout(200)
+  return target.evaluate((el) => {
+    const b = el.getBoundingClientRect()
+    const out: string[] = []
+    document.querySelectorAll<HTMLElement>('body *').forEach((f) => {
+      if (f === el || f.contains(el) || el.contains(f)) return
+      const cs = getComputedStyle(f)
+      if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') return
+      if (!(f.textContent || '').trim() && !f.querySelector('button, a, input, svg')) return // a bare modal backdrop is not a control
+      const r = f.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) return
+      const w = Math.min(r.right, b.right) - Math.max(r.left, b.left)
+      const h = Math.min(r.bottom, b.bottom) - Math.max(r.top, b.top)
+      if (w > 1 && h > 1) out.push(`${f.tagName.toLowerCase()}.${String(f.className).slice(0, 60)} "${(f.textContent || '').trim().slice(0, 30)}" covers ${Math.round(w)}x${Math.round(h)}px`)
+    })
+    return out
+  })
+}
+
+test('no floating assistant button on the sale-credit screen', async ({ page }) => {
+  await mockApi(page)
+  await mockAllowlistedAssistant(page)
+  await page.goto('/dev-harness/sale-credit')
+  await page.waitForSelector('text=Send Agreement')
+  await page.waitForTimeout(800) // the assistant's allowlist check has answered by now
+  expect(await page.locator('button[title="AI Assistant"]').count()).toBe(0)
+  // the agreement modal's primary action (Next, then Create & Send Agreement) and its bottom-most field
+  const next = page.getByRole('button', { name: 'Next' })
+  expect(await fixedOverlapping(page, next), 'fixed elements covering the Next button').toEqual([])
+  const lastField = page.locator('input:visible, textarea:visible, select:visible').last()
+  expect(await fixedOverlapping(page, lastField), 'fixed elements covering the last field').toEqual([])
+})
+
+test('no floating assistant button on the proposal builder', async ({ page }) => {
+  await mockApi(page)
+  await mockAllowlistedAssistant(page)
+  await page.route('**/api/proposals/builder**', (route) => route.fulfill(json({
+    role: 'admin', roofingTypes: [{ id: 'rt1', name: 'Asphalt Shingles', price_per_square: 451.2, is_default: true }],
+    pricebookItems: [], adders: [], priceLists: [], templates: [], financingPrograms: [],
+    measurement: { id: 'm1', total_squares: 11.75, suggested_waste_percent: 12 },
+  })))
+  await page.goto('/dev-harness/proposal-builder?opportunity_id=opp-1&measurement_id=m1')
+  await page.getByRole('button', { name: '3', exact: true }).click()
+  await page.waitForSelector('text=Is this a tear-off job?')
+  await page.waitForTimeout(800)
+  expect(await page.locator('button[title="AI Assistant"]').count()).toBe(0)
+  const cont = page.getByRole('button', { name: /Continue to Pricing/ })
+  expect(await fixedOverlapping(page, cont), 'fixed elements covering Continue to Pricing').toEqual([])
+})
+
+test('Ask AI in the top bar opens the assistant panel', async ({ page }) => {
+  await mockApi(page)
+  await mockAllowlistedAssistant(page)
+  await page.goto('/dev-harness/nav')
+  await page.waitForSelector('text=Page content')
+  await page.getByRole('button', { name: 'Ask AI' }).click()
+  await expect(page.getByRole('heading', { name: 'AI Assistant' })).toBeVisible()
+})
+
+test('Ask AI is not shown to someone who is not on the assistant list', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/settings', (route) => route.fulfill(json({ profile: { aiAssistantAllowlisted: false }, userSettings: {} })))
+  await page.goto('/dev-harness/nav')
+  await page.waitForSelector('text=Page content')
+  await page.waitForTimeout(800)
+  await expect(page.getByRole('button', { name: 'Ask AI' })).toHaveCount(0)
+})
