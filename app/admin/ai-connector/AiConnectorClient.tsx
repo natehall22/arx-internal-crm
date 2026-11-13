@@ -3,11 +3,13 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
+import ConnectAiCard from '@/components/ai-connector/ConnectAiCard'
 import ConnectedAiApps from '@/components/ai-connector/ConnectedAiApps'
 import { Button, Card, CardContent, CardHeader, CardTitle, toast } from '@/components/ui'
 
 type Data = {
   enabled: boolean
+  connectCard: { address: string; companyName: string } | null
   writesEnabled: boolean
   builtinRedirectUris: string[]
   extraRedirectUris: string[]
@@ -79,6 +81,7 @@ export default function AiConnectorClient() {
   if (!data) return <p className="text-ui-base text-ink">Loading…</p>
   return (
     <div className="flex flex-col gap-4">
+      {data.connectCard ? <ConnectAiCard {...data.connectCard} /> : null}
       <Card>
         <CardHeader>
           <CardTitle>Status</CardTitle>

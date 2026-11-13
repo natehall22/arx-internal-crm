@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadConnectCard } from '@/lib/ai-connector/connect-card'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +18,7 @@ function isAuthFailure(error: unknown): boolean {
 }
 
 // GET - Load user settings
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     const { authUser, profile } = await requireAuthApi()
 
@@ -41,9 +42,13 @@ export async function GET(_request: NextRequest) {
       .eq('user_id', authUser.id)
       .maybeSingle()
 
+    // null unless the company has the AI connector on — the settings page shows the "Connect your AI" card only then.
+    const aiConnector = await loadConnectCard(request, profile.org_id).catch(() => null)
+
     return NextResponse.json({
       userSettings,
       googleToken,
+      aiConnector,
       profile: {
         role: profile.role,
         full_name: profile.full_name,

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
+import ConnectAiCard from '@/components/ai-connector/ConnectAiCard'
+import ConnectedAiApps from '@/components/ai-connector/ConnectedAiApps'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -33,6 +35,8 @@ interface UserProfile {
   aiAssistantAllowlisted?: boolean
   isOwner?: boolean
 }
+
+type AiConnectorInfo = { address: string; companyName: string } | null
 
 const defaultSettings: UserSettings = {
   notifications_enabled: true,
@@ -66,7 +70,8 @@ export default function SettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
   const [googleToken, setGoogleToken] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
-  const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'suppliers' | 'announcements' | 'display'>('notifications')
+  const [aiConnector, setAiConnector] = useState<AiConnectorInfo>(null)
+  const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'connect' | 'reports' | 'suppliers' | 'announcements' | 'display'>('notifications')
   const [calendarMessage, setCalendarMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -78,6 +83,7 @@ export default function SettingsPage() {
       tab === 'calendar' ||
       tab === 'reports' ||
       tab === 'display' ||
+      tab === 'connect' ||
       (tab === 'ai' && userProfile?.aiAssistantAllowlisted)
     ) {
       setActiveTab(tab)
@@ -126,6 +132,7 @@ export default function SettingsPage() {
       if (data.profile) {
         setUserProfile(data.profile)
       }
+      setAiConnector(data.aiConnector ?? null)
 
       if (data.userSettings) {
         setSettings({
@@ -244,6 +251,7 @@ export default function SettingsPage() {
     ...(aiAssistantAllowlisted
       ? [{ id: 'ai', label: 'AI Assistant', icon: '🤖' }]
       : []),
+    ...(aiConnector ? [{ id: 'connect', label: 'Connect your AI', icon: '🔌' }] : []),
     { id: 'reports', label: 'My Reports', icon: '📊' },
     ...(userProfile?.isOwner ? [{ id: 'suppliers', label: 'Suppliers', icon: '🚚' }, { id: 'announcements', label: 'Announcements', icon: '📣' }] : []),
     { id: 'display', label: 'Display', icon: '🎨' },
@@ -527,6 +535,13 @@ export default function SettingsPage() {
         )}
 
         {/* AI Tab */}
+        {activeTab === 'connect' && aiConnector && (
+          <div className="space-y-4">
+            <ConnectAiCard {...aiConnector} />
+            <ConnectedAiApps />
+          </div>
+        )}
+
         {activeTab === 'ai' && aiAssistantAllowlisted && (
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>
