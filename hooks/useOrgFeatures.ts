@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { DEFAULT_ORG_FEATURES, coerceOrgFeatures, type OrgFeatures } from '@/lib/org-features'
+import { coerceClientBrandNames, GENERIC_BRAND_NAMES, type ClientBrandNames } from '@/lib/org-brand-client'
 import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
 
 /**
@@ -16,6 +17,8 @@ let shared: { at: number; promise: Promise<{ ok: boolean; status: number; data: 
 let lastKnown: OrgFeatures | null = null
 /** Same for the company's industry profile (words, menu order, price book lists). */
 let lastKnownProfile: ClientOrgProfile | null = null
+/** Same for the company's names (contract screen, subs text, schedule board). */
+let lastKnownBrand: ClientBrandNames | null = null
 
 export function fetchEffectivePermissions(): Promise<{ ok: boolean; status: number; data: unknown }> {
   const now = Date.now()
@@ -26,6 +29,7 @@ export function fetchEffectivePermissions(): Promise<{ ok: boolean; status: numb
       if (out.ok) {
         lastKnown = featuresFromEffectivePermissions(out.data)
         lastKnownProfile = profileFromEffectivePermissions(out.data)
+        lastKnownBrand = brandFromEffectivePermissions(out.data)
       }
       return out
     })
@@ -44,6 +48,27 @@ export function featuresFromEffectivePermissions(data: unknown): OrgFeatures {
 export function profileFromEffectivePermissions(data: unknown): ClientOrgProfile {
   const flags = data && typeof data === 'object' ? (data as { flags?: { profile?: unknown } }).flags : undefined
   return coerceClientOrgProfile(flags?.profile)
+}
+
+/** Pure: the company's names out of an effective-permissions response (missing → generic words, never another company's). */
+export function brandFromEffectivePermissions(data: unknown): ClientBrandNames {
+  const flags = data && typeof data === 'object' ? (data as { flags?: { brand?: unknown } }).flags : undefined
+  return coerceClientBrandNames(flags?.brand)
+}
+
+/** The company's names for client components — same shared fetch; `initial` (server-resolved) wins on first render. */
+export function useOrgBrandNames(initial?: ClientBrandNames | null): ClientBrandNames {
+  const [brand, setBrand] = useState<ClientBrandNames>(() => initial ?? lastKnownBrand ?? { ...GENERIC_BRAND_NAMES })
+  useEffect(() => {
+    let cancelled = false
+    void fetchEffectivePermissions().then((r) => {
+      if (!cancelled && r.ok) setBrand(brandFromEffectivePermissions(r.data))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return brand
 }
 
 /**
@@ -90,4 +115,5 @@ export function resetOrgFeaturesCacheForTests(): void {
   shared = null
   lastKnown = null
   lastKnownProfile = null
+  lastKnownBrand = null
 }

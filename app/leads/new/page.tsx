@@ -46,6 +46,7 @@ export default async function NewLeadPage() {
             userId={profile.id}
             canScheduleInspection={canScheduleInspection}
             nameLabel={t(profile_, 'leadName')}
+            inspectionWord={t(profile_, 'inspection').toLowerCase()}
             serviceChoices={serviceChoices}
             ownerChoices={ownerChoices}
           />

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { requireAuthApi } from '@/lib/auth'
+import { getDocumentBrand } from '@/lib/org-brand'
+import { clientBrandNames } from '@/lib/org-brand-client'
 import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -13,12 +15,13 @@ export async function GET() {
     const { authUser, profile } = await requireAuthApi()
     const admin = createServiceClient()
 
-    const [{ fullAccess, permissionNames }, orgProfile] = await Promise.all([
+    const [{ fullAccess, permissionNames }, orgProfile, documentBrand] = await Promise.all([
       resolveEffectivePermissionNames(admin, authUser.id, {
         role: profile.role as string,
         custom_role_id: profile.custom_role_id,
       }),
       loadOrgProfile(admin, profile.org_id),
+      getDocumentBrand(admin, profile.org_id),
     ])
 
     return NextResponse.json({
@@ -28,7 +31,7 @@ export async function GET() {
       // Server-side feature flags the client needs (the new payroll screens ship OFF; company feature switches,
       // lib/org-features.ts — and the industry profile's words/menu/price book lists, lib/org-profile.ts — read
       // client-side through hooks/useOrgFeatures.ts). `features` is the profile-aware map (one rule, resolveOrgFeatures).
-      flags: { payWeek: isPayWeekEnabled(), features: orgProfile.features, profile: clientOrgProfile(orgProfile) },
+      flags: { payWeek: isPayWeekEnabled(), features: orgProfile.features, profile: clientOrgProfile(orgProfile), brand: clientBrandNames(documentBrand) },
     })
   } catch (e) {
     if (e instanceof Error && (e.message === 'Unauthorized' || e.message === 'Account disabled')) {

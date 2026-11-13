@@ -11,7 +11,7 @@ import {
 import SignaturePad from './SignaturePad'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { formatPhone } from '@/lib/format'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgBrandNames, useOrgFeatures } from '@/hooks/useOrgFeatures'
 import type { OrgFeatures } from '@/lib/org-features'
 
 interface ContractModalProps {
@@ -77,6 +77,7 @@ export default function ContractModal({
   const [step, setStep] = useState(1)
   /** Insurance switched off for the company (Settings → Features): no contingency agreement, no insurance payment. */
   const insuranceOn = useOrgFeatures(orgFeatures).insurance
+  const brandNames = useOrgBrandNames()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -657,7 +658,7 @@ export default function ContractModal({
                 {formData.agreementType === 'contingency' && (
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                     <p className="text-sm text-amber-900">
-                      This contingency agreement does not collect payment details. It authorizes ARX to help with the insurance claim and becomes active only if the claim, scope, and price are approved.
+                      This contingency agreement does not collect payment details. It authorizes {brandNames.shortName} to help with the insurance claim and becomes active only if the claim, scope, and price are approved.
                     </p>
                   </div>
                 )}
@@ -836,9 +837,9 @@ export default function ContractModal({
                 )}
 
                 <div className="p-4 bg-indigo-50 rounded-lg">
-                  <h3 className="font-medium text-indigo-900 mb-2">ARX Roofing & Exteriors Representative</h3>
+                  <h3 className="font-medium text-indigo-900 mb-2">{brandNames.name} Representative</h3>
                   <p className="text-sm text-indigo-700">
-                    By signing below, you confirm that you have reviewed all project details and are authorized to enter into this agreement on behalf of ARX Roofing & Exteriors LLC.
+                    By signing below, you confirm that you have reviewed all project details and are authorized to enter into this agreement on behalf of {brandNames.legalName}.
                   </p>
                 </div>
 

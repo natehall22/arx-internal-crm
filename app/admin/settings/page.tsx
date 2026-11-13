@@ -34,8 +34,6 @@ type SettingsSection =
   | 'inspection-outcomes'
   | 'close-outcomes'
   | 'appointment-settings'
-  | 'budgets'
-  | 'capital'
   | 'commissions'
   | 'integrations'
   | 'measurement-tools'
@@ -719,8 +717,6 @@ export default function AdminSettingsPage() {
     {
       title: 'FINANCIALS',
       items: [
-        { id: 'budgets', label: 'Budgets' },
-        { id: 'capital', label: 'Capital' },
         { id: 'commissions', label: 'Commissions' },
       ],
     },
@@ -3461,34 +3457,6 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Budgets */}
-          {activeSection === 'budgets' && (
-            <div className="max-w-3xl">
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">Budgets</h1>
-              
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-gray-700 mb-4">Set up budget tracking and cost management.</p>
-                <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
-                  <p className="text-sm text-amber-700">Budget tracking coming soon. This will allow you to set monthly/quarterly targets and track actual vs. projected revenue.</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Capital */}
-          {activeSection === 'capital' && (
-            <div className="max-w-3xl">
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">Capital</h1>
-              
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-gray-700 mb-4">Manage capital expenditures and financing.</p>
-                <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
-                  <p className="text-sm text-amber-700">Capital management coming soon. Track equipment purchases, financing, and depreciation.</p>
-                </div>
-              </div>
             </div>
           )}
 

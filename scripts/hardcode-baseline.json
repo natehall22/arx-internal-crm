@@ -27,9 +27,6 @@
   "app/admin/sisu/setter-ramp/SetterRampClient.tsx": {
     "timezone": 1
   },
-  "app/admin/subs/page.tsx": {
-    "brand": 7
-  },
   "app/admin/teams/page.tsx": {
     "timezone": 13
   },
@@ -192,9 +189,6 @@
   "app/ops/jobs/[id]/measure/print/page.tsx": {
     "brand": 1
   },
-  "app/ops/schedule/InstallScheduleClient.tsx": {
-    "brand": 3
-  },
   "app/page.tsx": {
     "brand": 10
   },
@@ -251,9 +245,6 @@
   },
   "components/change-orders/ChangeOrderModal.tsx": {
     "brand": 1
-  },
-  "components/contracts/ContractModal.tsx": {
-    "brand": 3
   },
   "components/customer-file/ThreadPanel.tsx": {
     "brand": 1

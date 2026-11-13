@@ -1118,10 +1118,11 @@ export default function ProposalBuilderPage() {
             <div className="flex items-center gap-3 sm:gap-8 overflow-x-auto">
               {[
                 { num: 1, label: 'Customer Info' },
-                { num: 2, label: 'Roofing Type' },
-                { num: 3, label: 'Pricing' },
-                { num: 4, label: 'Adders' },
-                { num: 5, label: 'Review' },
+                ...(squaresOn ? [{ num: 2, label: 'Waste' }] : []),
+                { num: 3, label: 'Roofing Type' },
+                { num: 4, label: 'Items' },
+                { num: 5, label: 'Add-Ons' },
+                { num: 6, label: 'Review' },
               ].map((s, idx) => (
                 <button
                   key={s.num}
@@ -1131,7 +1132,7 @@ export default function ProposalBuilderPage() {
                   <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
                     step === s.num ? 'bg-indigo-600 text-white' : step > s.num ? 'bg-green-500 text-white' : 'bg-gray-200'
                   }`}>
-                    {step > s.num ? '✓' : s.num}
+                    {step > s.num ? '✓' : idx + 1}
                   </div>
                   <span className="hidden sm:block font-medium">{s.label}</span>
                 </button>
@@ -1447,25 +1448,6 @@ export default function ProposalBuilderPage() {
                 </div>
               </div>
             </div>
-
-            {measurementData && (
-              <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-xl">
-                <p className="text-sm font-semibold text-gray-800 mb-2">Order Debug (Temporary)</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-700">
-                  <p>Measured squares before waste: <strong>{baseSquares.toFixed(2)}</strong></p>
-                  <p>Waste % used: <strong>{effectiveWastePercent}%</strong></p>
-                  <p>Suggested waste / tier: <strong>{measuredSuggestedWaste || 'N/A'}% / {measurementWasteCategory}</strong></p>
-                  <p>Final order squares (pre-round): <strong>{totalSquaresWithWaste.toFixed(3)}</strong></p>
-                  <p>Bundle rounding: <strong>{rawBundleCount.toFixed(2)}</strong> {'->'} <strong>{roundedBundles}</strong> bundles</p>
-                  <p>Recommended order squares: <strong>{recommendedOrderSquares}</strong></p>
-                  <p>Pitch: <strong>{measurementData.predominant_pitch || '-'}</strong></p>
-                  <p>Valleys LF: <strong>{measurementData.valleys_lf ?? 0}</strong></p>
-                  <p>Ridge cap order: <strong>{capOrder?.ridgeCapSq.toFixed(2) ?? '0'} sq</strong> ({measurementData.ridges_lf ?? 0} LF)</p>
-                  <p>Hip cap order: <strong>{capOrder?.hipCapSq.toFixed(2) ?? '0'} sq</strong> ({measurementData.hips_lf ?? 0} LF)</p>
-                  <p>Section count: <strong>{measurementData.facet_count ?? 0}</strong></p>
-                </div>
-              </div>
-            )}
 
             <div className="mt-8 flex justify-between">
               <button

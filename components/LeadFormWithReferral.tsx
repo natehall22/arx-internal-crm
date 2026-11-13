@@ -19,16 +19,6 @@ interface ReferrerResult {
   address: string | null
 }
 
-const leadStatuses = [
-  'new',
-  'contacted',
-  'appointment',
-  'inspection',
-  'estimate_sent',
-  'won',
-  'lost',
-] as const
-
 interface LeadFormWithReferralProps {
   orgId: string
   userId: string
@@ -37,6 +27,8 @@ interface LeadFormWithReferralProps {
   canScheduleInspection?: boolean
   /** The name field's label (industry profile word; roofing: "Homeowner Name"). */
   nameLabel?: string
+  /** The company's word for the first visit, lower case (industry profile; roofing: "inspection"). */
+  inspectionWord?: string
   /** The company's service choices (Admin → Campaigns); none = no Service field. */
   serviceChoices?: string[]
   /** People to pick as owner. Given only for a company that set up lead routing: the default is "Me"; "Assign automatically" is an explicit choice. */
@@ -56,6 +48,7 @@ export default function LeadFormWithReferral({
   defaultBonusAmount = 100,
   canScheduleInspection = false,
   nameLabel = 'Homeowner Name',
+  inspectionWord = 'inspection',
   serviceChoices = [],
   ownerChoices = null,
 }: LeadFormWithReferralProps) {
@@ -88,7 +81,6 @@ export default function LeadFormWithReferral({
     phone: '',
     email: '',
     address_text: '',
-    status: 'new',
     notes: '',
   })
 
@@ -199,7 +191,7 @@ export default function LeadFormWithReferral({
       ].filter(Boolean)
 
       if (missingScheduleFields.length > 0) {
-        toast(`Add ${missingScheduleFields.join(', ')} before saving the scheduled inspection.`)
+        toast(`Add ${missingScheduleFields.join(', ')} before saving the scheduled ${inspectionWord}.`)
         return
       }
     }
@@ -220,7 +212,6 @@ export default function LeadFormWithReferral({
         email: form.email || null,
         address_text: form.address_text || null,
         source: source || null,
-        status: form.status,
         notes: form.notes || null,
       }),
     })
@@ -299,7 +290,6 @@ export default function LeadFormWithReferral({
       phone: '',
       email: '',
       address_text: '',
-      status: 'new',
       notes: '',
     })
     setSource('')
@@ -337,7 +327,7 @@ export default function LeadFormWithReferral({
                 onClick={() => setScheduleModalOpen(true)}
                 className="inline-flex rounded-md border border-green-700 bg-white px-4 py-2 text-sm font-semibold text-green-900 hover:bg-green-50"
               >
-                Schedule inspection…
+                Schedule {inspectionWord}…
               </button>
             )}
             <button
@@ -350,7 +340,7 @@ export default function LeadFormWithReferral({
           </div>
           {canScheduleInspection && !savedEligibleForSchedule && (
             <p className="mt-3 text-xs text-amber-800">
-              Add an address on the lead record, then use <strong>Schedule inspection</strong> from the lead page.
+              Add an address on the lead record, then use <strong>Schedule {inspectionWord}</strong> from the lead page.
             </p>
           )}
         </div>
@@ -374,10 +364,10 @@ export default function LeadFormWithReferral({
           closeDurationMinutes={schedulingResources.inspectionDurationMinutes}
           users={schedulingResources.users}
           teams={schedulingResources.teams}
-          modalTitle="Pick inspection time"
+          modalTitle={`Pick ${inspectionWord} time`}
           intro={
             <p>
-              Pick the open inspection slot first. You will enter the customer information next, then create and save.
+              Pick an open {inspectionWord} slot. It is booked when you create the lead.
             </p>
           }
           summaryHint="This slot will be booked when you create the lead."
@@ -386,46 +376,6 @@ export default function LeadFormWithReferral({
       )}
 
     <form onSubmit={handleSubmit} className="space-y-6">
-      {canScheduleInspection && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-green-950">Schedule inspection</h3>
-              <p className="mt-1 text-sm text-green-950/80">
-                Pick the available time first, then enter the homeowner details below.
-              </p>
-              {selectedScheduleLabel && (
-                <p className="mt-2 text-sm font-medium text-green-900">
-                  Selected: {selectedScheduleLabel}
-                </p>
-              )}
-              {schedulingLoadError && (
-                <p className="mt-2 text-sm font-medium text-amber-800">{schedulingLoadError}</p>
-              )}
-            </div>
-            <div className="flex gap-2">
-              {selectedSchedule && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedSchedule(null)}
-                  className="rounded-md border border-green-700 bg-white px-3 py-2 text-sm font-semibold text-green-900 hover:bg-green-50"
-                >
-                  Clear
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setSlotPickerOpen(true)}
-                disabled={!schedulingResources?.allowed}
-                className="rounded-md bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
-              >
-                {selectedSchedule ? 'Change slot' : 'Pick available slot'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="text-sm font-medium text-[#2c2c2a]">{nameLabel}</label>
@@ -512,21 +462,47 @@ export default function LeadFormWithReferral({
             </select>
           </div>
         )}
-        <div>
-          <label className="text-sm font-medium text-[#2c2c2a]">Status</label>
-          <select
-            value={form.status}
-            onChange={(e) => setForm(prev => ({ ...prev, status: e.target.value }))}
-            className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
-          >
-            {leadStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status.replace('_', ' ')}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
+
+      {canScheduleInspection && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-green-950">Schedule {inspectionWord}</h3>
+              <p className="mt-1 text-sm text-green-950/80">
+                Optional. Pick a time now and it is booked when you save.
+              </p>
+              {selectedScheduleLabel && (
+                <p className="mt-2 text-sm font-medium text-green-900">
+                  Selected: {selectedScheduleLabel}
+                </p>
+              )}
+              {schedulingLoadError && (
+                <p className="mt-2 text-sm font-medium text-amber-800">{schedulingLoadError}</p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              {selectedSchedule && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedSchedule(null)}
+                  className="rounded-md border border-green-700 bg-white px-3 py-2 text-sm font-semibold text-green-900 hover:bg-green-50"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSlotPickerOpen(true)}
+                disabled={!schedulingResources?.allowed}
+                className="rounded-md bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
+              >
+                {selectedSchedule ? 'Change slot' : 'Pick available slot'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Referral Section */}
       {source === 'referral' && (

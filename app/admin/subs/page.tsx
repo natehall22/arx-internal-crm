@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
-import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import { useOrgBrandNames, useOrgProfile } from '@/hooks/useOrgFeatures'
 import { BASE_TERMS } from '@/lib/industry-profiles'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@/components/ui/button'
@@ -71,11 +71,11 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // is the SAME account the availability read acts as. Hardcoding it, or reading a
 // separate env var, would let the address crews are told drift away from the
 // calendar anyone actually looks at.
-function buildCalendarShareInstructions(shareEmail: string | null): string {
+function buildCalendarShareInstructions(shareEmail: string | null, company: string): string {
   const address = shareEmail || '[set an install scheduling account in Ops settings]'
-  return `Share your calendar with ARX (optional)
+  return `Share your calendar with ${company} (optional)
 
-This lets us see when your crew is already busy so we don't double-book you. ARX will only ever see that a time is "busy" — never the appointment details, never what the job is.
+This lets us see when your crew is already busy so we don't double-book you. ${company} will only ever see that a time is "busy" — never the appointment details, never what the job is.
 
 1. On a computer, open Google Calendar (calendar.google.com).
 2. Click the gear icon in the top right, then "Settings".
@@ -85,18 +85,19 @@ This lets us see when your crew is already busy so we don't double-book you. ARX
 6. Under permissions, choose "See only free/busy (hide details)".
 7. Click "Send".
 
-That's it. ARX will only see when you're busy, never any details about the appointment. This is optional — it just helps us schedule installs more accurately around your other jobs.`
+That's it. ${company} will only see when you're busy, never any details about the appointment. This is optional — it just helps us schedule installs more accurately around your other jobs.`
 }
 
 export default function SubContractorsPage() {
   const router = useRouter()
   // The company's word for subcontractors (industry profile). The default profile keeps this page's own spelling.
   const subsTerm = useOrgProfile().terms.subs
+  const brandNames = useOrgBrandNames()
   const subsHeading = subsTerm === BASE_TERMS.subs ? 'Sub-Contractors' : subsTerm
   const [subs, setSubs] = useState<SubContractor[]>([])
-  /** The ARX account crews share their calendar with — server-resolved, see the API route. */
+  /** The company account crews share their calendar with — server-resolved, see the API route. */
   const [installSchedulingEmail, setInstallSchedulingEmail] = useState<string | null>(null)
-  const calendarShareInstructions = buildCalendarShareInstructions(installSchedulingEmail)
+  const calendarShareInstructions = buildCalendarShareInstructions(installSchedulingEmail, brandNames.shortName)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingSub, setEditingSub] = useState<SubContractor | null>(null)
@@ -530,9 +531,9 @@ export default function SubContractorsPage() {
                     style={{ color: '#2c2c2a' }}
                   />
                   <p className="text-sm mt-1" style={{ color: '#2c2c2a' }}>
-                    Only needed if the calendar the crew shares with ARX (see below) is a{' '}
+                    Only needed if the calendar the crew shares with {brandNames.shortName} (see below) is a{' '}
                     <strong>different</strong> address than the scheduling email above.{' '}
-                    <strong>Leaving this blank is the normal case</strong> — ARX will check the
+                    <strong>Leaving this blank is the normal case</strong> — {brandNames.shortName} will check the
                     scheduling email&apos;s calendar for availability instead.
                   </p>
                 </div>
@@ -563,7 +564,7 @@ export default function SubContractorsPage() {
                   {(!editingSub || !editingSub.calendar_share_verified_at) && (
                     <div className="mt-3">
                       <p className="text-sm" style={{ color: '#2c2c2a' }}>
-                        Text or read these steps to the crew so ARX can see when they&apos;re already
+                        Text or read these steps to the crew so {brandNames.shortName} can see when they&apos;re already
                         busy before booking a new install:
                       </p>
                       <pre
