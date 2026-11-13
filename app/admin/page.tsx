@@ -29,6 +29,7 @@ import { loadCheckupSettings } from '@/lib/checkups'
 import { canEditCheckupSettings } from '@/lib/checkups-settings'
 import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
 import { canEditJobCatchUpSettings } from '@/lib/job-catch-up-settings'
+import { orgTimeZone } from '@/lib/timezone'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /** Settings: every admin page in one grouped, searchable list (lib/settings-registry.ts). */
@@ -52,11 +53,12 @@ export default async function SettingsPage() {
     canSuperAdmin: isSuperAdmin(profile),
   })
   // Small org switches live as cards right here (the hub's "Job catch-up" entry links to #job-catch-up).
-  const [catchUp, checkups, { data: activeUsers }, salesTax] = await Promise.all([
+  const [catchUp, checkups, { data: activeUsers }, salesTax, { data: orgRow }] = await Promise.all([
     loadJobCatchUpSettings(admin, profile.org_id),
     loadCheckupSettings(admin, profile.org_id),
     admin.from('users').select('id, full_name').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
     canEditFeatures ? loadOrgSalesTax(admin, profile.org_id) : Promise.resolve(null),
+    admin.from('orgs').select('timezone').eq('id', profile.org_id).maybeSingle(),
   ])
   const userOptions = ((activeUsers ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => ({ id: u.id, name: u.full_name || 'Unnamed user' }))
 
@@ -83,7 +85,7 @@ export default async function SettingsPage() {
           {canEditFeatures && features.quickbooks ? <QuickBooksSetup /> : null}
           {canEditFeatures && features.quickbooks ? <QuickBooksActivityCard /> : null}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
-          <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
+          <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} timeZone={orgTimeZone(orgRow?.timezone)} terms={{ job: orgProfile.terms.job, jobs: orgProfile.terms.jobs }} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}
           {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
           {/* Owners, when the company bills by the hour: rounding, minimums, drive time (lib/hourly-billing.ts). */}

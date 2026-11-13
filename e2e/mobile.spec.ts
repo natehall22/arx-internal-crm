@@ -636,6 +636,61 @@ const SCREENS: Screen[] = [
       { name: 'owner-picker-in-box', run: async (p) => { await p.locator('[data-testid=catch-up-box] [data-testid=catch-up-owner]').click(); await p.locator('[data-testid=catch-up-box] select option', { hasText: 'Dana Example' }).waitFor({ state: 'attached' }) } },
     ] },
   { name: 'catch-up-job-v2', path: '/dev-harness/catch-up-job-v2', ready: 'text=Where this stands', mock: mockJob0037 },
+  { name: 'signing-settings', path: '/dev-harness/signing-settings', ready: 'text=Send your own documents for signature',
+    mock: async (p) => {
+      const settings = { provider: 'native', consentStep: true, declineEnabled: false, autoFile: true, customDocuments: false, bulkDailyCap: 200, reminders: { enabled: false, days: [2, 5] }, extendDays: 7, emails: { signedCopy: false, declineNotice: false } }
+      await p.route('**/api/admin/signing', async (route) => {
+        if (route.request().method() === 'PATCH') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: route.request().postDataJSON().settings }) })
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings }) })
+      })
+    },
+    states: [{ name: 'sub-settings', run: async (p) => {
+      const save = p.getByRole('button', { name: 'Save changes' })
+      if (await save.isEnabled()) throw new Error('Save should be disabled before any change')
+      // sub-settings stay hidden while their parent is off
+      for (const t of ['Daily limit for bulk sends', 'Send a reminder after', 'Tell me when a customer declines']) {
+        if (await p.getByText(t).isVisible().catch(() => false)) throw new Error(`${t} visible while its switch is off`)
+      }
+      await p.getByLabel('Let customers say “I can’t sign this”').check()
+      await p.getByText('Tell me when a customer declines').waitFor()
+      await p.getByLabel('Send your own documents for signature').check()
+      const cap = p.getByLabel('Daily limit for bulk sends (people per day)')
+      await cap.fill('abc')
+      if (await save.isEnabled()) throw new Error('Save should be disabled for a bad daily limit')
+      await cap.fill('150')
+      await p.getByLabel('Remind customers who haven’t signed').check()
+      await p.getByRole('button', { name: 'Remove 2 days' }).waitFor()
+      await p.getByRole('button', { name: 'Remove 5 days' }).click()
+      await p.getByRole('button', { name: '+ Add reminder' }).click()
+      await p.getByRole('button', { name: '7 days' }).click()
+      if (!(await save.isEnabled())) throw new Error('Save should be enabled after changes')
+      await save.click()
+      await p.waitForSelector('text="Saved"')
+      await p.getByLabel('Send your own documents for signature').uncheck()
+      if (await p.getByText('Daily limit for bulk sends').isVisible().catch(() => false)) throw new Error('bulk limit still visible after turning its switch off')
+    } }] },
+  { name: 'checkup-settings', path: '/dev-harness/checkup-settings', ready: 'text=When on, every finished job',
+    states: [{ name: 'on-edit', run: async (p) => {
+      const saveBody: unknown[] = []
+      await p.route('**/api/admin/settings', async (route) => { saveBody.push(route.request().postDataJSON()); await route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' }) })
+      const save = p.getByRole('button', { name: 'Save changes' })
+      if (await save.isEnabled()) throw new Error('Save should be disabled before any change')
+      await p.getByRole('switch', { name: 'Customer checkups' }).check()
+      await p.waitForSelector('text=Inspections, after the job is finished')
+      const example = p.getByTestId('checkup-example')
+      await p.getByRole('button', { name: 'Remove 12 months' }).click()
+      if (!/inspection in \w+ \d{4}, then a check-in every year after/.test((await example.textContent()) || '')) throw new Error('example did not update after removing a chip')
+      await p.getByRole('button', { name: '+ Add inspection' }).click()
+      await p.getByRole('button', { name: '9 months' }).click()
+      if (!(await p.getByRole('button', { name: 'Remove 9 months' }).isVisible())) throw new Error('9 month chip missing')
+      if (!(await save.isEnabled())) throw new Error('Save should be enabled after a change')
+      await save.click()
+      await p.waitForSelector('text="Saved"')
+      const body = saveBody[0] as Record<string, unknown>
+      if (JSON.stringify(body.inspectionMonths) !== '[6,9]' || body.enabled !== true) throw new Error(`unexpected save body ${JSON.stringify(body)}`)
+      await p.getByRole('switch', { name: 'Customer checkups' }).uncheck()
+      await p.waitForSelector('text=When on, every finished job')
+    } }] },
   { name: 'catch-up-settings', path: '/dev-harness/catch-up-settings', ready: 'text=Flag a job as stuck' },
   { name: 'org-features', path: '/dev-harness/org-features', ready: 'text=Turn off what your company doesn’t use' },
   { name: 'org-profile', path: '/dev-harness/org-profile', ready: 'text=A profile sets the starting point',
