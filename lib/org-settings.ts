@@ -69,6 +69,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('areaMeasure' in set || remove.includes('areaMeasure'))) return { error: 'areaMeasure is saved at path [areaMeasure]' }
   // Signing choices (consent step, reminders, copies) are only ever written at path ['signing'] (owners, /api/admin/signing).
   if (path.length === 0 && ('signing' in set || remove.includes('signing'))) return { error: 'signing is saved at path [signing]' }
+  // Crew incentive rules (lawn_landscape only) are only ever written at path ['crewIncentives'] (owners, /api/admin/crew-incentives).
+  if (path.length === 0 && ('crewIncentives' in set || remove.includes('crewIncentives'))) return { error: 'crewIncentives is saved at path [crewIncentives]' }
   // Lead intake (routing mode, people, services, reminder hours) is only ever written at path ['leadIntake'] (/api/admin/lead-routing).
   if (path.length === 0 && ('leadIntake' in set || remove.includes('leadIntake'))) return { error: 'leadIntake is saved at path [leadIntake]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }

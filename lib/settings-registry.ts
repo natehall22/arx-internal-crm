@@ -3,13 +3,13 @@
  * Access mirrors what each card's own gate has always been (the hub only hides what the page itself would refuse).
  */
 import type { OrgFeature, OrgFeatures } from '@/lib/org-features'
-import type { Terms } from '@/lib/industry-profiles'
+import type { IndustryProfileId, Terms } from '@/lib/industry-profiles'
 
 /** `superAdmin` = `isSuperAdmin` (users.is_super_admin) — stricter than `owner`, which also lets the owner role in. */
 export type SettingsAccess = 'leadership' | 'cost' | 'payroll' | 'superuser' | 'workAreas' | 'owner' | 'superAdmin'
 
 /** `feature` = hidden when the company has that feature switched off (lib/org-features.ts). */
-export type SettingsItem = { title: string; description: string; href: string; access: SettingsAccess; keywords?: string; feature?: OrgFeature }
+export type SettingsItem = { title: string; description: string; href: string; access: SettingsAccess; keywords?: string; feature?: OrgFeature; profile?: IndustryProfileId }
 export type SettingsGroup = { id: string; title: string; items: SettingsItem[] }
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
@@ -57,6 +57,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'QuickBooks', description: 'Connect your QuickBooks Online company (owners only)', href: '/admin#quickbooks', access: 'superAdmin', feature: 'quickbooks', keywords: 'quickbooks accounting bookkeeper books intuit qbo' },
       { title: 'Sales tax', description: 'Tax rates on quotes and invoices, the default, or no tax at all (owners only)', href: '/admin#sales-tax', access: 'superAdmin', keywords: 'tax rate state county exempt taxable vat' },
       { title: 'Quotes', description: 'Default deposit, how long quote links work, and the terms customers approve (owners only)', href: '/admin#quotes', access: 'superAdmin', feature: 'quoteApproval', keywords: 'quote proposal approval deposit terms online' },
+      { title: 'Crew incentives', description: 'Automatic crew bonuses for visits done right, beating the time, reviews and weekly targets; each one still needs an owner’s approval (owners only)', href: '/admin#crew-incentives', access: 'superAdmin', profile: 'lawn_landscape', keywords: 'bonus crew incentive callback review target split photos' },
       { title: 'Hourly billing', description: 'Rounding, minimum hours per visit, drive time and crew-hours for work billed by the hour (owners only)', href: '/admin#hourly-billing', access: 'superAdmin', keywords: 'time materials t&m hourly rounding minimum trip charge tractor equipment', feature: 'hourlyBilling' },
       { title: 'Goals & forecast', description: 'Monthly targets, scorecard and revenue forecast', href: '/admin/goals', access: 'superuser' },
     ],
@@ -107,8 +108,8 @@ export function canOpenSettingsHub(role: string): boolean {
   return LEADERSHIP.includes(role)
 }
 
-export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean; canSuperAdmin?: boolean; features?: Partial<OrgFeatures>; terms?: Pick<Terms, 'subs'> }): SettingsGroup[] {
-  const featureOn = (i: SettingsItem) => !i.feature || flags.features?.[i.feature] !== false
+export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean; canSuperAdmin?: boolean; features?: Partial<OrgFeatures>; terms?: Pick<Terms, 'subs'>; profileId?: IndustryProfileId }): SettingsGroup[] {
+  const featureOn = (i: SettingsItem) => (!i.feature || flags.features?.[i.feature] !== false) && (!i.profile || flags.profileId === i.profile)
   const ok = (a: SettingsAccess) =>
     a === 'leadership' || (a === 'cost' && flags.canCost) || (a === 'payroll' && flags.canPayroll) || (a === 'superuser' && flags.canSuperuser) || (a === 'workAreas' && flags.canWorkAreas) || (a === 'owner' && !!flags.canOwner) || (a === 'superAdmin' && !!flags.canSuperAdmin)
   // The company's word for subcontractors (industry profile; roofing = "Subcontractors", unchanged).

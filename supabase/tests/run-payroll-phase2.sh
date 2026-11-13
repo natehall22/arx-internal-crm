@@ -10,8 +10,10 @@ TMP="$(mktemp -d)"
 trap 'dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 # Sections 0–2b of 202610280010 (private schema, frozen units, writer guards) — the parts this release builds on.
 awk '/^-- 0\. Private schema/{on=1} /^-- 3\. One person-total/{on=0} on' "$HERE/../migrations/202610280010_atomic_approve_and_field_role_deny.sql" > "$TMP/sections0to2b.sql"
+# The crew deduction cap (triggers) of 202611230050: only the marked section, the rest of that migration needs tables this schema lacks.
+awk '/^-- crew-deduction-cap:begin/{on=1;next} /^-- crew-deduction-cap:end/{on=0} on' "$HERE/../migrations/202611230050_crew_incentives.sql" > "$TMP/crewcap.sql"
 createdb "$DB"
-OUT=$(psql -X -q -v ON_ERROR_STOP=1 -v sections0to2b="$TMP/sections0to2b.sql" -d "$DB" -f "$HERE/payroll_phase2.test.sql" 2>&1) || { echo "$OUT" >&2; echo "FAIL" >&2; exit 1; }
+OUT=$(psql -X -q -v ON_ERROR_STOP=1 -v sections0to2b="$TMP/sections0to2b.sql" -v crewcap="$TMP/crewcap.sql" -d "$DB" -f "$HERE/payroll_phase2.test.sql" 2>&1) || { echo "$OUT" >&2; echo "FAIL" >&2; exit 1; }
 echo "$OUT" | grep -oE 'PASS [0-9].*' || true
 echo "$OUT" | grep -q 'ALL PAYROLL PHASE2 TESTS PASSED' || { echo "$OUT" >&2; exit 1; }
 echo "ALL PAYROLL PHASE2 TESTS PASSED"

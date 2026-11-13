@@ -5,6 +5,7 @@ import { ensureCheckups } from '@/lib/checkups'
 import { notifyPayWeekReady } from '@/lib/payroll-approve-link'
 import { retryDueCommissionChanges } from '@/lib/payroll-commission-change'
 import { ensureServiceVisits } from '@/lib/service-plans-db'
+import { runCrewIncentives } from '@/lib/crew-incentives-db'
 import { runAutopayRetries } from '@/lib/online-payments/autopay'
 import { autoCloseForgotten } from '@/lib/time-tracking-db'
 import { getBlastSendDate, runClaimedBlast, type BlastResult } from '@/lib/email-blast-ledger'
@@ -104,6 +105,12 @@ export async function GET(request: NextRequest) {
         console.error(`[cron/morning-update] time clock auto-close failed for org ${orgId}:`, error)
       })
     }
+    // Crew incentives (lawn_landscape companies that turned them on; any other company returns before reading a visit): bonus
+    // lines proposed onto the open pay week, pending until an owner approves them. Idempotent. AFTER the forgotten-clock close
+    // above, so a visit whose clock was left running is closed first (a visit with a clock still open is skipped).
+    await runCrewIncentives(admin, orgId, { now }).catch((error) => {
+      console.error(`[cron/morning-update] crew incentives failed for org ${orgId}:`, error)
+    })
     // Automatic payments whose retry day has come are tried again (online payments companies; each retry claimed once).
     if (await onlinePaymentsOn(orgId)) {
       await runAutopayRetries(admin, orgId, now).catch((error) => {

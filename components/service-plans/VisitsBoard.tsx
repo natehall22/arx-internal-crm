@@ -10,9 +10,10 @@ import type { ShiftPreview, VisitView } from '@/lib/service-plans-db'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
+import VisitIncentiveMarks from '@/components/service-plans/VisitIncentiveMarks'
 
 type Crew = { id: string; name: string; hasPhoneLink: boolean; phone: string | null }
-type Load = { today: string; from: string; to: string; visits: VisitView[]; total: number; hasMore: boolean; canEdit: boolean; crews: Crew[] }
+type Load = { today: string; from: string; to: string; visits: VisitView[]; total: number; hasMore: boolean; canEdit: boolean; crews: Crew[]; incentiveMarks?: Record<string, { review: boolean; callback: boolean }> }
 type Sheet =
   | { kind: 'done'; visit: VisitView; result: string | null; notes: string }
   | { kind: 'skip'; visit: VisitView; reason: SkipReason | ''; notes: string }
@@ -247,6 +248,9 @@ export default function VisitsBoard() {
                                   <option key={c.id} value={c.id}>{c.name}</option>
                                 ))}
                               </Select>
+                            ) : null}
+                            {d.incentiveMarks && v.status === 'completed' ? (
+                              <VisitIncentiveMarks workOrderId={v.id} initial={d.incentiveMarks[v.id] ?? { review: false, callback: false }} onChanged={() => void load()} />
                             ) : null}
                             <FileDropZone compact accept="image/*" disabled={busy} label="Add photos (drop or tap)" onFiles={(files) => void onPhotos(v.id, files)} />
                             {v.photoCount ? (

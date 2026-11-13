@@ -117,6 +117,9 @@ import ReadyToBill from '@/components/billing/ReadyToBill'
 import HoursToBill from '@/components/billing/HoursToBill'
 import JobHourlyCard from '@/components/billing/JobHourlyCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
+import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSettingsCard'
+import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
+import { HARNESS_CREW_SCOREBOARD } from '@/e2e/fixtures'
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import PayClient from '@/components/pay/PayClient'
 import PortalHomeView from '@/components/portal/PortalHomeView'
@@ -709,6 +712,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'crew-day-on-the-way':
       return <CrewDayList token="harness-token-harness-token-harness-4" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} onTheWay />
+    case 'crew-incentives-settings':
+      return <div className="mx-auto max-w-md p-4"><CrewIncentivesSettingsCard /></div>
+    case 'crew-scoreboard':
+      return <div className="mx-auto max-w-md p-4"><CrewScoreboardCard data={HARNESS_CREW_SCOREBOARD as never} /></div>
     case 'hourly-settings':
       return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
     case 'customer-invoices':

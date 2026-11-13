@@ -1042,6 +1042,33 @@ export const HARNESS_PUBLIC_SELECTION = {
   signingUrl: null,
 }
 
+// Crew incentives (lawn_landscape): the owner's rules card and a crew's scoreboard.
+export const HARNESS_CREW_INCENTIVES = {
+  settings: {
+    enabled: true,
+    enabledAt: '2026-11-01T12:00:00.000Z',
+    doneRight: { on: true, onSince: '2026-11-01T12:00:00.000Z', amount: 10, split: 'even', holdDays: 3, minPhotos: 1 },
+    beatTime: { on: true, onSince: '2026-11-01T12:00:00.000Z', mode: 'percent', amount: 0, percent: 50, ratePerHour: 40, split: 'full' },
+    review: { on: true, onSince: '2026-11-01T12:00:00.000Z', amount: 25, split: 'even' },
+    weeklyTarget: { on: true, onSince: '2026-11-01T12:00:00.000Z', basis: 'visits', target: 12, amount: 60, split: 'even' },
+    deduction: { on: true, onSince: '2026-11-01T12:00:00.000Z', amount: 15, split: 'even' },
+  },
+}
+export const HARNESS_CREW_SCOREBOARD = {
+  weekEnding: '2026-11-18',
+  crews: [
+    {
+      subId: 'sub-1',
+      name: 'Green Team',
+      target: { basis: 'visits', goal: 12, done: 7, percent: 58, hit: false, amount: 60 },
+      totals: { earned: 30, pending: 15 },
+      people: [
+        { userId: 'u1', name: 'Maria Lopez', earned: 15, pending: 22.5, isMe: true },
+        { userId: 'u2', name: 'Chris Walker', earned: 15, pending: -7.5, isMe: false },
+      ],
+    },
+  ],
+}
 /** Saved yard measurements for the Customer File card: Home has two (newest + one older), Rental on Oak has none. */
 export const HARNESS_YARD_ROWS = [
   { id: 'm2', customer_id: 'cust-1', property_id: 'p1', opportunity_id: null, lead_id: null, address_text: '1 Harness Way', lat: 30.176, lng: -84.375, shapes: [], lawn_sqft: 12400, bed_sqft: 1080, cutout_sqft: 2600, line_feet: 340, totals: { materials: { mulchCuYd: 10, strawBales: 22, mulchDepthIn: 3, strawSqftPerBale: 50 } }, settings: { mulchDepthIn: 3, strawSqftPerBale: 50 }, created_by: 'u1', created_at: '2026-11-10T15:00:00Z' },
