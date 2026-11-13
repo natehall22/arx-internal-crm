@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { jobFilesKeyInOrg } from '@/lib/files/storage'
 
 // GET: Get single file with fresh signed URL
 export async function GET(
@@ -39,10 +41,11 @@ export async function GET(
     return NextResponse.json({ error: 'File not found' }, { status: 404 })
   }
 
-  // Generate fresh signed URL
-  const { data: signedUrl } = await supabase.storage
-    .from('job-files')
-    .createSignedUrl(file.storage_key, 3600)
+  // Generate fresh signed URL (service client; members have no storage policy on job-files, 202611240050).
+  // Only this company's folder is ever signed.
+  const { data: signedUrl } = jobFilesKeyInOrg(file.storage_key, profile.org_id)
+    ? await createServiceClient().storage.from('job-files').createSignedUrl(file.storage_key, 3600)
+    : { data: null }
 
   return NextResponse.json({
     file: {
@@ -160,10 +163,10 @@ export async function DELETE(
     return NextResponse.json({ error: 'File not found' }, { status: 404 })
   }
 
-  // Delete from storage
-  const { error: storageError } = await supabase.storage
-    .from('job-files')
-    .remove([file.storage_key])
+  // Delete from storage (service client; only this company's folder)
+  const { error: storageError } = jobFilesKeyInOrg(file.storage_key, profile.org_id)
+    ? await createServiceClient().storage.from('job-files').remove([file.storage_key])
+    : { error: null }
 
   if (storageError) {
     console.error('Storage delete error:', storageError)

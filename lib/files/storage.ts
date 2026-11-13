@@ -106,3 +106,14 @@ export function buildCostAttachmentStoragePath(args: {
   const finalName = buildStoredFileName(args.attachmentId, args.filename)
   return `${args.orgId}/jobs/${args.jobId}/costs/${finalName}`
 }
+
+/**
+ * The legacy `job-files` bucket keeps a company's objects under `orgs/<org id>/…`. Server routes read/write it with the
+ * service client (no member storage policies), so a key is only ever signed / removed when it sits in the caller's own
+ * company folder — a stored or posted key naming another company (or using `..`) is refused.
+ */
+export function jobFilesKeyInOrg(key: unknown, orgId: string): boolean {
+  if (typeof key !== 'string' || !orgId) return false
+  if (key.includes('..') || key.includes('\\')) return false
+  return key.startsWith(`orgs/${orgId}/`) && key.length > `orgs/${orgId}/`.length
+}

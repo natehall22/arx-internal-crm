@@ -5,17 +5,10 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { brandPatchFromGeneral, saveBrandSettings, staleDocumentSpellings } from '@/lib/org-brand'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { reassignOpenCheckups } from '@/lib/checkups'
-import { CHECKUPS_ASSIGNEE_KEY, CHECKUPS_SETTINGS_KEYS, canEditCheckupSettings, parseCheckupPatch } from '@/lib/checkups-settings'
-import { JOB_CATCH_UP_SETTINGS_KEYS, canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
+import { CHECKUPS_ASSIGNEE_KEY, canEditCheckupSettings, parseCheckupPatch } from '@/lib/checkups-settings'
+import { canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
 import { mergeOrgSettings } from '@/lib/org-settings'
-import { TIME_TRACKING_SETTINGS_KEY } from '@/lib/time-tracking'
-import { HOURLY_BILLING_SETTINGS_KEY } from '@/lib/hourly-billing'
-import { CUSTOMER_MESSAGES_SETTINGS_KEY } from '@/lib/customer-messages'
-import { QUOTE_APPROVAL_SETTINGS_KEY } from '@/lib/quotes/settings'
-import { ONLINE_PAYMENTS_SETTINGS_KEY } from '@/lib/online-payments/settings'
-import { PAY_WEEK_SETTINGS_KEY } from '@/lib/payroll-week-schedule'
 import { ORG_FEATURES_SETTINGS_KEY, parseOrgFeaturesPatch } from '@/lib/org-features'
-import { SALES_TAX_SETTINGS_KEY } from '@/lib/sales-tax'
 import { saveSalesTaxSettings } from '@/lib/sales-tax-server'
 
 export const dynamic = 'force-dynamic'
@@ -288,36 +281,9 @@ export async function PATCH(request: NextRequest) {
       return saveBrand()
     }
 
-    if (type === 'settings') {
-      // Update settings JSON field. `brand` is never taken from here: its one writer is the General save
-      // above (super admins only, saveBrandSettings). Nor are the job catch-up keys: only the admin-gated
-      // `job_catch_up` save writes them (managers can reach this path). Any OTHER key is still accepted from
-      // managers — pre-existing; Known Redundancy #25 (should become an allow-list).
-      // Feature switches (settings.features) are owner-only and written only by the `features` save above; the industry
-      // profile (settings.profile) only by /api/admin/industry-profile (owners).
-      // Sales tax (settings.salesTax) is owner-only and written only by the `salesTax` save above. The pay week
-      // (settings.payWeek) only by /api/admin/payroll/pay-week/schedule (super admins, savePayWeekSchedule).
-      // The AI connector settings (settings.aiConnector: extra allowed app addresses) are owner-only, written only by /api/admin/ai-connector.
-      // The time clock settings are owner-only too (`/api/admin/time/settings`, path ['timeTracking']), and so are the
-      // hourly billing rules (`/api/admin/hourly-billing`, path ['hourlyBilling']) and online payments (`/api/admin/online-payments`,
-      // path ['onlinePayments']), and automatic customer messages (`/api/admin/customer-messages`, path ['customerMessages']).
-      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, [SALES_TAX_SETTINGS_KEY]: _salesTax, [TIME_TRACKING_SETTINGS_KEY]: _timeTracking, [HOURLY_BILLING_SETTINGS_KEY]: _hourlyBilling, [PAY_WEEK_SETTINGS_KEY]: _payWeek, payrollExport: _payrollExport, paySheet: _paySheet, [ONLINE_PAYMENTS_SETTINGS_KEY]: _onlinePayments, [CUSTOMER_MESSAGES_SETTINGS_KEY]: _customerMessages, aiConnector: _aiConnector, quickbooks: _quickbooks, [QUOTE_APPROVAL_SETTINGS_KEY]: _quoteApproval, crewIncentives: _crewIncentives, profile: _profile, signing: _signing, leadIntake: _leadIntake, areaMeasure: _areaMeasure, ...rest } = data
-      const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k) && !CHECKUPS_SETTINGS_KEYS.includes(k)))
-      const { error } = await adminClient
-        .from('orgs')
-        .update({
-          settings: {
-            ...currentSettings,
-            ...settingsData,
-          }
-        })
-        .eq('id', profile.org_id)
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 })
-      }
-      return NextResponse.json({ success: true })
-    }
+    // No generic `type: 'settings'` save (removed 2026-11-13, security sweep #5): it merged ANY key from managers and operations
+    // into orgs.settings (a deny-list; e.g. customerPortal, notification_settings). No screen sent it. Every setting is saved by
+    // its own named `type` above/below or by its owner route (mergeOrgSettings). An unknown type falls through to 400.
 
     if (type === 'canvass_dispositions') {
       const { error } = await adminClient
