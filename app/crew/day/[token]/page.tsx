@@ -6,6 +6,8 @@ import { getDocumentBrand } from '@/lib/org-brand'
 import { activeCrewDay } from '@/lib/service-plans-access'
 import { SERVICE_STEP, ymdInZone } from '@/lib/service-plans'
 import { loadVisits } from '@/lib/service-plans-db'
+import { loadCrewMoney } from '@/lib/visit-collections-db'
+import type { CrewMoney } from '@/lib/visit-collections'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { loadClockState } from '@/lib/time-tracking-db'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -45,6 +47,11 @@ export default async function CrewDayPage({ params }: { params: { token: string 
   }
   const today = ymdInZone(new Date(), await loadOrgTimeZone(admin, crew.orgId))
   const visits = (await loadVisits(admin, crew.orgId, { from: today, to: today, subId: crew.subId, accessNotes: true })).filter((v) => v.status !== 'cancelled')
+  // What each customer still owes (one number; never a price line). A failed read just shows no money, never breaks the list.
+  const money = await loadCrewMoney(admin, crew.orgId, visits.filter((v) => v.status !== 'skipped').map((v) => ({ id: v.id, customerId: v.customerId }))).catch((e) => {
+    console.error('[crew-day] money load failed', e)
+    return {} as Record<string, CrewMoney>
+  })
   // The crew's time clock: only for a company using it and a crew that clocks in (subs never see a clock).
   const clock = (await isOrgFeatureOn(crew.orgId, 'timeTracking'))
     ? await loadClockState(admin, { via: 'crew_link', orgId: crew.orgId, subId: crew.subId }).catch((e) => {
@@ -77,6 +84,9 @@ export default async function CrewDayPage({ params }: { params: { token: string 
         skipReason: v.skipReason,
         photoCount: v.photoCount,
         routePosition: v.routePosition,
+        officeNotes: v.status === 'scheduled' ? v.officeNotes : null,
+        checklist: v.checklist,
+        money: money[v.id] ?? null,
       }))}
     />
   )

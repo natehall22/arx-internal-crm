@@ -18,7 +18,7 @@ import CheckupList from '@/components/checkups/CheckupList'
 import MoveFromJobber from '@/components/jobber-import/MoveFromJobber'
 import MoveSignedDocuments from '@/components/signed-import/MoveSignedDocuments'
 import { HARNESS_CHECKUPS } from '@/e2e/fixtures'
-import { HARNESS_CREW_DAY, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
+import { HARNESS_CREW_DAY, HARNESS_CREW_DAY_MONEY, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
 import JobClockCard from '@/components/time/JobClockCard'
 import TimeWeekClient from '@/components/time/TimeWeekClient'
 import TimeClockSettingsCard from '@/components/time/TimeClockSettingsCard'
@@ -760,6 +760,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'crew-day':
       return <CrewDayList token="harness-token-harness-token-harness-1" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} />
+    case 'crew-day-money':
+      return <CrewDayList token="harness-token-harness-token-harness-5" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY_MONEY as CrewDayVisit[]} />
     case 'crew-day-clock':
       return <CrewDayList token="harness-token-harness-token-harness-2" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} clock={HARNESS_CLOCK_STATE as unknown as ClockState} />
     case 'crew-day-clocked-in':

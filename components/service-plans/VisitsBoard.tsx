@@ -10,6 +10,7 @@ import type { ShiftPreview, VisitView } from '@/lib/service-plans-db'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
+import { checklistSummary } from '@/lib/visit-checklist'
 
 type Crew = { id: string; name: string; hasPhoneLink: boolean; phone: string | null }
 type Load = { today: string; from: string; to: string; visits: VisitView[]; total: number; hasMore: boolean; canEdit: boolean; crews: Crew[] }
@@ -184,9 +185,17 @@ export default function VisitsBoard() {
         const list = byDay.get(day) ?? []
         return (
           <section key={day} aria-label={formatDateWeekday(day)}>
-            <h2 className="mb-2 text-ui-lg font-semibold text-ink">
-              {formatDateWeekday(day)}
-              {day === d.today ? ' · Today' : ''} <span className="text-ui-base font-normal">({list.length})</span>
+            <h2 className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-ui-lg font-semibold text-ink">
+              <span>
+                {formatDateWeekday(day)}
+                {day === d.today ? ' · Today' : ''} <span className="text-ui-base font-normal">({list.length})</span>
+              </span>
+              {/* The same paper a crew prints from its phone link: one crew, one day (pick a crew above first). */}
+              {crew && crew !== 'mine' && crew !== 'none' && list.some((v) => v.status === 'scheduled') ? (
+                <a href={`/api/ops/visits/sheet?crew=${encodeURIComponent(crew)}&day=${day}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-tap items-center text-ui-base font-semibold text-brand-800 underline">
+                  Print sheet
+                </a>
+              ) : null}
             </h2>
             {list.length === 0 ? (
               <p className="text-ui-base text-ink">No visits.</p>
@@ -222,6 +231,12 @@ export default function VisitsBoard() {
                         </p>
                         {v.accessNotes && v.status === 'scheduled' ? <p className="whitespace-pre-wrap break-words rounded-ui bg-brand-50 px-3 py-1 text-ui-sm text-brand-900"><span className="font-semibold">Access: </span>{v.accessNotes}</p> : null}
                         {v.notes ? <p className="break-words text-ui-sm text-ink">Note: {v.notes}</p> : null}
+                        {v.checklist.length > 0 && (v.status !== 'scheduled' || v.checklist.some((c) => c.done)) ? (
+                          <p className="break-words text-ui-sm text-ink">
+                            <span className="font-semibold">{v.status === 'scheduled' ? 'Checked so far: ' : 'Services: '}</span>
+                            {checklistSummary(v.checklist)}
+                          </p>
+                        ) : null}
                         {d.canEdit ? (
                           <div className="flex flex-wrap gap-2 pt-1">
                             {v.status === 'scheduled' ? (
