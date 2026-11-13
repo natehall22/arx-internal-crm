@@ -100,6 +100,8 @@ import EmailBlastsPage from '@/app/admin/email-blasts/page'
 import GeneralSettingsCard, { type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
+import SigningSettingsCard from '@/components/admin/SigningSettingsCard'
+import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import OrgProfileCard from '@/components/admin/OrgProfileCard'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
@@ -415,6 +417,21 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return (
         <div className="mx-auto max-w-2xl p-4">
           <JobCatchUpSettingsCard initial={{ enabled: false, stuckDays: 7, canEdit: true }} />
+        </div>
+      )
+    case 'signing-settings':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <SigningSettingsCard />
+        </div>
+      )
+    case 'checkup-settings':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <CheckupSettingsCard
+            initial={{ enabled: false, inspectionMonths: [6, 12], touchEveryMonths: 12, assigneeUserId: 'u-nathan', canEdit: true }}
+            users={[{ id: 'u-nathan', name: 'Nathan Hall' }, { id: 'u-andrew', name: 'Andrew Waltz' }]}
+          />
         </div>
       )
     case 'org-features':
