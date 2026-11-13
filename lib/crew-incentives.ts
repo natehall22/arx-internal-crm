@@ -10,16 +10,21 @@
  *
  * Five rules, each on/off with company-set amounts, each with a split mode:
  *  1. doneRight    — $X per completed visit / work order with its done photos and no staff-marked callback within N days.
- *  2. beatTime     — finished under its budgeted hours (work_orders.estimated_hours, else the job's): $Y flat, or Z% of
- *                    (hours saved × the company's $/hour value of an hour).
+ *  2. beatTime     — TIME ON SITE (first clock-in to last clock-out on the visit, wall clock, not man-hours) under the
+ *                    budget (work_orders.estimated_hours, else the job's): $Y flat, or Z% of (hours saved × the company's
+ *                    $/hour value of an hour).
  *  3. review       — $X when staff mark that a 5-star review named the crew.
  *  4. weeklyTarget — the crew hit N completed visits (or $N of completed visit price) in the pay week: the crew splits $X.
  *  5. deduction    — a callback / redo marked by staff takes back $X (a NEGATIVE line, same approval).
  *
  * Money is handled in whole cents; a split never creates or loses a cent.
+ *
+ * No back pay (owner decision): a rule pays only for work finished AFTER the rule (and the master switch) was turned on —
+ * the server stamps `onSince` / `enabledAt`; marking an old visit never pays or deducts for it.
+ * Deductions only take back BONUS money: they never go below the person's crew bonuses that week (the rest is dropped).
  */
 import { missingRequiredPhotoTags } from '@/lib/final-photo-tags'
-import { localYmd, mergeIntervals, subtractIntervals, totalSeconds, type Interval, type TimeEntry } from '@/lib/time-tracking'
+import { localYmd, type TimeEntry } from '@/lib/time-tracking'
 
 export const CREW_INCENTIVES_SETTINGS_KEY = 'crewIncentives'
 
@@ -55,15 +60,19 @@ export const RULE_LABELS: Record<RuleKey, string> = {
   deduction: 'Callback or redo',
 }
 
-export type DoneRightRule = { on: boolean; amount: number; split: SplitMode; holdDays: number; minPhotos: number }
-export type BeatTimeRule = { on: boolean; mode: 'flat' | 'percent'; amount: number; percent: number; ratePerHour: number; split: SplitMode }
-export type ReviewRule = { on: boolean; amount: number; split: SplitMode }
-export type WeeklyTargetRule = { on: boolean; basis: 'visits' | 'dollars'; target: number; amount: number; split: SplitMode }
-export type DeductionRule = { on: boolean; amount: number; split: SplitMode }
+/** `onSince`: when the rule was turned on (set by the server only; null = not live). Work finished before it never pays. */
+type Stamped = { onSince: string | null }
+export type DoneRightRule = Stamped & { on: boolean; amount: number; split: SplitMode; holdDays: number; minPhotos: number }
+export type BeatTimeRule = Stamped & { on: boolean; mode: 'flat' | 'percent'; amount: number; percent: number; ratePerHour: number; split: SplitMode }
+export type ReviewRule = Stamped & { on: boolean; amount: number; split: SplitMode }
+export type WeeklyTargetRule = Stamped & { on: boolean; basis: 'visits' | 'dollars'; target: number; amount: number; split: SplitMode }
+export type DeductionRule = Stamped & { on: boolean; amount: number; split: SplitMode }
 
 export type CrewIncentiveSettings = {
   /** Master switch (default off). Does nothing unless the company's industry profile is lawn_landscape. */
   enabled: boolean
+  /** When the master switch was turned on (server-stamped). */
+  enabledAt: string | null
   doneRight: DoneRightRule
   beatTime: BeatTimeRule
   review: ReviewRule
@@ -78,11 +87,12 @@ export const MAX_TARGET = 1_000_000
 
 const DEFAULTS: CrewIncentiveSettings = {
   enabled: false,
-  doneRight: { on: false, amount: 0, split: 'even', holdDays: 3, minPhotos: 1 },
-  beatTime: { on: false, mode: 'flat', amount: 0, percent: 0, ratePerHour: 0, split: 'even' },
-  review: { on: false, amount: 0, split: 'even' },
-  weeklyTarget: { on: false, basis: 'visits', target: 0, amount: 0, split: 'even' },
-  deduction: { on: false, amount: 0, split: 'even' },
+  enabledAt: null,
+  doneRight: { on: false, onSince: null, amount: 0, split: 'even', holdDays: 3, minPhotos: 1 },
+  beatTime: { on: false, onSince: null, mode: 'flat', amount: 0, percent: 0, ratePerHour: 0, split: 'even' },
+  review: { on: false, onSince: null, amount: 0, split: 'even' },
+  weeklyTarget: { on: false, onSince: null, basis: 'visits', target: 0, amount: 0, split: 'even' },
+  deduction: { on: false, onSince: null, amount: 0, split: 'even' },
 }
 export const DEFAULT_CREW_INCENTIVE_SETTINGS: Readonly<CrewIncentiveSettings> = Object.freeze(DEFAULTS)
 
@@ -95,6 +105,7 @@ const whole = (v: unknown, fallback: number, max: number): number => {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN
   return Number.isInteger(n) && n >= 0 && n <= max ? n : fallback
 }
+const stamp = (v: unknown): string | null => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : null)
 const split = (v: unknown, fallback: SplitMode): SplitMode => ((SPLIT_MODES as readonly unknown[]).includes(v) ? (v as SplitMode) : fallback)
 
 /** Stored (or missing / hand-edited) settings → a complete, valid object. Anything wrong falls back to the default for that field. */
@@ -108,18 +119,20 @@ export function readCrewIncentiveSettings(stored: unknown): CrewIncentiveSetting
   const dd = obj(s.deduction)
   return {
     enabled: s.enabled === true,
-    doneRight: { on: dr.on === true, amount: money(dr.amount, d.doneRight.amount), split: split(dr.split, d.doneRight.split), holdDays: whole(dr.holdDays, d.doneRight.holdDays, MAX_HOLD_DAYS), minPhotos: whole(dr.minPhotos, d.doneRight.minPhotos, MAX_MIN_PHOTOS) },
+    enabledAt: stamp(s.enabledAt),
+    doneRight: { on: dr.on === true, onSince: stamp(dr.onSince), amount: money(dr.amount, d.doneRight.amount), split: split(dr.split, d.doneRight.split), holdDays: whole(dr.holdDays, d.doneRight.holdDays, MAX_HOLD_DAYS), minPhotos: whole(dr.minPhotos, d.doneRight.minPhotos, MAX_MIN_PHOTOS) },
     beatTime: {
       on: bt.on === true,
+      onSince: stamp(bt.onSince),
       mode: bt.mode === 'percent' ? 'percent' : 'flat',
       amount: money(bt.amount, d.beatTime.amount),
       percent: money(bt.percent, d.beatTime.percent) <= 100 ? money(bt.percent, d.beatTime.percent) : d.beatTime.percent,
       ratePerHour: money(bt.ratePerHour, d.beatTime.ratePerHour),
       split: split(bt.split, d.beatTime.split),
     },
-    review: { on: rv.on === true, amount: money(rv.amount, d.review.amount), split: split(rv.split, d.review.split) },
-    weeklyTarget: { on: wt.on === true, basis: wt.basis === 'dollars' ? 'dollars' : 'visits', target: whole(wt.target, d.weeklyTarget.target, MAX_TARGET), amount: money(wt.amount, d.weeklyTarget.amount), split: split(wt.split, d.weeklyTarget.split) },
-    deduction: { on: dd.on === true, amount: money(dd.amount, d.deduction.amount), split: split(dd.split, d.deduction.split) },
+    review: { on: rv.on === true, onSince: stamp(rv.onSince), amount: money(rv.amount, d.review.amount), split: split(rv.split, d.review.split) },
+    weeklyTarget: { on: wt.on === true, onSince: stamp(wt.onSince), basis: wt.basis === 'dollars' ? 'dollars' : 'visits', target: whole(wt.target, d.weeklyTarget.target, MAX_TARGET), amount: money(wt.amount, d.weeklyTarget.amount), split: split(wt.split, d.weeklyTarget.split) },
+    deduction: { on: dd.on === true, onSince: stamp(dd.onSince), amount: money(dd.amount, d.deduction.amount), split: split(dd.split, d.deduction.split) },
   }
 }
 
@@ -141,22 +154,41 @@ export function ruleIsLive(s: CrewIncentiveSettings, k: RuleKey): boolean {
 export const anyRuleLive = (s: CrewIncentiveSettings): boolean => RULE_KEYS.some((k) => ruleIsLive(s, k))
 
 /**
+ * The instant from which a rule pays: the later of the master switch and the rule being turned on. Work finished before it
+ * is never paid (no back pay). Null (a stamp is missing) = the rule pays nothing — it fails closed.
+ */
+export function liveSince(s: CrewIncentiveSettings, k: RuleKey): number | null {
+  const a = s.enabledAt ? Date.parse(s.enabledAt) : NaN
+  const b = s[k].onSince ? Date.parse(s[k].onSince as string) : NaN
+  return Number.isNaN(a) || Number.isNaN(b) ? null : Math.max(a, b)
+}
+/** True when something finished at `at` is covered by the rule (turned on before it finished). */
+export function coveredByRule(s: CrewIncentiveSettings, k: RuleKey, at: string | Date): boolean {
+  const since = liveSince(s, k)
+  const t = typeof at === 'string' ? Date.parse(at) : at.getTime()
+  return since != null && !Number.isNaN(t) && t >= since
+}
+
+/**
  * A save from Settings: `{ crewIncentives: { enabled?, doneRight?: {...}, … } }` → the top-level keys to write at path
  * ['crewIncentives'] (each rule replaced whole, merged over `current` so a partial rule keeps its other fields), or why not.
  * A wrong value is an error, never silently replaced.
  */
-export function parseCrewIncentivesPatch(body: unknown, current: CrewIncentiveSettings): { set: Record<string, unknown> } | { error: string } {
+export function parseCrewIncentivesPatch(body: unknown, current: CrewIncentiveSettings, now: Date = new Date()): { set: Record<string, unknown> } | { error: string } {
   const patch = obj(obj(body)[CREW_INCENTIVES_SETTINGS_KEY])
   const set: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(patch)) {
+    if (k === 'enabledAt') continue // server-stamped, never taken from the browser
     if (k === 'enabled') {
       if (typeof v !== 'boolean') return { error: 'Crew incentives must be on or off' }
       set.enabled = v
+      set.enabledAt = !v ? null : current.enabled && current.enabledAt ? current.enabledAt : now.toISOString()
       continue
     }
     if (!(RULE_KEYS as readonly string[]).includes(k)) return { error: `Unknown setting: ${k}` }
     const rk = k as RuleKey
-    const given = obj(v)
+    const given = { ...obj(v) }
+    delete given.onSince // server-stamped
     const merged = { ...(current[rk] as Record<string, unknown>), ...given }
     for (const [f, fv] of Object.entries(given)) {
       if (!(f in (DEFAULT_CREW_INCENTIVE_SETTINGS[rk] as Record<string, unknown>))) return { error: `Unknown setting: ${k}.${f}` }
@@ -170,7 +202,11 @@ export function parseCrewIncentivesPatch(body: unknown, current: CrewIncentiveSe
       if (f === 'minPhotos' && whole(fv, -1, MAX_MIN_PHOTOS) < 0) return { error: `Photos must be a whole number from 0 to ${MAX_MIN_PHOTOS}` }
       if (f === 'target' && whole(fv, -1, MAX_TARGET) < 0) return { error: 'The target must be a whole number' }
     }
-    set[rk] = readCrewIncentiveSettings({ [rk]: merged })[rk]
+    const next = readCrewIncentiveSettings({ [rk]: merged })[rk]
+    // Turning a rule on stamps the moment (no back pay); turning it off clears it so a later "on" stamps again.
+    const was = current[rk]
+    next.onSince = !next.on ? null : was.on && was.onSince ? was.onSince : now.toISOString()
+    set[rk] = next
   }
   if (Object.keys(set).length === 0) return { error: 'Nothing to save' }
   return { set }
@@ -205,25 +241,24 @@ export function splitCents(totalCents: number, userIds: readonly string[], mode:
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * Person-hours worked on one work order: each person's work entries there, minus their breaks (breaks have no work order,
- * so every break entry of the same person counts). Open entries are ignored (not finished). `entries` may hold anyone's.
+ * TIME ON SITE for one work order (owner decision: wall clock, not man-hours): from the first clock-in to the last clock-out
+ * of anyone's work entries on it. `open` = somebody is still clocked in on it (the visit is not finished being timed, so no
+ * rule pays yet). `hours` is null when nobody clocked it.
  */
-export function workOrderHours(entries: readonly TimeEntry[], workOrderId: string): number {
-  const people = new Set<string>()
-  for (const e of entries) if (e.kind === 'work' && e.workOrderId === workOrderId && e.userId) people.add(e.userId)
-  let seconds = 0
-  for (const u of Array.from(people)) {
-    const work: Interval[] = []
-    const breaks: Interval[] = []
-    for (const e of entries) {
-      if (e.userId !== u || !e.endedAt) continue
-      const iv = { start: Date.parse(e.startedAt), end: Date.parse(e.endedAt) }
-      if (e.kind === 'work' && e.workOrderId === workOrderId) work.push(iv)
-      else if (e.kind === 'break') breaks.push(iv)
+export function timeOnSite(entries: readonly TimeEntry[], workOrderId: string): { hours: number | null; open: boolean } {
+  let first = Infinity
+  let last = -Infinity
+  let open = false
+  for (const e of entries) {
+    if (e.kind !== 'work' || e.workOrderId !== workOrderId) continue
+    if (!e.endedAt) {
+      open = true
+      continue
     }
-    seconds += totalSeconds(subtractIntervals(mergeIntervals(work), breaks))
+    first = Math.min(first, Date.parse(e.startedAt))
+    last = Math.max(last, Date.parse(e.endedAt))
   }
-  return seconds / 3600
+  return { hours: first === Infinity || last <= first ? null : (last - first) / 3_600_000, open }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -245,8 +280,13 @@ export type VisitFacts = {
   callbackAt: string | null
   reviewAt: string | null
   budgetHours: number | null
-  /** Person-hours from the time clock; null = nobody clocked it (the rule skips). */
+  /** Time on site (first clock-in to last clock-out, hours); null = nobody clocked it (the rule skips). */
   actualHours: number | null
+  /** Somebody is still clocked in on it: nothing is proposed for the visit yet. */
+  clockOpen?: boolean
+  /** Who marked it (staff name, shown on the line). */
+  reviewBy?: string | null
+  callbackBy?: string | null
 }
 
 export type PlannedLine = {
@@ -258,7 +298,7 @@ export type PlannedLine = {
   reason: string
   /** Unique per (rule, visit or crew-week, person): the proposal is made once, ever. */
   sourceKey: string
-  /** The work order (or the crew) the line is about — payroll_bonus_lines.source_id. */
+  /** The work order (or crew-week seed) the line is about — payroll_bonus_lines.source_id (the server turns a seed into a uuid). */
   sourceId: string
   /** When it was earned: picks the pay week. */
   earnedAt: Date
@@ -271,6 +311,7 @@ const mmdd = (iso: string | Date, tz: string): string => {
   return `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`
 }
 const label = (v: Pick<VisitFacts, 'number'>) => v.number || 'visit'
+const markedBy = (name: string | null | undefined) => (name ? ` (marked by ${name})` : '')
 const hoursText = (h: number) => `${Math.round(h * 100) / 100} h`
 
 /** Done photos present: a job's work order needs the four walk-around angles; a plain visit needs the company's minimum count. */
@@ -281,9 +322,16 @@ export function hasDonePhotos(v: Pick<VisitFacts, 'isJobWorkOrder' | 'photoCount
 
 const DAY = 86_400_000
 
+/** Crew work = the plan's own visit (or a job work order); follow-on inspection steps are not crew work. */
+export const isCrewWorkVisit = (visitStep: string | null | undefined): boolean => visitStep == null || visitStep === 'service'
+
+/** ONE rule for "this finished visit counts toward the weekly target" — the run and the scoreboard both use it. */
+export const countsForWeeklyTarget = (s: CrewIncentiveSettings, v: { visit_step?: string | null; completed_at?: string | null }): boolean =>
+  !!v.completed_at && isCrewWorkVisit(v.visit_step) && coveredByRule(s, 'weeklyTarget', v.completed_at)
+
 /** Bonus lines a completed visit earns under rules 1–3 and the deduction (rule 5). Pure: nothing is written. */
 export function planVisitLines(s: CrewIncentiveSettings, v: VisitFacts, now: Date, tz: string): PlannedLine[] {
-  if (!s.enabled || v.members.length === 0) return []
+  if (!s.enabled || v.members.length === 0 || v.clockOpen) return []
   const out: PlannedLine[] = []
   const done = mmdd(v.completedAt, tz)
   const completed = new Date(v.completedAt)
@@ -297,7 +345,7 @@ export function planVisitLines(s: CrewIncentiveSettings, v: VisitFacts, now: Dat
 
   // 1. Done right: photos, no callback marked, and the waiting days have passed without one.
   const dr = s.doneRight
-  if (ruleIsLive(s, 'doneRight')) {
+  if (ruleIsLive(s, 'doneRight') && coveredByRule(s, 'doneRight', v.completedAt)) {
     const heldUntil = completed.getTime() + dr.holdDays * DAY
     if (!v.callbackAt && now.getTime() >= heldUntil && hasDonePhotos(v, dr.minPhotos)) {
       push('doneRight', Math.round(dr.amount * 100), dr.split, `Visit done right — ${label(v)}, ${done}`, completed)
@@ -306,20 +354,20 @@ export function planVisitLines(s: CrewIncentiveSettings, v: VisitFacts, now: Dat
 
   // 2. Beat the time: clocked and finished under the budget.
   const bt = s.beatTime
-  if (ruleIsLive(s, 'beatTime') && v.budgetHours != null && v.budgetHours > 0 && v.actualHours != null && v.actualHours > 0 && v.actualHours < v.budgetHours) {
+  if (ruleIsLive(s, 'beatTime') && coveredByRule(s, 'beatTime', v.completedAt) && v.budgetHours != null && v.budgetHours > 0 && v.actualHours != null && v.actualHours > 0 && v.actualHours < v.budgetHours) {
     const saved = Math.round((v.budgetHours - v.actualHours) * 100) / 100
     const total = bt.mode === 'flat' ? Math.round(bt.amount * 100) : Math.round((bt.percent / 100) * saved * bt.ratePerHour * 100)
-    push('beatTime', total, bt.split, `Beat the time — ${label(v)}, ${done} (saved ${hoursText(saved)})`, completed)
+    push('beatTime', total, bt.split, `Beat the time — ${label(v)}, ${done} (on site ${hoursText(v.actualHours)}, budget ${hoursText(v.budgetHours)})`, completed)
   }
 
   // 3. A 5-star review named the crew (staff marked it).
-  if (ruleIsLive(s, 'review') && v.reviewAt) {
-    push('review', Math.round(s.review.amount * 100), s.review.split, `5-star review named the crew — ${label(v)}, ${done}`, new Date(v.reviewAt))
+  if (ruleIsLive(s, 'review') && v.reviewAt && coveredByRule(s, 'review', v.completedAt)) {
+    push('review', Math.round(s.review.amount * 100), s.review.split, `5-star review named the crew — ${label(v)}, ${done}${markedBy(v.reviewBy)}`, new Date(v.reviewAt))
   }
 
   // 5. A callback / redo marked by staff takes the amount back (a negative line, same approval).
-  if (ruleIsLive(s, 'deduction') && v.callbackAt) {
-    push('deduction', -Math.round(s.deduction.amount * 100), s.deduction.split, `Callback or redo — ${label(v)}, ${done}`, new Date(v.callbackAt))
+  if (ruleIsLive(s, 'deduction') && v.callbackAt && coveredByRule(s, 'deduction', v.completedAt)) {
+    push('deduction', -Math.round(s.deduction.amount * 100), s.deduction.split, `Callback or redo — ${label(v)}, ${done}${markedBy(v.callbackBy)}`, new Date(v.callbackAt))
   }
   return out
 }
@@ -348,7 +396,7 @@ export function planWeeklyLines(s: CrewIncentiveSettings, w: CrewWeek): PlannedL
   const out: PlannedLine[] = []
   for (const [userId, cents] of Array.from(splitCents(Math.round(t.amount * 100), w.members, t.split))) {
     if (cents === 0) continue
-    out.push({ rule: 'weeklyTarget', userId, cents, reason, sourceKey: sourceKey('weeklyTarget', w.subId, userId, w.weekEnding), sourceId: w.subId, earnedAt: w.earnedAt })
+    out.push({ rule: 'weeklyTarget', userId, cents, reason, sourceKey: sourceKey('weeklyTarget', w.subId, userId, w.weekEnding), sourceId: `${w.subId}|${w.weekEnding}`, earnedAt: w.earnedAt })
   }
   return out
 }
@@ -360,4 +408,23 @@ export function targetProgress(s: CrewIncentiveSettings, w: Pick<CrewWeek, 'visi
   const have = t.basis === 'visits' ? w.visits : w.dollars
   const percent = Math.min(100, Math.floor((have / t.target) * 100))
   return { basis: t.basis, goal: t.basis === 'visits' ? t.target : null, done: t.basis === 'visits' ? w.visits : null, percent, hit: have >= t.target, amount: t.amount }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Deductions only take back bonus money
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const DEDUCTION_LIMITED_TEXT = 'Deduction limited to bonuses earned this week'
+
+/**
+ * A deduction takes back crew BONUS money only: within a pay week a person's crew deductions can bring their crew-bonus
+ * total down to $0 and no lower (never base pay or the weekly minimum). `roomCents` = the person's crew bonuses that week
+ * (pending + approved + paid) minus deductions already counted. What is left over is dropped, not carried.
+ * The database trigger `crew_deduction_cap` enforces the same rule on every write and when a bonus is rejected later.
+ */
+export function capDeductionCents(wantCents: number, roomCents: number): { cents: number; limited: boolean } {
+  const want = Math.abs(wantCents)
+  const room = Math.max(0, roomCents)
+  const taken = Math.min(want, room)
+  return { cents: taken === 0 ? 0 : -taken, limited: taken < want }
 }

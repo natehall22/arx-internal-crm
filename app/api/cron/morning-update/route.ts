@@ -88,11 +88,6 @@ export async function GET(request: NextRequest) {
         console.error(`[cron/morning-update] service visits failed for org ${orgId}:`, error)
       })
     }
-    // Crew incentives (lawn_landscape companies that turned them on; any other company returns before reading a visit): bonus
-    // lines proposed onto the open pay week, pending until an owner approves them. Idempotent.
-    await runCrewIncentives(admin, orgId, { now }).catch((error) => {
-      console.error(`[cron/morning-update] crew incentives failed for org ${orgId}:`, error)
-    })
     // Commission changes that couldn't be written yet (an approval was running, the new pay week isn't on, or an
     // unexpected database error): retried every morning (lib/payroll-commission-change.ts; nothing waiting = one empty
     // read). Not behind the hourly billing switch: pay already owed must not stop because the switch was turned off.
@@ -110,6 +105,12 @@ export async function GET(request: NextRequest) {
         console.error(`[cron/morning-update] time clock auto-close failed for org ${orgId}:`, error)
       })
     }
+    // Crew incentives (lawn_landscape companies that turned them on; any other company returns before reading a visit): bonus
+    // lines proposed onto the open pay week, pending until an owner approves them. Idempotent. AFTER the forgotten-clock close
+    // above, so a visit whose clock was left running is closed first (a visit with a clock still open is skipped).
+    await runCrewIncentives(admin, orgId, { now }).catch((error) => {
+      console.error(`[cron/morning-update] crew incentives failed for org ${orgId}:`, error)
+    })
     // Automatic payments whose retry day has come are tried again (online payments companies; each retry claimed once).
     if (await onlinePaymentsOn(orgId)) {
       await runAutopayRetries(admin, orgId, now).catch((error) => {

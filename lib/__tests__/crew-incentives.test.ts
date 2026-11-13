@@ -1,13 +1,20 @@
 /** Crew incentive rules (pure): each rule, the split modes, the deduction, settings parsing. */
 import {
   DEFAULT_CREW_INCENTIVE_SETTINGS,
+  DEDUCTION_LIMITED_TEXT,
+  RULE_KEYS,
+  capDeductionCents,
+  countsForWeeklyTarget,
+  coveredByRule,
+  liveSince,
   parseCrewIncentivesPatch,
   planVisitLines,
   planWeeklyLines,
   readCrewIncentiveSettings,
   splitCents,
   targetProgress,
-  workOrderHours,
+  timeOnSite,
+  type RuleKey,
   type CrewIncentiveSettings,
   type VisitFacts,
 } from '@/lib/crew-incentives'
@@ -20,10 +27,14 @@ const B = 'aaaaaaaa-0000-4000-8000-000000000002'
 const C = 'aaaaaaaa-0000-4000-8000-000000000003'
 const NOW = new Date('2026-11-20T15:00:00Z')
 
-const settings = (over: Partial<CrewIncentiveSettings> = {}): CrewIncentiveSettings => ({
-  ...readCrewIncentiveSettings({ enabled: true }),
-  ...over,
-})
+const EARLY = '2026-01-01T00:00:00.000Z' // everything below was turned on long before the visits (no back-pay cut-off applies)
+type Over = { [K in RuleKey]?: Partial<CrewIncentiveSettings[K]> } & { enabled?: boolean; enabledAt?: string | null }
+const settings = (over: Over = {}): CrewIncentiveSettings => {
+  const base = readCrewIncentiveSettings({ enabled: true, enabledAt: EARLY, ...Object.fromEntries(RULE_KEYS.map((k) => [k, { onSince: EARLY }])) })
+  const out = { ...base, ...(over.enabled !== undefined ? { enabled: over.enabled } : {}), ...(over.enabledAt !== undefined ? { enabledAt: over.enabledAt } : {}) } as Record<string, unknown>
+  for (const k of RULE_KEYS) out[k] = { ...(base[k] as object), ...((over[k] as object) ?? {}) }
+  return out as unknown as CrewIncentiveSettings
+}
 const visit = (over: Partial<VisitFacts> = {}): VisitFacts => ({
   id: 'wo1', number: 'WO-00123', completedAt: '2026-11-12T15:00:00Z', isJobWorkOrder: false, members: [A, B], photoCount: 2, photoTags: [],
   callbackAt: null, reviewAt: null, budgetHours: null, actualHours: null, ...over,
@@ -92,7 +103,7 @@ describe('rule 2: beat the time', () => {
   it('flat bonus when under budget', () => {
     const lines = planVisitLines(flat, visit({ budgetHours: 4, actualHours: 3 }), NOW, TZ)
     expect(sum(lines)).toBe(2000)
-    expect(lines[0].reason).toBe('Beat the time — WO-00123, 11/12 (saved 1 h)')
+    expect(lines[0].reason).toBe('Beat the time — WO-00123, 11/12 (on site 3 h, budget 4 h)')
   })
   it('percent of hours saved x the hourly value', () => {
     // saved 1.5 h x $40 x 50% = $30 each (full)
@@ -105,18 +116,29 @@ describe('rule 2: beat the time', () => {
     expect(planVisitLines(flat, visit({ budgetHours: null, actualHours: 1 }), NOW, TZ)).toEqual([])
     expect(planVisitLines(flat, visit({ budgetHours: 4, actualHours: null }), NOW, TZ)).toEqual([])
   })
-  it('person-hours from the clock, minus breaks, unfinished entries ignored', () => {
+  it('time on site is wall clock: first clock-in to last clock-out, not man-hours, breaks not taken out', () => {
     const e = (id: string, userId: string, kind: 'work' | 'break', s: string, en: string | null, wo: string | null): TimeEntry => ({
       id, userId, subId: null, workOrderId: wo, jobId: null, kind, startedAt: s, endedAt: en, source: 'lead_tap', endSource: 'lead_tap', closedForTravel: false, needsReview: false, reviewNote: null, pricebookItemId: null, tappedBy: null, endedBy: null,
     })
-    const entries = [
+    // Two people, 13:00-16:00 and 14:00-15:00, a break in the middle: 3 hours on site, not 4 man-hours or 3.5 minus the break.
+    const done = [
       e('1', A, 'work', '2026-11-12T13:00:00Z', '2026-11-12T16:00:00Z', 'wo1'),
       e('2', A, 'break', '2026-11-12T14:00:00Z', '2026-11-12T14:30:00Z', null),
-      e('3', B, 'work', '2026-11-12T13:00:00Z', '2026-11-12T15:00:00Z', 'wo1'),
-      e('4', B, 'work', '2026-11-12T15:00:00Z', null, 'wo1'),
+      e('3', B, 'work', '2026-11-12T14:00:00Z', '2026-11-12T15:00:00Z', 'wo1'),
       e('5', B, 'work', '2026-11-12T17:00:00Z', '2026-11-12T19:00:00Z', 'other'),
     ]
-    expect(workOrderHours(entries, 'wo1')).toBe(2.5 + 2)
+    expect(timeOnSite(done, 'wo1')).toEqual({ hours: 3, open: false })
+    expect(timeOnSite(done, 'nobody')).toEqual({ hours: null, open: false })
+    // Anyone still clocked in on it: the visit is not finished being timed.
+    expect(timeOnSite([...done, e('4', B, 'work', '2026-11-12T15:00:00Z', null, 'wo1')], 'wo1').open).toBe(true)
+  })
+  it('a visit with a clock still open pays nothing under any rule', () => {
+    const all = settings({ doneRight: { on: true, amount: 10 }, review: { on: true, amount: 5 }, deduction: { on: true, amount: 5 } })
+    expect(planVisitLines(all, visit({ budgetHours: 4, actualHours: 3, clockOpen: true, reviewAt: '2026-11-18T12:00:00Z', callbackAt: '2026-11-18T12:00:00Z' }), NOW, TZ)).toEqual([])
+  })
+  it('the reason says what was beaten: time on site against the budget', () => {
+    const lines = planVisitLines(flat, visit({ budgetHours: 4, actualHours: 3 }), NOW, TZ)
+    expect(lines[0].reason).toBe('Beat the time — WO-00123, 11/12 (on site 3 h, budget 4 h)')
   })
 })
 
@@ -127,6 +149,10 @@ describe('rule 3: review names the crew', () => {
     const lines = planVisitLines(s, visit({ reviewAt: '2026-11-18T12:00:00Z' }), NOW, TZ)
     expect(lines.map((l) => l.cents)).toEqual([1250, 1250])
     expect(lines[0].sourceKey).toBe(`crew:review:wo1:${A}`)
+  })
+  it('the line names who marked it (staff, never the customer)', () => {
+    const lines = planVisitLines(s, visit({ reviewAt: '2026-11-18T12:00:00Z', reviewBy: 'Dana Office' }), NOW, TZ)
+    expect(lines[0].reason).toBe('5-star review named the crew — WO-00123, 11/12 (marked by Dana Office)')
   })
 })
 
@@ -139,6 +165,8 @@ describe('rule 4: weekly target', () => {
     expect(sum(lines)).toBe(10000)
     expect(lines[0].reason).toBe('Weekly crew target hit — week ending 11/18 (10 visits)')
     expect(lines[0].sourceKey).toBe(`crew:weeklyTarget:sub1:2026-11-18:${A}`)
+    // A per-week seed, so two weeks' lines rolled onto one open pay week never share a source id.
+    expect(lines[0].sourceId).toBe('sub1|2026-11-18')
   })
   it('dollars basis, full mode', () => {
     const s = settings({ weeklyTarget: { on: true, basis: 'dollars', target: 1000, amount: 50, split: 'full' } })
@@ -159,6 +187,7 @@ describe('rule 5: deduction', () => {
     const lines = planVisitLines(s, visit({ callbackAt: '2026-11-14T10:00:00Z' }), NOW, TZ)
     expect(lines.map((l) => l.cents)).toEqual([-1500, -1500])
     expect(lines[0].reason).toBe('Callback or redo — WO-00123, 11/12')
+    expect(planVisitLines(s, visit({ callbackAt: '2026-11-14T10:00:00Z', callbackBy: 'Dana Office' }), NOW, TZ)[0].reason).toBe('Callback or redo — WO-00123, 11/12 (marked by Dana Office)')
     expect(lines[0].sourceKey).toBe(`crew:deduction:wo1:${A}`)
   })
   it('full mode takes the whole amount from each', () => {
@@ -166,6 +195,59 @@ describe('rule 5: deduction', () => {
   })
   it('no mark, no deduction', () => {
     expect(planVisitLines(s, visit(), NOW, TZ)).toEqual([])
+  })
+  it('only takes back bonus money: capped at what the person has, the rest dropped (never lower than $0)', () => {
+    expect(capDeductionCents(-1500, 4000)).toEqual({ cents: -1500, limited: false })
+    expect(capDeductionCents(-1500, 500)).toEqual({ cents: -500, limited: true })
+    expect(capDeductionCents(-1500, 0)).toEqual({ cents: 0, limited: true })
+    expect(capDeductionCents(-1500, -300)).toEqual({ cents: 0, limited: true }) // never a negative room
+    expect(DEDUCTION_LIMITED_TEXT).toBe('Deduction limited to bonuses earned this week')
+  })
+})
+
+describe('no back pay (owner decision): a rule pays only for work finished after it was turned on', () => {
+  const on = (since: string) => settings({ enabledAt: EARLY, doneRight: { on: true, amount: 10, onSince: since }, review: { on: true, amount: 5, onSince: since }, deduction: { on: true, amount: 5, onSince: since }, beatTime: { on: true, amount: 5, onSince: since } })
+  const all = (extra: Partial<VisitFacts> = {}) => visit({ budgetHours: 4, actualHours: 3, reviewAt: '2026-11-18T12:00:00Z', callbackAt: null, ...extra })
+  it('work finished before the rule was turned on earns nothing; after it, everything', () => {
+    const rules = (lines: ReturnType<typeof planVisitLines>) => Array.from(new Set(lines.map((l) => l.rule))).sort()
+    expect(rules(planVisitLines(on('2026-11-13T00:00:00.000Z'), all(), NOW, TZ))).toEqual([]) // visit done 11/12
+    expect(rules(planVisitLines(on('2026-11-12T00:00:00.000Z'), all(), NOW, TZ))).toEqual(['beatTime', 'doneRight', 'review'])
+  })
+  it('marking an OLD visit pays and deducts nothing', () => {
+    const s = on('2026-11-13T00:00:00.000Z')
+    expect(planVisitLines(s, visit({ reviewAt: '2026-11-18T12:00:00Z', callbackAt: '2026-11-18T12:00:00Z' }), NOW, TZ)).toEqual([])
+  })
+  it('the master switch counts too: a rule that was on earlier still waits for the switch', () => {
+    const s = settings({ enabledAt: '2026-11-13T00:00:00.000Z', doneRight: { on: true, amount: 10 } })
+    expect(liveSince(s, 'doneRight')).toBe(Date.parse('2026-11-13T00:00:00.000Z'))
+    expect(planVisitLines(s, visit(), NOW, TZ)).toEqual([])
+  })
+  it('a missing stamp fails closed (pays nothing)', () => {
+    const s = { ...settings(), enabledAt: null }
+    expect(liveSince(s, 'doneRight')).toBeNull()
+    expect(coveredByRule(s, 'doneRight', '2026-11-12T15:00:00Z')).toBe(false)
+    expect(planVisitLines(s, visit(), NOW, TZ)).toEqual([])
+  })
+  it('the weekly target counts only visits finished after it was turned on, and only crew work', () => {
+    const s = settings({ weeklyTarget: { on: true, target: 2, amount: 10, onSince: '2026-11-13T00:00:00.000Z' } })
+    expect(countsForWeeklyTarget(s, { visit_step: 'service', completed_at: '2026-11-12T15:00:00Z' })).toBe(false)
+    expect(countsForWeeklyTarget(s, { visit_step: 'service', completed_at: '2026-11-14T15:00:00Z' })).toBe(true)
+    expect(countsForWeeklyTarget(s, { visit_step: 'inspection', completed_at: '2026-11-14T15:00:00Z' })).toBe(false)
+  })
+  it('turning a rule on stamps the moment; off clears it; the browser can never set a stamp', () => {
+    const NOWP = new Date('2026-11-20T15:00:00Z')
+    const cur = readCrewIncentiveSettings({ enabled: true, enabledAt: EARLY })
+    const turnedOn = parseCrewIncentivesPatch({ crewIncentives: { doneRight: { on: true, amount: 5, onSince: '2020-01-01T00:00:00Z' }, enabledAt: '2020-01-01T00:00:00Z' } }, cur, NOWP)
+    expect('set' in turnedOn && (turnedOn.set.doneRight as { onSince: string }).onSince).toBe(NOWP.toISOString())
+    const stays = readCrewIncentiveSettings({ enabled: true, enabledAt: EARLY, doneRight: { on: true, onSince: EARLY, amount: 5 } })
+    const edited = parseCrewIncentivesPatch({ crewIncentives: { doneRight: { amount: 7 } } }, stays, NOWP)
+    expect('set' in edited && (edited.set.doneRight as { onSince: string }).onSince).toBe(EARLY) // an edit does not restart the clock
+    const off = parseCrewIncentivesPatch({ crewIncentives: { doneRight: { on: false } } }, stays, NOWP)
+    expect('set' in off && (off.set.doneRight as { onSince: string | null }).onSince).toBeNull()
+    const master = parseCrewIncentivesPatch({ crewIncentives: { enabled: true } }, readCrewIncentiveSettings({ enabled: false }), NOWP)
+    expect('set' in master && master.set.enabledAt).toBe(NOWP.toISOString())
+    const masterOff = parseCrewIncentivesPatch({ crewIncentives: { enabled: false } }, cur, NOWP)
+    expect('set' in masterOff && masterOff.set.enabledAt).toBeNull()
   })
 })
 

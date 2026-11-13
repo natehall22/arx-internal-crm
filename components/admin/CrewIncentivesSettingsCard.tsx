@@ -84,7 +84,7 @@ export default function CrewIncentivesSettingsCard() {
   return (
     <Card id="crew-incentives" className="flex flex-col gap-3 p-4 text-[#2c2c2a]">
       <h2 className="text-lg font-bold">Crew incentives</h2>
-      <p className="text-base">Bonus rules for your crews. Each one proposes bonuses on its own; every line waits on Bonus approval and nothing is paid until an owner approves it.</p>
+      <p className="text-base">Bonus rules for your crews. Each one proposes bonuses on its own; every line waits on Bonus approval and nothing is paid until an owner approves it. A rule only pays for work finished after it was turned on; nothing is paid back for earlier work.</p>
       {toggle('enabled', 'Crew incentives are on', 'Off = no bonuses are proposed and crews see no scoreboard.')}
 
       <div className={box}>
@@ -101,7 +101,7 @@ export default function CrewIncentivesSettingsCard() {
       </div>
 
       <div className={box}>
-        {toggle('btOn', 'Beat the time', 'When the crew’s clocked hours come in under the hours on the work order (or the job, when it has one work order).')}
+        {toggle('btOn', 'Beat the time', 'When the time on site (first clock-in to last clock-out) comes in under the hours on the work order (or the job, when it has one work order).')}
         {f.btOn ? (
           <>
             <Field label="Bonus is">
@@ -120,7 +120,7 @@ export default function CrewIncentivesSettingsCard() {
                 {money('btRate', 'Value of one hour ($)')}
               </>
             )}
-            <p className="text-sm">Hours are person-hours, from the time clock, minus breaks.</p>
+            <p className="text-sm">Time on site is wall-clock time from the first clock-in to the last clock-out on the visit, not man-hours.</p>
             {splitSelect('btSplit')}
           </>
         ) : null}
@@ -156,7 +156,7 @@ export default function CrewIncentivesSettingsCard() {
       </div>
 
       <div className={box}>
-        {toggle('ddOn', 'Callback or redo takes a bonus back', 'You tap “Callback / redo” on the finished visit; a negative line goes through the same approval. It applies even if the visit never earned a bonus.')}
+        {toggle('ddOn', 'Callback or redo takes a bonus back', 'You tap “Callback / redo” on the finished visit; a negative line goes through the same approval. It only takes back bonus money: never base pay or the weekly minimum, and never more than the person’s crew bonuses that week (the rest is dropped).')}
         {f.ddOn ? (
           <>
             {money('ddAmount', 'Amount taken back ($)')}

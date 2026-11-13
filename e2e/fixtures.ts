@@ -1046,11 +1046,12 @@ export const HARNESS_PUBLIC_SELECTION = {
 export const HARNESS_CREW_INCENTIVES = {
   settings: {
     enabled: true,
-    doneRight: { on: true, amount: 10, split: 'even', holdDays: 3, minPhotos: 1 },
-    beatTime: { on: true, mode: 'percent', amount: 0, percent: 50, ratePerHour: 40, split: 'full' },
-    review: { on: true, amount: 25, split: 'even' },
-    weeklyTarget: { on: true, basis: 'visits', target: 12, amount: 60, split: 'even' },
-    deduction: { on: true, amount: 15, split: 'even' },
+    enabledAt: '2026-11-01T12:00:00.000Z',
+    doneRight: { on: true, onSince: '2026-11-01T12:00:00.000Z', amount: 10, split: 'even', holdDays: 3, minPhotos: 1 },
+    beatTime: { on: true, onSince: '2026-11-01T12:00:00.000Z', mode: 'percent', amount: 0, percent: 50, ratePerHour: 40, split: 'full' },
+    review: { on: true, onSince: '2026-11-01T12:00:00.000Z', amount: 25, split: 'even' },
+    weeklyTarget: { on: true, onSince: '2026-11-01T12:00:00.000Z', basis: 'visits', target: 12, amount: 60, split: 'even' },
+    deduction: { on: true, onSince: '2026-11-01T12:00:00.000Z', amount: 15, split: 'even' },
   },
 }
 export const HARNESS_CREW_SCOREBOARD = {
@@ -1060,6 +1061,7 @@ export const HARNESS_CREW_SCOREBOARD = {
       subId: 'sub-1',
       name: 'Green Team',
       target: { basis: 'visits', goal: 12, done: 7, percent: 58, hit: false, amount: 60 },
+      totals: { earned: 30, pending: 15 },
       people: [
         { userId: 'u1', name: 'Maria Lopez', earned: 15, pending: 22.5, isMe: true },
         { userId: 'u2', name: 'Chris Walker', earned: 15, pending: -7.5, isMe: false },

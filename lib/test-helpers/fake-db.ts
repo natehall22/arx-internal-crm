@@ -18,7 +18,7 @@ export function createFakeDb(
     /** Ids for inserted rows that bring none (default `gen-1`, `gen-2`…). Code that validates uuids needs real-looking ones. */
     idFactory?: () => string
     /** Unique keys besides `id` (e.g. { customer_messages: [['org_id', 'message_key']] }): an insert hitting one fails 23505, as in Postgres. */
-    unique?: Record<string, string[][]>
+    unique?: Record<string, Array<string[] | { name: string; cols: string[] }>>
   } = {}
 ) {
   const tables: Record<string, Row[]> = {}
@@ -104,8 +104,17 @@ export function createFakeDb(
         const dup = payload.find((p) => p.id != null && rows.some((r) => r.id === p.id))
         if (dup) return { data: null, error: { message: `duplicate key value violates unique constraint "${table}_pkey"`, code: '23505' }, count: null }
         const uniq = opts.unique?.[table] ?? []
-        const clash = payload.some((p, i) => uniq.some((cols) => [...rows, ...payload.slice(0, i)].some((r) => cols.every((c) => r[c] === p[c]))))
-        if (clash) return { data: null, error: { message: `duplicate key value violates unique constraint on "${table}"`, code: '23505' }, count: null }
+        // A key with a NAME reports it in the message (as Postgres does); a null column never clashes (NULLs are distinct).
+        let clashName: string | null = null
+        const clash = payload.some((p, i) =>
+          uniq.some((u) => {
+            const cols = Array.isArray(u) ? u : u.cols
+            const hit = [...rows, ...payload.slice(0, i)].some((r) => cols.every((c) => r[c] === p[c] && (Array.isArray(u) || p[c] != null)))
+            if (hit) clashName = Array.isArray(u) ? null : u.name
+            return hit
+          })
+        )
+        if (clash) return { data: null, error: { message: clashName ? `duplicate key value violates unique constraint "${clashName}"` : `duplicate key value violates unique constraint on "${table}"`, code: '23505' }, count: null }
         data = payload.map((p) => ({ id: p.id ?? newId(), ...p }))
         rows.push(...data)
         writes.push({ table, op, rows: data })

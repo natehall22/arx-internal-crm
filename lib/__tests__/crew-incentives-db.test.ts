@@ -5,7 +5,7 @@
  */
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { crewIncentivesAllowed } from '@/lib/crew-incentives-access'
-import { loadCrewIncentivesState, loadScoreboard, runCrewIncentives, setVisitMark } from '@/lib/crew-incentives-db'
+import { loadCrewIncentivesState, loadScoreboard, runCrewIncentives, setVisitMark, toSourceUuid } from '@/lib/crew-incentives-db'
 import { readPayWeekSchedule, weekCutoffContaining, nextWeekCutoff } from '@/lib/payroll-week-schedule'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 
@@ -15,6 +15,8 @@ const SUB = 'sub-1'
 const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const B = 'aaaaaaaa-0000-4000-8000-000000000002'
 const OTHER_CREW_PERSON = 'aaaaaaaa-0000-4000-8000-000000000009'
+const STAFF = 'aaaaaaaa-0000-4000-8000-0000000000f1' // office staff: not on any crew
+const STAMP = '2026-01-01T00:00:00.000Z' // every rule was turned on long before the visits
 const NOW = new Date('2026-11-13T15:00:00Z')
 const sched = readPayWeekSchedule({}, DEFAULT_TIMEZONE)
 const COMPLETED = '2026-11-09T15:00:00Z'
@@ -23,12 +25,18 @@ const wk2 = nextWeekCutoff(wk1, sched)
 
 const RULES = {
   enabled: true,
-  doneRight: { on: true, amount: 10, split: 'even', holdDays: 3, minPhotos: 1 },
-  review: { on: true, amount: 20, split: 'full' },
-  deduction: { on: true, amount: 8, split: 'even' },
-  weeklyTarget: { on: true, basis: 'visits', target: 2, amount: 40, split: 'even' },
-  beatTime: { on: true, mode: 'flat', amount: 6, percent: 0, ratePerHour: 0, split: 'even' },
+  enabledAt: STAMP,
+  doneRight: { on: true, onSince: STAMP, amount: 10, split: 'even', holdDays: 3, minPhotos: 1 },
+  review: { on: true, onSince: STAMP, amount: 20, split: 'full' },
+  deduction: { on: true, onSince: STAMP, amount: 8, split: 'even' },
+  weeklyTarget: { on: true, onSince: STAMP, basis: 'visits', target: 2, amount: 40, split: 'even' },
+  beatTime: { on: true, onSince: STAMP, mode: 'flat', amount: 6, percent: 0, ratePerHour: 0, split: 'even' },
 }
+const only = (k: keyof Omit<typeof RULES, 'enabled' | 'enabledAt'>, over: Record<string, unknown> = {}) => ({
+  enabled: true, enabledAt: STAMP,
+  doneRight: { ...RULES.doneRight, on: false }, review: { ...RULES.review, on: false }, deduction: { ...RULES.deduction, on: false }, weeklyTarget: { ...RULES.weeklyTarget, on: false }, beatTime: { ...RULES.beatTime, on: false },
+  [k]: { ...RULES[k], ...over },
+})
 const org = (id: string, profile: string, crewIncentives: unknown = RULES) => ({ id, timezone: DEFAULT_TIMEZONE, settings: { profile: { id: profile, version: 1 }, ...(crewIncentives ? { crewIncentives } : {}) } })
 const period = (id: string, cutoff: Date, over: Record<string, unknown> = {}) => ({
   id, org_id: ORG, period_label: `Week ${id}`, cutoff_at: cutoff.toISOString(), lock_at: cutoff.toISOString(), scheduled_pay_date: '2026-11-20', status: 'open', locked_at: null, lock_claimed_at: null, created_at: '2026-11-01T00:00:00Z', ...over,
@@ -50,14 +58,20 @@ function seed(over: Record<string, Array<Record<string, unknown>>> = {}, orgRow 
       photos: [photo('v1'), photo('v2')],
       crew_members: [{ org_id: ORG, sub_id: SUB, user_id: A }, { org_id: ORG, sub_id: SUB, user_id: B }, { org_id: ORG, sub_id: 'sub-2', user_id: OTHER_CREW_PERSON }],
       sub_contractors: [{ id: SUB, org_id: ORG, company_name: 'Crew One' }, { id: 'sub-2', org_id: ORG, company_name: 'Crew Two' }],
-      users: [{ id: A, org_id: ORG, full_name: 'Ana' }, { id: B, org_id: ORG, full_name: 'Ben' }, { id: OTHER_CREW_PERSON, org_id: ORG, full_name: 'Zed' }],
+      users: [{ id: STAFF, org_id: ORG, full_name: 'Dana Office' }, { id: A, org_id: ORG, full_name: 'Ana' }, { id: B, org_id: ORG, full_name: 'Ben' }, { id: OTHER_CREW_PERSON, org_id: ORG, full_name: 'Zed' }],
       time_entries: [],
       crew_visit_marks: [],
       production_jobs: [],
       service_visit_charges: [],
       ...over,
     },
-    { unique: { payroll_bonus_lines: [['org_id', 'source_key']], crew_visit_marks: [['org_id', 'work_order_id', 'kind']] }, idFactory: () => `gen-${++n}` }
+    {
+      unique: {
+        // As in prod: our once-ever key (named, from the migration) and the old per-week-per-person-per-type-per-source key.
+        payroll_bonus_lines: [{ name: 'payroll_bonus_lines_source_key_uniq', cols: ['org_id', 'source_key'] }, { name: 'payroll_bonus_lines_period_id_user_id_bonus_type_source_id_key', cols: ['payroll_period_id', 'user_id', 'bonus_type', 'source_id'] }],
+        crew_visit_marks: [['org_id', 'work_order_id', 'kind']],
+      },
+      idFactory: () => `gen-${++n}` }
   )
 }
 const lines = (db: ReturnType<typeof seed>) => db.tables.payroll_bonus_lines
@@ -129,7 +143,7 @@ describe('runCrewIncentives', () => {
     expect(lines(db).filter((l) => l.bonus_type === 'crew_weekly_target')).toHaveLength(2)
   })
 
-  it('beat the time: clocked hours under the work order hours', async () => {
+  it('beat the time: time on site under the work order hours', async () => {
     const db = seed({
       work_orders: [visit('v1', { estimated_hours: 4 })],
       time_entries: [work('t1', A, 'v1', '2026-11-09T13:00:00Z', '2026-11-09T14:00:00Z'), work('t2', B, 'v1', '2026-11-09T13:00:00Z', '2026-11-09T14:00:00Z')],
@@ -137,7 +151,7 @@ describe('runCrewIncentives', () => {
     await runCrewIncentives(db.client, ORG, { now: NOW })
     const bt = lines(db).filter((l) => l.bonus_type === 'crew_beat_time')
     expect(bt.map((l) => l.amount)).toEqual([3, 3])
-    expect(String(bt[0].description)).toContain('saved 2 h')
+    expect(String(bt[0].description)).toContain('on site 1 h, budget 4 h')
   })
 
   it('the production job hours are the budget only when it is the job\'s single work order', async () => {
@@ -153,7 +167,7 @@ describe('runCrewIncentives', () => {
 
   it('a deduction is a negative pending line through the same table, once', async () => {
     const db = seed()
-    expect(await setVisitMark(db.client, ORG, A, 'v1', 'callback', true, NOW)).toEqual({ ok: true })
+    expect(await setVisitMark(db.client, ORG, STAFF, 'v1', 'callback', true, NOW)).toEqual({ ok: true })
     await runCrewIncentives(db.client, ORG, { now: NOW })
     await runCrewIncentives(db.client, ORG, { now: NOW })
     const dd = lines(db).filter((l) => l.bonus_type === 'crew_deduction')
@@ -165,24 +179,200 @@ describe('runCrewIncentives', () => {
 
   it('review mark: full amount to each member; an un-mark is refused once the line exists', async () => {
     const db = seed()
-    await setVisitMark(db.client, ORG, A, 'v2', 'review', true, NOW)
+    await setVisitMark(db.client, ORG, STAFF, 'v2', 'review', true, NOW)
     await runCrewIncentives(db.client, ORG, { now: NOW })
     expect(lines(db).filter((l) => l.bonus_type === 'crew_review').map((l) => l.amount)).toEqual([20, 20])
-    const res = await setVisitMark(db.client, ORG, A, 'v2', 'review', false)
+    const res = await setVisitMark(db.client, ORG, STAFF, 'v2', 'review', false)
     expect(res).toMatchObject({ ok: false, status: 409 })
   })
 
   it('an un-mark before any line exists just removes it; an unfinished visit cannot be marked', async () => {
     const db = seed({ work_orders: [visit('v1'), visit('v9', { status: 'scheduled', completed_at: null })] })
-    await setVisitMark(db.client, ORG, A, 'v1', 'review', true)
-    expect(await setVisitMark(db.client, ORG, A, 'v1', 'review', false)).toEqual({ ok: true })
+    await setVisitMark(db.client, ORG, STAFF, 'v1', 'review', true)
+    expect(await setVisitMark(db.client, ORG, STAFF, 'v1', 'review', false)).toEqual({ ok: true })
     expect(db.tables.crew_visit_marks).toHaveLength(0)
-    expect(await setVisitMark(db.client, ORG, A, 'v9', 'review', true)).toMatchObject({ ok: false, status: 400 })
+    expect(await setVisitMark(db.client, ORG, STAFF, 'v9', 'review', true)).toMatchObject({ ok: false, status: 400 })
   })
 
   it('a visit outside the company is not found', async () => {
     const db = seed({ work_orders: [visit('v1', { org_id: 'someone-else' })] })
-    expect(await setVisitMark(db.client, ORG, A, 'v1', 'review', true)).toMatchObject({ ok: false, status: 404 })
+    expect(await setVisitMark(db.client, ORG, STAFF, 'v1', 'review', true)).toMatchObject({ ok: false, status: 404 })
+  })
+})
+
+
+describe('owner decisions', () => {
+  const lineFor = (db: ReturnType<typeof seed>, type: string, user: string, wo?: string) => lines(db).filter((l) => l.bonus_type === type && l.user_id === user && (!wo || String(l.source_key).includes(`:${wo}:`)))
+
+  describe('1. no back pay', () => {
+    it('work finished before a rule was turned on is never paid, even when it is marked later', async () => {
+      const after = '2026-11-10T00:00:00.000Z' // visits finished 11/09
+      const db = seed({}, org(ORG, 'lawn_landscape', { ...RULES, enabledAt: after, doneRight: { ...RULES.doneRight, onSince: after }, review: { ...RULES.review, onSince: after }, deduction: { ...RULES.deduction, onSince: after }, weeklyTarget: { ...RULES.weeklyTarget, onSince: after }, beatTime: { ...RULES.beatTime, onSince: after } }))
+      await setVisitMark(db.client, ORG, STAFF, 'v1', 'review', true, NOW)
+      await setVisitMark(db.client, ORG, STAFF, 'v2', 'callback', true, NOW)
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(lines(db)).toHaveLength(0)
+    })
+    it('the same visits pay once the rules were on before they finished', async () => {
+      const db = seed()
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(lines(db).length).toBeGreaterThan(0)
+    })
+    it('the weekly target counts only visits finished after it was turned on', async () => {
+      // 2 visits needed; only v2 finished after the stamp -> not reached
+      const stamp = '2026-11-09T16:00:00.000Z'
+      const db = seed({ work_orders: [visit('v1'), visit('v2', { completed_at: '2026-11-09T18:00:00Z' })], time_entries: [work('t1', A, 'v1', '2026-11-09T13:00:00Z', '2026-11-09T14:00:00Z')] }, org(ORG, 'lawn_landscape', only('weeklyTarget', { onSince: stamp })))
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(lines(db)).toHaveLength(0)
+    })
+  })
+
+  describe('2. beat the time is wall-clock time on site', () => {
+    it('two people on site together for 2 h = 2 h on site (not 4 man-hours): beats a 3 h budget', async () => {
+      const db = seed({ work_orders: [visit('v1', { estimated_hours: 3 })], time_entries: [work('t1', A, 'v1', '2026-11-09T13:00:00Z', '2026-11-09T15:00:00Z'), work('t2', B, 'v1', '2026-11-09T13:00:00Z', '2026-11-09T15:00:00Z')] }, org(ORG, 'lawn_landscape', only('beatTime')))
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      const bt = lines(db)
+      expect(bt.map((l) => l.amount)).toEqual([3, 3])
+      expect(String(bt[0].description)).toContain('on site 2 h, budget 3 h')
+    })
+    it('first clock-in to last clock-out spans a gap between people; over budget pays nothing', async () => {
+      const db = seed({ work_orders: [visit('v1', { estimated_hours: 3 })], time_entries: [work('t1', A, 'v1', '2026-11-09T13:00:00Z', '2026-11-09T14:00:00Z'), work('t2', B, 'v1', '2026-11-09T15:30:00Z', '2026-11-09T16:30:00Z')] }, org(ORG, 'lawn_landscape', only('beatTime')))
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(lines(db)).toHaveLength(0) // 13:00 -> 16:30 = 3.5 h on site
+    })
+  })
+
+  describe('3. deductions only take back bonus money', () => {
+    it('limited to the crew bonuses the person earned that week; the rest is dropped and the line says why', async () => {
+      // doneRight 4 split = 2 each on v2; deduction 20 split = 10 each on v1 -> capped at 2 each
+      const rules = { ...only('doneRight', { amount: 4 }), deduction: { ...RULES.deduction, amount: 20 } }
+      const db = seed({}, org(ORG, 'lawn_landscape', rules))
+      await setVisitMark(db.client, ORG, STAFF, 'v1', 'callback', true, NOW)
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      const dd = lineFor(db, 'crew_deduction', A)
+      expect(dd).toHaveLength(1)
+      expect(dd[0]).toMatchObject({ amount: -2, status: 'pending_approval' })
+      expect(String(dd[0].description)).toContain('Deduction limited to bonuses earned this week')
+      // the person's crew total for the week is never below $0
+      const total = (u: string) => lines(db).filter((l) => l.user_id === u && l.status !== 'rejected').reduce((n, l) => n + Number(l.amount), 0)
+      expect(total(A)).toBeGreaterThanOrEqual(0)
+      expect(total(B)).toBeGreaterThanOrEqual(0)
+    })
+    it('nothing earned = a $0 closed line (kept on record, never proposed again), not a negative', async () => {
+      const db = seed({}, org(ORG, 'lawn_landscape', only('deduction', { amount: 8 })))
+      await setVisitMark(db.client, ORG, STAFF, 'v1', 'callback', true, NOW)
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      const dd = lines(db).filter((l) => l.bonus_type === 'crew_deduction')
+      expect(dd).toHaveLength(2)
+      expect(dd.every((l) => l.amount === 0 && l.status === 'rejected' && l.review_note === 'Deduction limited to bonuses earned this week')).toBe(true)
+    })
+    it('counts bonuses already there (approved, pending) but not rejected ones, other kinds of bonus or other weeks', async () => {
+      const bonus = (user: string, amount: number, status: string, over: Record<string, unknown> = {}) => ({ id: `x-${user}-${amount}-${status}`, org_id: ORG, user_id: user, bonus_type: 'crew_done_right', amount, status, payroll_period_id: 'P2', source_id: null, source_key: `old:${user}:${amount}:${status}`, ...over })
+      const db = seed(
+        { payroll_bonus_lines: [bonus(A, 3, 'approved'), bonus(A, 50, 'rejected'), bonus(A, 100, 'approved', { bonus_type: 'manual', source_key: 'm1' }), bonus(A, 40, 'approved', { payroll_period_id: 'P-old', source_key: 'o1' })] },
+        org(ORG, 'lawn_landscape', only('deduction', { amount: 8 }))
+      )
+      await setVisitMark(db.client, ORG, STAFF, 'v1', 'callback', true, NOW)
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(lineFor(db, 'crew_deduction', A)[0].amount).toBe(-3) // 4 wanted, 3 earned that week
+    })
+    it('two callbacks the same week share what the person earned (never more than it in total)', async () => {
+      const rules = { ...only('doneRight', { amount: 6 }), deduction: { ...RULES.deduction, amount: 8, split: 'full' } }
+      const db = seed({ work_orders: [visit('v1'), visit('v2'), visit('v3')], photos: [photo('v1'), photo('v2'), photo('v3')] }, org(ORG, 'lawn_landscape', rules))
+      await setVisitMark(db.client, ORG, STAFF, 'v1', 'callback', true, NOW)
+      await setVisitMark(db.client, ORG, STAFF, 'v2', 'callback', true, NOW)
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      // A earned 3 on v3 only (v1, v2 had callbacks) = 3; two deductions of 8 each: -3 then 0
+      const dd = lineFor(db, 'crew_deduction', A).filter((l) => l.status !== 'rejected')
+      expect(dd.reduce((n, l) => n + Number(l.amount), 0)).toBe(-3)
+    })
+  })
+
+  describe('M1 unique keys', () => {
+    it('weekly-target lines from two weeks rolled onto ONE open pay week both go in (a source id per week)', async () => {
+      const wk2b = nextWeekCutoff(wk1, sched)
+      const later = new Date('2026-11-20T15:00:00Z')
+      const db = seed({
+        payroll_periods: [period('P1', wk1, { status: 'locked', locked_at: '2026-11-12T10:00:00Z' }), period('P2', wk2b)],
+        work_orders: [visit('v1'), visit('v2'), visit('v3', { completed_at: '2026-11-16T15:00:00Z' }), visit('v4', { completed_at: '2026-11-16T16:00:00Z' })],
+        time_entries: [work('t1', A, 'v1', '2026-11-09T13:00:00Z', '2026-11-09T14:00:00Z'), work('t3', A, 'v3', '2026-11-16T13:00:00Z', '2026-11-16T14:00:00Z')],
+      }, org(ORG, 'lawn_landscape', only('weeklyTarget')))
+      const r = await runCrewIncentives(db.client, ORG, { now: later })
+      const wt = lines(db).filter((l) => l.bonus_type === 'crew_weekly_target' && l.user_id === A)
+      expect(wt).toHaveLength(2)
+      expect(new Set(wt.map((l) => l.payroll_period_id))).toEqual(new Set(['P2']))
+      expect(new Set(wt.map((l) => l.source_id)).size).toBe(2)
+      expect(r.deferred).toBe(0)
+    })
+    it('a unique violation that is NOT our source key is not "already proposed": it is retried, not recorded', async () => {
+      // A line with the same (week, person, type, source id) but a different key exists: inserting ours violates THAT constraint.
+      const db = seed(
+        { payroll_bonus_lines: [{ id: 'old1', org_id: ORG, user_id: A, bonus_type: 'crew_done_right', amount: 1, status: 'approved', payroll_period_id: 'P2', source_id: toSourceUuid('v2'), source_key: 'something:else' }] },
+        org(ORG, 'lawn_landscape', only('doneRight'))
+      )
+      const r = await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(r.deferred).toBeGreaterThanOrEqual(1)
+      expect(lines(db).some((l) => String(l.source_key) === `crew:doneRight:v2:${A}`)).toBe(false)
+      expect(lines(db).some((l) => String(l.source_key) === `crew:doneRight:v2:${B}`)).toBe(true) // the others still went in
+    })
+    it('a source id that is not a uuid becomes a stable one; a uuid is kept', () => {
+      expect(toSourceUuid('sub1|2026-11-18')).toBe(toSourceUuid('sub1|2026-11-18'))
+      expect(toSourceUuid('sub1|2026-11-18')).not.toBe(toSourceUuid('sub1|2026-11-25'))
+      expect(toSourceUuid('sub1|2026-11-18')).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+      expect(toSourceUuid(A)).toBe(A)
+    })
+  })
+
+  describe('M2 open clocks', () => {
+    it('a visit with anyone still clocked in is skipped, for every rule and for the weekly count; it pays once the clock is closed', async () => {
+      const open = { ...work('t9', B, 'v1', '2026-11-09T14:00:00Z', null as unknown as string), ended_at: null }
+      const db = seed({ work_orders: [visit('v1', { estimated_hours: 4 }), visit('v2')], time_entries: [work('t1', A, 'v1', '2026-11-09T13:00:00Z', '2026-11-09T14:00:00Z'), open] })
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(lines(db).filter((l) => String(l.source_key).includes(':v1:'))).toHaveLength(0)
+      expect(lines(db).some((l) => l.bonus_type === 'crew_weekly_target')).toBe(false) // only v2 counts: 1 of 2
+      db.tables.time_entries.find((t) => t.id === 't9')!.ended_at = '2026-11-09T15:00:00Z'
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(lines(db).some((l) => String(l.source_key).includes(':v1:'))).toBe(true)
+    })
+  })
+
+  describe('M3 nobody marks their own crew\'s work', () => {
+    it('a crew member (roster) or someone who clocked the visit is refused; office staff can mark; the line says who', async () => {
+      const db = seed({ time_entries: [work('t1', STAFF, 'v2', '2026-11-09T13:00:00Z', '2026-11-09T14:00:00Z')] })
+      expect(await setVisitMark(db.client, ORG, A, 'v1', 'review', true, NOW)).toMatchObject({ ok: false, status: 403 })
+      expect(await setVisitMark(db.client, ORG, STAFF, 'v2', 'review', true, NOW)).toMatchObject({ ok: false, status: 403 }) // clocked v2
+      expect(db.tables.crew_visit_marks).toHaveLength(0)
+      expect(await setVisitMark(db.client, ORG, STAFF, 'v1', 'review', true, NOW)).toEqual({ ok: true })
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      const rv = lines(db).filter((l) => l.bonus_type === 'crew_review')
+      expect(rv.length).toBeGreaterThan(0)
+      expect(String(rv[0].description)).toContain('(marked by Dana Office)')
+    })
+  })
+
+  describe('low items', () => {
+    it('a deactivated person gets no line; someone who joined the crew after the visit was not on it', async () => {
+      const db = seed({
+        users: [{ id: A, org_id: ORG, full_name: 'Ana', active: false }, { id: B, org_id: ORG, full_name: 'Ben', active: true }, { id: STAFF, org_id: ORG, full_name: 'Dana Office' }],
+      }, org(ORG, 'lawn_landscape', only('doneRight')))
+      await runCrewIncentives(db.client, ORG, { now: NOW })
+      expect(lines(db).some((l) => l.user_id === A)).toBe(false)
+      expect(lines(db).filter((l) => l.user_id === B).length).toBeGreaterThan(0)
+      const later = seed({ crew_members: [{ org_id: ORG, sub_id: SUB, user_id: A, created_at: '2026-01-01T00:00:00Z' }, { org_id: ORG, sub_id: SUB, user_id: B, created_at: '2026-11-10T00:00:00Z' }] }, org(ORG, 'lawn_landscape', only('doneRight')))
+      await runCrewIncentives(later.client, ORG, { now: NOW })
+      expect(lines(later).some((l) => l.user_id === B)).toBe(false) // joined 11/10, visit 11/09
+      expect(lines(later).some((l) => l.user_id === A)).toBe(true)
+    })
+    it('an un-mark is refused once ANY line exists from it (even a rejected one), in plain words', async () => {
+      const db = seed()
+      await setVisitMark(db.client, ORG, STAFF, 'v2', 'review', true, NOW)
+      // a line exists but the run has not stamped the mark yet
+      db.tables.payroll_bonus_lines.push({ id: 'r1', org_id: ORG, user_id: A, bonus_type: 'crew_review', amount: 0, status: 'rejected', payroll_period_id: 'P2', source_id: 'v2', source_key: `crew:review:v2:${A}` })
+      const res = await setVisitMark(db.client, ORG, STAFF, 'v2', 'review', false)
+      expect(res).toMatchObject({ ok: false, status: 409 })
+      expect((res as { error: string }).error).toContain('cannot be removed here')
+    })
   })
 })
 
@@ -258,12 +448,33 @@ describe('scoreboard visibility', () => {
     expect(sb!.crews.map((c) => c.name)).toEqual(['Crew Two'])
     expect(JSON.stringify(sb)).not.toContain('Ana')
   })
+  it('a crew link (public) shows crew totals and target only: no per-person dollars, no names', async () => {
+    const sb = await loadScoreboard(withLines().client, ORG, { subId: SUB }, NOW)
+    expect(sb!.crews[0].people).toEqual([])
+    expect(sb!.crews[0].totals).toEqual({ earned: 8, pending: 7 })
+    const json = JSON.stringify(sb)
+    for (const hidden of ['Ana', 'Ben', 'Zed', 'userId']) expect(json).not.toContain(hidden)
+  })
+  it('pending covers this pay week only; other weeks\' pending lines are not shown here', async () => {
+    const db = seed({
+      payroll_periods: [period('P2', weekCutoffContaining(NOW, sched)), period('P0', wk1)],
+      payroll_bonus_lines: [lineRow(A, 7, 'pending_approval'), lineRow(A, 11, 'pending_approval', 'P0')],
+    })
+    const sb = await loadScoreboard(db.client, ORG, { userId: A }, NOW)
+    expect(sb!.crews[0].people[0]).toMatchObject({ isMe: true, pending: 7 })
+  })
+  it('the weekly target counts the same visits the rule counts: crew work only, finished after it was turned on', async () => {
+    const inWeek = new Date('2026-11-11T20:00:00Z')
+    const db = seed({ work_orders: [visit('v1'), visit('v2', { visit_step: 'inspection' }), visit('v3', { completed_at: '2026-11-02T15:00:00Z' })] }, org(ORG, 'lawn_landscape', { ...RULES, weeklyTarget: { ...RULES.weeklyTarget, onSince: '2026-11-05T00:00:00.000Z', target: 4 } }))
+    const sb = await loadScoreboard(db.client, ORG, { userId: A }, inWeek)
+    expect(sb!.crews[0].target).toMatchObject({ basis: 'visits', done: 1, goal: 4 })
+  })
   it('a person on no crew sees nothing; a crew link shows only that crew', async () => {
     expect((await loadScoreboard(withLines().client, ORG, { userId: 'nobody' }, NOW))!.crews).toEqual([])
     expect((await loadScoreboard(withLines().client, ORG, { subId: SUB }, NOW))!.crews.map((c) => c.subId)).toEqual([SUB])
   })
   it('a dollar target shows a percent, never job money', async () => {
-    const db = seed({ work_orders: [visit('v1')], service_visit_charges: [{ work_order_id: 'v1', org_id: ORG, price: 130 }] }, org(ORG, 'lawn_landscape', { ...RULES, weeklyTarget: { on: true, basis: 'dollars', target: 500, amount: 40, split: 'even' } }))
+    const db = seed({ work_orders: [visit('v1')], service_visit_charges: [{ work_order_id: 'v1', org_id: ORG, price: 130 }] }, org(ORG, 'lawn_landscape', { ...RULES, weeklyTarget: { ...RULES.weeklyTarget, basis: 'dollars', target: 500, amount: 40 } }))
     const nowInWeek = new Date(COMPLETED)
     nowInWeek.setUTCHours(20)
     const sb = await loadScoreboard(db.client, ORG, { userId: A }, nowInWeek)

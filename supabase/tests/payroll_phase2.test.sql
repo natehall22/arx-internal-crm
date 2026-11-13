@@ -145,4 +145,59 @@ BEGIN
   RAISE NOTICE 'PASS 4 guards (wrong person, missing advance, kind), approval links, provider columns, privileges';
 END $$;
 
+-- 5. Crew deductions only take back BONUS money (202611230050 crew_deduction_cap) -------------------------------------------------
+-- The migration's own columns/constraints are not in the minimal schema: add the two columns the trigger and the app use.
+ALTER TABLE payroll_bonus_lines ADD COLUMN description text, ADD COLUMN source_key text;
+\ir :crewcap
+INSERT INTO payroll_periods (id, org_id, period_label, cutoff_at, lock_at, scheduled_pay_date) VALUES
+  ('00000000-0000-0000-0000-0000000000b3', '00000000-0000-0000-0000-00000000000b', 'Week ending 2026-11-22', '2026-11-23T04:59:59.999Z', '2026-11-23T04:59:59.999Z', '2026-11-27');
+DO $$
+DECLARE v_org uuid := '00000000-0000-0000-0000-00000000000b'; v_a uuid := '00000000-0000-0000-0000-0000000000a2'; v_b uuid := '00000000-0000-0000-0000-0000000000a4';
+  v_p uuid := '00000000-0000-0000-0000-0000000000b2'; v_p1 uuid := '00000000-0000-0000-0000-0000000000b3';
+  v_pos uuid; v_pos2 uuid; v_d1 uuid; v_d2 uuid; v_raw numeric; v_base numeric; v_amt numeric; v_desc text;
+BEGIN
+  -- Base pay of $100 for A in the week: a deduction must never reach it.
+  INSERT INTO payroll_payout_lines (org_id, payroll_period_id, job_id, user_id, participant_role, gross_amount, net_amount) VALUES (v_org, v_p, gen_random_uuid(), v_a, 'setter', 100, 100);
+  SELECT raw INTO v_base FROM payroll_week_person_totals(v_org, v_p) WHERE user_id = v_a; -- everything but crew bonuses (earlier sections left some fixes on this week)
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_p, v_a, 10, 'approved', 'crew_done_right', 'k-pos') RETURNING id INTO v_pos;
+  -- (a) a -15 deduction against $10 earned is stored as -10, with the reason; base pay stays 100 + 0
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, description, source_key) VALUES (v_org, v_p, v_a, -15, 'pending_approval', 'crew_deduction', 'Callback or redo — WO-1', 'k-d1') RETURNING id INTO v_d1;
+  SELECT amount, description INTO v_amt, v_desc FROM payroll_bonus_lines WHERE id = v_d1;
+  IF v_amt <> -10 THEN RAISE EXCEPTION 'deduction not capped at the bonus earned: %', v_amt; END IF;
+  IF v_desc NOT LIKE '%Deduction limited to bonuses earned this week%' THEN RAISE EXCEPTION 'cap reason missing: %', v_desc; END IF;
+  -- (b) a second deduction the same week has nothing left to take: $0
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_p, v_a, -5, 'pending_approval', 'crew_deduction', 'k-d2') RETURNING id INTO v_d2;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d2) <> 0 THEN RAISE EXCEPTION 'second deduction took more than was left'; END IF;
+  -- (c) approving the capped deduction keeps it; the ONE person total = base pay + bonus net (10 - 10 = 0), never below base pay
+  UPDATE payroll_bonus_lines SET status = 'approved' WHERE id = v_d1;
+  SELECT raw INTO v_raw FROM payroll_week_person_totals(v_org, v_p) WHERE user_id = v_a;
+  IF v_raw <> v_base THEN RAISE EXCEPTION 'a deduction reached base pay: % vs %', v_raw, v_base; END IF;
+  -- (d) the bonus is rejected AFTER: the approved deduction is re-capped to what is left (nothing), base pay still 100
+  UPDATE payroll_bonus_lines SET status = 'rejected' WHERE id = v_pos;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d1) <> 0 THEN RAISE EXCEPTION 'deduction survived its bonus being rejected: %', (SELECT amount FROM payroll_bonus_lines WHERE id = v_d1); END IF;
+  SELECT raw INTO v_raw FROM payroll_week_person_totals(v_org, v_p) WHERE user_id = v_a;
+  IF v_raw <> v_base THEN RAISE EXCEPTION 'week total went below base pay after a rejected bonus: % vs %', v_raw, v_base; END IF;
+  -- (e) a bonus that comes back (re-approved) does NOT restore the dropped amount: it is dropped, not carried
+  UPDATE payroll_bonus_lines SET status = 'approved' WHERE id = v_pos;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d1) <> 0 THEN RAISE EXCEPTION 'a dropped deduction came back'; END IF;
+  -- (f) two bonuses (6 pending + 4 approved) fit a -10; reject the 6 later and it falls to -4
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_p, v_b, 6, 'pending_approval', 'crew_review', 'k-b1') RETURNING id INTO v_pos;
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_p, v_b, 4, 'approved', 'crew_beat_time', 'k-b2') RETURNING id INTO v_pos2;
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_p, v_b, -10, 'pending_approval', 'crew_deduction', 'k-b3') RETURNING id INTO v_d1;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d1) <> -10 THEN RAISE EXCEPTION 'deduction within the bonuses was cut'; END IF;
+  UPDATE payroll_bonus_lines SET status = 'rejected' WHERE id = v_pos;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d1) <> -4 THEN RAISE EXCEPTION 'rejecting a bonus did not re-cap the deduction: %', (SELECT amount FROM payroll_bonus_lines WHERE id = v_d1); END IF;
+  -- (g) moving the 4 to another week (the approve route does this for a stuck bonus) re-caps the week it left
+  UPDATE payroll_bonus_lines SET payroll_period_id = v_p1 WHERE id = v_pos2;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d1) <> 0 THEN RAISE EXCEPTION 'moving a bonus away did not re-cap the deduction'; END IF;
+  -- (h) other kinds of bonus are not "crew bonus money": a $50 manual bonus does not make room for a deduction
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_p, v_b, 50, 'approved', 'manual', 'k-m1');
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_p, v_b, -7, 'pending_approval', 'crew_deduction', 'k-b4') RETURNING id INTO v_d2;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d2) <> 0 THEN RAISE EXCEPTION 'a deduction took back a manual bonus'; END IF;
+  -- (i) a rejected deduction is left alone, and a deduction in ANOTHER week has its own room
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_p1, v_b, -3, 'rejected', 'crew_deduction', 'k-b5') RETURNING id INTO v_d2;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d2) <> -3 THEN RAISE EXCEPTION 'a rejected deduction was rewritten'; END IF;
+  RAISE NOTICE 'PASS 5 crew deduction cap: bonus money only, re-capped on reject / move, base pay and the person total untouched';
+END $$;
+
 SELECT 'ALL PAYROLL PHASE2 TESTS PASSED';
