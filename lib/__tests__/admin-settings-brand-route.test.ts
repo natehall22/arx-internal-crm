@@ -134,11 +134,10 @@ it.each([
   expect(rpcs).toHaveLength(0)
 })
 
-it('the generic settings save can never write settings.brand', async () => {
+it('the generic settings save is gone, so it can never write settings.brand (400, nothing written)', async () => {
   superAdmin = false
-  await patch({ type: 'settings', brand: { website: 'evil.test' }, other: 1 })
-  expect(updates).toHaveLength(1)
-  expect(updates[0].settings).toEqual({ ...storedSettings, other: 1 })
+  expect((await patch({ type: 'settings', brand: { website: 'evil.test' }, other: 1 })).status).toBe(400)
+  expect(updates).toHaveLength(0)
 })
 
 it.each(['sales_rep', 'setter', 'operations', 'closer'])('%s still cannot save (403)', async (r) => {
@@ -198,12 +197,12 @@ describe('job catch-up settings (type: job_catch_up) — admins / owners only, p
     expect(updates).toEqual([{ settings: { ...storedSettings, job_catch_up_enabled: true } }])
   })
 
-  it('the generic settings save (managers can reach it) can never write the catch-up keys — or brand', async () => {
+  it('the generic settings save is gone: it can never write the catch-up keys — or brand', async () => {
     role = 'sales_manager'
     superAdmin = false
     storedSettings = { ...storedSettings, job_catch_up_enabled: false, job_catch_up_stuck_days: 7 }
-    await patch({ type: 'settings', job_catch_up_enabled: true, job_catch_up_stuck_days: 1, brand: { website: 'evil' }, other: 2 })
-    expect(updates).toHaveLength(1)
-    expect(updates[0].settings).toEqual({ ...storedSettings, other: 2 })
+    const res = await patch({ type: 'settings', job_catch_up_enabled: true, job_catch_up_stuck_days: 1, brand: { website: 'evil' }, other: 2 })
+    expect(res.status).toBe(400)
+    expect(updates).toHaveLength(0)
   })
 })

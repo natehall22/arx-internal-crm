@@ -1,7 +1,7 @@
 /**
  * Customer checkup schedule (client-safe). Stored as top-level `orgs.settings` keys, written only by
- * PATCH /api/admin/settings `type: 'checkups'` (admins / owners) through `mergeOrgSettings`; the generic
- * `type: 'settings'` save strips these keys. The schedule logic itself is lib/checkups.ts.
+ * PATCH /api/admin/settings `type: 'checkups'` (admins / owners) through `mergeOrgSettings` (the old generic
+ * `type: 'settings'` save is gone, 2026-11-13). The schedule logic itself is lib/checkups.ts.
  *
  * Default (Nathan, 2026-11-09): inspections 6 and 12 months after install, then a call/text every 12 months.
  * OFF unless an org turns it on.

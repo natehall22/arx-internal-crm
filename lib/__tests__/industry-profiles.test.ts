@@ -183,14 +183,15 @@ describe('company settings override the profile', () => {
     expect(coerceClientOrgProfile({ id: 'nope' }).id).toBe('roofing')
   })
 
-  it('only the profile writer can set settings.profile (top-level saves refuse it; generic save strips it)', async () => {
+  it('only the profile writer can set settings.profile (top-level saves refuse it; there is no generic save)', async () => {
     const { mergeOrgSettings } = jest.requireActual('@/lib/org-settings') as typeof import('@/lib/org-settings')
     const rpc = jest.fn()
     const res = await mergeOrgSettings({ rpc } as never, 'org-1', { profile: { id: 'lawn_landscape' } })
     expect(res.error).toMatch(/path \[profile\]/)
     expect(rpc).not.toHaveBeenCalled()
     expect(mergeSettingsAt({ a: 1 }, ['profile'], { id: 'lawn_landscape', version: 1 })).toEqual({ a: 1, profile: { id: 'lawn_landscape', version: 1 } })
-    expect(read('app/api/admin/settings/route.ts')).toMatch(/profile: _profile, (signing: _signing, )?(leadIntake: _leadIntake, )?(areaMeasure: _areaMeasure, )?(categories: _categories, )?\.\.\.rest/)
+    // The generic `type: 'settings'` save (which merged any key, profile included) was deleted 2026-11-13.
+    expect(read('app/api/admin/settings/route.ts')).not.toMatch(/type === 'settings'/)
   })
 })
 

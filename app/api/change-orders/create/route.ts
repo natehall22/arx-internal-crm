@@ -159,8 +159,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Insert change order record
-    const { data: changeOrder, error: insertError } = await supabase
+    // Insert change order record. Service client: signed-in users have no write policy on job_change_orders
+    // (202611240040) — this route is the gate (auth, field-role bar, firstForeignRef above, org_id from the profile).
+    const { data: changeOrder, error: insertError } = await createServiceClient()
       .from('job_change_orders')
       .insert({
         org_id: profile.org_id,

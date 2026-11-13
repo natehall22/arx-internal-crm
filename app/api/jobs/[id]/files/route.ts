@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { jobFilesKeyInOrg } from '@/lib/files/storage'
 
 // GET: List all files for a job + generate signed URLs
 export async function GET(
@@ -52,7 +54,9 @@ export async function GET(
   // Generate signed URLs for each file
   const filesWithUrls = await Promise.all(
     (files || []).map(async (file) => {
-      const { data: signedUrl } = await supabase.storage
+      // Storage: service client (members have no storage policy on job-files, 202611240050); only this company's folder is signed.
+      if (!jobFilesKeyInOrg(file.storage_key, profile.org_id)) return { ...file, signed_url: null }
+      const { data: signedUrl } = await createServiceClient().storage
         .from('job-files')
         .createSignedUrl(file.storage_key, 3600) // 1 hour expiry
 
@@ -110,6 +114,9 @@ export async function POST(
         { status: 400 }
       )
     }
+    if (!jobFilesKeyInOrg(storage_key, profile.org_id)) {
+      return NextResponse.json({ error: 'storage_key must be in this company\'s folder' }, { status: 400 })
+    }
 
     // Get next version number
     const { data: versionData } = await supabase.rpc('get_next_job_file_version', {
@@ -141,7 +148,7 @@ export async function POST(
     }
 
     // Generate signed URL
-    const { data: signedUrl } = await supabase.storage
+    const { data: signedUrl } = await createServiceClient().storage
       .from('job-files')
       .createSignedUrl(storage_key, 3600)
 
@@ -180,8 +187,8 @@ export async function POST(
       ? `orgs/${profile.org_id}/jobs/${jobId}/${fileType}.${extension}`
       : `orgs/${profile.org_id}/jobs/${jobId}/${fileType}_v${version}.${extension}`
 
-    // Upload to storage
-    const { error: uploadError } = await supabase.storage
+    // Upload to storage (service client; the key is built from this company's id above)
+    const { error: uploadError } = await createServiceClient().storage
       .from('job-files')
       .upload(storageKey, file, {
         contentType: file.type,
@@ -215,7 +222,7 @@ export async function POST(
     }
 
     // Generate signed URL
-    const { data: signedUrl } = await supabase.storage
+    const { data: signedUrl } = await createServiceClient().storage
       .from('job-files')
       .createSignedUrl(storageKey, 3600)
 
