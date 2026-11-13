@@ -11,7 +11,7 @@ export const revalidate = 0
 /**
  * Money → Bonuses: approve every payroll_bonus_lines row (Sisu 444, setter ramp, manual, later crew bonuses).
  * Lives outside app/admin/payroll on purpose: that layout admits payroll admins only, and regional bonus approvers
- * (direct reports only, enforced by the API) must keep today's access without gaining any other payroll page.
+ * (their reporting tree, enforced by the API) must keep today's access without gaining any other payroll page.
  * Deliberately NOT under app/admin/sisu either: it is pay, so it works with Sisu / incentives switched off.
  */
 export default async function BonusesPage() {
