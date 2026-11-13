@@ -10,6 +10,8 @@ import { requireAuth } from '@/lib/auth'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { resolveHourlyAccess } from '@/lib/hourly-billing-access'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
+import DoorCollections from '@/components/billing/DoorCollections'
+import { loadPendingCollections } from '@/lib/visit-collections-db'
 import { loadUnpaidInvoicesQueue, unpaidInvoicesFailedQueue } from '@/lib/today'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -23,7 +25,8 @@ export default async function BillingPage({ searchParams }: { searchParams?: { v
   if (!(await callerCanAccessJobBilling(admin, profile))) redirect('/dashboard')
 
   const [servicePlans, hourly] = await Promise.all([isOrgFeatureOn(profile.org_id, 'servicePlans'), resolveHourlyAccess(admin, profile)])
-  const view = searchParams?.view === 'ready' && servicePlans ? 'ready' : searchParams?.view === 'hours' && hourly.bill ? 'hours' : 'unpaid'
+  const view = searchParams?.view === 'ready' && servicePlans ? 'ready' : searchParams?.view === 'door' && servicePlans ? 'door' : searchParams?.view === 'hours' && hourly.bill ? 'hours' : 'unpaid'
+  const door = servicePlans ? await loadPendingCollections(admin, profile.org_id).catch(() => []) : []
   const unpaid = view === 'unpaid' ? await loadUnpaidInvoicesQueue(admin, profile.org_id, new Date(), { money: true, cap: 200 }).catch((e) => { console.error('billing: unpaid invoices failed', e); return unpaidInvoicesFailedQueue() }) : null
 
   const tab = (active: boolean) => `inline-flex min-h-tap items-center rounded-ui px-4 text-ui-sm font-semibold ${active ? 'bg-brand-700 text-white' : 'border border-surface-line bg-surface text-ink'}`
@@ -33,9 +36,15 @@ export default async function BillingPage({ searchParams }: { searchParams?: { v
       <nav aria-label="Billing views" className="mx-auto flex max-w-[1800px] flex-wrap gap-2 px-4 pt-4">
         <Link href="/billing" className={tab(view === 'unpaid')} aria-current={view === 'unpaid' ? 'page' : undefined}>Unpaid invoices</Link>
         {servicePlans ? <Link href="/billing?view=ready" className={tab(view === 'ready')} aria-current={view === 'ready' ? 'page' : undefined}>Ready to bill</Link> : null}
+        {servicePlans ? <Link href="/billing?view=door" className={tab(view === 'door')} aria-current={view === 'door' ? 'page' : undefined}>At the door{door.length > 0 ? ` (${door.length})` : ''}</Link> : null}
         {hourly.bill ? <Link href="/billing?view=hours" className={tab(view === 'hours')} aria-current={view === 'hours' ? 'page' : undefined}>Hours to bill</Link> : null}
       </nav>
-      {view === 'ready' ? <ReadyToBill /> : view === 'hours' ? <HoursToBill /> : (
+      {view === 'door' ? (
+        <main className="mx-auto max-w-3xl px-4 py-4">
+          <h1 className="mb-3 text-ui-lg font-semibold text-ink">Cash and checks to confirm</h1>
+          <DoorCollections rows={door} />
+        </main>
+      ) : view === 'ready' ? <ReadyToBill /> : view === 'hours' ? <HoursToBill /> : (
         <main className="mx-auto max-w-3xl px-4 py-4">
           <h1 className="mb-3 text-ui-lg font-semibold text-ink">{unpaid?.title ?? 'Unpaid invoices'}{unpaid && unpaid.count > 0 ? ` (${unpaid.count})` : ''}</h1>
           {unpaid && unpaid.items.length > 0 ? (
