@@ -60,8 +60,11 @@ async function view(admin: ReturnType<typeof createServiceClient>, orgId: string
       defaultCategory: (r.default_category as string | null) ?? null,
     })),
     services: await loadCompanyServiceChoices(admin, orgId),
-    // The company's turned-on categories, plus any a saved rule still names (turned off since: shown so the rule can be seen and removed).
-    categories: categoriesForRouting(await loadOrgCategories(admin, orgId), [...intake.routing.categoryRules, ...rows.flatMap((r) => readRouting(r.routing)?.categoryRules ?? [])].map((r) => r.category)),
+    // The company's turned-on categories, plus any a saved rule or source default still names (turned off since: shown so the rule can be seen and removed).
+    categories: categoriesForRouting(await loadOrgCategories(admin, orgId), [
+      ...[...intake.routing.categoryRules, ...rows.flatMap((r) => readRouting(r.routing)?.categoryRules ?? [])].map((r) => r.category),
+      ...rows.map((r) => r.default_category).filter((c): c is string => typeof c === 'string' && !!c),
+    ]),
   }
 }
 
@@ -93,12 +96,17 @@ export async function PATCH(request: Request) {
     if (patchSinglePersonIds(patch).some((id) => !active.has(id))) return NextResponse.json({ error: 'Pick an active person' }, { status: 400 })
     ;({ patch: cleaned, removed } = dropInactiveFromRotations(patch, (id) => active.has(id)))
   }
+  const savedDefault = new Map<string, string | null>()
   if (cleaned.sources.length) {
-    const { data } = await g.admin.from('lead_sources').select('id').eq('org_id', g.orgId).in('id', cleaned.sources.map((s) => s.id))
-    if (((data ?? []) as Array<{ id: string }>).length !== cleaned.sources.length) return NextResponse.json({ error: 'Lead source not found' }, { status: 404 })
+    const { data } = await g.admin.from('lead_sources').select('*').eq('org_id', g.orgId).in('id', cleaned.sources.map((s) => s.id))
+    const rows = (data ?? []) as Array<{ id: string; default_category?: string | null }>
+    if (rows.length !== cleaned.sources.length) return NextResponse.json({ error: 'Lead source not found' }, { status: 404 })
+    for (const r of rows) savedDefault.set(r.id, r.default_category ?? null)
   }
 
-  const wanted = cleaned.sources.map((s) => s.defaultCategory).filter((c): c is string => !!c)
+  // Only a CHANGED default must be a turned-on category: one turned off since stays as saved (off hides, never erases), so
+  // it can't block saving the rest of the screen.
+  const wanted = cleaned.sources.filter((s) => s.defaultCategory && s.defaultCategory !== savedDefault.get(s.id)).map((s) => s.defaultCategory as string)
   if (wanted.length) {
     const on = new Set(activeCategories(await loadOrgCategories(g.admin, g.orgId)).map((c) => c.slug))
     if (wanted.some((c) => !on.has(c))) return NextResponse.json({ error: 'Pick a category from your list' }, { status: 400 })
