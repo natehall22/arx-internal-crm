@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { DatasetColumn } from '@/lib/reporting/catalog'
 import type { ReportResult } from '@/lib/reporting/run'
-import type { ReportSpec } from '@/lib/reporting/report-spec'
+import type { DatePreset, ReportSpec } from '@/lib/reporting/report-spec'
 import type { ReportTemplate } from '@/lib/reporting/templates'
+
+const DATE_PRESETS: DatePreset[] = ['7d', '30d', '90d', 'ytd', 'all', 'custom']
 
 type DatasetInfo = { key: string; label: string; description: string; columns: DatasetColumn[] }
 type Saved = { id: string; name: string; spec: ReportSpec; schedule: string | null; created_by: string }
@@ -65,6 +67,21 @@ export default function ExploreClient() {
     setDrill(null)
     void run(t.spec)
   }
+
+  // A card on the Reports page links here with ?template=<key>&period=<preset>: open that report once, as the card showed it.
+  const [opened, setOpened] = useState(false)
+  useEffect(() => {
+    if (opened || !meta) return
+    setOpened(true)
+    const q = new URLSearchParams(window.location.search)
+    const key = q.get('template')
+    const t = key ? meta.templates.find((x) => x.key === key) : undefined
+    if (!t) return
+    const period = q.get('period')
+    const date = period && DATE_PRESETS.includes(period as DatePreset) && period !== 'custom' ? { preset: period as DatePreset } : t.spec.date
+    pick({ ...t, spec: { ...t.spec, date } })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta, opened])
 
   const update = (patch: Partial<ReportSpec>) => {
     if (!spec) return

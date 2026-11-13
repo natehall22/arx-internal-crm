@@ -51,7 +51,7 @@ function Tile({ template, preset }: { template: ReportTemplate; preset: DatePres
   const max = Math.max(1, ...rows.flatMap((r) => [Number(r.value) || 0, extra ? Number(r[extra.key]) || 0 : 0]))
   const money = result?.columns[1]?.type === 'money'
   return (
-    <Link href="/reports/explore" style={{ ...card, display: 'block', textDecoration: 'none' }}>
+    <Link href={`/reports/explore?template=${encodeURIComponent(template.key)}&period=${preset}`} style={{ ...card, display: 'block', textDecoration: 'none' }}>
       <strong>{template.title}</strong>
       {extra && result && <p style={{ margin: '2px 0 0', fontSize: 14 }}>{plain(result.columns[1].label)} (top bar) and {plain(extra.label)} (bottom bar)</p>}
       {result === undefined && <p>Loading…</p>}
