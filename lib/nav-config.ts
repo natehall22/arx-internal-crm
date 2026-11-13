@@ -1,11 +1,13 @@
 /**
- * The ONE place that decides what the app navigation shows. Six sections (Today · Pipeline · Jobs · Customers ·
- * Money · Insights) plus Canvass and Settings; each section lists the existing pages it contains, and every page keeps
+ * The ONE place that decides what the app navigation shows. Top level, in order: Today · Dashboard · Pipeline · Jobs ·
+ * Customers · Money · Reports · Sisu, then Canvass and Settings. Pipeline/Jobs/Customers/Money list the pages they
+ * contain; Today, Dashboard, Reports and Sisu are single-page items (`children: []`, own `show` rule). Every page keeps
  * exactly the permission test the old flat nav used — so nobody gains or loses a page, they just find it in one place.
  * Pure (no React, no fetching): Nav.tsx builds the context from the same permission helpers it always used.
  */
 import type { OrgFeature, OrgFeatures } from '@/lib/org-features'
 import type { NavSectionId, Terms } from '@/lib/industry-profiles'
+import { isRegionalBonusApproverRole } from '@/lib/payroll-admin-access'
 
 export type NavContext = {
   /** Permissions loaded and (for non-superusers) known. While false, permission-gated items stay hidden (fail closed). */
@@ -48,6 +50,10 @@ export type NavSection = {
   /** Where the section's own link goes (the first visible child, unless fixed here). */
   href?: string
   children: NavLeaf[]
+  /** Single-page items (no children) only: who sees it. Missing = everyone. */
+  show?: (c: NavContext) => boolean
+  /** Phone: never a bottom tab (the bar keeps its four slots); listed in "More" instead. */
+  moreOnly?: boolean
 }
 
 const has = (c: NavContext, ...names: string[]) => c.fullAccess || names.some((n) => c.permissionNames.has(n))
@@ -60,6 +66,8 @@ const REPORTS = ['reports:view_own', 'reports:view_team', 'reports:view_region',
 
 export const NAV_SECTIONS: NavSection[] = [
   { id: 'today', label: 'Today', href: '/today', children: [] },
+  // Was Insights → Dashboard: same rule (ops-only users have no sales dashboard).
+  { id: 'dashboard', label: 'Dashboard', href: '/dashboard', children: [], moreOnly: true, show: (c) => !c.flags.isOpsOnly },
   {
     id: 'pipeline',
     label: 'Pipeline',
@@ -101,21 +109,23 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/my-pay', label: 'My pay', show: (c) => c.permsReady && c.flags.payWeek && c.flags.earnsPay },
       { href: '/billing', label: 'Billing', show: gated('money:record') },
       { href: '/admin/payroll', label: 'Payroll', show: (c) => c.permsReady && c.flags.isPayrollAdmin },
+      // Approve every bonus line (was the Sisu hub's Bonus Approval tab; pay, so it does not depend on the incentives switch).
+      // Same who as before: payroll admins, plus regional bonus approvers (API narrows them to their own reports).
+      { href: '/admin/bonuses', label: 'Bonuses', show: (c) => c.permsReady && (c.flags.isPayrollAdmin || isRegionalBonusApproverRole(c.role)) },
       // Default-OFF switch: shown only once the features have loaded and say on (never on a missing map).
       { href: '/admin/time', label: 'Time', show: (c) => c.permsReady && c.flags.isPayrollAdmin && c.features?.timeTracking === true },
       { href: '/admin/job-profit-tracker', label: 'Job profit', show: (c) => c.permsReady && c.flags.isPayrollAdmin },
       { href: '/pricebook', label: 'Pricebook', show: (c) => !c.flags.salesDocBarred && gated('pricebook:view', 'pricebook:edit')(c) },
     ],
   },
-  {
-    id: 'insights',
-    label: 'Insights',
-    children: [
-      { href: '/dashboard', label: 'Dashboard', show: (c) => !c.flags.isOpsOnly },
-      { href: '/reports', label: 'Reports', show: (c) => c.permsReady && (has(c, ...REPORTS) || c.flags.reports) },
-      { href: '/sisu', label: 'Incentives', show: (c) => featureOn(c, 'incentives') && gated('leads:view')(c) },
-    ],
-  },
+  // Was Insights → Reports (Insights is gone: its Dashboard and Incentives moved up, Reports is all that was left).
+  { id: 'reports', label: 'Reports', href: '/reports', children: [], moreOnly: true, show: (c) => c.permsReady && (has(c, ...REPORTS) || c.flags.reports) },
+  // The setter incentive program, one name everywhere ("Sisu", like the canvass app's tab). Was Insights → Incentives;
+  // same rule. Off for companies that switch the incentives feature off. Pay tools (Bonuses) live under Money → Payroll.
+  { id: 'sisu', label: 'Sisu', href: '/sisu', children: [], moreOnly: true, show: (c) => featureOn(c, 'incentives') && gated('leads:view')(c) },
+  // TODO(feat/crew-incentives, not merged): add { id: 'crew-bonuses', label: 'Crew bonuses', href: '/crew-bonuses', children: [],
+  //   moreOnly: true, show: crewIncentives feature on AND the user is a crew member } here, after Sisu. Do not add until that
+  //   branch lands (the page and the 'crewIncentives' feature key do not exist yet).
 ]
 
 export const CANVASS_ITEM: NavLeaf = { href: '/canvass', label: 'Canvass', show: (c) => featureOn(c, 'canvassing') && gated('canvass:view')(c) }
@@ -125,7 +135,7 @@ export const ADMIN_ITEM: NavLeaf = {
   show: gated('admin:full', 'admin:access', 'admin:roles', 'admin:permissions', 'admin:settings'),
 }
 
-export type VisibleSection = { id: NavSection['id']; label: string; href: string; children: Array<{ href: string; label: string }> }
+export type VisibleSection = { id: NavSection['id']; label: string; href: string; children: Array<{ href: string; label: string }>; moreOnly: boolean }
 
 /** Profile words on the menu: the Jobs section and its board link (roofing = "Jobs" / "Job Board", unchanged). */
 function profileLabel(c: NavContext, key: string, fallback: string): string {
@@ -141,11 +151,12 @@ export function visibleNav(c: NavContext): { sections: VisibleSection[]; canvass
   const sections: VisibleSection[] = []
   const hidden = new Set(c.profile?.nav.hidden ?? [])
   for (const s of NAV_SECTIONS) {
+    if (s.children.length === 0 && ((s.show && !s.show(c)) || (s.href && hidden.has(s.href)))) continue
     const children = s.children
       .filter((l) => !hidden.has(l.href) && l.show(c))
       .map(({ href, label }) => ({ href, label: profileLabel(c, href, label) }))
     if (s.children.length > 0 && children.length === 0) continue
-    sections.push({ id: s.id, label: profileLabel(c, `section:${s.id}`, s.label), href: s.href ?? children[0].href, children })
+    sections.push({ id: s.id, label: profileLabel(c, `section:${s.id}`, s.label), href: s.href ?? children[0].href, children, moreOnly: s.moreOnly === true })
   }
   const order = c.profile?.nav.order ?? []
   const rank = (id: NavSectionId) => {

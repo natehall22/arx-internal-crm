@@ -15,9 +15,6 @@
   "app/admin/goals/GoalsClient.tsx": {
     "timezone": 1
   },
-  "app/admin/job-profit-tracker/page.tsx": {
-    "brand": 1
-  },
   "app/admin/payroll/weekly/page.tsx": {
     "timezone": 2
   },
@@ -168,7 +165,7 @@
     "timezone": 4
   },
   "app/dashboard/DashboardClient.tsx": {
-    "timezone": 8
+    "timezone": 1
   },
   "app/dashboard/page.tsx": {
     "timezone": 2
@@ -186,11 +183,7 @@
   "app/opportunities/[id]/measure/print/page.tsx": {
     "brand": 1
   },
-  "app/ops/OpsClient.tsx": {
-    "timezone": 2
-  },
   "app/ops/jobs/[id]/JobDetailClient.tsx": {
-    "brand": 1,
     "timezone": 2
   },
   "app/ops/jobs/[id]/measure/ExteriorMeasureClient.tsx": {
@@ -285,9 +278,6 @@
   },
   "components/ops/JobPaymentsCard.tsx": {
     "timezone": 2
-  },
-  "components/ops/JobPayrollSentBanner.tsx": {
-    "timezone": 1
   },
   "components/ops/JobSoldScopeSummary.tsx": {
     "brand": 1

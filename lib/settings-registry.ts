@@ -63,9 +63,9 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   },
   {
     id: 'incentives',
-    title: 'Incentives',
+    title: 'Sisu program',
     items: [
-      { title: 'Incentives', description: 'Heats, badges, setter ramp, bonus approval and accountability', href: '/admin/sisu/incentives', access: 'leadership', keywords: 'sisu bonus ramp heats badges' },
+      { title: 'Sisu program', description: 'Heats, badges, setter ramp and accountability', href: '/admin/sisu/incentives', access: 'leadership', keywords: 'sisu bonus ramp heats badges' },
     ],
   },
   {

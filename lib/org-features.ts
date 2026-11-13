@@ -37,7 +37,7 @@ export const ORG_FEATURE_DEFS = {
   },
   incentives: {
     label: 'Sisu incentives',
-    description: 'Heats, badges, leaderboard, accountability goals and the Incentives page. Setter ramp and bonus approval (pay) stay.',
+    description: 'Heats, badges, leaderboard, accountability goals and the Incentives page. Setter ramp (pay) and bonus approval (Money → Bonuses) stay.',
   },
   stormAlerts: {
     label: 'Storm alerts',

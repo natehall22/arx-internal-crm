@@ -351,8 +351,6 @@ interface DashboardClientProps {
     sales: { current: number; goal: number }
   }
   pendingPrompts: any[]
-  upcomingAppointments: any[]
-  recentActivities: any[]
   settings: any
   teamMemberStats?: TeamMemberStat[]
   setterTeamStats?: TeamMemberStat[]
@@ -519,8 +517,6 @@ export default function DashboardClient({
   stats,
   progress: _progressSsr,
   pendingPrompts,
-  upcomingAppointments,
-  recentActivities,
   settings,
   teamMemberStats = [],
   setterTeamStats = [],
@@ -535,8 +531,6 @@ export default function DashboardClient({
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null
   )
-  const [customReports, setCustomReports] = useState<any[]>([])
-  const [reportData, setReportData] = useState<Record<string, any[]>>({})
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('week')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -565,7 +559,6 @@ export default function DashboardClient({
   const [compPlanDetails, setCompPlanDetails] = useState<CompPlanDetails | null>(null)
   const [showCompPlanModal, setShowCompPlanModal] = useState(false)
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
-  const [mounted, setMounted] = useState(false)
   /** First timeframe-driven fetch: avoid skeleton/spinner when SSR already matched default "week". */
   const initialTimeframeFetchRef = useRef(true)
   // Calculator inputs - dynamic based on plan type
@@ -596,8 +589,6 @@ export default function DashboardClient({
   }, [personalStats.sits, personalStats.closeRate])
 
   useEffect(() => {
-    setMounted(true)
-    loadDashboardReports()
     loadWeeklyPay()
     loadCompPlanDetails()
   }, [])
@@ -762,36 +753,6 @@ export default function DashboardClient({
     } catch (error) {
       console.error('Failed to load weekly pay:', error)
       setWeeklyPay(0)
-    }
-  }
-
-  const loadDashboardReports = async () => {
-    if (profile.role === 'canvasser') return
-    try {
-      const res = await fetch('/api/reports/saved?dashboard=true')
-      const data = await res.json()
-      if (!res.ok) return
-      const reports = (data.reports || []).slice(0, 4)
-      setCustomReports(reports)
-      // Each pinned report runs through the one report runner (/api/reports/run).
-      for (const report of reports) {
-        try {
-          const dataRes = await fetch('/api/reports/run', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ spec: report.spec }),
-          })
-          if (!dataRes.ok) throw new Error('report failed')
-          const result = await dataRes.json()
-          const rows = (result.result?.rows || []).map((r: any) => ({ label: r.group ?? '', value: Number(r.value) || 0 }))
-          setReportData(prev => ({ ...prev, [report.id]: rows }))
-        } catch {
-          // Not the same as "no data": e.g. the role lost access to that report.
-          setReportData(prev => ({ ...prev, [report.id]: null as any }))
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load dashboard reports:', error)
     }
   }
 
@@ -961,37 +922,6 @@ export default function DashboardClient({
         </p>
       </div>
     )
-  }
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString)
-    // Use Eastern timezone for consistent display
-    return date.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit',
-      hour12: true,
-      timeZone: 'America/New_York'
-    })
-  }
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    
-    // Compare dates in Eastern timezone
-    const dateStr = date.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
-    const todayStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-    const tomorrowStr = tomorrow.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
-    
-    if (dateStr === todayStr) return 'Today'
-    if (dateStr === tomorrowStr) return 'Tomorrow'
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric',
-      timeZone: 'America/New_York'
-    })
   }
 
   return (
@@ -1776,67 +1706,6 @@ export default function DashboardClient({
               />
             </div>
 
-            {/* Upcoming Appointments - hidden for canvassers */}
-            {profile.role !== 'canvasser' && (
-            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <div className="flex items-center justify-between mb-3 sm:mb-4">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Upcoming Appointments</h2>
-                <Link href="/appointments" className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-700">
-                  View all
-                </Link>
-              </div>
-              {upcomingAppointments.length === 0 ? (
-                <p className="text-gray-700 text-sm py-4">No upcoming appointments</p>
-              ) : (
-                <div className="space-y-2 sm:space-y-3">
-                  {upcomingAppointments.map((apt) => {
-                    const customerName = apt.leads?.homeowner_name?.trim()
-                    const address = apt.leads?.address_text || apt.address_text || ''
-                    const linkHref = apt.opportunity_id 
-                      ? `/opportunities/${apt.opportunity_id}` 
-                      : apt.lead_id 
-                        ? `/leads/${apt.lead_id}`
-                        : '/appointments'
-                    
-                    return (
-                      <Link
-                        key={apt.id}
-                        href={linkHref}
-                        className="flex items-center gap-3 sm:gap-4 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                      >
-                        <div className="w-12 sm:w-14 text-center flex-shrink-0">
-                          <p className="text-xs text-gray-700" suppressHydrationWarning>{mounted ? formatDate(apt.scheduled_for) : ''}</p>
-                          <p className="text-base sm:text-lg font-bold text-gray-900" suppressHydrationWarning>{mounted ? formatTime(apt.scheduled_for) : ''}</p>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          {customerName ? (
-                            <>
-                              <p className="font-medium text-gray-900 truncate text-sm sm:text-base">
-                                {customerName}
-                              </p>
-                              <p className="text-xs sm:text-sm text-gray-700 truncate">
-                                {address || 'No address'}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="font-medium text-gray-900 truncate text-sm sm:text-base">
-                              {address || 'No address'}
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-indigo-600 flex-shrink-0">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </div>
-                      </Link>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-            )}
-
             {/* Account Overview - show different content for canvassers */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
@@ -1875,77 +1744,6 @@ export default function DashboardClient({
               </div>
             </div>
 
-            {/* Custom Reports Widgets - hidden for canvassers */}
-            {customReports.length > 0 && profile.role !== 'canvasser' && (
-              <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-                <div className="flex items-center justify-between mb-3 sm:mb-4">
-                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">Custom Reports</h2>
-                  <Link href="/reports/explore" className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-700">
-                    View all
-                  </Link>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  {customReports.slice(0, 4).map((report) => {
-                    const rawData = reportData[report.id]
-                    const failed = rawData === null
-                    const data = rawData || []
-                    const maxValue = Math.max(...data.map((d: any) => d.value || 0), 1)
-                    const isLoading = reportData[report.id] === undefined
-                    
-                    return (
-                      <Link 
-                        key={report.id} 
-                        href="/reports/explore"
-                        className="border rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-                      >
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-lg">
-                            📊
-                          </span>
-                          <h3 className="font-medium text-gray-900 text-sm">{report.name}</h3>
-                        </div>
-                        
-                        {isLoading ? (
-                          <div className="flex items-center justify-center py-4">
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600" />
-                          </div>
-                        ) : failed ? (
-                          <div className="text-center py-4">
-                            <p className="text-sm text-gray-600">Not available for your role</p>
-                          </div>
-                        ) : data.length === 0 ? (
-                          <div className="text-center py-4">
-                            <p className="text-sm text-gray-700">No data for this period</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {data.slice(0, 3).map((item: any, idx: number) => (
-                              <div key={idx}>
-                                <div className="flex justify-between text-xs mb-1">
-                                  <span className="text-gray-600 truncate">{item.label || 'Unknown'}</span>
-                                  <span className="font-medium text-gray-900">{(item.value || 0).toLocaleString()}</span>
-                                </div>
-                                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-indigo-500 rounded-full"
-                                    style={{ width: `${((item.value || 0) / maxValue) * 100}%` }}
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                            {data.length > 3 && (
-                              <p className="text-xs text-gray-600 text-center pt-1">
-                                +{data.length - 3} more
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </Link>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Sidebar */}
@@ -1985,82 +1783,6 @@ export default function DashboardClient({
               'sales_manager',
               'regional_manager',
             ].includes(profile?.role || '') && <CommissionWidget />}
-
-            {/* Recent Activity */}
-            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Recent Activity</h2>
-              {recentActivities.length === 0 ? (
-                <p className="text-gray-700 text-sm">No recent activity</p>
-              ) : (
-                <div className="space-y-4">
-                  {recentActivities.slice(0, 5).map((activity: any) => (
-                    <div key={activity.id} className="flex gap-3">
-                      <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-xs font-medium text-gray-600">
-                          {activity.users?.full_name?.charAt(0) || '?'}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-900">
-                          <span className="font-medium">{activity.users?.full_name || 'Unknown'}</span>
-                          {' '}
-                          <span className="text-gray-700">{activity.type.replace('_', ' ')}</span>
-                        </p>
-                        <p className="text-xs text-gray-700 truncate">{activity.body}</p>
-                        <p className="text-xs text-gray-600 mt-1" suppressHydrationWarning>
-                          {mounted ? new Date(activity.created_at).toLocaleDateString() : ''}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Quick Actions */}
-            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Quick Actions</h2>
-              <div className="space-y-2">
-                {orgFeatures.canvassing && (
-                <Link
-                  href="/canvass"
-                  className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </div>
-                  <span className="font-medium text-gray-900 text-sm sm:text-base">Start Canvassing</span>
-                </Link>
-                )}
-                <Link
-                  href="/leads/new"
-                  className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </div>
-                  <span className="font-medium text-gray-900 text-sm sm:text-base">Add New Lead</span>
-                </Link>
-                {profile.role !== 'canvasser' && (
-                  <Link
-                    href="/reports"
-                    className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <svg className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                      </svg>
-                    </div>
-                    <span className="font-medium text-gray-900 text-sm sm:text-base">View Reports</span>
-                  </Link>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       </div>

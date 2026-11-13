@@ -43,7 +43,7 @@ function navFor(role: string, payWeek: boolean) {
   return pages
 }
 
-const ROLES = ['owner', 'operations', 'closer', 'setter', 'canvasser']
+const ROLES = ['owner', 'operations', 'sales_rep', 'closer', 'setter', 'canvasser']
 
 describe('nav per role (what each role is shown)', () => {
   it('prints the matrix', () => {
@@ -63,5 +63,20 @@ describe('nav per role (what each role is shown)', () => {
     const pages = navFor(r, true)
     expect(pages).not.toContain('/admin/payroll')
     expect(pages).not.toContain('/admin/job-profit-tracker')
+  })
+})
+
+describe('Sisu / Bonuses placement', () => {
+  it.each(['owner', 'sales_rep', 'closer', 'setter', 'canvasser'])('%s: Sisu is a top-level page, never under Insights (which no longer exists)', (r) => {
+    const p = navFor(r, true)
+    expect(p).toContain('/sisu')
+    expect(p.indexOf('/sisu')).toBeGreaterThan(p.indexOf('/dashboard'))
+  })
+  it.each(['setter', 'canvasser', 'sales_rep', 'closer'])('%s never sees Money → Bonuses', (r) => {
+    expect(navFor(r, true)).not.toContain('/admin/bonuses')
+  })
+  it('owner and operations see Money → Bonuses', () => {
+    expect(navFor('owner', true)).toContain('/admin/bonuses')
+    expect(navFor('operations', true)).toContain('/admin/bonuses')
   })
 })

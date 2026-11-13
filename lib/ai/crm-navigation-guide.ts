@@ -29,7 +29,7 @@ function paveRecordPath(text: string, context?: AiChatFallbackContext): string {
 
 const COMMON_GUIDE = `
 ## Main menu
-Six sections: **Today** (your work queue), **Pipeline** (Leads, Opportunities, Inside Sales, Calendar, Referral Partners), **Jobs** (Job Board, Needs you, Projects), **Customers**, **Money** (Payroll, Job profit, Pricebook), **Insights** (Dashboard, Reports, Incentives). Plus **Canvass**, **Settings**, and Search (Cmd/Ctrl-K).
+Top-level menu: **Today** (your work queue), **Dashboard** (the numbers), **Pipeline** (Leads, Opportunities, Inside Sales, Calendar, Referral Partners), **Jobs** (Job Board, Needs you, Projects), **Customers**, **Money** (Payroll, Job profit, Pricebook), **Reports**, **Sisu** (the setter incentive program). Plus **Canvass**, **Settings**, and Search (Cmd/Ctrl-K).
 
 ## ARX CRM — where things go
 
@@ -71,14 +71,15 @@ Six sections: **Today** (your work queue), **Pipeline** (Leads, Opportunities, I
 - **My commissions**: **Commissions** (\`/commissions/statement\`) or Dashboard widgets.
 - **Team commissions**: \`/commissions/team\` (managers).
 - **Commission estimator**: \`/commissions/estimator\`.
+- **Approve bonuses**: **Money → Bonuses** (\`/admin/bonuses\`) — every bonus line (Sisu 444, setter ramp, manual) waiting for approval; regional managers see their own reports' bonuses.
 - **Payroll / bonuses (admin)**: **Money → Payroll** (\`/admin/payroll\`) — one screen, "Pay this week": Needs you (hours, bonuses), who gets what, jobs waiting, and one Approve button. Earlier weeks are listed at the bottom.
 
 ### Canvassing (setters)
 - **Door knocking map**: **Canvass** (\`/canvass\`) — pins, dispositions, offline queue, territories.
 - **Work areas** (canvass boundaries): Settings → **Work areas** (\`/canvass?areas=1\`).
 - **Canvass stats / settings**: \`/canvass/stats\`, \`/canvass/settings\`.
-- **Incentives / leaderboard**: **Incentives** (\`/sisu\`) — door/inspection counts, Heats, and leaderboard; admin config at **Settings → Incentives** (\`/admin/sisu/incentives\`).
-- **Setter ramp**: **Settings → Incentives → Setter Ramp** (\`/admin/sisu/setter-ramp\`) — new setter onboarding and ramp targets.
+- **Incentives / leaderboard**: **Sisu** (\`/sisu\`) — door/inspection counts, Heats, and leaderboard; admin config at **Settings → Sisu program** (\`/admin/sisu/incentives\`).
+- **Setter ramp**: **Settings → Sisu program → Setter Ramp** (\`/admin/sisu/setter-ramp\`) — new setter onboarding and ramp targets.
 
 ### Tools & admin
 - **Roof measure (aerial)**: **Tools → Roof Measure** (\`/tools/roof-measure\`).

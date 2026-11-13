@@ -169,37 +169,37 @@ function statusChip(status: BonusStatus): { label: string; className: string } {
   if (status === 'pending_approval') {
     return {
       label: 'Pending Review',
-      className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      className: 'bg-amber-100 text-amber-900 border-amber-300',
     }
   }
   if (status === 'approved') {
     return {
       label: 'Approved',
-      className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      className: 'bg-emerald-100 text-emerald-900 border-emerald-300',
     }
   }
   if (status === 'paid') {
     return {
       label: 'Paid',
-      className: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+      className: 'bg-indigo-100 text-indigo-900 border-indigo-300',
     }
   }
   return {
     label: 'Rejected',
-    className: 'bg-red-500/15 text-red-300 border-red-500/30',
+    className: 'bg-red-100 text-red-900 border-red-300',
   }
 }
 
 function BonusLineSkeleton() {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 animate-pulse">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 animate-pulse">
       <div className="flex items-start justify-between gap-4">
-        <div className="h-6 w-28 rounded-full bg-slate-800" />
-        <div className="h-8 w-20 rounded bg-slate-800" />
+        <div className="h-6 w-28 rounded-full bg-gray-200" />
+        <div className="h-8 w-20 rounded bg-gray-200" />
       </div>
-      <div className="mt-4 h-4 w-40 rounded bg-slate-800" />
-      <div className="mt-2 h-3 w-56 rounded bg-slate-800/80" />
-      <div className="mt-3 h-3 w-full rounded bg-slate-800/60" />
+      <div className="mt-4 h-4 w-40 rounded bg-gray-200" />
+      <div className="mt-2 h-3 w-56 rounded bg-gray-200" />
+      <div className="mt-3 h-3 w-full rounded bg-gray-200" />
     </div>
   )
 }
@@ -234,47 +234,47 @@ function BonusLineCard({
   const showActions = showPendingActions
 
   return (
-    <div className="relative rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-2xl shadow-black/20">
+    <div className="relative rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
       {(actionState === 'confirming' || justReviewed) && (
         <div
           className={`absolute inset-0 z-10 flex items-center justify-center rounded-2xl ${
-            justReviewed ? 'bg-emerald-950/40' : 'bg-slate-950/60'
+            justReviewed ? 'bg-emerald-50/90' : 'bg-white/80'
           }`}
         >
           {actionState === 'confirming' ? (
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-indigo-300" />
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-indigo-600" />
               Confirming…
             </div>
           ) : (
-            <span className="text-sm font-bold text-emerald-300">✓ Done</span>
+            <span className="text-sm font-bold text-emerald-800">✓ Done</span>
           )}
         </div>
       )}
 
       {actionState === 'error' && (
-        <p className="mb-3 text-sm font-semibold text-red-300">
+        <p className="mb-3 text-sm font-semibold text-red-800">
           {actionError ?? 'Failed — try again'}
         </p>
       )}
 
       <div className="flex items-start justify-between gap-4">
         <span
-          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${chip.className}`}
+          className={`inline-flex rounded-full border px-2.5 py-1 text-sm font-semibold ${chip.className}`}
         >
           {chip.label}
         </span>
-        <p className="text-2xl font-black text-amber-400">{formatAmount(line.amount)}</p>
+        <p className="text-2xl font-black text-gray-900">{formatAmount(line.amount)}</p>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <p className="text-sm font-bold text-slate-100">{line.user.full_name}</p>
-        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+        <p className="text-base font-bold text-gray-900">{line.user.full_name}</p>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-sm font-semibold text-gray-800">
           {displayRole(line.user.role)}
         </span>
       </div>
 
-      <p className="mt-2 text-xs text-slate-400">
+      <p className="mt-2 text-sm text-gray-800">
         {line.period.period_label}
         {line.period.scheduled_pay_date
           ? ` · pays ${formatDate(line.period.scheduled_pay_date)}`
@@ -282,11 +282,11 @@ function BonusLineCard({
       </p>
 
       {line.description && (
-        <p className="mt-3 text-sm text-slate-300 line-clamp-2">{line.description}</p>
+        <p className="mt-3 text-sm text-gray-900 line-clamp-2">{line.description}</p>
       )}
 
       {!isPending && line.reviewed_at && (
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-sm text-gray-800">
           {line.reviewer?.full_name ? `Reviewed by ${line.reviewer.full_name}` : 'Reviewed'}
           {' · '}
           {formatDate(line.reviewed_at)}
@@ -294,20 +294,20 @@ function BonusLineCard({
       )}
 
       {showActions && (
-        <div className="mt-5 border-t border-slate-800 pt-4">
+        <div className="mt-5 border-t border-gray-200 pt-4">
           <input
             type="text"
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="Add a note (optional)"
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:border-indigo-400"
+            className="min-h-[44px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 placeholder-gray-600 outline-none transition focus:border-indigo-600"
           />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => onApprove(note)}
               disabled={actionState === 'confirming'}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-[44px] rounded-xl bg-emerald-700 px-5 py-2 text-sm font-bold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Approve
             </button>
@@ -315,7 +315,7 @@ function BonusLineCard({
               type="button"
               onClick={() => onReject(note)}
               disabled={actionState === 'confirming'}
-              className="rounded-xl border border-red-500/40 bg-red-950/40 px-4 py-2 text-sm font-bold text-red-300 transition hover:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-[44px] rounded-xl border border-red-300 bg-red-50 px-5 py-2 text-sm font-bold text-red-900 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Reject
             </button>
@@ -324,16 +324,16 @@ function BonusLineCard({
       )}
 
       {showMarkPaid && (
-        <div className="mt-5 border-t border-slate-800 pt-4">
+        <div className="mt-5 border-t border-gray-200 pt-4">
           <button
             type="button"
             onClick={onMarkPaid}
             disabled={actionState === 'confirming'}
-            className="rounded-xl border border-indigo-400/40 bg-indigo-950/40 px-4 py-2 text-sm font-bold text-indigo-300 transition hover:bg-indigo-900/50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-[44px] rounded-xl border border-indigo-300 bg-indigo-50 px-5 py-2 text-sm font-bold text-indigo-900 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Mark Paid
           </button>
-          <p className="mt-1 text-[11px] text-slate-500">Confirms payment was delivered to rep.</p>
+          <p className="mt-1 text-sm text-gray-800">Confirms payment was delivered to rep.</p>
         </div>
       )}
     </div>
@@ -515,31 +515,31 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
   }
 
   return (
-    <div className="space-y-6 text-slate-100">
+    <div className="space-y-6 text-gray-900">
       <div>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-black tracking-tight text-white">Bonus Approval</h1>
+          <h1 className="text-3xl font-black tracking-tight text-gray-900">Bonuses</h1>
           {pendingCount > 0 && (
-            <span className="inline-flex animate-pulse rounded-full border border-amber-400/50 bg-amber-500/15 px-2.5 py-1 text-xs font-black text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)]">
+            <span className="inline-flex rounded-full border border-amber-300 bg-amber-100 px-2.5 py-1 text-sm font-black text-amber-900">
               {pendingCount} pending
             </span>
           )}
         </div>
-        <p className="mt-2 max-w-2xl text-sm text-slate-400">
-          Review and approve rep bonus lines before payroll locks.
+        <p className="mt-2 max-w-2xl text-sm text-gray-800">
+          Review and approve every bonus line before payroll locks: Sisu 444, setter ramp and manual bonuses.
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-1">
+      <div className="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-white p-1">
         {STATUS_FILTERS.map((filter) => (
           <button
             key={filter.key}
             type="button"
             onClick={() => setStatusFilter(filter.key)}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`min-h-[44px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
               statusFilter === filter.key
-                ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-950/30'
-                : 'text-slate-400 hover:bg-slate-800/80 hover:text-slate-100'
+                ? 'bg-indigo-700 text-white'
+                : 'text-gray-800 hover:bg-gray-100 hover:text-gray-900'
             }`}
           >
             {filter.label}
@@ -548,13 +548,13 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
       </div>
 
       {loadError && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
           {loadError}
         </div>
       )}
 
       {!isFullAdmin && (
-        <div className="rounded-xl border border-indigo-500/20 bg-indigo-950/30 px-4 py-3 text-xs text-indigo-300">
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
           Showing bonuses for your direct reports only.
         </div>
       )}
@@ -567,12 +567,12 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
         </div>
       ) : lines.length === 0 ? (
         statusFilter === 'pending_approval' ? (
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-6 py-10 text-center">
-            <p className="text-lg font-semibold text-emerald-300">✓ All clear</p>
-            <p className="mt-1 text-sm text-emerald-200/80">No bonuses waiting for approval.</p>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-10 text-center">
+            <p className="text-lg font-semibold text-emerald-900">✓ All clear</p>
+            <p className="mt-1 text-sm text-emerald-900">No bonuses waiting for approval.</p>
           </div>
         ) : (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-6 py-10 text-center text-sm text-slate-400">
+          <div className="rounded-2xl border border-gray-200 bg-white px-6 py-10 text-center text-sm text-gray-800">
             No bonus lines found.
           </div>
         )
