@@ -72,7 +72,7 @@ export default function AuthorizeConsent({ ticket, companyName, appLabel, claime
           <li>See anything you cannot see yourself</li>
         </ul>
       </section>
-      <p className="mt-5 text-base">Every request is logged. You can disconnect it any time under Settings, Connected AI apps.</p>
+      <p className="mt-5 text-base">Every request is logged. You can disconnect it any time under Settings, Connect your AI.</p>
       {error ? (
         <p role="alert" className="mt-4 rounded-lg border border-red-600 bg-red-50 p-3 text-base">
           {error}

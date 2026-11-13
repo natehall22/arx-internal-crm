@@ -534,14 +534,19 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* AI Tab */}
-        {activeTab === 'connect' && aiConnector && (
+        {/* Connect your AI Tab (also reached by ?tab=connect and /settings/ai-apps; blank-page guard when the company has it off) */}
+        {activeTab === 'connect' && (aiConnector ? (
           <div className="space-y-4">
             <ConnectAiCard {...aiConnector} />
             <ConnectedAiApps />
           </div>
-        )}
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <p className="text-base text-ink">Your company has not turned on AI apps. Ask an owner to turn on the AI connector in Settings.</p>
+          </div>
+        ))}
 
+        {/* AI Tab */}
         {activeTab === 'ai' && aiAssistantAllowlisted && (
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>

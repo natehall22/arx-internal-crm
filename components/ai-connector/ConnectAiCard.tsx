@@ -52,10 +52,13 @@ export default function ConnectAiCard({ address, companyName }: { address: strin
     return ok
   }
 
-  async function openApp(url: string) {
-    // Open first (inside the tap) so the pop-up is not blocked, then copy.
+  function openApp(url: string) {
+    // Start the copy BEFORE opening: once the new tab takes focus, browsers refuse the clipboard ("document is not
+    // focused"). writeText is called synchronously inside copy(), and it does not use up the tap, so window.open
+    // right after it, still inside the same tap, is not blocked as a pop-up.
+    const copying = copy()
     window.open(url, '_blank', 'noopener,noreferrer')
-    await copy()
+    void copying
   }
 
   const name = companyName || 'the CRM'
@@ -82,7 +85,7 @@ export default function ConnectAiCard({ address, companyName }: { address: strin
 
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
           <div>
-            <Button variant="secondary" className="min-h-tap w-full" onClick={() => void openApp(CLAUDE_CONNECTORS_URL)}>Open Claude</Button>
+            <Button variant="secondary" className="min-h-tap w-full" onClick={() => openApp(CLAUDE_CONNECTORS_URL)}>Open Claude</Button>
             <ol className="mt-2 list-decimal space-y-1 pl-5 text-ui-base text-ink">
               <li>Tap Open Claude. The address is copied for you.</li>
               <li>Tap Add custom connector. Name it {name} and paste the address.</li>
@@ -90,7 +93,7 @@ export default function ConnectAiCard({ address, companyName }: { address: strin
             </ol>
           </div>
           <div>
-            <Button variant="secondary" className="min-h-tap w-full" onClick={() => void openApp(CHATGPT_CONNECTORS_URL)}>Open ChatGPT</Button>
+            <Button variant="secondary" className="min-h-tap w-full" onClick={() => openApp(CHATGPT_CONNECTORS_URL)}>Open ChatGPT</Button>
             <ol className="mt-2 list-decimal space-y-1 pl-5 text-ui-base text-ink">
               <li>Tap Open ChatGPT. The address is copied for you.</li>
               <li>Under Connectors, tap Create. Name it {name} and paste the address. If you do not see Create, turn on Developer mode under Connectors, then Advanced.</li>

@@ -51,6 +51,15 @@ describe('ConnectAiCard', () => {
     expect(screen.getAllByText(/Example Roofing/).length).toBeGreaterThan(0)
   })
 
+  it('Open Claude starts the copy BEFORE opening the new tab (a focused page is required for the clipboard)', async () => {
+    const order: string[] = []
+    Object.assign(navigator, { clipboard: { writeText: jest.fn(async () => { order.push('copy') }) } })
+    window.open = jest.fn(() => { order.push('open'); return null }) as unknown as typeof window.open
+    render(<ConnectAiCard address="https://crm.example.com/mcp" companyName="Example Roofing" />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Open Claude' })) })
+    expect(order).toEqual(['copy', 'open'])
+  })
+
   it('no clipboard API → address is selected and a hint shows', async () => {
     Object.assign(navigator, { clipboard: undefined })
     document.execCommand = jest.fn(() => false)
