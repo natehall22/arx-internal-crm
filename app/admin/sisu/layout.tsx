@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { requireAuth } from '@/lib/auth'
 import { isPayrollAdminRole, isRegionalBonusApproverRole } from '@/lib/payroll-admin-access'
 import { isSisuAdminRole } from '@/lib/sisu-admin-access'
@@ -28,14 +28,7 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
     <div className="min-h-screen bg-slate-950">
       <Nav />
       <div className="mx-auto max-w-7xl px-4 py-8">
-        <div className="mb-6">
-          <Link
-            href="/admin"
-            className="text-sm font-medium text-indigo-300 transition hover:text-indigo-100"
-          >
-            ← Back to Settings
-          </Link>
-        </div>
+        <SettingsBackLink tone="dark" className="mb-3" />
 
         <div className="mb-6">
           <p className="text-xs font-bold uppercase tracking-widest text-indigo-400">Incentives Admin</p>

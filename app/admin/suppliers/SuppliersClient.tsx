@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 
 type LogEntry = { at: string; by: string | null; action: string; lines: string[] }
 type Supplier = {
@@ -103,6 +104,7 @@ export default function SuppliersClient() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24 text-[#2c2c2a]">
+      <SettingsBackLink />
       <h1 className="mb-1 mt-0 text-2xl font-bold">Vendors</h1>
       <p className="mb-4 text-sm">Everyone you buy from or hire: suppliers and subcontractors. Purchase orders are emailed to them. Only owners can change this; every change is logged.</p>
       <div className="mb-3 flex gap-2" role="tablist" aria-label="Show">

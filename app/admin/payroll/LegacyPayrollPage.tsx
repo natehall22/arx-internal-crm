@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import { formatParticipantRoleLabel } from '@/lib/payroll-format'
 import InspectionCommissionRateCard from './InspectionCommissionRateCard'
@@ -117,11 +118,7 @@ export default function AdminPayrollPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-6">
-          <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Admin
-          </Link>
-        </div>
+        <SettingsBackLink />
 
         <div className="bg-white rounded-xl shadow-sm border p-6 sm:p-8">
           <h1 className="text-2xl font-semibold text-gray-900">Payroll &amp; commission export</h1>

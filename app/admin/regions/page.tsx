@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Region, Team } from '@/lib/types/database'
@@ -158,11 +159,7 @@ export default function RegionsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
-              <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
-              <span>/</span>
-              <span>Regions</span>
-            </div>
+            <SettingsBackLink />
             <h1 className="text-3xl font-bold text-gray-900">Regions</h1>
             <p className="mt-1 text-gray-600">Manage geographic regions for your organization</p>
           </div>

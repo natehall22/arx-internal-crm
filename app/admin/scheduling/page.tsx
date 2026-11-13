@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { User, Team, UserGoogleToken } from '@/lib/types/database'
@@ -203,11 +204,7 @@ export default function SchedulingPage() {
       <Nav />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
-            <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
-            <span>/</span>
-            <span>Scheduling</span>
-          </div>
+          <SettingsBackLink />
           <h1 className="text-3xl font-bold text-gray-900">Scheduling Settings</h1>
           <p className="mt-1 text-gray-600">
             Connect your Google Calendar for automatic appointment scheduling

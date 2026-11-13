@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Nav from '@/components/Nav'
-import Link from 'next/link'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import { toast } from '@/components/ui/toast'
@@ -186,15 +186,7 @@ export default function InspectionFeedbackAdmin() {
       <div className="max-w-5xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="mb-6">
-          <Link
-            href="/admin"
-            className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-2"
-          >
-            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to Admin
-          </Link>
+          <SettingsBackLink />
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Inspection Feedback</h1>

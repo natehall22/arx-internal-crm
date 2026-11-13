@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import TimeClockSettingsCard from '@/components/time/TimeClockSettingsCard'
 import TimeWeekClient from '@/components/time/TimeWeekClient'
 import { PageHeader } from '@/components/ui'
@@ -20,6 +21,7 @@ export default async function TimePage() {
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4 sm:px-6">
+        <SettingsBackLink />
         <PageHeader title="Time" subtitle="Crew time for the pay week. Hours go to payroll and labor cost to each job on their own." />
         <TimeWeekClient />
         {isSuperAdmin(profile) ? <TimeClockSettingsCard /> : null}

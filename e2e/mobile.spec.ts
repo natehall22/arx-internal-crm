@@ -150,7 +150,16 @@ const SCREENS: Screen[] = [
   { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
   { name: 'pay-banners', path: '/dev-harness/pay-banners', ready: 'text=Mark' },
   { name: 'suppliers-admin', path: '/dev-harness/suppliers-admin', ready: 'text=Suppliers',
-    states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit vendor') } }] },
+    states: [
+      { name: 'back-link', run: async (p) => {
+        // every Settings sub-page opens with "← Settings": 44px tall, above the title
+        const back = await p.getByTestId('settings-back-link').boundingBox()
+        const title = await p.getByRole('heading', { level: 1 }).boundingBox()
+        if (!back || back.height < 44) throw new Error(`settings back link under 44px: ${back?.height}`)
+        if (!title || back.y + back.height > title.y + 1) throw new Error('settings back link is not above the title')
+      } },
+      { name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit vendor') } },
+    ] },
   { name: 'announcement-banner', path: '/dev-harness/announcement-banner', ready: 'text=See what',
     states: [{ name: 'size', run: async (p) => {
       const box = await p.getByRole('region', { name: "What's new" }).boundingBox()

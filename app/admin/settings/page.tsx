@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Image from 'next/image'
 import { DEFAULT_CLOSE_OUTCOMES, normalizeCloseOutcomeRows } from '@/lib/close-outcomes'
 import {
@@ -789,6 +790,7 @@ export default function AdminSettingsPage() {
 
         {/* Main content */}
         <div className="flex-1 min-h-0 overflow-y-auto p-8">
+          <SettingsBackLink />
           {/* General Settings */}
           {activeSection === 'general' && (
             <div className="max-w-2xl">

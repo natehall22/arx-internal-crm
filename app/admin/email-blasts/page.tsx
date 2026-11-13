@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import type { EmailBlastConfig, EmailBlastType, MorningUpdateFocus } from '@/lib/admin-email-blasts'
 
 type RoleOption = {
@@ -176,12 +176,7 @@ export default function EmailBlastsPage() {
       <Nav />
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="mb-6">
-          <Link href="/admin" className="mb-2 inline-flex min-h-[44px] items-center text-sm text-gray-600 hover:text-gray-900">
-            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to Admin
-          </Link>
+          <SettingsBackLink />
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Email Blasts</h1>

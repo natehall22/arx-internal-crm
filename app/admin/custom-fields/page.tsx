@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { PageHeader } from '@/components/ui'
 import { requireAuth } from '@/lib/auth'
 import { CUSTOM_FIELD_ENTITY_LABELS } from '@/lib/custom-fields'
@@ -23,6 +24,7 @@ export default async function CustomFieldsPage() {
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
+        <SettingsBackLink />
         <PageHeader title="Custom fields" subtitle={`Extra boxes your team fills in on customers, properties and ${jobsWord.toLowerCase()}. Only owners can change this list.`} />
         <CustomFieldsClient entityLabels={entityLabels} />
       </main>

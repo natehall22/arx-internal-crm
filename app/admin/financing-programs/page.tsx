@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
-import Link from 'next/link'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -141,9 +141,7 @@ export default function AdminFinancingProgramsPage() {
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <Link href="/admin" className="text-sm text-indigo-600 hover:text-indigo-800 mb-2 inline-block">
-              ← Settings
-            </Link>
+            <SettingsBackLink />
             <h1 className="text-2xl font-bold text-gray-900">Financing programs</h1>
             <p className="text-gray-600 mt-1">
               Lender name, APR, term, and dealer fee (% of financed contract total). Dealer fee is internal — not shown to

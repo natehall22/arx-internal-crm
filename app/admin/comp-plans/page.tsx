@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import CompanyCommissionRatesCard from '@/components/admin/CompanyCommissionRatesCard'
 import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
@@ -1008,9 +1009,7 @@ export default function CompPlansPage() {
       <Nav />
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Settings
-          </Link>
+          <SettingsBackLink />
         </div>
 
         <div className="flex items-center justify-between mb-8">

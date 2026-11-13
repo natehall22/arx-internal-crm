@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import CustomerMessagesSettings from '@/components/admin/CustomerMessagesSettings'
 import { PageHeader } from '@/components/ui'
 import { requireAuth } from '@/lib/auth'
@@ -18,6 +19,7 @@ export default async function CustomerMessagesPage() {
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
+        <SettingsBackLink />
         <PageHeader title="Customer messages" subtitle="Emails your customers get on their own. Each one is off until you turn it on." />
         <CustomerMessagesSettings />
       </main>

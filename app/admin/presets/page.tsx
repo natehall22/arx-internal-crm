@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
-import Link from 'next/link'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import {
   hasInsideSalesQueuePermissionGrant,
   INSIDE_SALES_PRESET_DISPLAY_PRIORITY,
@@ -277,11 +277,7 @@ export default function PresetsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
-              <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
-              <span>/</span>
-              <span>Permission Presets</span>
-            </div>
+            <SettingsBackLink />
             <h1 className="text-3xl font-bold text-gray-900">Permission Presets</h1>
             <p className="mt-1 text-gray-600">Create reusable permission templates for quick user setup</p>
           </div>

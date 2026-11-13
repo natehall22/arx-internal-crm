@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
-import Link from 'next/link'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { permissionCategories, type PermissionCategory } from '@/lib/permissions'
 import type { CustomRole, Permission, User } from '@/lib/types/database'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
@@ -354,11 +354,7 @@ export default function RolesPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
-              <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
-              <span>/</span>
-              <span>Roles & Permissions</span>
-            </div>
+            <SettingsBackLink />
             <h1 className="text-3xl font-bold text-gray-900">Roles & Permissions</h1>
             <p className="mt-1 text-gray-600">Manage role-based and individual user permissions</p>
           </div>

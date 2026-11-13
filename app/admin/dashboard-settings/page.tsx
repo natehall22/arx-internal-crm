@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 
 interface DashboardSettingsData {
@@ -218,9 +219,7 @@ export default function DashboardSettingsPage() {
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <Link href="/admin" className="text-sm text-indigo-600 hover:text-indigo-700 mb-2 inline-block">
-              ← Back to Settings
-            </Link>
+            <SettingsBackLink />
             <h1 className="text-2xl font-bold text-gray-900">Dashboard Settings</h1>
             <p className="text-gray-700 mt-1">
               Customize dashboard for your organization, regions, or teams

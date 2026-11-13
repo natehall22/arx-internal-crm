@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { useOrgProfile } from '@/hooks/useOrgFeatures'
 import { BASE_TERMS } from '@/lib/industry-profiles'
-import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@/components/ui/button'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
@@ -366,9 +366,7 @@ export default function SubContractorsPage() {
       
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Settings
-          </Link>
+          <SettingsBackLink />
         </div>
 
         <div className="flex items-center justify-between mb-6">
