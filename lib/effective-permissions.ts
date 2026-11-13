@@ -120,6 +120,28 @@ async function resolveBasePermissionNames(
   return { fullAccess: false, permissionNames: names }
 }
 
+/**
+ * THE server-side "is this person a field role" answer for a route (setter / canvasser / inside sales / call center by role slug OR
+ * custom-role NAME — isFieldRoleLike, the same classification the permission deny above uses). Use it as a route's first, explicit
+ * deny before any production or money read; the permission strip above stays the second lock.
+ */
+export async function resolveIsFieldRole(
+  admin: SupabaseClient,
+  profile: { role: string; org_id: string; custom_role_id?: string | null }
+): Promise<boolean> {
+  // Exactly isFieldRoleLike / SQL arx_private.is_field_role (no owner carve-out here: fail closed, same answer as RLS).
+  const role = String(profile.role || '').toLowerCase().trim()
+  if (isFieldRoleLike({ role })) return true
+  if (!profile.custom_role_id) return false
+  const { data: cr } = await admin
+    .from('custom_roles')
+    .select('name, display_name')
+    .eq('id', profile.custom_role_id)
+    .eq('org_id', profile.org_id)
+    .maybeSingle()
+  return isFieldRoleLike({ role, customRoleName: (cr?.name as string | null) ?? null, customRoleDisplayName: (cr?.display_name as string | null) ?? null })
+}
+
 export function effectiveHasPermission(
   result: EffectivePermissionsResult,
   permissionName: string

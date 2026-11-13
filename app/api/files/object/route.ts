@@ -9,7 +9,7 @@ import {
   signFilesObject,
   type FilesPathClass,
 } from '@/lib/files/files-object'
-import { isFieldRoleLike } from '@/lib/permissions'
+import { resolveIsFieldRole } from '@/lib/effective-permissions'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { User } from '@/lib/types/database'
@@ -29,18 +29,10 @@ function notFound() {
   return NextResponse.json({ error: 'Not found' }, { status: 404, headers: PRIVATE })
 }
 
-/** Field role by role slug or custom-role name (isFieldRoleLike), or barred from sales docs (resolveSalesDocAccessBarred). */
+/** Field role by role slug or custom-role name (resolveIsFieldRole), or barred from sales docs (resolveSalesDocAccessBarred). */
 async function isFieldOrSalesDocBarred(admin: SupabaseClient, profile: User): Promise<boolean> {
-  const p = profile
-  let customRoleName: string | null = null
-  let customRoleDisplayName: string | null = null
-  if (p.custom_role_id) {
-    const { data } = await admin.from('custom_roles').select('name, display_name').eq('id', p.custom_role_id).maybeSingle()
-    customRoleName = data?.name ?? null
-    customRoleDisplayName = data?.display_name ?? null
-  }
-  if (isFieldRoleLike({ role: p.role, customRoleName, customRoleDisplayName })) return true
-  return resolveSalesDocAccessBarred(admin, p.id, { role: p.role, custom_role_id: p.custom_role_id ?? null })
+  if (await resolveIsFieldRole(admin, profile)) return true
+  return resolveSalesDocAccessBarred(admin, profile.id, { role: profile.role, custom_role_id: profile.custom_role_id ?? null })
 }
 
 async function staffMayRead(admin: SupabaseClient, profile: User, path: string, c: FilesPathClass): Promise<boolean> {

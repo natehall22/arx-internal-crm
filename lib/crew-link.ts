@@ -15,7 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { FILES_BUCKET } from '@/lib/files/storage'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
-import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
+import { orgTodayYmd } from '@/lib/project-tools/org-today'
 import { CREW_LINK_GRACE_DAYS, calendarDaySpan } from '@/lib/job-trades'
 import type { Trade } from '@/lib/org-trades'
 import { getOrgBrand } from '@/lib/org-brand'
@@ -79,7 +79,8 @@ export async function resolveCrewLink(admin: SupabaseClient, token: string): Pro
     .maybeSingle()
   if (!job || job.cancelled_at) return { ok: false, reason: 'invalid', orgId: trade.org_id }
 
-  if (isCrewLinkExpired(trade.scheduled_date, trade.install_days, ymdInBusinessTz(new Date()))) {
+  // "Today" on the link's own company clock (`orgs.timezone`), not a fixed zone.
+  if (isCrewLinkExpired(trade.scheduled_date, trade.install_days, await orgTodayYmd(admin, trade.org_id))) {
     return { ok: false, reason: 'expired', orgId: trade.org_id }
   }
 

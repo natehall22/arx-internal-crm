@@ -70,7 +70,7 @@ beforeEach(() => {
         { id: 'j2', org_id: ORG, project_id: 'p2', assigned_sub_id: 'sub-2', job_packet_pdf_path: `${ORG}/jobs/j2/job-packet-2.pdf` },
       ],
       work_order_photos: [{ id: 'w1', org_id: ORG, storage_path: 'files/work-orders/wo1/work_done_1_0.jpg' }],
-      custom_roles: [{ id: 'cr-canvass', name: 'canvasser_custom', display_name: 'Door Canvasser' }],
+      custom_roles: [{ id: 'cr-canvass', org_id: ORG, name: 'canvasser_custom', display_name: 'Door Canvasser' }],
     },
     { rpc: { get_sub_id_for_user: (args) => (args.user_uuid === 'u-sub' ? 'sub-1' : null) } }
   )

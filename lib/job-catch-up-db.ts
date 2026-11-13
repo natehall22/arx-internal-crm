@@ -12,7 +12,7 @@ import { loadDataHealthWithRows, shapeNeedsYou, type HealthProblem } from '@/lib
 import { deriveMaterialsState, type MaterialsState } from '@/lib/job-materials-state'
 import { paymentStatusChip } from '@/lib/job-status'
 import { sumCollectedCents } from '@/lib/job-collection'
-import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
+import { collectionInvoiceFields, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { ACTIVITY_WINDOW_DAYS, readJobCatchUpSettings, type JobCatchUpSettings } from '@/lib/job-catch-up-settings'
 import {
   CUSTOMER_CONTACT_TYPES,
@@ -216,8 +216,8 @@ export async function loadJobCatchUps(
 
   const tradesByJob = groupBy(health.rows.trades, (t) => t.job_id)
   const paymentsByJob = groupBy(health.rows.payments, (p) => p.job_id)
-  // Invoice sales tax owed on top of the sale amount (lib/job-invoice-tax.ts); only read when the chip is shown.
-  const invoiceTaxByJob = opts.showPayment ? await loadJobInvoiceFacts(admin, jobs.map((j) => j.id)) : new Map<string, JobInvoiceFacts>()
+  // Invoice sales tax / time & materials billing (lib/job-invoice-tax.ts): data health already read it for the same jobs.
+  const invoiceTaxByJob = opts.showPayment ? health.rows.invoiceFacts : new Map<string, JobInvoiceFacts>()
   const cosByJob = groupBy(health.rows.changeOrders, (c) => c.job_id)
   const ordersByJob = groupBy(supplierOrders, (o) => o.job_id)
   const photosByJob = groupBy(photos, (p) => p.job_id)

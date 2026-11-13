@@ -12,6 +12,7 @@ import {
   getCloseSlotDurationFromTable,
 } from '@/lib/org-appointment-types'
 import { fromZonedTime } from 'date-fns-tz'
+import { orgTimeZone } from '@/lib/timezone'
 
 /** Setter = canvasser on the inspection appt, else lead owner. Inspector = inspection closer (prior visit). */
 async function resolveSetterAndInspectorDisplayNames(
@@ -88,7 +89,8 @@ async function getValidAccessTokenForUser(admin: ReturnType<typeof createService
   return tokenData.access_token
 }
 
-async function getTimezoneForCloser(admin: ReturnType<typeof createServiceClient>, userId: string): Promise<string> {
+/** The closer's team zone when set, else the company's (`orgs.timezone`). */
+async function getTimezoneForCloser(admin: ReturnType<typeof createServiceClient>, userId: string, companyZone: string): Promise<string> {
   try {
     const { data: userProfile } = await admin.from('users').select('team_id').eq('id', userId).single()
     if (userProfile?.team_id) {
@@ -98,7 +100,7 @@ async function getTimezoneForCloser(admin: ReturnType<typeof createServiceClient
   } catch {
     /* default */
   }
-  return 'America/New_York'
+  return companyZone
 }
 
 /** Event on closer's primary calendar; setter gets a Google invite when email differs from closer. */
@@ -114,6 +116,8 @@ async function upsertCloseEventOnCloserCalendar(
     location: string
     setterUserId: string | null
     scheduledAppointmentId: string
+    /** The company's zone (`orgs.timezone`): fallback when the closer's team has none. */
+    companyZone: string
   }
 ): Promise<string | null> {
   const accessToken = await getValidAccessTokenForUser(admin, params.closerUserId)
@@ -124,7 +128,7 @@ async function upsertCloseEventOnCloserCalendar(
     )
     return null
   }
-  const timezone = await getTimezoneForCloser(admin, params.closerUserId)
+  const timezone = await getTimezoneForCloser(admin, params.closerUserId, params.companyZone)
 
   const [datePart, timePart] = params.localDateTimeStr.split('T')
   const timeOnly = timePart?.split(':') || ['00', '00']
@@ -238,9 +242,11 @@ export async function POST(request: NextRequest) {
     const supabase = authClient
     const { data: orgRow } = await admin
       .from('orgs')
-      .select('inspection_feedback_buffer_minutes, default_scheduling_gap_minutes')
+      .select('inspection_feedback_buffer_minutes, default_scheduling_gap_minutes, timezone')
       .eq('id', profile.org_id)
       .single()
+    // The company's own zone: a typed local time is that company's wall clock, and every label below is shown in it.
+    const companyZone = orgTimeZone(orgRow?.timezone)
 
     const defaultGap = orgRow?.default_scheduling_gap_minutes ?? 15
     const tableTypes = await fetchOrgAppointmentTypesFromTable(admin, profile.org_id)
@@ -267,7 +273,7 @@ export async function POST(request: NextRequest) {
       const [year, month, day] = datePart.split('-').map(Number)
       const [hour, minute] = timePart.split(':').map(Number)
       const wall = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`
-      scheduledForISO = fromZonedTime(wall, 'America/New_York').toISOString()
+      scheduledForISO = fromZonedTime(wall, companyZone).toISOString()
     }
 
     let closeAppointment: any = null
@@ -370,7 +376,7 @@ export async function POST(request: NextRequest) {
           actor_user_id: user.id,
           type: 'inspection_outcome',
           title: `Close Appointment Scheduled - ${customerName}`,
-          body: `${profile.full_name || 'Rep'} scheduled a close appointment. Assigned closer: ${assignedCloserName}.\n\nCustomer: ${customerName}\nAddress: ${customerAddress}\nScheduled: ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n${notes ? `Notes: ${notes}` : ''}`,
+          body: `${profile.full_name || 'Rep'} scheduled a close appointment. Assigned closer: ${assignedCloserName}.\n\nCustomer: ${customerName}\nAddress: ${customerAddress}\nScheduled: ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: companyZone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n${notes ? `Notes: ${notes}` : ''}`,
           data: {
             appointment_id: assignment.appointmentId,
             original_appointment_id,
@@ -389,7 +395,7 @@ export async function POST(request: NextRequest) {
             .single()
           if (setterUser?.email) {
             const whenLabel = new Date(scheduledForISO).toLocaleString('en-US', {
-              timeZone: 'America/New_York',
+              timeZone: companyZone,
               dateStyle: 'full',
               timeStyle: 'short',
             })
@@ -419,7 +425,7 @@ export async function POST(request: NextRequest) {
         lead_id: originalAppointment.lead_id,
         user_id: user.id,
         type: 'appointment_scheduled',
-        body: `Close appointment scheduled (round-robin → ${assignedCloserName}) for ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${notes ? ` - ${notes}` : ''}`,
+        body: `Close appointment scheduled (round-robin → ${assignedCloserName}) for ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: companyZone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${notes ? ` - ${notes}` : ''}`,
       })
 
       if (originalAppointment.opportunity_id && assignment.appointmentId) {
@@ -443,6 +449,7 @@ export async function POST(request: NextRequest) {
         const backupEventId = await upsertCloseEventOnCloserCalendar(admin, supabase, {
           closerUserId: assignment.closerId,
           localDateTimeStr,
+          companyZone,
           closeDurationMinutes,
           summary: `Close: ${customerName}`,
           description: buildCloseCalendarDescription({
@@ -529,6 +536,7 @@ export async function POST(request: NextRequest) {
       manualGoogleCalendarEventId = await upsertCloseEventOnCloserCalendar(admin, supabase, {
         closerUserId: manualCloserId,
         localDateTimeStr,
+        companyZone,
         closeDurationMinutes,
         summary: `Close: ${customerName}`,
         description: buildCloseCalendarDescription({
@@ -557,7 +565,7 @@ export async function POST(request: NextRequest) {
           actor_user_id: user.id,
           type: 'inspection_outcome',
           title: `Close Appointment Scheduled - ${customerName}`,
-          body: `Great news! ${assignedCloserName} has a close appointment scheduled.\n\nCustomer: ${customerName}\nAddress: ${customerAddress}\nScheduled: ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n${notes ? `Notes: ${notes}` : ''}`,
+          body: `Great news! ${assignedCloserName} has a close appointment scheduled.\n\nCustomer: ${customerName}\nAddress: ${customerAddress}\nScheduled: ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: companyZone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n${notes ? `Notes: ${notes}` : ''}`,
           data: {
             appointment_id: closeAppointment.id,
             original_appointment_id,
@@ -575,7 +583,7 @@ export async function POST(request: NextRequest) {
           .single()
         if (setterUser?.email) {
           const whenLabel = new Date(scheduledForISO).toLocaleString('en-US', {
-            timeZone: 'America/New_York',
+            timeZone: companyZone,
             dateStyle: 'full',
             timeStyle: 'short',
           })
@@ -608,7 +616,7 @@ export async function POST(request: NextRequest) {
         lead_id: originalAppointment.lead_id,
         user_id: user.id,
         type: 'appointment_scheduled',
-        body: `Close appointment for ${assignedCloserName} on ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${notes ? ` - ${notes}` : ''}`,
+        body: `Close appointment for ${assignedCloserName} on ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: companyZone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${notes ? ` - ${notes}` : ''}`,
       })
 
     // Persist a close_appointments row for opportunity UI / close-feedback flow (non-fatal if table missing).

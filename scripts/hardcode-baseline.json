@@ -78,23 +78,11 @@
   "app/api/cron/instant-estimate-accuracy/route.ts": {
     "brand": 1
   },
-  "app/api/dashboard/ops-metrics/route.ts": {
-    "timezone": 1
-  },
-  "app/api/dashboard/personal-stats/route.ts": {
-    "timezone": 1
-  },
-  "app/api/dashboard/team-stats/route.ts": {
-    "timezone": 1
-  },
   "app/api/feedback/submit/route.ts": {
     "brand": 1
   },
   "app/api/inspections/reschedule/route.ts": {
     "timezone": 3
-  },
-  "app/api/inspections/schedule-close/route.ts": {
-    "timezone": 8
   },
   "app/api/inspections/status/route.ts": {
     "brand": 1,
@@ -163,9 +151,6 @@
   },
   "app/dashboard/DashboardClient.tsx": {
     "timezone": 1
-  },
-  "app/dashboard/page.tsx": {
-    "timezone": 2
   },
   "app/layout.tsx": {
     "brand": 3

@@ -17,6 +17,7 @@ import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboar
 import { isOrgSuperuserRoleSlug, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
 
 export default async function DashboardPage() {
   const { authUser, profile } = await requireAuth()
@@ -119,9 +120,9 @@ export default async function DashboardPage() {
     teamMemberIds = teamMembers?.map(m => m.id) || [profile.id]
   }
 
-  // Calculate week start date using shared utility
-  // Uses America/New_York timezone with Sunday as week start
-  const { start: weekStart, end: weekEnd } = getDateRangeForTimeFrame('week', 'America/New_York')
+  // This week (Sunday start) in the company's own zone — the same zone /api/dashboard/team-stats and personal-stats use,
+  // so the first paint and the refetch agree.
+  const { start: weekStart, end: weekEnd } = getDateRangeForTimeFrame('week', await loadOrgTimeZone(createServiceClient(), profile.org_id))
 
   // This period's doors, inspections set, sits, sales and calendar appointments come from the reporting
   // views (lib/reporting/period-metrics.ts) — one definition each, shared with /reports and the goals page.

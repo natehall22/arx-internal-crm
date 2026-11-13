@@ -116,6 +116,7 @@ export async function recordJobPayment(admin: SupabaseClient, p: RecordJobPaymen
         collectedCents: summary.collected_cents,
         remainingCents: summary.remaining_cents,
         saleAmountCents: summary.sale_amount_cents,
+        paidInFull: summary.paid_in_full === true,
       })
     })
     .catch((err) => console.error('notifyAdminOpsOfJobPayment failed:', err))
