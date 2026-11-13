@@ -200,4 +200,39 @@ BEGIN
   RAISE NOTICE 'PASS 5 crew deduction cap: bonus money only, re-capped on reject / move, base pay and the person total untouched';
 END $$;
 
+-- 5b. Approval order and closed weeks --------------------------------------------------------------------------------------------
+INSERT INTO payroll_periods (id, org_id, period_label, cutoff_at, lock_at, scheduled_pay_date) VALUES
+  ('00000000-0000-0000-0000-0000000000b4', '00000000-0000-0000-0000-00000000000b', 'Week ending 2026-11-29', '2026-11-30T04:59:59.999Z', '2026-11-30T04:59:59.999Z', '2026-12-04'),
+  ('00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-00000000000b', 'Week ending 2026-12-06', '2026-12-07T04:59:59.999Z', '2026-12-07T04:59:59.999Z', '2026-12-11');
+DO $$
+DECLARE v_org uuid := '00000000-0000-0000-0000-00000000000b'; v_u uuid := '00000000-0000-0000-0000-0000000000a1';
+  v_wk uuid := '00000000-0000-0000-0000-0000000000b4'; v_next uuid := '00000000-0000-0000-0000-0000000000b5';
+  v_pend uuid; v_appr uuid; v_d uuid; v_ok boolean;
+BEGIN
+  -- (j) a deduction backed only by a PENDING bonus cannot be approved (if the week were approved with the bonus still pending,
+  --     the deduction would come out of base pay); approve the bonus first, then the deduction goes through unchanged.
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_wk, v_u, 10, 'pending_approval', 'crew_done_right', 'k-j1') RETURNING id INTO v_pend;
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_wk, v_u, -10, 'pending_approval', 'crew_deduction', 'k-j2') RETURNING id INTO v_d;
+  BEGIN UPDATE payroll_bonus_lines SET status = 'approved' WHERE id = v_d; v_ok := false;
+  EXCEPTION WHEN OTHERS THEN v_ok := SQLERRM LIKE '%crew_deduction_needs_bonuses%'; END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'a deduction was approved against a bonus that is still pending'; END IF;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d) <> -10 OR (SELECT status FROM payroll_bonus_lines WHERE id = v_d) <> 'pending_approval' THEN RAISE EXCEPTION 'a refused approval changed the deduction'; END IF;
+  UPDATE payroll_bonus_lines SET status = 'approved' WHERE id = v_pend;
+  UPDATE payroll_bonus_lines SET status = 'approved' WHERE id = v_d;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d) <> -10 THEN RAISE EXCEPTION 'approving in the right order cut the deduction'; END IF;
+  -- (k) the week is approved (locked) with a crew bonus still pending ("Not now"). Marking its lines paid and moving the stuck
+  --     bonus onto the next open week (Pay this week -> Approve) must work, and the locked week's deduction is never rewritten.
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_wk, v_u, 5, 'pending_approval', 'crew_review', 'k-k1') RETURNING id INTO v_appr;
+  UPDATE payroll_periods SET status = 'locked', locked_at = now() WHERE id = v_wk;
+  UPDATE payroll_bonus_lines SET status = 'paid' WHERE id = v_pend;
+  UPDATE payroll_bonus_lines SET status = 'paid' WHERE id = v_d;
+  UPDATE payroll_bonus_lines SET status = 'approved', payroll_period_id = v_next WHERE id = v_appr;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d) <> -10 THEN RAISE EXCEPTION 'a locked week''s deduction was rewritten'; END IF;
+  -- (l) a stuck pending crew bonus rejected on a locked week leaves the locked deduction alone too
+  INSERT INTO payroll_bonus_lines (org_id, payroll_period_id, user_id, amount, status, bonus_type, source_key) VALUES (v_org, v_wk, v_u, 3, 'pending_approval', 'crew_beat_time', 'k-l1') RETURNING id INTO v_appr;
+  UPDATE payroll_bonus_lines SET status = 'rejected' WHERE id = v_appr;
+  IF (SELECT amount FROM payroll_bonus_lines WHERE id = v_d) <> -10 THEN RAISE EXCEPTION 'a locked week''s deduction was rewritten on reject'; END IF;
+  RAISE NOTICE 'PASS 5b crew deduction: approval needs approved bonuses; a locked week''s lines can be marked paid / moved and are never rewritten';
+END $$;
+
 SELECT 'ALL PAYROLL PHASE2 TESTS PASSED';

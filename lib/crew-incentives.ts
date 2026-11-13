@@ -417,6 +417,13 @@ export function targetProgress(s: CrewIncentiveSettings, w: Pick<CrewWeek, 'visi
 export const DEDUCTION_LIMITED_TEXT = 'Deduction limited to bonuses earned this week'
 
 /**
+ * The database refuses to APPROVE a crew deduction while the bonuses it takes back are still pending (trigger
+ * `crew_deduction_cap`): if the week were approved with those bonuses left pending, the deduction would come out of base pay.
+ */
+export const DEDUCTION_NEEDS_BONUSES_MESSAGE = "Approve this person's crew bonuses for the week first — a deduction only takes back approved bonus money."
+export const isDeductionNeedsBonusesError = (e: unknown): boolean => /crew_deduction_needs_bonuses/.test(String((e as { message?: unknown } | null)?.message ?? ''))
+
+/**
  * A deduction takes back crew BONUS money only: within a pay week a person's crew deductions can bring their crew-bonus
  * total down to $0 and no lower (never base pay or the weekly minimum). `roomCents` = the person's crew bonuses that week
  * (pending + approved + paid) minus deductions already counted. What is left over is dropped, not carried.

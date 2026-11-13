@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePayrollAdminApi } from '@/lib/payroll-admin-api'
 import { isUuid } from '@/lib/payroll-pay-week'
 import { isPeriodClaimedError, periodRefusalMessage } from '@/lib/payroll-periods'
+import { DEDUCTION_NEEDS_BONUSES_MESSAGE, isDeductionNeedsBonusesError } from '@/lib/crew-incentives'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
   }
   const { data: updated, error } = await a.admin.from('payroll_bonus_lines').update(patch).eq('id', id).eq('org_id', orgId).eq('status', 'pending_approval').select('id').maybeSingle()
   if (isPeriodClaimedError(error)) return NextResponse.json({ error: periodRefusalMessage(error) }, { status: 409 })
+  if (isDeductionNeedsBonusesError(error)) return NextResponse.json({ error: DEDUCTION_NEEDS_BONUSES_MESSAGE }, { status: 409 })
   if (error) {
     // Unique (week, person, type): this person already has a bonus of that type this week.
     if ((error as { code?: string }).code === '23505') return NextResponse.json({ error: 'This person already has a bonus of that kind this week.' }, { status: 409 })

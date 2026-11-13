@@ -4,6 +4,7 @@ import { isPayrollAdminRole, isRegionalBonusApproverRole } from '@/lib/payroll-a
 import { isUserInManagerHierarchy } from '@/lib/payroll-statement-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPeriodClaimedError, periodRefusalMessage } from '@/lib/payroll-periods'
+import { DEDUCTION_NEEDS_BONUSES_MESSAGE, isDeductionNeedsBonusesError } from '@/lib/crew-incentives'
 
 export const dynamic = 'force-dynamic'
 
@@ -148,6 +149,9 @@ export async function PATCH(
 
     if (isPeriodClaimedError(updateError)) {
       return NextResponse.json({ error: periodRefusalMessage(updateError) }, { status: 409 })
+    }
+    if (isDeductionNeedsBonusesError(updateError)) {
+      return NextResponse.json({ error: DEDUCTION_NEEDS_BONUSES_MESSAGE }, { status: 409 })
     }
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })

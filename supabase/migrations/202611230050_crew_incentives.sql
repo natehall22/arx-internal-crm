@@ -50,21 +50,34 @@ REVOKE ALL ON public.crew_visit_marks FROM anon, authenticated;
 
 -- 5. The deduction cap ------------------------------------------------------------------------------------------------------
 -- crew-deduction-cap:begin (the payroll SQL test loads exactly this section)
+-- Room = the person's crew bonuses that week minus their other crew deductions. While a deduction is PENDING it may be sized against
+-- pending bonuses too; APPROVING it needs the bonuses it takes back to be approved / paid first (else an approved week with the bonus
+-- left pending would take the deduction out of base pay) — that approval is refused with crew_deduction_needs_bonuses and nothing
+-- changes. A week that is no longer open (approved / paid / cancelled) is never rewritten: its lines may still be marked paid and a
+-- stuck pending bonus may still leave it. Inside payroll_commit_week nothing here runs (it writes no bonus lines).
 CREATE OR REPLACE FUNCTION public.crew_deduction_cap() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE v_pos numeric; v_other numeric; v_room numeric; v_want numeric;
+DECLARE v_pos numeric; v_other numeric; v_room numeric; v_want numeric; v_money boolean; v_week text;
 BEGIN
   IF NEW.bonus_type <> 'crew_deduction' OR NEW.status NOT IN ('pending_approval', 'approved', 'paid') THEN RETURN NEW; END IF;
+  SELECT status INTO v_week FROM public.payroll_periods WHERE id = NEW.payroll_period_id;
+  IF v_week IS DISTINCT FROM 'open' THEN RETURN NEW; END IF;
   PERFORM pg_advisory_xact_lock(hashtext('crew_deduction_cap:' || NEW.payroll_period_id::text || ':' || NEW.user_id::text));
+  v_money := NEW.status IN ('approved', 'paid');
   SELECT COALESCE(sum(amount), 0) INTO v_pos FROM public.payroll_bonus_lines
    WHERE org_id = NEW.org_id AND payroll_period_id = NEW.payroll_period_id AND user_id = NEW.user_id
      AND bonus_type IN ('crew_done_right', 'crew_beat_time', 'crew_review', 'crew_weekly_target')
-     AND status IN ('pending_approval', 'approved', 'paid');
+     AND (status IN ('approved', 'paid') OR (NOT v_money AND status = 'pending_approval'));
   SELECT COALESCE(-sum(amount), 0) INTO v_other FROM public.payroll_bonus_lines
    WHERE org_id = NEW.org_id AND payroll_period_id = NEW.payroll_period_id AND user_id = NEW.user_id
-     AND bonus_type = 'crew_deduction' AND status IN ('pending_approval', 'approved', 'paid') AND id IS DISTINCT FROM NEW.id;
+     AND bonus_type = 'crew_deduction' AND id IS DISTINCT FROM NEW.id
+     AND (status IN ('approved', 'paid') OR (NOT v_money AND status = 'pending_approval'));
   v_room := GREATEST(v_pos - v_other, 0);
   v_want := -NEW.amount;
   IF v_want > v_room THEN
+    IF TG_OP = 'UPDATE' AND v_money AND OLD.status::text NOT IN ('approved', 'paid') THEN
+      RAISE EXCEPTION 'crew_deduction_needs_bonuses: approve this person''s crew bonuses for the week first — a deduction only takes back approved bonus money'
+        USING ERRCODE = 'P0001';
+    END IF;
     NEW.amount := -v_room;
     IF COALESCE(NEW.description, '') NOT LIKE '%Deduction limited to bonuses earned this week%' THEN
       NEW.description := COALESCE(NEW.description, 'Callback or redo') || ' — Deduction limited to bonuses earned this week';
@@ -79,17 +92,22 @@ CREATE TRIGGER crew_deduction_cap_trg BEFORE INSERT OR UPDATE OF status, payroll
 
 CREATE OR REPLACE FUNCTION public.crew_deduction_recap() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  -- A crew bonus left (rejected / moved to another week / deleted): touch that person's deductions in the week it left so
-  -- the BEFORE trigger caps them again (it only ever lowers an amount).
-  IF TG_OP = 'DELETE' OR NEW.status IS DISTINCT FROM OLD.status OR NEW.payroll_period_id IS DISTINCT FROM OLD.payroll_period_id THEN
+  -- A crew bonus stopped counting (rejected / moved to another week / lowered / deleted): touch that person's deductions in the
+  -- week it left so the BEFORE trigger caps them again (it only ever lowers an amount). Approving or paying a bonus never
+  -- shrinks the room, so it touches nothing; a week that is no longer open is never touched.
+  IF TG_OP = 'DELETE'
+     OR (NEW.status = 'rejected' AND OLD.status IS DISTINCT FROM 'rejected')
+     OR NEW.payroll_period_id IS DISTINCT FROM OLD.payroll_period_id
+     OR NEW.amount < OLD.amount THEN
     UPDATE public.payroll_bonus_lines SET amount = amount
      WHERE org_id = OLD.org_id AND payroll_period_id = OLD.payroll_period_id AND user_id = OLD.user_id
-       AND bonus_type = 'crew_deduction' AND status IN ('pending_approval', 'approved', 'paid');
+       AND bonus_type = 'crew_deduction' AND status IN ('pending_approval', 'approved', 'paid')
+       AND EXISTS (SELECT 1 FROM public.payroll_periods p WHERE p.id = OLD.payroll_period_id AND p.status = 'open');
   END IF;
   RETURN COALESCE(NEW, OLD);
 END $$;
 
 DROP TRIGGER IF EXISTS crew_deduction_recap_trg ON public.payroll_bonus_lines;
-CREATE TRIGGER crew_deduction_recap_trg AFTER UPDATE OF status, payroll_period_id OR DELETE ON public.payroll_bonus_lines
+CREATE TRIGGER crew_deduction_recap_trg AFTER UPDATE OF status, payroll_period_id, amount OR DELETE ON public.payroll_bonus_lines
   FOR EACH ROW WHEN (OLD.bonus_type IN ('crew_done_right', 'crew_beat_time', 'crew_review', 'crew_weekly_target')) EXECUTE FUNCTION public.crew_deduction_recap();
 -- crew-deduction-cap:end

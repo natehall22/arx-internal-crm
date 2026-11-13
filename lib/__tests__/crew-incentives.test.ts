@@ -17,6 +17,7 @@ import {
   type RuleKey,
   type CrewIncentiveSettings,
   type VisitFacts,
+  isDeductionNeedsBonusesError,
 } from '@/lib/crew-incentives'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import type { TimeEntry } from '@/lib/time-tracking'
@@ -266,5 +267,13 @@ describe('settings', () => {
       { doneRight: { holdDays: 99 } }, { nope: {} }, { doneRight: { nope: 1 } }, { enabled: 'yes' },
     ]) expect(parseCrewIncentivesPatch({ crewIncentives: bad }, cur)).toHaveProperty('error')
     expect(parseCrewIncentivesPatch({ crewIncentives: {} }, cur)).toHaveProperty('error')
+  })
+})
+
+describe('approving a deduction before its bonuses', () => {
+  it('recognises the database refusal (crew_deduction_cap) and nothing else', () => {
+    expect(isDeductionNeedsBonusesError({ message: "crew_deduction_needs_bonuses: approve this person's crew bonuses for the week first" })).toBe(true)
+    expect(isDeductionNeedsBonusesError({ message: 'payroll_period_not_open: this week is already approved' })).toBe(false)
+    expect(isDeductionNeedsBonusesError(null)).toBe(false)
   })
 })
