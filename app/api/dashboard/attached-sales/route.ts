@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
+import { resolveIsFieldRole } from '@/lib/effective-permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -172,9 +173,18 @@ function jobCustomerName(job: PipelineJobRow, contract: ContractRow | null) {
 }
 
 export async function GET() {
+  let profile
   try {
-    const { profile } = await requireAuthApi()
+    ;({ profile } = await requireAuthApi())
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  try {
     const supabase = createServiceClient()
+    // Field roles (setter / canvasser / inside sales / call center, by role slug or custom-role NAME) never see money or production
+    // (CLAUDE.md): they get the sales-only shape below — who, where, when signed, who set / closed — and no sale amount, volume,
+    // job number, job status, progress or schedule.
+    const fieldRole = await resolveIsFieldRole(supabase, profile)
     const scopeIds = await getManagedScopeUserIds(supabase, profile)
 
     const { data: jobRows, error: jobsError } = await supabase
@@ -341,6 +351,23 @@ export async function GET() {
         completedAt: job.completed_at,
       }
     })
+
+    if (fieldRole) {
+      const fieldSales = sales.map((sale) => ({
+        id: sale.id,
+        customerName: sale.customerName,
+        projectAddress: sale.projectAddress,
+        signedAt: sale.signedAt,
+        attachment: sale.attachment,
+        setterName: sale.setterName,
+        closerName: sale.closerName,
+      }))
+      return NextResponse.json({
+        fieldView: true,
+        sales: fieldSales,
+        summary: { count: fieldSales.length, shown: fieldSales.length },
+      })
+    }
 
     const totalVolume = sales.reduce((sum, sale) => sum + sale.saleAmount, 0)
     const averageProgress =

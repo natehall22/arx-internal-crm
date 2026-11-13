@@ -5,13 +5,32 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import { loadRecentJobCostLines } from '@/lib/job-cost-ledger'
 import { SERVICE_VISIT_TYPE } from '@/lib/service-plans'
+import { resolveIsFieldRole } from '@/lib/effective-permissions'
+import { resolveOpsAccess } from '@/lib/ops-access'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
+  let profile
   try {
-    const { profile } = await requireAuthApi()
+    ;({ profile } = await requireAuthApi())
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  try {
     const supabase = createServiceClient()
+
+    // Field roles never see production or money (CLAUDE.md): explicit deny by role slug / custom-role NAME first, then the same
+    // ops-dashboard permission the Operations dashboard is built on. Money (balance owed, material costs, "payment needed") only
+    // with job financials — the same gate as the job page.
+    if (await resolveIsFieldRole(supabase, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    const access = await resolveOpsAccess(supabase, profile.id, profile)
+    if (!access.canOpsDashboard) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    const showMoney = access.canViewJobFinancials
 
     // Get active jobs count
     const { count: activeJobsCount } = await supabase
@@ -49,8 +68,8 @@ export async function GET() {
       .eq('org_id', profile.org_id)
       .in('status', ['sold', 'materials', 'scheduled', 'in_progress', 'complete'])
 
-    let outstandingPayments = 0
-    if (activeJobs && activeJobs.length > 0) {
+    let outstandingPayments: number | null = showMoney ? 0 : null
+    if (showMoney && activeJobs && activeJobs.length > 0) {
       const jobIds = activeJobs.map(j => j.id)
       
       // Get all payments for these jobs
@@ -74,7 +93,7 @@ export async function GET() {
           closeBalanceBy: job.close_balance_by,
         })
         if (!c.paidInFull && c.remainingCents > 0) {
-          outstandingPayments += c.remainingCents / 100
+          outstandingPayments = (outstandingPayments ?? 0) + c.remainingCents / 100
         }
       })
     }
@@ -118,11 +137,10 @@ export async function GET() {
       )
       .map((job: any) => ({ job_id: job.id as string }))
 
-    // Get payments for these jobs
-    const { data: jobPayments } = await supabase
-      .from('job_payments')
-      .select('job_id, amount_cents')
-      .in('job_id', jobIds)
+    // Get payments for these jobs (money: only for viewers with job financials)
+    const { data: jobPayments } = showMoney
+      ? await supabase.from('job_payments').select('job_id, amount_cents').in('job_id', jobIds)
+      : { data: [] as { job_id: string; amount_cents: number | null }[] }
 
     const paymentsByJob: Record<string, number> = {}
     jobPayments?.forEach(p => {
@@ -159,7 +177,7 @@ export async function GET() {
         // Check for overdue payments (if job is complete but not fully paid)
         const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
         const paidCents = paymentsByJob[job.id] || 0
-        if (saleAmountCents > 0 && paidCents < saleAmountCents * 0.5) {
+        if (showMoney && saleAmountCents > 0 && paidCents < saleAmountCents * 0.5) {
           issues.push('Payment needed')
         }
 
@@ -185,7 +203,7 @@ export async function GET() {
       customer_name: line.job?.customer_name || '',
       description: line.description,
       supplier: null,
-      amount: line.amount,
+      amount: showMoney ? line.amount : null,
       created_at: line.created_at,
     }))
 

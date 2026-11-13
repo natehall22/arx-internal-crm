@@ -126,3 +126,46 @@ describe('parsePayWeek', () => {
     [null],
   ])('refuses %j', (raw) => expect(parsePayWeek(raw).ok).toBe(false))
 })
+
+describe('clock-change hours are refused (DST, both transitions)', () => {
+  const { payWeekClockProblem, wallTimeOnDay } = jest.requireActual('@/lib/payroll-week-schedule') as typeof import('@/lib/payroll-week-schedule')
+  const zone = DEFAULT_TIMEZONE
+  // A Monday–Sunday week closes on Sunday, the day US clocks change (2026-03-08 spring forward, 2026-11-01 fall back).
+  const sunClose = (cutoffTime: string, lateFunding: PayWeekSchedule['lateFunding'] = null): PayWeekSchedule => ({
+    weekStartDay: 1, cutoffTime, paydayWeekday: 5, lateFunding, timeZone: zone,
+  })
+  const from = new Date('2026-01-15T12:00:00Z')
+
+  it('March: 02:30 on spring-forward day does not exist', () => {
+    expect(wallTimeOnDay('2026-03-08', '02:30', zone)).toBe('missing')
+    expect(wallTimeOnDay('2026-03-08', '03:30', zone)).toBe('ok')
+    expect(wallTimeOnDay('2026-03-08', '01:59', zone)).toBe('ok')
+    const msg = payWeekClockProblem(sunClose('02:30'), from)
+    expect(msg).toMatch(/2:30 AM on Sunday/)
+    expect(msg).toMatch(/skipped on 2026-03-08/)
+  })
+
+  it('November: 01:30 on fall-back day happens twice', () => {
+    expect(wallTimeOnDay('2026-11-01', '01:30', zone)).toBe('twice')
+    expect(wallTimeOnDay('2026-11-01', '00:59', zone)).toBe('ok')
+    expect(wallTimeOnDay('2026-11-01', '02:00', zone)).toBe('ok')
+    const msg = payWeekClockProblem(sunClose('01:30'), new Date('2026-06-01T12:00:00Z'))
+    expect(msg).toMatch(/happens twice on 2026-11-01/)
+  })
+
+  it('normal times and the legacy schedule pass; a clock-change hour on another weekday is fine', () => {
+    expect(payWeekClockProblem(sunClose('23:59'), from)).toBeNull()
+    expect(payWeekClockProblem({ ...LEGACY_PAY_WEEK, timeZone: zone }, from)).toBeNull()
+    // Thursday–Wednesday week closes Wednesday: 02:30 exists every Wednesday.
+    expect(payWeekClockProblem({ ...LEGACY_PAY_WEEK, cutoffTime: '02:30', timeZone: zone }, from)).toBeNull()
+  })
+
+  it('the late-money time is checked on its own weekday', () => {
+    const lf = { ...LEGACY_PAY_WEEK, lateFunding: { weekday: 0 as const, time: '01:15' }, paydayWeekday: 1 as const, timeZone: zone }
+    expect(payWeekClockProblem(lf, new Date('2026-06-01T12:00:00Z'))).toMatch(/^Late money can't end at 1:15 AM on Sunday/)
+  })
+
+  it('a zone with no clock changes accepts any time', () => {
+    expect(payWeekClockProblem({ ...sunClose('02:30'), timeZone: 'America/Phoenix' }, from)).toBeNull()
+  })
+})

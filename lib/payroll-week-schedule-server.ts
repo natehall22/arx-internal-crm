@@ -13,6 +13,7 @@ import {
   describePayWeek,
   lastCutoffAtOrBefore,
   parsePayWeek,
+  payWeekClockProblem,
   previewPayWeekChange,
   readPayWeekSchedule,
   sameStoredPayWeek,
@@ -66,6 +67,8 @@ export async function checkPayWeekChange(admin: SupabaseClient, orgId: string, r
   if (!parsed.ok) return parsed
   const current = await loadPayWeekSchedule(admin, orgId)
   const next: PayWeekSchedule = { ...parsed.value, timeZone: current.timeZone }
+  const clock = payWeekClockProblem(next, now)
+  if (clock) return { ok: false, error: clock }
 
   const { data: open, error } = await admin.from('payroll_periods').select('id, cutoff_at').eq('org_id', orgId).eq('status', 'open').order('cutoff_at', { ascending: true })
   if (error) throw error

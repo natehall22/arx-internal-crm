@@ -6,7 +6,6 @@ import {
   evaluateAppointmentHealth,
   evaluateJobHealth,
   shapeNeedsYou,
-  isCollectedForced,
   isJobPayable,
   loadDataHealth,
   payabilityFromProblems,
@@ -99,19 +98,13 @@ describe('evaluateJobHealth', () => {
     it('a collected job 6 cents short is flagged', () => {
       expect(codes(input({ paidCents: 999_994 }))).toEqual(['collected_but_short'])
     })
-    it('a short job forced through WITH a reason is accepted', () => {
-      expect(codes(input({ paidCents: 900_000, job: { allow_close_with_balance: true, close_balance_reason: 'Customer discount' } }))).toEqual([])
-    })
-    it('a bare close-with-balance checkbox with no reason is not a force', () => {
+    it('only a super-admin force (close_balance_by) counts — a reason or a bare checkbox does not', () => {
+      expect(codes(input({ paidCents: 900_000, job: { allow_close_with_balance: true, close_balance_reason: 'Customer discount' } }))).toEqual([
+        'collected_but_short',
+      ])
       expect(codes(input({ paidCents: 900_000, job: { allow_close_with_balance: true, close_balance_reason: '  ' } }))).toEqual([
         'collected_but_short',
       ])
-    })
-    it('honors a super-admin force column when it exists', () => {
-      expect(codes(input({ paidCents: 900_000, job: { collected_forced_at: '2026-10-20T00:00:00Z' } }))).toEqual([])
-      expect(codes(input({ paidCents: 900_000, job: { collected_force_reason: 'Owner write-off' } }))).toEqual([])
-      expect(codes(input({ paidCents: 900_000, job: { collected_forced_at: null } }))).toEqual(['collected_but_short'])
-      // After the money-inputs migration only a super-admin stamp (close_balance_by) counts.
       expect(
         codes(input({ paidCents: 900_000, job: { allow_close_with_balance: true, close_balance_reason: null, close_balance_by: 'owner-1' } }))
       ).toEqual([])
@@ -119,15 +112,24 @@ describe('evaluateJobHealth', () => {
         codes(input({ paidCents: 900_000, job: { allow_close_with_balance: true, close_balance_reason: 'old ack', close_balance_by: null } }))
       ).toEqual(['collected_but_short'])
     })
+    it('uses the one paid-in-full rule: issued invoice tax is owed on top of the sale amount', () => {
+      const tax = { taxCents: 50_000, invoicedTotalCents: 1_050_000, invoicedPreTaxCents: 1_000_000, timeAndMaterials: false, issuedTotalCents: 1_050_000, issuedPreTaxCents: 1_000_000, pending: false }
+      expect(codes(input({ invoiceFacts: tax }))).toEqual(['collected_but_short'])
+      expect(evaluateJobHealth(input({ invoiceFacts: tax }))[0].message).toContain('$500.00 short')
+      expect(codes(input({ invoiceFacts: tax, paidCents: 1_050_000 }))).toEqual([])
+    })
+    it('a time & materials job owes its issued invoices, and is never paid while still being billed', () => {
+      const tm = { taxCents: 0, invoicedTotalCents: 400_000, invoicedPreTaxCents: 400_000, timeAndMaterials: true, issuedTotalCents: 400_000, issuedPreTaxCents: 400_000, pending: false }
+      expect(codes(input({ invoiceFacts: tm, paidCents: 400_000 }))).toEqual([])
+      const pending = evaluateJobHealth(input({ invoiceFacts: { ...tm, pending: true }, paidCents: 400_000 }))
+      expect(pending.map((p) => p.code)).toEqual(['collected_but_short'])
+      expect(pending[0].message).toContain('still being billed')
+    })
     it('a complete job paid in full should be marked collected (does not hold pay)', () => {
       const problems = evaluateJobHealth(input({ job: { status: 'complete' } }))
       expect(problems.map((p) => p.code)).toEqual(['paid_not_marked_collected'])
       expect(problems[0].blocksPay).toBe(false)
     })
-  })
-
-  it('isCollectedForced ignores unrelated columns', () => {
-    expect(isCollectedForced({ id: 'x', job_number: '1', status: 'collected', enforcement_note: 'yes' })).toBe(false)
   })
 
   it('done with no cost lines holds pay', () => {
