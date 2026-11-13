@@ -319,6 +319,14 @@ describe('a fixed-price job whose base moves after it was paid (money sweep 2026
     expect(db.tables.payroll_adjustments).toEqual([])
   })
 
+  it('the 2026-10-22 line is the week’s own calendar day in the company zone, not the UTC date', async () => {
+    const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
+    const db = fixed({ cutoff: '2026-10-22T03:59:59Z' }) // 11:59 pm Oct 21 Eastern: before the rule
+    db.tables.job_change_orders.push(co('co1', 20000, 18000))
+    await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: FJ })
+    expect(db.tables.payroll_adjustments).toEqual([])
+  })
+
   it('a job not paid yet: the base just moves; the week that pays it uses the new base', async () => {
     const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
     const db = fixed()

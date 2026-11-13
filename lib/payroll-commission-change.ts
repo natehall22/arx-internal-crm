@@ -33,6 +33,8 @@ import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
 import { collectionInvoiceFields, loadJobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { roundMoney } from '@/lib/money'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
+import { ymdInZone } from '@/lib/payroll-week-schedule'
+import { orgTimeZone } from '@/lib/timezone'
 import { orgDb } from '@/lib/supabase/org-db'
 
 /** A paid payout line as payroll stored it (payroll_payout_lines + the job snapshot's base). */
@@ -252,7 +254,9 @@ async function syncCommissionChangesOnce(admin: SupabaseClient, orgId: string, j
     const hourly = job.billing_mode === 'time_materials'
     const allPaid = await loadPaidJobLines(admin, orgId, jobId)
     // Fixed price: only payouts approved under today's base rule are followed (see FIXED_PRICE_CHANGES_FROM).
-    const paid = hourly ? allPaid : (allPaid ?? []).filter((l) => l.cutoffAt.slice(0, 10) >= FIXED_PRICE_CHANGES_FROM)
+    // The week's own calendar date in the company's zone (never a UTC slice).
+    const zone = hourly ? null : orgTimeZone((await admin.from('orgs').select('timezone').eq('id', orgId).maybeSingle()).data?.timezone)
+    const paid = hourly || !zone ? allPaid : (allPaid ?? []).filter((l) => ymdInZone(new Date(l.cutoffAt), zone) >= FIXED_PRICE_CHANGES_FROM)
     const follow = !paid || paid.length === 0 ? null : hourly ? { base: await loadPayableBase(admin, orgId, jobId), holdIncreases: false } : await fixedPriceTarget(admin, jobId, job)
     if (!paid || paid.length === 0 || !follow) {
       if (wasDue) await markDue(admin, orgId, jobId, null)
