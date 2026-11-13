@@ -34,22 +34,46 @@ export async function findWeekNear(admin: SupabaseClient, orgId: string, target:
   return ((data ?? []) as PeriodRow[]).find((r) => sameWeekEnding(r.cutoff_at, target, s)) ?? null
 }
 
+const SUFFIX_LIMIT = 9
+
 /**
- * Find-or-create the week closing at `target` (the ONE place a week row is made: Pay screen, next week, fixes). Two people at once:
- * the loser's insert hits the unique label and re-reads the winner's row. A CANCELLED week that already holds the label (an
- * emptied old week) gets the new row a suffixed label instead of blocking the week forever.
+ * The label a new week closing at `target` gets: the plain "Week ending …" label, or — ONLY when that label (and each suffix
+ * before it) is held by a CANCELLED week (an emptied old week) — the first free "(2)", "(3)" … A label held by a live week is
+ * never stepped past: that is the same week (someone else just made it) or a real clash, and the caller re-reads / fails.
+ */
+async function labelForNewWeek(admin: SupabaseClient, orgId: string, base: string): Promise<string> {
+  const candidates = [base, ...Array.from({ length: SUFFIX_LIMIT - 1 }, (_, i) => `${base} (${i + 2})`)]
+  const { data, error } = await admin.from('payroll_periods').select('period_label, status').eq('org_id', orgId).in('period_label', candidates)
+  if (error) throw error
+  const held = new Map(((data ?? []) as Array<{ period_label: string; status: string }>).map((r) => [r.period_label, r.status]))
+  for (const label of candidates) {
+    const status = held.get(label)
+    if (status === undefined || status !== 'cancelled') return label
+  }
+  return base
+}
+
+/**
+ * Find-or-create the week closing at `target` (the ONE place a week row is made: Pay screen, next week, fixes, time clock).
+ * The database holds one live week per cutoff (unique (org_id, cutoff_at) where not cancelled, migration 202611240010) and
+ * one row per label. Two callers at once: the loser's insert hits either key (23505) and re-reads the winner's row, a few
+ * times with a short wait. A failed insert never moves on to a suffixed label — a suffix is only for a label a cancelled
+ * week holds (`labelForNewWeek`), so a race can never make a second live copy of the week.
  */
 export async function findOrCreateWeek(admin: SupabaseClient, orgId: string, target: Date, s: PayWeekSchedule): Promise<{ id: string; status: string; cutoff_at: string }> {
   const existing = await findWeekNear(admin, orgId, target, s)
   if (existing) return existing
   const row = { org_id: orgId, cutoff_at: target.toISOString(), lock_at: target.toISOString(), scheduled_pay_date: payDateFor(target, s), status: 'open' }
-  for (const label of [weekLabel(target, s), `${weekLabel(target, s)} (2)`, `${weekLabel(target, s)} (3)`]) {
-    const { error } = await admin.from('payroll_periods').insert({ ...row, period_label: label })
-    if (error && (error as { code?: string }).code !== '23505') throw error
+  const label = await labelForNewWeek(admin, orgId, weekLabel(target, s))
+  const { data, error } = await admin.from('payroll_periods').insert({ ...row, period_label: label }).select(PERIOD_COLS).single()
+  if (!error && data) return data as PeriodRow
+  if (error && (error as { code?: string }).code !== '23505') throw error
+  for (let attempt = 0; attempt < 4; attempt++) {
     const found = await findWeekNear(admin, orgId, target, s)
     if (found) return found
+    await new Promise((r) => setTimeout(r, 50 * (attempt + 1)))
   }
-  throw new Error('Could not create the pay week')
+  throw new Error(`Could not create the pay week: "${label}" is already used by another week`)
 }
 
 /**
