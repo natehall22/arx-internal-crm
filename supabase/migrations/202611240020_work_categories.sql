@@ -15,6 +15,9 @@
 --   security_invoker + REVOKE kept; read through the API only (service role; the report runner always adds the org filter).
 --   Not sensitive: field roles see the category.
 --
+-- Deploy: apply BEFORE the code. Row-mode reports select every catalog column, and the code adds `category` to the jobs,
+-- invoices and revenue datasets: without this migration those reports (and their scheduled emails) fail on a missing column.
+--
 -- Needs: 202611140010 (rpt_invoices, arx_private.org_today), 202611230010 (rpt_revenue, arx_private.org_date), 202611220010/230010 (rpt_jobs as replaced there).
 --
 -- Rollback: re-apply 202611230010 (rpt_jobs, rpt_revenue) and 202611140010 (rpt_invoices); drop function if exists
