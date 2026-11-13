@@ -4,7 +4,7 @@
  * approves, pays or touches a payroll total; an owner approves or rejects every line.
  *
  * Gate: the company's industry profile is lawn_landscape AND its own switch (`orgs.settings.crewIncentives.enabled`) is
- * on. Anything else returns before any query on visits, time or pay — ARX (roofing) never runs a line of this.
+ * on. Anything else returns before any query on visits, time or pay — a roofing company never runs a line of this.
  *
  * Idempotent: every line has a unique `source_key` (rule + visit or crew-week + person); a rejected line keeps its key.
  * Never adds to a locked / approved / being-approved week: the line goes on the next open week.

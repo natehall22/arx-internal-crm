@@ -1,6 +1,6 @@
 /**
  * Who may use crew incentives (server only). One answer for every route and page:
- *   - the company's industry profile is lawn_landscape, else nobody (404) — ARX has no such API or page;
+ *   - the company's industry profile is lawn_landscape, else nobody (404) — a roofing company has no such API or page;
  *   - the company's rules (Settings): owners (`isSuperAdmin`), even while the switch is still off (that is where it is turned on);
  *   - marking a visit (review named the crew / callback): the switch on + `jobs:edit` (`canEditJobs`);
  *   - the scoreboard: the switch on + any signed-in person; the data itself is limited to their own crews (lib/crew-incentives-db.ts).
