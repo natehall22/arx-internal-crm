@@ -45,11 +45,9 @@ interface AIAssistantProps {
     type: 'lead' | 'opportunity' | 'project' | 'job' | 'general'
     id?: string
   }
-  /** Lift FAB when another bottom-right action button is present (e.g. ops orders +). */
-  stackedFab?: boolean
 }
 
-export default function AIAssistant({ context, stackedFab = false }: AIAssistantProps) {
+export default function AIAssistant({ context }: AIAssistantProps) {
   const {
     panelMode,
     setPanelMode,
@@ -85,6 +83,17 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     suggestionsGenerationRef.current += 1
     loadSuggestions()
   }, [contextKey])
+
+  // Opening from anywhere (Nav launcher, minimized bar) refreshes the same way. Not on first mount: that already loads.
+  const prevPanelModeRef = useRef(panelMode)
+  useEffect(() => {
+    const prev = prevPanelModeRef.current
+    prevPanelModeRef.current = panelMode
+    if (panelMode === 'open' && prev !== 'open') {
+      checkAIEnabled()
+      loadSuggestions()
+    }
+  }, [panelMode])
 
   useEffect(() => {
     if (panelMode !== 'open') return
@@ -455,8 +464,6 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
   }
 
   const openAssistant = () => {
-    checkAIEnabled()
-    loadSuggestions()
     setPanelMode('open')
   }
 
@@ -468,9 +475,7 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     setPanelMode('closed')
   }
 
-  const fabBottomClass = stackedFab
-    ? 'bottom-[calc(8.5rem+var(--safe-area-inset-bottom))]'
-    : 'bottom-[calc(5rem+var(--safe-area-inset-bottom))]'
+  const fabBottomClass = 'bottom-[calc(5rem+var(--safe-area-inset-bottom))]'
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -479,20 +484,8 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     }
   }
 
-  // Floating button when closed
-  if (panelMode === 'closed') {
-    return (
-      <button
-        onClick={openAssistant}
-        className={`fixed right-6 w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center z-[9999] ${fabBottomClass}`}
-        title="AI Assistant"
-      >
-        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-        </svg>
-      </button>
-    )
-  }
+  // Closed: nothing floats. The launcher is "Ask AI" in components/Nav.tsx, which sets panelMode to 'open'.
+  if (panelMode === 'closed') return null
 
   if (panelMode === 'minimized') {
     return (

@@ -3,25 +3,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import AIAssistant from '@/components/AIAssistant'
-import { useAIAssistantPageContext } from '@/components/AIAssistantProvider'
+import { useAIAssistantPageContext, useAIAssistantShell } from '@/components/AIAssistantProvider'
 import {
   readAiAssistantAllowlistLatch,
   writeAiAssistantAllowlistLatch,
 } from '@/lib/ai/assistant-shell-storage'
 
-/** Canvass has its own map FAB in the same corner — hide assistant there. */
+/** Canvass has its own map FAB in the same corner — no assistant there. */
 function isCanvassPath(pathname: string | null): boolean {
   return Boolean(pathname?.startsWith('/canvass'))
 }
 
-function hasStackedOpsFab(pathname: string | null): boolean {
-  return Boolean(pathname?.match(/^\/ops\/jobs\/[^/]+\/orders(\/|$)/))
-}
-
 /**
- * Gate the FAB on cookie-auth `/api/settings`, not `supabase.auth.getUser()`.
+ * Gate the assistant (panel and the nav's "Ask AI" launcher) on cookie-auth `/api/settings`, not `supabase.auth.getUser()`.
  * CRM login writes the session cookie only; the browser Supabase client often
- * has no local session, so getUser() returns null and previously hid the FAB
+ * has no local session, so getUser() returns null and previously hid the assistant
  * even for allowlisted users who can open Settings → AI.
  *
  * The sessionStorage "latch" that lets a known-good user skip the loading
@@ -38,6 +34,7 @@ function hasStackedOpsFab(pathname: string | null): boolean {
 export default function AIAssistantWrapper() {
   const pathname = usePathname()
   const { pageContext } = useAIAssistantPageContext()
+  const { setAssistantAvailable } = useAIAssistantShell()
   const allowlistOkRef = useRef(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isAllowlisted, setIsAllowlisted] = useState(false)
@@ -108,16 +105,22 @@ export default function AIAssistantWrapper() {
     }
   }, [])
 
-  if (isCanvassPath(pathname)) {
-    return null
-  }
-
+  const canvass = isCanvassPath(pathname)
   const canShowAssistant =
     allowlistOkRef.current || (!isLoading && isAuthenticated && isAllowlisted)
+
+  // Nav reads this to show "Ask AI". The launcher lives in the nav; this component only hosts the panel.
+  useEffect(() => {
+    setAssistantAvailable(canShowAssistant && !canvass)
+  }, [canShowAssistant, canvass, setAssistantAvailable])
+
+  if (canvass) {
+    return null
+  }
 
   if (!canShowAssistant) {
     return null
   }
 
-  return <AIAssistant context={pageContext} stackedFab={hasStackedOpsFab(pathname)} />
+  return <AIAssistant context={pageContext} />
 }

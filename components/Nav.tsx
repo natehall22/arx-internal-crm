@@ -23,15 +23,17 @@ import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { DEFAULT_ORG_FEATURES, type OrgFeatures } from '@/lib/org-features'
 import { featuresFromEffectivePermissions, fetchEffectivePermissions, profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
+import { useAIAssistantLauncher } from '@/components/AIAssistantProvider'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import GlobalSearch from '@/components/search/GlobalSearch'
-import { BarChart3, DollarSign, Filter, Hammer, Home, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
+import { BarChart3, DollarSign, Filter, Hammer, Home, Lightbulb, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 import AnnouncementBanner from './AnnouncementBanner'
 
 export default function Nav() {
   const pathname = usePathname()
+  const aiLauncher = useAIAssistantLauncher()
   const router = useRouter()
   const supabaseRef = useRef<ReturnType<typeof createClientBrowser> | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
@@ -319,6 +321,12 @@ export default function Nav() {
           <div className="mt-auto flex flex-col gap-1 border-t border-gray-700 pt-3">
             <Link href={nav.admin ? '/admin' : '/settings'} className={`${linkBase} text-gray-200 hover:bg-gray-800`}>Settings</Link>
             <Link href="/whats-new" className={`${linkBase} text-gray-200 hover:bg-gray-800`}>What&apos;s new</Link>
+            {aiLauncher?.available && (
+              <button onClick={aiLauncher.open} className={`${linkBase} text-left text-gray-200 hover:bg-gray-800`}>
+                <Lightbulb className="h-5 w-5 shrink-0" aria-hidden />
+                Ask AI
+              </button>
+            )}
             <button onClick={handleLogout} className={`${linkBase} text-left text-gray-200 hover:bg-gray-800`}>Logout</button>
           </div>
         </nav>
@@ -347,6 +355,11 @@ export default function Nav() {
               <Link href="/referral-partners?add=1" className="inline-flex min-h-[44px] items-center rounded-md bg-amber-400 px-3 text-sm font-semibold text-gray-900 hover:bg-amber-300" title="Add a Referral Partner">
                 + Partner
               </Link>
+            )}
+            {aiLauncher?.available && (
+              <button onClick={aiLauncher.open} aria-label="Ask AI" className="inline-flex h-11 w-11 items-center justify-center rounded-full text-gray-200 hover:bg-gray-700 md:hidden">
+                <Lightbulb className="h-5 w-5" aria-hidden />
+              </button>
             )}
             <FeedbackButton />
             <NotificationBell />

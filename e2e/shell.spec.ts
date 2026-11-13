@@ -31,3 +31,16 @@ test('pay this week on desktop', async ({ page }, info) => {
   expect(widths.scroll).toBeLessThanOrEqual(widths.inner)
   await page.screenshot({ path: `e2e/screenshots/${info.project.name}-desktop-pay-week.png` })
 })
+
+test('Ask AI sits with Settings in the desktop sidebar and opens the assistant', async ({ page }) => {
+  await page.route('http://127.0.0.1:9/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
+  await page.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
+  await page.route('**/api/me/effective-permissions', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ role: 'owner', fullAccess: true, permissions: [] }) }))
+  await page.route('**/api/settings', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ profile: { aiAssistantAllowlisted: true }, userSettings: { ai_enabled: true } }) }))
+  await page.goto('/dev-harness/nav')
+  await page.waitForSelector('text=Page content')
+  const ask = page.locator('aside[aria-label="Main"]').getByRole('button', { name: 'Ask AI' })
+  await expect(ask).toBeVisible()
+  await ask.click()
+  await expect(page.getByRole('heading', { name: 'AI Assistant' })).toBeVisible()
+})
