@@ -121,6 +121,48 @@ describe('pending collection lifecycle', () => {
     expect(mockRecord.mock.calls.map((c) => [c[2], c[3].amountCents])).toEqual([['i2', 1000]])
   })
 
+  it('a refused part is dropped so the rest is split again (never stuck between confirm and reject)', async () => {
+    const d = db()
+    const id = ((await recordPendingCollection(d.client, ORG, { subId: 's1', visitId: 'v1', customerId: 'c1', input: input(5000) })) as { id: string }).id
+    // i1 records; i2 is refused (e.g. paid online meanwhile)
+    mockRecord.mockResolvedValueOnce({ ok: true, paymentId: 'pay-1', status: 'paid', balanceCents: 0, duplicate: false }).mockResolvedValueOnce({ ok: false, status: 400, error: 'That is more than the balance due' })
+    expect(await confirmCollection(d.client, ORG, 'office-1', id)).toMatchObject({ ok: false, status: 409 })
+    expect(d.tables.visit_collections[0].payments).toEqual([{ invoice_id: 'i1', cents: 4000, payment_id: 'pay-1' }])
+    // The office opens a new invoice i4 for the rest: the remaining 1000 goes there, i1 is never paid twice.
+    mockUnpaid.mockResolvedValue({ rows: [row('i1', 'c1', 4000), row('i4', 'c1', 2500)], capped: false })
+    mockRecord.mockClear()
+    mockRecord.mockResolvedValue({ ok: true, paymentId: 'pay-4', status: 'partially_paid', balanceCents: 1500, duplicate: false })
+    expect(await confirmCollection(d.client, ORG, 'office-1', id)).toEqual({ ok: true })
+    expect(mockRecord.mock.calls.map((c) => [c[2], c[3].amountCents])).toEqual([['i4', 1000]])
+  })
+
+  it('two confirms at once: only one split is written', async () => {
+    const d = db()
+    const id = ((await recordPendingCollection(d.client, ORG, { subId: 's1', visitId: 'v1', customerId: 'c1', input: input(3000) })) as { id: string }).id
+    // Someone else stored a split after this confirm read the row: the compare-and-set refuses this one.
+    const client = d.client as unknown as { from: (t: string) => unknown }
+    const realFrom = client.from.bind(client)
+    let raced = false
+    client.from = (t: string) => {
+      if (t === 'visit_collections' && !raced) {
+        const q = realFrom(t) as { update: (p: Record<string, unknown>) => unknown }
+        const origUpdate = q.update.bind(q)
+        q.update = (p: Record<string, unknown>) => {
+          if (Array.isArray(p.payments) && !raced) {
+            raced = true
+            d.tables.visit_collections[0].payments = [{ invoice_id: 'i2', cents: 3000, payment_id: null }]
+          }
+          return origUpdate(p)
+        }
+        return q
+      }
+      return realFrom(t)
+    }
+    expect(await confirmCollection(d.client, ORG, 'office-1', id)).toMatchObject({ ok: false, status: 409 })
+    expect(mockRecord).not.toHaveBeenCalled()
+    expect(d.tables.visit_collections[0].payments).toEqual([{ invoice_id: 'i2', cents: 3000, payment_id: null }])
+  })
+
   it('reject writes nothing; a half-recorded collection cannot be rejected', async () => {
     const d = db()
     const id = ((await recordPendingCollection(d.client, ORG, { subId: 's1', visitId: 'v1', customerId: 'c1', input: input(1000) })) as { id: string }).id
@@ -133,6 +175,13 @@ describe('pending collection lifecycle', () => {
     const half = db()
     half.tables.visit_collections.push({ id: 'h1', org_id: ORG, customer_id: 'c1', amount_cents: 500, method: 'cash', status: 'pending', collected_at: '2026-11-10T15:00:00Z', payments: [{ invoice_id: 'i1', cents: 500, payment_id: 'pay-9' }] })
     expect(await rejectCollection(half.client, ORG, 'office-1', 'h1', null)).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it('a confirm that has stored its split (payment possibly in flight) cannot be rejected', async () => {
+    const d = db()
+    d.tables.visit_collections.push({ id: 'f1', org_id: ORG, customer_id: 'c1', amount_cents: 500, method: 'cash', status: 'pending', collected_at: '2026-11-10T15:00:00Z', payments: [{ invoice_id: 'i1', cents: 500, payment_id: null }] })
+    expect(await rejectCollection(d.client, ORG, 'office-1', 'f1', null)).toMatchObject({ ok: false, status: 409 })
+    expect(d.tables.visit_collections[0].status).toBe('pending')
   })
 
   it('another company’s collection is not found', async () => {

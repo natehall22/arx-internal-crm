@@ -158,17 +158,24 @@ export async function confirmCollection(admin: SupabaseClient, orgId: string, us
   if (!row) return { ok: false, status: 404, error: 'Not found' }
   if (row.status !== 'pending') return { ok: false, status: 409, error: 'This one was already handled.' }
 
-  let parts: Part[] = Array.isArray(row.payments) ? (row.payments as Part[]).filter((p) => p && typeof p.invoice_id === 'string' && Number.isInteger(p.cents)) : []
-  if (parts.length === 0) {
-    // Decide the split now (pending collections are excluded from "owed" for OTHER crews, so count this one back in).
+  const stored: Part[] = Array.isArray(row.payments) ? (row.payments as Part[]).filter((p) => p && typeof p.invoice_id === 'string' && Number.isInteger(p.cents)) : []
+  let parts: Part[] = stored
+  const splitCents = stored.reduce((sum, p) => sum + p.cents, 0)
+  if (splitCents < row.amount_cents) {
+    // Decide the split now (pending collections are excluded from "owed" for OTHER crews, so count this one back in). After a
+    // failed part was dropped (below), only the rest is split again, never onto an invoice this collection already paid.
     const owed = (await loadOwedByCustomer(admin, orgId, [row.customer_id])).get(row.customer_id)
-    const split = allocateCollection(row.amount_cents, owed?.invoices ?? [])
+    const paidHere = new Set(stored.map((p) => p.invoice_id))
+    const split = allocateCollection(row.amount_cents - splitCents, (owed?.invoices ?? []).filter((i) => !paidHere.has(i.id)))
     if (split.parts.length === 0 || split.leftoverCents > 0) {
       return { ok: false, status: 409, error: 'The customer’s invoices don’t owe this much any more. Reject it, or check the invoices first.' }
     }
-    parts = split.parts.map((p) => ({ invoice_id: p.invoiceId, cents: p.cents, payment_id: null }))
-    const { error } = await db.from('visit_collections').update({ payments: parts }).eq('id', id).eq('status', 'pending')
+    parts = [...stored, ...split.parts.map((p) => ({ invoice_id: p.invoiceId, cents: p.cents, payment_id: null }))]
+    // Compare-and-set on the split as read: two confirms at once (double tap, two people) must not each write their own split —
+    // the second would see the first one's payment already lowering a balance and pay a DIFFERENT invoice (money twice).
+    const { data: claimed, error } = await db.from('visit_collections').update({ payments: parts }).eq('id', id).eq('status', 'pending').eq('payments', JSON.stringify(row.payments ?? [])).select('id')
     if (error) return { ok: false, status: 500, error: 'Could not save. Try again.' }
+    if (!claimed || claimed.length === 0) return { ok: false, status: 409, error: 'Someone else is confirming this one. Refresh and check.' }
   }
 
   const day = ymdInZone(new Date(row.collected_at), await loadOrgTimeZone(admin, orgId))
@@ -183,7 +190,14 @@ export async function confirmCollection(admin: SupabaseClient, orgId: string, us
       createdBy: userId,
       idempotencyKey: `visit-collection:${row.id}:${part.invoice_id}`,
     })
-    if (!r.ok) return { ok: false, status: 409, error: r.error }
+    if (!r.ok) {
+      // The writer refused and wrote nothing for this part (one SQL transaction). Drop it and every later unwritten part, so
+      // a retry splits what is left over the invoices as they are then, instead of retrying a refused part forever (which,
+      // once an earlier part is real money, could neither be confirmed nor rejected).
+      const kept = parts.slice(0, parts.indexOf(part)).filter((p) => p.payment_id)
+      await db.from('visit_collections').update({ payments: kept }).eq('id', id).eq('status', 'pending')
+      return { ok: false, status: 409, error: r.error }
+    }
     part.payment_id = r.paymentId
     // Remember it now: a reject must see that real money was already written, and a retry must not redo this part.
     await db.from('visit_collections').update({ payments: parts }).eq('id', id).eq('status', 'pending')
@@ -205,15 +219,18 @@ export async function rejectCollection(admin: SupabaseClient, orgId: string, use
   const row = found as { id: string; status: string; payments: unknown } | null
   if (!row) return { ok: false, status: 404, error: 'Not found' }
   if (row.status !== 'pending') return { ok: false, status: 409, error: 'This one was already handled.' }
-  // A confirm that got part-way wrote real payments: it must be finished (confirmed), not thrown away.
-  if (Array.isArray(row.payments) && (row.payments as Part[]).some((p) => p && p.payment_id)) {
-    return { ok: false, status: 409, error: 'Part of this is already recorded. Confirm it to finish.' }
+  // A confirm that got part-way wrote real payments: it must be finished (confirmed), not thrown away. A confirm that has only
+  // stored its split may be writing a payment right now, so that is refused too (a refused part clears the split again).
+  if (Array.isArray(row.payments) && row.payments.length > 0) {
+    return { ok: false, status: 409, error: (row.payments as Part[]).some((p) => p && p.payment_id) ? 'Part of this is already recorded. Confirm it to finish.' : 'Someone is confirming this one. Refresh and check.' }
   }
+  // Compare-and-set on "no split yet": a confirm that claims the split after the read above wins, and this reject stops.
   const { data } = await db
     .from('visit_collections')
     .update({ status: 'rejected', decided_by: userId, decided_at: new Date().toISOString(), reject_reason: reason?.trim().slice(0, 500) || null })
     .eq('id', id)
     .eq('status', 'pending')
+    .eq('payments', '[]')
     .select('id')
   if (!data || data.length === 0) return { ok: false, status: 409, error: 'This one was already handled.' }
   return { ok: true }
