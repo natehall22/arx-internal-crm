@@ -497,7 +497,7 @@ export default function AIAssistant({ context }: AIAssistantProps) {
         <button
           type="button"
           onClick={openAssistant}
-          className="flex items-center gap-2 min-w-0 flex-1 text-left"
+          className="flex min-h-[44px] items-center gap-2 min-w-0 flex-1 text-left"
         >
           <span className="w-8 h-8 shrink-0 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-full flex items-center justify-center">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -509,7 +509,7 @@ export default function AIAssistant({ context }: AIAssistantProps) {
         <button
           type="button"
           onClick={openAssistant}
-          className="p-2 text-[#2c2c2a] hover:bg-indigo-50 rounded-full transition-colors shrink-0"
+          className="inline-flex h-11 w-11 items-center justify-center text-[#2c2c2a] hover:bg-indigo-50 rounded-full transition-colors shrink-0"
           title="Expand"
           aria-label="Expand AI Assistant"
         >
@@ -520,7 +520,7 @@ export default function AIAssistant({ context }: AIAssistantProps) {
         <button
           type="button"
           onClick={closeAssistant}
-          className="p-2 text-[#2c2c2a] hover:bg-gray-100 rounded-full transition-colors shrink-0"
+          className="inline-flex h-11 w-11 items-center justify-center text-[#2c2c2a] hover:bg-gray-100 rounded-full transition-colors shrink-0"
           title="Close"
           aria-label="Close AI Assistant"
         >

@@ -336,7 +336,8 @@ export default function Nav() {
       {/* Top bar: search, quick actions, bell (all sizes) */}
       <header className="bg-gray-800 text-white print:hidden">
         <div className="flex h-14 items-center justify-between gap-2 px-3 sm:px-6">
-          <Link href={homeHref} className="flex min-h-[44px] items-center gap-2 md:hidden">
+          {/* min-w-0 on the link and its logo: a wide company logo shrinks instead of pushing the top bar past 375px */}
+          <Link href={homeHref} className="flex min-h-[44px] min-w-0 items-center gap-2 md:hidden [&>img]:min-w-0">
             {logo}
           </Link>
           <button

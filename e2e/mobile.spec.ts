@@ -1072,3 +1072,31 @@ test('Ask AI is not shown to someone who is not on the assistant list', async ({
   await page.waitForTimeout(800)
   await expect(page.getByRole('button', { name: 'Ask AI' })).toHaveCount(0)
 })
+
+test('top bar fits the phone with a wide company logo, Ask AI and + Partner; minimized assistant taps are 44px', async ({ page }) => {
+  await mockApi(page)
+  await mockAllowlistedAssistant(page)
+  await page.goto('/dev-harness/nav')
+  await page.waitForSelector('text=Page content')
+  await page.getByRole('button', { name: 'Ask AI' }).waitFor()
+  // a 4:1 company logo (the harness has no org row, so swap the fallback image in place)
+  await page.evaluate(() => {
+    const img = document.querySelector('header a img') as HTMLImageElement
+    img.className = 'h-9 w-auto max-w-[160px] object-contain'
+    img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="150"><rect width="600" height="150" fill="#333"/></svg>')
+  })
+  await page.waitForTimeout(300)
+  const vw = page.viewportSize()!.width
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(vw)
+  await page.getByRole('button', { name: 'Ask AI' }).click()
+  await page.getByRole('button', { name: 'Minimize AI Assistant' }).click()
+  const pill = page.getByRole('region', { name: 'AI Assistant minimized' })
+  for (const b of await pill.getByRole('button').all()) {
+    const box = (await b.boundingBox())!
+    expect(Math.min(box.width, box.height), await b.getAttribute('aria-label') ?? 'open').toBeGreaterThanOrEqual(44)
+  }
+  await pill.getByRole('button', { name: 'Close AI Assistant' }).click()
+  await expect(pill).toHaveCount(0)
+  await page.getByRole('button', { name: 'Ask AI' }).click()
+  await expect(page.getByRole('heading', { name: 'AI Assistant' })).toBeVisible()
+})
