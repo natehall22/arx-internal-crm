@@ -18,13 +18,14 @@ jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_
 jest.mock('@/lib/online-payments/accounts', () => ({ loadOnlinePayments: async () => ({ ready: true }) }))
 
 const ORG = 'org-a'
-const row = (id: string, customerId: string, balanceCents: number, jobId: string | null = null) => ({
+const row = (id: string, customerId: string, balanceCents: number, jobId: string | null = null, jobCancelled = false) => ({
   id,
   invoiceNumber: `INV-${id}`,
   customerId,
   customerName: 'Pat',
   jobId,
   jobNumber: null,
+  jobCancelled,
   dueAt: null,
   issuedAt: null,
   balanceCents,
@@ -68,6 +69,11 @@ describe('what a crew can see', () => {
     expect(m).toEqual({ v1: { dueCents: 16999, pendingCents: 0, canPayOnline: true } })
     expect(JSON.stringify(m)).not.toMatch(/job-1|INV-|ij/)
     expect(Object.keys(m.v1).sort()).toEqual(['canPayOnline', 'dueCents', 'pendingCents'])
+  })
+  it('a cancelled job’s invoice is never the crew’s to collect (the office settles or voids it)', async () => {
+    mockUnpaid.mockResolvedValue({ rows: [row('i1', 'c1', 4000), row('ix', 'c1', 9999, 'job-x', true)], capped: false })
+    const m = await loadCrewMoney(db().client, ORG, [{ id: 'v1', customerId: 'c1' }])
+    expect(m.v1.dueCents).toBe(4000)
   })
   it('nothing owed = no money block', async () => {
     mockUnpaid.mockResolvedValue({ rows: [], capped: false })

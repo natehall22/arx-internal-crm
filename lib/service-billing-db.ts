@@ -13,6 +13,7 @@ import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
 import { createServiceInvoiceFromLines } from '@/lib/invoices'
 import { invoicePaidCents } from '@/lib/invoice-lines'
 import { jobCollections } from '@/lib/job-collection-db'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import type { SalesTaxSettings } from '@/lib/sales-tax'
 import {
@@ -345,6 +346,8 @@ export type UnpaidServiceInvoice = {
   /** Set on a job invoice (roofing / projects); null on a recurring-service invoice. */
   jobId: string | null
   jobNumber: string | null
+  /** The invoice's job is cancelled (sold, won't be installed): still on the office's list to settle or void, never a crew's to collect. */
+  jobCancelled: boolean
   dueAt: string | null
   issuedAt: string | null
   balanceCents: number
@@ -409,11 +412,11 @@ export async function loadUnpaidInvoices(admin: SupabaseClient, orgId: string): 
   for (let k = open.length - 1; k >= 0; k--) if (open[k].balance <= 0) open.splice(k, 1)
   // A job invoice names its customer through the job (customer_id on the invoice itself is only set without a job).
   const jobIds = Array.from(new Set(open.map((x) => x.i.job_id).filter((id): id is string => !!id)))
-  const jobFacts = new Map<string, { customerId: string | null; jobNumber: string | null }>()
+  const jobFacts = new Map<string, { customerId: string | null; jobNumber: string | null; cancelled: boolean }>()
   for (const part of chunks(jobIds)) {
-    const { data, error } = await orgDb(admin, orgId).from('production_jobs').select('id, customer_id, job_number').in('id', part)
+    const { data, error } = await orgDb(admin, orgId).from('production_jobs').select('id, customer_id, job_number, status').in('id', part)
     if (error) throw new Error(`billing: read invoice jobs: ${error.message}`)
-    for (const j of (data ?? []) as Array<{ id: string; customer_id: string | null; job_number: string | null }>) jobFacts.set(j.id, { customerId: j.customer_id, jobNumber: j.job_number })
+    for (const j of (data ?? []) as Array<{ id: string; customer_id: string | null; job_number: string | null; status: string | null }>) jobFacts.set(j.id, { customerId: j.customer_id, jobNumber: j.job_number, cancelled: j.status === CANCELLED_JOB_STATUS })
   }
   const customerOf = (i: JobInvoice) => (i.job_id ? jobFacts.get(i.job_id)?.customerId : i.customer_id) ?? null
   const names = await loadCustomers(admin, orgId, Array.from(new Set(open.map((x) => customerOf(x.i)).filter((id): id is string => !!id))))
@@ -425,6 +428,7 @@ export async function loadUnpaidInvoices(admin: SupabaseClient, orgId: string): 
       customerId: customerOf(i) ?? '',
       jobId: i.job_id ?? null,
       jobNumber: i.job_id ? jobFacts.get(i.job_id)?.jobNumber ?? null : null,
+      jobCancelled: i.job_id ? jobFacts.get(i.job_id)?.cancelled === true : false,
       customerName: names[customerOf(i) ?? '']?.name ?? 'Customer',
       dueAt: i.due_at ?? null,
       issuedAt: i.issued_at ?? null,

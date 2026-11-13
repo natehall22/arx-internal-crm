@@ -31,7 +31,8 @@ export async function loadOwedByCustomer(admin: SupabaseClient, orgId: string, c
   const loaded = await loadUnpaidInvoices(admin, orgId)
   const byCustomer = new Map<string, OpenInvoice[]>()
   for (const r of loaded?.rows ?? []) {
-    if (!ids.includes(r.customerId)) continue
+    // A cancelled job's invoice is the office's to settle or void, never a crew's to collect at the door.
+    if (!ids.includes(r.customerId) || r.jobCancelled) continue
     byCustomer.set(r.customerId, [...(byCustomer.get(r.customerId) ?? []), { id: r.id, number: r.invoiceNumber, balanceCents: r.balanceCents, jobId: r.jobId }])
   }
   const pending = await pendingCentsByCustomer(admin, orgId, ids)
