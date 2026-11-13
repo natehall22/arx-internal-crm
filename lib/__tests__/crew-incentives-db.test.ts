@@ -119,7 +119,7 @@ describe('runCrewIncentives', () => {
     const open = seed({ payroll_periods: [period('P1', wk1), period('P2', wk2)] })
     await runCrewIncentives(open.client, ORG, { now: NOW })
     expect(new Set(lines(open).map((l) => l.payroll_period_id))).toEqual(new Set(['P1']))
-    const claimed = seed({ payroll_periods: [period('P1', wk1, { lock_claimed_at: new Date(NOW.getTime() - 60_000).toISOString() }), period('P2', wk2)] })
+    const claimed = seed({ payroll_periods: [period('P1', wk1, { lock_claimed_at: new Date(Date.now() - 60_000).toISOString() /* periodIsEditable reads the real clock */ }), period('P2', wk2)] })
     await runCrewIncentives(claimed.client, ORG, { now: NOW })
     expect(new Set(lines(claimed).map((l) => l.payroll_period_id))).toEqual(new Set(['P2']))
   })
