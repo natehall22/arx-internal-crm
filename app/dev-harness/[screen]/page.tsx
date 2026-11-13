@@ -69,6 +69,7 @@ import JobDetailClient from '@/app/ops/jobs/[id]/JobDetailClient'
 import { HARNESS_JOB, HARNESS_JOB_0037 } from '@/e2e/fixtures'
 import AnnouncementBanner from '@/components/AnnouncementBanner'
 import AnnouncementsClient from '@/app/admin/announcements/AnnouncementsClient'
+import BonusApprovalClient from '@/app/admin/bonuses/BonusApprovalClient'
 import ContractModal from '@/components/contracts/ContractModal'
 import ExploreClient from '@/app/reports/explore/ExploreClient'
 import ReportsPage from '@/app/reports/page'
@@ -525,8 +526,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <ExploreClient />
     case 'job-sheets':
       return <JobSheetsEditor initialSheet={HARNESS_RUN_SHEET as never} canEdit scope={null} coverage={{} as never} showOrder={false} />
+    case 'bonuses':
+      return <div className="min-h-screen bg-surface-subtle"><main className="mx-auto max-w-3xl px-4 py-4"><BonusApprovalClient isFullAdmin /></main></div>
     case 'dashboard':
-      return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} upcomingAppointments={[]} recentActivities={[]} settings={{}} />
+      return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} settings={{}} />
     case 'whats-new': {
       // Every role group, as the real page renders it (same component + same screenshot table).
       return (

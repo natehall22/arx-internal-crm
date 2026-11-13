@@ -126,7 +126,7 @@ Fixing a split or an amount **before** approving: tap the line, choose "Change",
 | `app/commissions/estimator` (545 lines), if usage confirms it's unused | The *Coming* list |
 | `app/admin/incentives` redirect stub | Nothing |
 
-What stays: `/admin/comp-plans` (rates), the job page's per-job override card (splits), `/admin/sisu/bonus-approval` (for regional managers only), and `/commissions/statement/[periodId]` (it becomes the shared line view).
+What stays: `/admin/comp-plans` (rates), the job page's per-job override card (splits), `/admin/bonuses` (was `/admin/sisu/bonus-approval`; for regional managers only), and `/commissions/statement/[periodId]` (it becomes the shared line view).
 Net result: about 9 payroll pages become 2 (Pay Run, My Pay), and 4 pay engines become 1.
 
 ### Data changes (additive and nullable only)

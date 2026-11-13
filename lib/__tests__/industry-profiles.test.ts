@@ -57,7 +57,7 @@ describe('roofing profile = the app as it was (the original company is unchanged
     const none = visibleNav(owner())
     const withRoofing = visibleNav(owner({ profile: clientOrgProfile(roof) }))
     expect(withRoofing).toEqual(none)
-    expect(none.sections.map((s) => s.label)).toEqual(['Today', 'Pipeline', 'Jobs', 'Customers', 'Money', 'Insights'])
+    expect(none.sections.map((s) => s.label)).toEqual(['Today', 'Dashboard', 'Pipeline', 'Jobs', 'Customers', 'Money', 'Reports', 'Sisu'])
     expect(none.sections.find((s) => s.id === 'jobs')!.children[0]).toEqual({ href: '/ops', label: 'Job Board' })
   })
 
@@ -115,9 +115,9 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
     // Crews are a job's per-trade crews; subcontractors keep their own word (no clash).
     expect(t(lawn, 'subs')).toBe('Subcontractors')
     const nav = visibleNav(owner({ features: lawn.features, profile: clientOrgProfile(lawn) }))
-    expect(nav.sections.map((s) => s.id)).toEqual(['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'])
+    expect(nav.sections.map((s) => s.id)).toEqual(['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports'])
     expect(nav.sections.find((s) => s.id === 'jobs')!.label).toBe('Work')
-    const hrefs = nav.sections.flatMap((s) => s.children.map((c) => c.href))
+    const hrefs = nav.sections.flatMap((s) => (s.children.length ? s.children.map((c) => c.href) : [s.href]))
     for (const gone of ['/inside-sales', '/ops/checkups', '/projects', '/sisu']) expect(hrefs).not.toContain(gone)
     expect(nav.canvass).toBe(false)
     expect(nav.sections.find((s) => s.id === 'jobs')!.children[0]).toEqual({ href: '/ops', label: 'Work board' })

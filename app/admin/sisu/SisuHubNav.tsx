@@ -7,7 +7,6 @@ const TABS = [
   { label: 'Heats', href: '/admin/sisu/incentives' },
   { label: 'Badges', href: '/admin/sisu/incentives?tab=badges' },
   { label: 'Setter Ramp', href: '/admin/sisu/setter-ramp' },
-  { label: 'Bonus Approval', href: '/admin/sisu/bonus-approval' },
   { label: 'Accountability', href: '/admin/sisu/accountability' },
 ] as const
 
@@ -18,24 +17,20 @@ function isTabActive(pathname: string, tab: string, searchTab: string | null): b
   if (tab === '/admin/sisu/incentives?tab=badges') {
     return pathname === '/admin/sisu/incentives' && searchTab === 'badges'
   }
-  if (tab === '/admin/sisu/bonus-approval') {
-    return pathname === '/admin/sisu/bonus-approval'
-  }
   return pathname === tab
 }
 
-export default function SisuHubNav({ showBonusApproval = false, showIncentives = true }: { showBonusApproval?: boolean; showIncentives?: boolean }) {
+export default function SisuHubNav({ showIncentives = true }: { showIncentives?: boolean }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const searchTab = searchParams.get('tab')
-  const visibleTabs = TABS.filter(
-    // Setter Ramp and Bonus Approval are pay: they stay when incentives are switched off.
-    (tab) => (tab.href === '/admin/sisu/bonus-approval' ? showBonusApproval : tab.href === '/admin/sisu/setter-ramp' || showIncentives),
-  )
+  // Setter Ramp is pay (weekly floor, commission rate): it stays when incentives are switched off. Bonus approval is
+  // pay too and lives under Money → Bonuses (/admin/bonuses), not here.
+  const visibleTabs = TABS.filter((tab) => tab.href === '/admin/sisu/setter-ramp' || showIncentives)
 
   return (
     <nav
-      aria-label="Sisu admin sections"
+      aria-label="Sisu program sections"
       className="flex flex-wrap gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-1"
     >
       {visibleTabs.map((tab) => {

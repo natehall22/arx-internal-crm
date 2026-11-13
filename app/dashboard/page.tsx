@@ -246,32 +246,6 @@ export default async function DashboardPage() {
     .lte('prompt_at', new Date().toISOString())
     .order('prompt_at', { ascending: true })
 
-  const { data: upcomingAppointments } = await supabase
-    .from('scheduled_appointments')
-    .select(`
-      *,
-      leads(homeowner_name, address_text)
-    `)
-    .eq('closer_user_id', profile.id)
-    .eq('status', 'scheduled')
-    .gte('scheduled_for', new Date().toISOString())
-    .order('scheduled_for', { ascending: true })
-    .limit(5)
-
-  let activityQuery = supabase
-    .from('activities')
-    .select('*, users(full_name)')
-    .eq('org_id', profile.org_id)
-    .is('referral_partner_id', null)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .limit(10)
-  
-  if (!isAdmin && teamMemberIds.length === 1) {
-    activityQuery = activityQuery.eq('user_id', profile.id)
-  }
-  const { data: recentActivities } = await activityQuery
-
   // Fetch team member stats for managers/admins and team members
   let teamMemberStats: any[] = []
   let setterTeamStats: any[] = []
@@ -422,8 +396,6 @@ export default async function DashboardPage() {
         stats={stats}
         progress={progress}
         pendingPrompts={pendingPrompts || []}
-        upcomingAppointments={upcomingAppointments || []}
-        recentActivities={recentActivities || []}
         settings={settings}
         teamMemberStats={teamMemberStats}
         setterTeamStats={setterTeamStats}

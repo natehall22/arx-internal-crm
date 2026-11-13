@@ -280,10 +280,24 @@ const SCREENS: Screen[] = [
     ] },
   { name: 'job-sheets-editor', path: '/dev-harness/job-sheets', ready: 'text=Scope of work',
     states: [{ name: 'editing', run: async (p) => { await p.locator('textarea').first().click(); await p.locator('textarea').first().fill('Edited scope for the crew.'); await p.waitForTimeout(200) } }] },
-  { name: 'dashboard-tiles', path: '/dev-harness/dashboard', ready: 'text=Doors' },
+  { name: 'dashboard-tiles', path: '/dev-harness/dashboard', ready: 'text=Doors',
+    states: [{ name: 'numbers-only', run: async (p) => {
+      // The sections that duplicated other screens are gone (Today has appointments; the menu has actions and Reports).
+      for (const gone of ['Upcoming Appointments', 'Quick Actions', 'Recent Activity', 'Custom Reports']) {
+        if ((await p.getByText(gone, { exact: true }).count()) > 0) throw new Error(`dashboard still shows "${gone}"`)
+      }
+      await p.getByText('Progress vs goals').waitFor()
+    } }] },
+  { name: 'bonuses', path: '/dev-harness/bonuses', ready: 'text=Bonuses', mock: async (p) => {
+    const line = (id: string, name: string, type: string, amount: number) => ({ id, org_id: 'o1', payroll_period_id: 'p1', user_id: `u-${id}`, bonus_type: type, amount, description: 'Week 1: 400 doors and 4 inspections', status: 'pending_approval', reviewed_by: null, reviewed_at: null, review_note: null, created_at: '2026-11-09T12:00:00Z', user: { id: `u-${id}`, full_name: name, role: 'setter' }, period: { id: 'p1', period_label: 'Nov 2 - Nov 8', cutoff_at: null, lock_at: null, scheduled_pay_date: '2026-11-13T12:00:00Z', status: 'open' }, reviewer: null })
+    await p.route('**/api/admin/payroll/bonus-lines**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ bonus_lines: [line('1', 'Jordan Setter', 'sisu_444', 250), line('2', 'Riley Setter', 'manual', 100)] }) }))
+  }, states: [{ name: 'cards', run: async (p) => { await p.getByRole('button', { name: 'Approve' }).first().waitFor() } }] },
   { name: 'nav-shell', path: '/dev-harness/nav', ready: 'text=Page content',
     states: [{ name: 'search-open', run: async (p) => { await p.route('**/api/search**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [{ kind: 'customer', id: 'c1', title: 'ASHLEY GAINES', subtitle: '1001 LYERLY RIDGE RD NW, CONCORD NC 28027 · (704)707-6274', href: '#' }, { kind: 'proposal', id: 'p1', title: 'ASHLEY P GAINES · #P-00118', subtitle: '(704)707-6274 · accepted', href: '#' }, { kind: 'job', id: 'j1', title: 'Job 26-0026', subtitle: '1001 LYERLY RIDGE RD NW · complete', href: '#' }] }) }));
-      await p.getByRole('button', { name: 'Search' }).first().click(); await p.getByRole('combobox', { name: 'Search' }).fill('gaienes'); await p.waitForSelector('text=ASHLEY GAINES') } }, { name: 'more-open', run: async (p) => { await p.getByRole('button', { name: 'More' }).click(); await p.waitForSelector('[role=dialog] >> text=Logout') } }] },
+      await p.getByRole('button', { name: 'Search' }).first().click(); await p.getByRole('combobox', { name: 'Search' }).fill('gaienes'); await p.waitForSelector('text=ASHLEY GAINES') } }, { name: 'more-open', run: async (p) => { await p.getByRole('button', { name: 'More' }).click(); await p.waitForSelector('[role=dialog] >> text=Logout')
+      // Dashboard, Reports and Sisu live in More, never as a 6th bottom tab
+      for (const l of ['Dashboard', 'Reports', 'Sisu']) await p.locator('[role=dialog]').getByRole('link', { name: l, exact: true }).waitFor()
+      for (const l of ['Dashboard', 'Reports', 'Sisu']) if ((await p.locator('nav[aria-label="Main"]').getByRole('link', { name: l, exact: true }).count()) > 0 && (await p.locator('nav[aria-label="Main"]').getByRole('link', { name: l, exact: true }).first().isVisible())) throw new Error(`${l} must not be a bottom tab`) } }] },
   { name: 'job-setup', path: '/dev-harness/job-setup', ready: 'text=Solar panel removal & reinstall', mock: async (p) => {
     await p.route('**/api/admin/job-setup/trades', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(JOB_SETUP_TRADES) }))
   },

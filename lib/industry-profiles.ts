@@ -67,9 +67,9 @@ export const BASE_TERMS: Readonly<Terms> = Object.freeze({
   leadName: 'Homeowner Name',
 })
 
-export type NavSectionId = 'today' | 'pipeline' | 'jobs' | 'customers' | 'money' | 'insights'
+export type NavSectionId = 'today' | 'dashboard' | 'pipeline' | 'jobs' | 'customers' | 'money' | 'reports' | 'sisu'
 /** Today's section order (lib/nav-config.ts NAV_SECTIONS). */
-export const BASE_NAV_ORDER: readonly NavSectionId[] = ['today', 'pipeline', 'jobs', 'customers', 'money', 'insights']
+export const BASE_NAV_ORDER: readonly NavSectionId[] = ['today', 'dashboard', 'pipeline', 'jobs', 'customers', 'money', 'reports', 'sisu']
 
 /**
  * Today screen cards. A card is a queue id produced by the loaders in lib/today.ts. `planned` cards belong to features
@@ -224,7 +224,7 @@ const lawnLandscape: IndustryProfile = {
     install: 'Work',
     installed: 'Done',
   },
-  nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
+  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: SERVICE_NAV_HIDDEN },
   today: {
     order: ['todays-visits', 'skipped-visits', 'leads-waiting', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],
@@ -280,7 +280,7 @@ const exteriorCleaning: IndustryProfile = {
     { label: 'Gutter cleaning', matchKeywords: ['gutter'] },
   ],
   terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done', leadName: 'Customer / company name' },
-  nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
+  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: SERVICE_NAV_HIDDEN },
   today: {
     order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],
@@ -365,7 +365,7 @@ const homeBuilder: IndustryProfile = {
     { label: 'Finishes', matchKeywords: ['drywall', 'paint', 'trim', 'floor', 'cabinet'] },
   ],
   terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners', leadName: 'Client / company name' },
-  nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
+  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
   today: {
     order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],

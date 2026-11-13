@@ -11,7 +11,7 @@ test('desktop sidebar', async ({ page }, info) => {
   await page.waitForSelector('text=Page content')
   const side = page.locator('aside[aria-label="Main"]')
   await expect(side).toBeVisible()
-  for (const label of ['Today', 'Pipeline', 'Jobs', 'Customers', 'Money', 'Insights']) await expect(side.getByRole('link', { name: label, exact: true })).toBeVisible()
+  for (const label of ['Today', 'Dashboard', 'Pipeline', 'Jobs', 'Customers', 'Money', 'Reports', 'Sisu']) await expect(side.getByRole('link', { name: label, exact: true })).toBeVisible()
   const widths = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth, pad: parseFloat(getComputedStyle(document.body).paddingLeft) }))
   expect(widths.scroll).toBeLessThanOrEqual(widths.inner)
   expect(widths.pad).toBe(240)

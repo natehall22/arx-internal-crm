@@ -11,7 +11,7 @@ type PageProps = {
 export default async function SisuIncentivesPage({ searchParams }: PageProps) {
   // requireAuth (not raw auth.getUser): same login redirect, plus the deployment-org fence.
   const { authUser, profile } = await requireAuth()
-  // Sisu incentives switched off (Settings → Features): the hub keeps only pay tools (Setter Ramp, Bonus Approval).
+  // Sisu incentives switched off (Settings → Features): the hub keeps only the pay tool (Setter Ramp).
   if (!(await isOrgFeatureOn(profile.org_id, 'incentives'))) redirect('/admin/sisu/setter-ramp')
 
   const params = await searchParams
