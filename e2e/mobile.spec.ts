@@ -539,6 +539,7 @@ const SCREENS: Screen[] = [
       { name: 'editor', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=After each visit') } },
       { name: 'push-preview', run: async (p) => { await p.getByRole('button', { name: 'Plans & history' }).first().click(); await p.waitForSelector('text=New prices start on (optional)'); await p.getByRole('button', { name: /Update plans/ }).click(); await p.waitForSelector('text=4 plans: 8 upcoming visits removed') } },
     ] },
+  { name: 'connect-ai', path: '/dev-harness/connect-ai', ready: 'text=Connect your AI' },
   { name: 'settings-hub', path: '/dev-harness/settings-hub', ready: 'text=People & access',
     states: [{ name: 'searching', run: async (p) => { await p.getByRole('searchbox').fill('commission'); await p.waitForTimeout(200) } }] },
   { name: 'today-queues', path: '/dev-harness/today', ready: 'text=Proposals waiting for a signature' },

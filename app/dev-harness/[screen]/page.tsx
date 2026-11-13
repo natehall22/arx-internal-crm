@@ -28,6 +28,7 @@ import type { TimeWeek } from '@/lib/time-tracking-db'
 import WhatsNewView from '@/components/WhatsNewView'
 import { ROLE_GROUPS } from '@/lib/announcements'
 import { WHATS_NEW_SHOTS } from '@/lib/whats-new-shots'
+import ConnectAiCard from '@/components/ai-connector/ConnectAiCard'
 import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
 import PurchaseOrdersCard from '@/components/ops/PurchaseOrdersCard'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
@@ -549,6 +550,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <main className="p-4"><h1 className="text-ui-xl font-bold text-ink">Page content</h1></main>
         </div>
       )
+    case 'connect-ai':
+      return <div className="mx-auto max-w-3xl p-4"><ConnectAiCard address="https://crm.example.com/mcp" companyName="Example Roofing" /></div>
     case 'settings-hub':
       return <div className="mx-auto max-w-6xl p-4"><h1 className="text-ui-xl font-bold text-ink">Settings</h1><SettingsHub groups={visibleSettingsGroups({ canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true })} /></div>
     case 'today':
