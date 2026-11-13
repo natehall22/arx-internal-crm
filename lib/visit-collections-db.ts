@@ -239,6 +239,9 @@ async function payPart(
       await applyPaymentToInvoice(admin, orgId, part.invoice_id, existing, part.cents, c.userId)
     } catch (e) {
       console.error('[visit-collections] saved job payment could not be applied', part.invoice_id, (e as Error).message)
+      // The invoice was voided or paid off meanwhile: it can never take this payment, but the money is already on the JOB
+      // (where paid in full reads it). Count the part as written, or the collection could never be confirmed nor rejected.
+      if (invoice.status === 'void' || invoice.status === 'paid') return { ok: true, paymentId: existing }
       return { ok: false, status: 500, error: 'The payment was saved but could not be applied to its invoice. Try confirming again.' }
     }
     return { ok: true, paymentId: existing }

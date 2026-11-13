@@ -270,6 +270,20 @@ describe('pending collection lifecycle', () => {
       expect(mockRecord).not.toHaveBeenCalled() // the service part was already real
     })
 
+    it('a saved job payment whose invoice was voided meanwhile still finishes (the money is on the job), never stuck', async () => {
+      jobOnly()
+      const d = db()
+      const id = await make(d, 6000)
+      mockJobRecord.mockResolvedValueOnce({ ok: false, status: 500, error: 'saved on the job but could not be applied' })
+      expect(await confirmCollection(d.client, ORG, 'office-1', id)).toMatchObject({ ok: false, status: 500 })
+      d.tables.job_payments.push({ id: 'jp-saved', job_id: 'job-1', idempotency_key: `visit-collection:${id}:ij` })
+      mockFindInvoice.mockImplementation(async () => ({ id: 'ij', job_id: 'job-1', status: 'void' }))
+      mockApply.mockRejectedValueOnce(new Error('Cannot apply payment to voided invoice'))
+      expect(await confirmCollection(d.client, ORG, 'office-1', id)).toEqual({ ok: true })
+      expect((d.tables.visit_collections[0].payments as Array<{ payment_id: string }>)[1].payment_id).toBe('jp-saved')
+      expect(mockJobRecord).toHaveBeenCalledTimes(1)
+    })
+
     it('a job invoice that is gone from this company is refused and dropped, not paid', async () => {
       jobOnly()
       mockFindInvoice.mockResolvedValue(null)
