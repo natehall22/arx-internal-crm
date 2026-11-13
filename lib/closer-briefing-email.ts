@@ -169,7 +169,7 @@ export async function sendCloserBriefingEmail(params: {
 
   const transporter = getMailTransport(params.orgId)
   await transporter.sendMail({
-    from: getCrmEmailFrom(),
+    from: await getCrmEmailFrom(params.orgId),
     to: params.to,
     subject,
     html: `

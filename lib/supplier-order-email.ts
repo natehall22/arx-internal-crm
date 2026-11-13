@@ -6,7 +6,6 @@
  * the wire, and only POST /api/ops/jobs/[id]/supplier-orders/send may call it (a test enforces
  * that no other file imports it — no status change, cron or background job can send an order).
  */
-import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { formatDeliveryDate, type OrderSection, type SendKind, type SupplierRecord } from '@/lib/material-sourcing'
 
 export type SupplierOrderSender = { id: string; name: string | null; email: string | null }
@@ -49,6 +48,8 @@ function escapeHtml(s: string): string {
 }
 
 export function composeSupplierOrderEmail(args: {
+  /** The sending company's From (`getCrmEmailFrom(orgId)`, loaded with the order context so this stays pure). */
+  from: string
   kind: SendKind
   supplier: SupplierRecord
   sender: SupplierOrderSender
@@ -108,7 +109,7 @@ export function composeSupplierOrderEmail(args: {
     .join('')}</div>`
 
   return {
-    from: getCrmEmailFrom(),
+    from: args.from,
     to: (args.supplier.orderEmail ?? '').trim(),
     cc: orderCcList(args.supplier, args.sender),
     replyTo: isValidEmail(args.sender.email) ? args.sender.email.trim() : null,
@@ -126,6 +127,8 @@ export type PurchaseOrderEmailLine = { description: string; qtyText: string; tot
  * materials order email; the vendor also gets an optional "confirm" link (`ackUrl`).
  */
 export function composePurchaseOrderEmail(args: {
+  /** The sending company's From (`getCrmEmailFrom(orgId)`, loaded with the order context so this stays pure). */
+  from: string
   kind: SendKind
   vendor: SupplierRecord
   sender: SupplierOrderSender
@@ -182,7 +185,7 @@ export function composePurchaseOrderEmail(args: {
     .map((l) => (l === '' ? '<br>' : `<div>${escapeHtml(l)}</div>`))
     .join('')}</div>`
   return {
-    from: getCrmEmailFrom(),
+    from: args.from,
     to: (args.vendor.orderEmail ?? '').trim(),
     cc: orderCcList(args.vendor, args.sender),
     replyTo: isValidEmail(args.sender.email) ? args.sender.email.trim() : null,

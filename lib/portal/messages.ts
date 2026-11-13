@@ -9,7 +9,7 @@ import { orgDb } from '@/lib/supabase/org-db'
 
 export async function notifyCompanyOfPortalMessage(admin: SupabaseClient, orgId: string, customerId: string, body: string, via: 'portal' | 'text' = 'portal'): Promise<void> {
   try {
-    if (!process.env.SMTP_HOST || !getCrmEmailFrom()) return
+    if (!process.env.SMTP_HOST || !(await getCrmEmailFrom(orgId))) return
     const to = await resolveCompanyInboxEmail(admin, orgId, 'portal message')
     if (!to) return
     const { data } = await orgDb(admin, orgId).from('customers').select('name, phone, email').eq('id', customerId).maybeSingle()
@@ -19,7 +19,7 @@ export async function notifyCompanyOfPortalMessage(admin: SupabaseClient, orgId:
     const who = c.name || 'A customer'
     const lines = [via === 'text' ? `${who} sent a text message.` : `${who} sent a message from their customer account.`, body, [c.phone, c.email].filter(Boolean).join(' · ')].filter(Boolean)
     await getMailTransport(orgId).sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(orgId),
       to,
       ...(c.email ? { replyTo: c.email } : {}),
       subject: via === 'text' ? `Text from ${who}` : `Message from ${who}`,

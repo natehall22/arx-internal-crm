@@ -378,7 +378,7 @@ export async function sendSetterFieldUpdateEmail(
     for (const report of recipientReports) {
       try {
         await transporter.sendMail({
-          from: getCrmEmailFrom(),
+          from: await getCrmEmailFrom(params.orgId),
           to: recipient.email,
           subject: `${isTest ? '[TEST] ' : ''}${report.teamName} Setter Time In Field (TIF) Update — ${report.sentDateLabel}`,
           html: buildSetterFieldUpdateHtml(report, isTest),

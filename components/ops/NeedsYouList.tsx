@@ -93,10 +93,12 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
               </p>
               <ul className="mt-2 divide-y divide-gray-200">
                 {view.plans.map((gap) => (
-                  <li key={`plan-${gap.role}`} className="py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <li key={`plan-${gap.kind ?? 'no_plan'}-${gap.role}`} className="py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-sm text-[#2c2c2a]">
-                      <span className="font-semibold">{gap.people.length} {gap.people.length === 1 ? 'person has' : 'people have'} no pay plan</span>
-                      <span className="block text-[#57574f] break-words">{gap.roleLabel}: {gap.people.map((p) => p.name).join(', ')}</span>
+                      <span className="font-semibold">
+                        {gap.people.length} {gap.people.length === 1 ? 'person has' : 'people have'} no pay plan{gap.kind === 'sale_date' ? ' on a sale date — those jobs wait' : ''}
+                      </span>
+                      <span className="block text-[#57574f] break-words">{gap.roleLabel}: {gap.people.map((p) => (p.detail ? `${p.name} (${p.detail})` : p.name)).join(', ')}</span>
                     </span>
                     {gap.suggestion && canFixPayPlans ? (
                       <FixPayPlanButton role={gap.role} compPlanId={gap.suggestion.id} label={`Use ${gap.suggestion.name} (${gap.suggestion.ratePercent}%) for all ${gap.roleLabel}s`} />

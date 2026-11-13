@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { oldPayrollWriteGone } from '@/lib/payroll-admin-api'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,6 +53,9 @@ export async function POST(request: NextRequest) {
     if (!isPayrollAdminRole(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    // Pay weeks are made only by the pay-week path (findOrCreateWeek) once it is on.
+    const gone = oldPayrollWriteGone()
+    if (gone) return gone
 
     const body = (await request.json()) as {
       period_label?: string

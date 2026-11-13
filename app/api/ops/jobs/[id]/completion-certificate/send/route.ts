@@ -71,7 +71,7 @@ export async function POST(
     const address = (job as any).address_text || ''
     const buffer = Buffer.from(await fileData.arrayBuffer())
 
-    const fromAddress = getCrmEmailFrom()
+    const fromAddress = await getCrmEmailFrom(profile.org_id)
     const brand = await getOrgBrand(supabase, profile.org_id)
 
     await getMailTransport(profile.org_id).sendMail({

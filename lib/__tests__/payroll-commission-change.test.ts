@@ -237,3 +237,94 @@ describe('a T&M job billed more after it was paid', () => {
     expect(await saveJobHourlySetup(db.client, ORG, JOB, { mode: 'fixed', estimatedHours: null, rateItemId: null })).toMatchObject({ ok: false, status: 409 })
   })
 })
+
+describe('a fixed-price job whose base moves after it was paid (money sweep 2026-11-13 #2)', () => {
+  const FJ = 'job-fixed'
+  function fixed(opts: { cutoff?: string; cos?: Row[] } = {}) {
+    return createFakeDb(
+      {
+        production_jobs: [{ id: FJ, org_id: ORG, job_number: '26-0048', billing_mode: null, status: 'complete', sale_amount: 20000, commission_comp_base: 20000, commission_pre_tax_subtotal: null, project_id: null, linked_proposal_id: 'prop1', accepted_proposal_id: null, allow_close_with_balance: false, close_balance_by: null, commission_change_due_at: null, commission_change_wait: null }],
+        proposals: [{ id: 'prop1', org_id: ORG, tax_amount: 0 }],
+        order_form_contracts: [{ id: 'c1', org_id: ORG, proposal_id: 'prop1', opportunity_id: null, status: 'completed', agreement_type: 'installation', project_cost: 20000 }],
+        job_change_orders: opts.cos ?? [],
+        job_invoices: [],
+        job_payments: [{ id: 'fp1', job_id: FJ, amount_cents: 2000000, funding_status: 'cleared' }],
+        payroll_periods: [{ id: 'P1', org_id: ORG, status: 'locked', cutoff_at: opts.cutoff ?? '2026-11-09T04:59:59Z' }, { id: 'P2', org_id: ORG, status: 'open', cutoff_at: '2026-11-16T04:59:59Z' }],
+        payroll_job_snapshots: [{ id: 'fs1', org_id: ORG, payroll_period_id: 'P1', job_id: FJ, commission_base: 20000 }],
+        payroll_payout_lines: [
+          { id: 'fl1', org_id: ORG, payroll_period_id: 'P1', payroll_job_snapshot_id: 'fs1', job_id: FJ, user_id: CLOSER, participant_role: 'owner', gross_amount: 1400, net_amount: 1400, comp_plan_snapshot: { plan: { plan_type: 'percentage' }, calculation: { effectiveRate: 7, totalAmount: 1400 } } },
+          // A flat Change-sheet line never scales.
+          { id: 'fl2', org_id: ORG, payroll_period_id: 'P1', payroll_job_snapshot_id: 'fs1', job_id: FJ, user_id: SETTER, participant_role: 'setter', gross_amount: 500, net_amount: 500, comp_plan_snapshot: { basis: 'flat' } },
+        ],
+        payroll_adjustments: [],
+        integration_outbox: [],
+      },
+      { rpc: { payroll_add_commission_changes: fakeAdd, enqueue_integration_event: () => null } }
+    )
+  }
+  const co = (id: string, from: number, to: number, status = 'completed'): Row => ({ id, org_id: ORG, job_id: FJ, project_id: null, status, original_amount: from, updated_total: to, is_commissionable: true, created_at: '2026-11-10T12:00:00Z' })
+  const fixedLines = (db: ReturnType<typeof fixed>) => db.tables.payroll_adjustments.map((a) => [a.user_id, a.amount, a.base_delta, a.payroll_period_id])
+
+  it('a +$4,000 supplement signed after payout: nothing until the job is paid in full again, then 7% of $4,000 on the next open week', async () => {
+    const { syncJobSaleAndCommissionBase, followPaidCommissionBase } = await import('@/lib/job-commission-base')
+    const db = fixed()
+    db.tables.job_change_orders.push(co('co1', 20000, 24000))
+    await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: FJ })
+    expect(db.tables.production_jobs[0]).toMatchObject({ sale_amount: 24000, commission_comp_base: 24000 })
+    expect(db.tables.payroll_adjustments).toEqual([]) // customer has not paid the supplement yet
+    db.tables.job_payments.push({ id: 'fp2', job_id: FJ, amount_cents: 400000, funding_status: 'cleared' })
+    await followPaidCommissionBase(db.client, ORG, FJ) // what recordJobPayment runs after a payment
+    expect(fixedLines(db)).toEqual([[CLOSER, 280, 4000, 'P2']]) // the flat setter line does not scale
+    expect(db.tables.payroll_payout_lines.map((l) => l.net_amount)).toEqual([1400, 500]) // the paid week never changes
+    await followPaidCommissionBase(db.client, ORG, FJ)
+    expect(db.tables.payroll_adjustments).toHaveLength(1) // idempotent
+  })
+
+  it('that change order stops counting (voided) after its commission was paid → clawed back at once', async () => {
+    const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
+    const db = fixed({ cos: [co('co1', 20000, 24000)] })
+    db.tables.production_jobs[0].sale_amount = 24000
+    db.tables.production_jobs[0].commission_comp_base = 24000
+    db.tables.job_payments.push({ id: 'fp2', job_id: FJ, amount_cents: 400000, funding_status: 'cleared' })
+    db.tables.payroll_adjustments.push({ id: 'a1', org_id: ORG, payroll_period_id: 'P2', user_id: CLOSER, job_id: FJ, amount: 280, base_delta: 4000, kind: 'commission_change', status: 'pending' })
+    db.tables.job_change_orders[0].status = 'voided'
+    await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: FJ })
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_comp_base: 20000 })
+    expect(fixedLines(db)).toEqual([[CLOSER, 280, 4000, 'P2'], [CLOSER, -280, -4000, 'P2']])
+  })
+
+  it('a credit change order (base down) is taken back at once, paid in full or not', async () => {
+    const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
+    const db = fixed()
+    db.tables.job_change_orders.push(co('co1', 20000, 18000))
+    await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: FJ })
+    expect(fixedLines(db)).toEqual([[CLOSER, -140, -2000, 'P2']])
+  })
+
+  it('an owner force-paid job pays the rise without waiting for the money', async () => {
+    const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
+    const db = fixed()
+    Object.assign(db.tables.production_jobs[0], { allow_close_with_balance: true, close_balance_by: 'owner1' })
+    db.tables.job_change_orders.push(co('co1', 20000, 21000))
+    await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: FJ })
+    expect(fixedLines(db)).toEqual([[CLOSER, 70, 1000, 'P2']])
+  })
+
+  it('a job paid on a week approved before the 2026-10-22 base rule is never followed (no restatement of old pay)', async () => {
+    const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
+    const db = fixed({ cutoff: '2026-08-20T03:59:59Z' })
+    db.tables.job_change_orders.push(co('co1', 20000, 18000))
+    await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: FJ })
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_comp_base: 18000 })
+    expect(db.tables.payroll_adjustments).toEqual([])
+  })
+
+  it('a job not paid yet: the base just moves; the week that pays it uses the new base', async () => {
+    const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
+    const db = fixed()
+    db.tables.payroll_periods[0].status = 'open'
+    db.tables.job_change_orders.push(co('co1', 20000, 18000))
+    await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: FJ })
+    expect(db.tables.payroll_adjustments).toEqual([])
+  })
+})

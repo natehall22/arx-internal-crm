@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { oldPayrollWriteGone } from '@/lib/payroll-admin-api'
 import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
 import { resolveHourlyRate } from '@/lib/payroll-hourly-rate'
 import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
@@ -160,6 +161,9 @@ export async function POST(
     if (!isPayrollAdminRole(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    // Hours go through Pay this week (and the time clock) once the pay-week path is on.
+    const gone = oldPayrollWriteGone()
+    if (gone) return gone
 
     const periodId = params.periodId
     const body = (await request.json()) as { entries?: HoursEntry[] }

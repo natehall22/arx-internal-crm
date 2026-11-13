@@ -5,7 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { enqueuePaymentRecorded } from '@/lib/integrations'
-import { syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
+import { followPaidCommissionBase, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { notifyAdminOpsOfJobPayment } from '@/lib/job-payment-email'
 import { getJobPaymentSummary } from '@/lib/job-payments'
 import { isMissingFunction } from '@/lib/org-settings'
@@ -96,6 +96,9 @@ export async function recordJobPayment(admin: SupabaseClient, p: RecordJobPaymen
   // Billed by the hour: money in (or back out) moves the paid-for commission base → commission change lines on the next open
   // week when the job was already paid on an approved week. No-op (null) for fixed-price jobs. Never throws.
   const tm = await syncTimeAndMaterialsCommissionBase(admin, p.orgId, p.jobId)
+  // Fixed price: a change order that raised the base after the job was paid pays its commission once the job is paid in full
+  // again — this payment may be the one. No-op for a job not paid on an approved week. Never throws.
+  if (!tm) await followPaidCommissionBase(admin, p.orgId, p.jobId)
 
   // Email admin + operations (non-blocking)
   getJobPaymentSummary(admin, p.jobId)

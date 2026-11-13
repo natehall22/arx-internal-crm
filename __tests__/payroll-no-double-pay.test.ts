@@ -8,7 +8,8 @@
  *  3. mark_paid / edits are conditional and refuse while a lock is in progress.
  */
 
-jest.mock('@/lib/payroll-flag', () => ({ isPayWeekEnabled: () => true })) // flag ON: the legacy lock is retired
+let mockPayWeekOn = true
+jest.mock('@/lib/payroll-flag', () => ({ isPayWeekEnabled: () => mockPayWeekOn })) // flag ON: the legacy lock is retired
 jest.mock('@/lib/auth', () => ({ requireAuthApi: jest.fn() }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('next/server', () => ({
@@ -93,6 +94,13 @@ describe('PATCH /api/admin/payroll/periods/[periodId]', () => {
   })
 
   describe('cancel / reopen (one-transaction RPC)', () => {
+    // Reopen is an old-path write: it runs only with the pay-week flag OFF (ON → 410, payroll-old-period-routes-gone.test.ts).
+    beforeEach(() => {
+      mockPayWeekOn = false
+    })
+    afterEach(() => {
+      mockPayWeekOn = true
+    })
     const periodLoad = { data: { id: 'period-1', status: 'locked', locked_at: 'x' }, error: null }
 
     for (const action of ['cancel', 'reopen']) {
@@ -158,7 +166,13 @@ describe('PATCH /api/admin/payroll/periods/[periodId]', () => {
     }
   })
 
-  describe('mark_paid and edits are conditional', () => {
+  describe('mark_paid and edits are conditional (flag OFF — ON they are 410)', () => {
+    beforeEach(() => {
+      mockPayWeekOn = false
+    })
+    afterEach(() => {
+      mockPayWeekOn = true
+    })
     it('mark_paid only from locked with no live claim; 409 when no row matched', async () => {
       const m = mockSupabase({
         payroll_periods: [{ data: { id: 'period-1', status: 'locked', locked_at: 'x' }, error: null }, { data: null, error: null }],

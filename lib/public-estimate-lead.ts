@@ -1333,7 +1333,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
         disclaimer,
       })
       await getMailTransport(getPublicEstimateOrgId()).sendMail({
-        from: getCrmEmailFrom(),
+        from: await getCrmEmailFrom(getPublicEstimateOrgId()),
         to: Array.from(emailRecipients).join(', '),
         subject: alert.subject,
         text: alert.text,
@@ -1579,7 +1579,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
           throw new Error('SMTP not configured')
         }
         await getMailTransport(getPublicEstimateOrgId()).sendMail({
-          from: getCrmEmailFrom(),
+          from: await getCrmEmailFrom(getPublicEstimateOrgId()),
           to: email,
           subject,
           text,

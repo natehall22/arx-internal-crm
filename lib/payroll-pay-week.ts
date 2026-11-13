@@ -641,7 +641,9 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
       needs.push({ kind: 'bonus', id: b.id, userId: b.user_id, name: names.get(b.user_id)?.name ?? 'Unknown', amount: Number(b.amount) || 0, what: b.description || b.bonus_type.replace(/_/g, ' '), fromWeek: b.fromWeek })
     }
     const [gaps, ended] = await Promise.all([loadPayPlanGaps(admin, orgId, now), loadEndedPlanPeople(admin, orgId, now)])
-    const noPlan = gaps.flatMap((g) => g.people.map((p) => p.name))
+    const noPlan = gaps.filter((g) => g.kind !== 'sale_date').flatMap((g) => g.people.map((p) => p.name))
+    const onSaleDate = gaps.filter((g) => g.kind === 'sale_date').flatMap((g) => g.people.map((p) => `${p.name} (${p.detail})`))
+    if (onSaleDate.length) needs.push({ kind: 'plans', text: `${onSaleDate.length} ${onSaleDate.length === 1 ? 'person has' : 'people have'} no pay plan on a sale date, so those jobs wait`, names: onSaleDate, href: '/admin/comp-plans' })
     if (noPlan.length) needs.push({ kind: 'plans', text: `${noPlan.length} ${noPlan.length === 1 ? 'person has' : 'people have'} no pay plan, so they are paid nothing`, names: noPlan, href: '/admin/comp-plans' })
     if (ended.length) needs.push({ kind: 'plans', text: `${ended.length} ${ended.length === 1 ? 'person has' : 'people have'} no pay plan because theirs was ended`, names: ended.map((p) => p.name), href: '/admin/comp-plans' })
     for (const d of await loadOpenDisputes(admin, orgId)) needs.push({ kind: 'dispute', id: d.id, userId: d.userId, name: d.name, label: d.label, message: d.message })

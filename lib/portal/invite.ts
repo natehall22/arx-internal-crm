@@ -19,7 +19,7 @@ export async function inviteCustomerToPortal(admin: SupabaseClient, orgId: strin
   if (!isUsableCustomerEmail(c.email)) return { ok: false, status: 409, error: 'Add an email address for this customer first.' }
   // Same fail-closed limits as a customer's own request, plus a staff-side cap so one tap cannot be held down.
   if (!(await takePortalAttempt(admin, `invite-cust:${customerId}`, { limit: 3, windowSeconds: 3600 }))) return { ok: false, status: 429, error: 'Email not sent: already sent a few times. Try again in an hour.' }
-  if (!emailIsSetUp()) return { ok: false, status: 409, error: "Email not sent: email isn't set up for your company yet." }
+  if (!(await emailIsSetUp(orgId))) return { ok: false, status: 409, error: "Email not sent: email isn't set up for your company yet." }
   // Marked invited only once the email really went out (the invitation is what lets them in).
   const sent = await sendLoginLinks(admin, orgId, [c], `staff:${staffUserId}`, { invite: true })
   if (!sent) return { ok: false, status: 500, error: 'Email not sent. Please try again in a minute.' }

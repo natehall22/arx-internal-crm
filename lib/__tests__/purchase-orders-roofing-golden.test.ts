@@ -80,6 +80,7 @@ describe('roofing supplier purchase-order sheet is unchanged', () => {
 describe('roofing supplier email is unchanged', () => {
   it('composes the same order email', () => {
     const e = composeSupplierOrderEmail({
+      from: 'ARX Roofing <info@arxroofing.com>', // what the composer read from the deployment before the From became per company
       kind: 'order',
       supplier: { id: 'v', name: 'ABC Supply', orderEmail: 'o@abc.test', ccEmails: [], accountNumber: null, defaultBranch: null, defaultDeliveryNotes: null, defaultForTrades: [], active: true, connectionType: 'email' },
       sender: { id: 'u', name: 'Sam', email: 'sam@green.test' },

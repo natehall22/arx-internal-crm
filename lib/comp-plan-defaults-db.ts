@@ -9,6 +9,15 @@ import {
   type PlanForSuggestion,
 } from '@/lib/comp-plan-defaults'
 import { compPlanRoleLabel } from '@/lib/comp-plan-roles'
+import { formatDate } from '@/lib/format'
+import {
+  collectParticipants,
+  hasResolvableCompPlanForUserOnDate,
+  loadProducerCommissionOverrides,
+  producerOverrideKey,
+  producerStorageRoleForParticipant,
+  resolveProducerOverrideAmount,
+} from '@/lib/payroll-export'
 
 /** A deal credited this recently makes someone "earning commission" even if their role isn't a commission role. */
 const CREDIT_LOOKBACK_DAYS = 120
@@ -16,9 +25,12 @@ const CREDIT_LOOKBACK_DAYS = 120
 export type EndedPlanPerson = { id: string; name: string; role: string; roleLabel: string; endedOn: string }
 
 export type PayPlanGap = {
+  /** 'no_plan' (default): nobody set up today. 'sale_date': has a plan, but not on the sale date of a job not yet paid — that job waits. */
+  kind?: 'no_plan' | 'sale_date'
   role: string
   roleLabel: string
-  people: Array<{ id: string; name: string }>
+  /** `detail` (sale-date gaps only): "26-0043, sold Sep 3, 2026". */
+  people: Array<{ id: string; name: string; detail?: string }>
   /** The one plan we would use as this role's default, or null when a person has to choose. */
   suggestion: { id: string; name: string; ratePercent: number } | null
 }
@@ -80,7 +92,110 @@ export async function loadPayPlanGaps(admin: SupabaseClient, orgId: string, now:
       })()
     gap.people.push({ id: u.id, name: u.full_name || 'Unnamed' })
   }
-  return Array.from(byRole.values()).sort((a, b) => b.people.length - a.people.length)
+  const missingIds = new Set(missing.map((u) => u.id))
+  // The SALE date decides which plan pays a job (loadActiveCompPlanForUser), so "has a plan today" is not enough: someone whose plan
+  // has a gap over a sold, not-yet-paid job holds that whole job (planPayrollPeriod, no_pay_plan_on_sale_date).
+  const saleDateGaps = await loadSaleDatePlanGaps(
+    admin,
+    orgId,
+    allAssignments,
+    ((usersRes.data ?? []) as Array<{ id: string; full_name: string | null; role: string; is_test_account?: boolean | null }>).filter((u) => u.is_test_account !== true && !missingIds.has(u.id)),
+    now
+  ).catch((error) => {
+    console.error('loadPayPlanGaps: sale-date check failed', { orgId, error })
+    return [] as PayPlanGap[]
+  })
+  return [...Array.from(byRole.values()).sort((a, b) => b.people.length - a.people.length), ...saleDateGaps]
+}
+
+/** How far back a sold, unpaid job is checked. Older unpaid jobs are rare and still show on the Pay screen's waiting list. */
+const SALE_DATE_LOOKBACK_DAYS = 365
+const ID_CHUNK = 200
+
+/**
+ * People credited (closer / setter / salesperson, as payroll collects them) on a sold job that is not paid yet, with no pay plan on that
+ * job's SALE date — the same answer the payroll engine gets (`hasResolvableCompPlanForUserOnDate`, which also applies the role default
+ * rules). A per-job override for that person replaces the plan, so it is not a gap. Assignments are checked in memory first; the engine's
+ * own lookup runs only for a pair no assignment covers.
+ */
+async function loadSaleDatePlanGaps(
+  admin: SupabaseClient,
+  orgId: string,
+  assignments: Array<{ user_id: string; effective_from: string; effective_to: string | null }>,
+  users: Array<{ id: string; full_name: string | null; role: string }>,
+  now: Date
+): Promise<PayPlanGap[]> {
+  const since = ymdInBusinessTz(new Date(now.getTime() - SALE_DATE_LOOKBACK_DAYS * 86_400_000))
+  const { data: jobData, error: jobError } = await admin
+    .from('production_jobs')
+    .select('id, job_number, sale_date, salesperson_id, project_id')
+    .eq('org_id', orgId)
+    .neq('status', 'cancelled')
+    .is('payroll_settled_externally_at', null)
+    .not('sale_date', 'is', null)
+    .gte('sale_date', since)
+    .order('sale_date', { ascending: true })
+    .limit(2000)
+  if (jobError) throw jobError
+  const allJobs = (jobData ?? []) as Array<{ id: string; job_number: string; sale_date: string; salesperson_id: string | null; project_id: string | null }>
+  if (allJobs.length === 0) return []
+
+  const paid = new Set<string>()
+  const projectIds = Array.from(new Set(allJobs.map((j) => j.project_id).filter((v): v is string => Boolean(v))))
+  const oppIdByProject = new Map<string, string>()
+  for (let i = 0; i < allJobs.length; i += ID_CHUNK) {
+    const ids = allJobs.slice(i, i + ID_CHUNK).map((j) => j.id)
+    const { data, error } = await admin.from('payroll_job_snapshots').select('job_id').eq('org_id', orgId).in('job_id', ids)
+    if (error) throw error
+    for (const r of data ?? []) paid.add(r.job_id as string)
+  }
+  for (let i = 0; i < projectIds.length; i += ID_CHUNK) {
+    const { data, error } = await admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('id', projectIds.slice(i, i + ID_CHUNK))
+    if (error) throw error
+    for (const p of data ?? []) if (p.opportunity_id) oppIdByProject.set(p.id as string, p.opportunity_id as string)
+  }
+  const oppIds = Array.from(new Set(Array.from(oppIdByProject.values())))
+  const oppById = new Map<string, { owner_user_id: string | null; setter_user_id: string | null }>()
+  for (let i = 0; i < oppIds.length; i += ID_CHUNK) {
+    const { data, error } = await admin.from('opportunities').select('id, owner_user_id, setter_user_id').eq('org_id', orgId).in('id', oppIds.slice(i, i + ID_CHUNK))
+    if (error) throw error
+    for (const o of data ?? []) oppById.set(o.id as string, { owner_user_id: (o.owner_user_id as string) ?? null, setter_user_id: (o.setter_user_id as string) ?? null })
+  }
+  const jobs = allJobs.filter((j) => !paid.has(j.id))
+  if (jobs.length === 0) return []
+  const overrides = await loadProducerCommissionOverrides(admin, orgId, jobs.map((j) => j.id))
+
+  const userById = new Map(users.map((u) => [u.id, u]))
+  const covered = (userId: string, ymd: string) =>
+    assignments.some((a) => a.user_id === userId && a.effective_from <= ymd && (a.effective_to === null || a.effective_to >= ymd))
+  const engineCache = new Map<string, boolean>()
+  const byRole = new Map<string, PayPlanGap>()
+  for (const job of jobs) {
+    const ymd = job.sale_date.slice(0, 10)
+    const oppId = job.project_id ? oppIdByProject.get(job.project_id) : undefined
+    for (const participant of collectParticipants(job, oppId ? oppById.get(oppId) ?? null : null)) {
+      const user = userById.get(participant.userId)
+      // Test accounts (filtered out of `users`) and people already listed as having no plan at all are not repeated here.
+      if (!user) continue
+      if (resolveProducerOverrideAmount(overrides.get(producerOverrideKey(job.id, participant.userId, producerStorageRoleForParticipant(participant.role))), 0)) continue
+      if (covered(participant.userId, ymd)) continue
+      const key = `${participant.userId}|${ymd}`
+      if (!engineCache.has(key)) engineCache.set(key, await hasResolvableCompPlanForUserOnDate(admin, orgId, participant.userId, ymd))
+      if (engineCache.get(key)) continue
+      const gap =
+        byRole.get(user.role) ??
+        (() => {
+          const g: PayPlanGap = { kind: 'sale_date', role: user.role, roleLabel: compPlanRoleLabel(user.role), people: [], suggestion: null }
+          byRole.set(user.role, g)
+          return g
+        })()
+      const detail = `${job.job_number}, sold ${formatDate(ymd)}`
+      const existing = gap.people.find((p) => p.id === user.id)
+      if (existing) existing.detail = `${existing.detail}; ${detail}`
+      else gap.people.push({ id: user.id, name: user.full_name || 'Unnamed', detail })
+    }
+  }
+  return Array.from(byRole.values())
 }
 
 

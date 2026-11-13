@@ -102,7 +102,7 @@ export async function sendDailyLogSummary(admin: SupabaseClient, args: { orgId: 
   const mail = buildDailyLogSummaryEmail({ brand, customerName: contact.name, dateLabel, address: contact.address, note: log.note || 'Work continued on your project today.', weather: log.weather, photoCount: (log.photo_ids ?? []).length, repName: args.senderName || brand.name })
   try {
     const transporter = getMailTransport(args.orgId, { secure: false })
-    await transporter.sendMail({ from: getCrmEmailFrom(), to: contact.email, subject: mail.subject, text: mail.text, html: mail.html })
+    await transporter.sendMail({ from: await getCrmEmailFrom(args.orgId), to: contact.email, subject: mail.subject, text: mail.text, html: mail.html })
   } catch (e) {
     console.error('[daily log] summary email failed', e)
     await release()

@@ -1,7 +1,13 @@
 /**
- * Commission change lines — when a time & materials job's commission base moves AFTER the job was paid on an approved week
- * (more hours billed and PAID, or a paid invoice voided / refunded), the paid week never changes: the next OPEN week gets
- * one signed line per person, `that person's PERCENT rate × the base change`, with the math in plain words.
+ * Commission change lines — when a job's commission base moves AFTER the job was paid on an approved week, the paid week never
+ * changes: the next OPEN week gets one signed line per person, `that person's PERCENT rate × the base change`, with the math in
+ * plain words.
+ * - Time & materials: more hours billed and PAID, or a paid invoice voided / refunded (the paid-for base, below).
+ * - Fixed price (money sweep 2026-11-13): a change order signed after the payout (or one that stops counting) moves the base the
+ *   one writer keeps (`production_jobs.commission_comp_base`, lib/job-commission-base.ts). A DROP is taken back at once; a RISE is
+ *   paid only once the job is paid in full again (`evaluateJobCollection`, the one rule — commission follows the money, as the
+ *   original payout did). Only payouts approved on/after FIXED_PRICE_CHANGES_FROM count: earlier weeks were paid on the old
+ *   dealer-fee-deducted base, and following them would restate that pay.
  *
  * - Only percentage pay scales. Flat dollars never do: a flat per-job override (the Change sheet's $), a plan's flat
  *   per-job amount, a flat-rate plan, a volume-bonus flat — all were paid once and stay as they are.
@@ -23,8 +29,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import type { Queue as TodayQueue } from '@/lib/today'
 
-import { sumCollectedCents } from '@/lib/job-collection'
-import { loadJobInvoiceFacts } from '@/lib/job-invoice-tax'
+import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
+import { collectionInvoiceFields, loadJobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { roundMoney } from '@/lib/money'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -78,8 +84,17 @@ export type CommissionChangeLine = { userId: string; baseDelta: number; amount: 
 
 const fmt = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-/** Pure: the lines to add now. `prior` = per person, the base already covered by earlier change lines on this job. */
-export function planCommissionChanges(input: { jobNumber: string | null; currentBase: number; paid: readonly PaidJobLine[]; prior: ReadonlyMap<string, number> }): CommissionChangeLine[] {
+/**
+ * The day the commission base got its one writer and stopped deducting the dealer fee (Nathan, 2026-10-22). A fixed-price payout
+ * approved before it was figured on the old base, so its job is never followed (no restatement of old pay).
+ */
+export const FIXED_PRICE_CHANGES_FROM = '2026-10-22'
+
+/**
+ * Pure: the lines to add now. `prior` = per person, the base already covered by earlier change lines on this job.
+ * `holdIncreases`: a rise is not paid yet (a fixed-price job not paid in full again); a drop still is.
+ */
+export function planCommissionChanges(input: { jobNumber: string | null; currentBase: number; paid: readonly PaidJobLine[]; prior: ReadonlyMap<string, number>; holdIncreases?: boolean; hourly?: boolean }): CommissionChangeLine[] {
   const byUser = new Map<string, { rate: number; base: number }>()
   for (const l of input.paid) {
     const u = byUser.get(l.userId) ?? { rate: 0, base: l.base }
@@ -94,9 +109,10 @@ export function planCommissionChanges(input: { jobNumber: string | null; current
     const covered = roundMoney(u.base + prior)
     const baseDelta = roundMoney(input.currentBase - covered)
     if (baseDelta === 0) continue
+    if (baseDelta > 0 && input.holdIncreases) continue
     const amount = roundMoney(baseDelta * u.rate)
     if (amount === 0) continue
-    const job = input.jobNumber ? `job ${input.jobNumber}` : 'a job billed by the hour'
+    const job = input.jobNumber ? `job ${input.jobNumber}` : input.hourly === false ? 'a job' : 'a job billed by the hour'
     out.push({
       userId,
       baseDelta,
@@ -153,6 +169,38 @@ async function loadPayableBase(admin: SupabaseClient, orgId: string, jobId: stri
   return payableBaseFromFacts(facts, sumCollectedCents((data ?? []) as Array<{ amount_cents: number | null; funding_status?: string | null }>))
 }
 
+type FollowedJob = {
+  id: string
+  job_number: string | null
+  billing_mode?: string | null
+  commission_change_due_at?: string | null
+  commission_comp_base: number | string | null
+  sale_amount: number | string | null
+  allow_close_with_balance?: boolean | null
+  close_balance_by?: string | null
+}
+
+/**
+ * A fixed-price job's base to follow: the one writer's `commission_comp_base`. Rises wait until the job is paid in full again
+ * (the one paid-in-full rule, incl. invoice tax and an owner's force-paid). No base on file → nothing (never claw back everything
+ * because a base is missing; data health flags it).
+ */
+async function fixedPriceTarget(admin: SupabaseClient, jobId: string, job: FollowedJob): Promise<{ base: number; holdIncreases: boolean } | null> {
+  const base = job.commission_comp_base == null ? NaN : Number(job.commission_comp_base)
+  if (!Number.isFinite(base) || base <= 0) return null
+  const facts = (await loadJobInvoiceFacts(admin, [jobId])).get(jobId)
+  // org-scope-ok: jobId is the caller's job, loaded company-scoped above (production_jobs by id + org); job_payments hang off it
+  const { data } = await admin.from('job_payments').select('amount_cents, funding_status').eq('job_id', jobId)
+  const c = evaluateJobCollection({
+    saleAmount: job.sale_amount == null ? null : Number(job.sale_amount),
+    ...collectionInvoiceFields(facts),
+    collectedCents: sumCollectedCents((data ?? []) as Array<{ amount_cents: number | null; funding_status?: string | null }>),
+    allowCloseWithBalance: job.allow_close_with_balance ?? null,
+    closeBalanceBy: job.close_balance_by ?? null,
+  })
+  return { base: roundMoney(base), holdIncreases: !c.paidInFull }
+}
+
 export type CommissionChangeWait = 'approval_running' | 'pay_week_off' | 'retry_error'
 
 async function markDue(admin: SupabaseClient, orgId: string, jobId: string, wait: CommissionChangeWait | null): Promise<void> {
@@ -193,21 +241,28 @@ export async function syncCommissionChangesForJob(admin: SupabaseClient, orgId: 
 async function syncCommissionChangesOnce(admin: SupabaseClient, orgId: string, jobId: string, actorUserId: string | null): Promise<CommissionChangeResult> {
   const none = (waiting: CommissionChangeResult['waiting'] = null): CommissionChangeResult => ({ added: 0, periodId: null, lines: [], waiting })
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { data: job } = await orgDb(admin, orgId).from('production_jobs').select('id, job_number, billing_mode, commission_change_due_at').eq('id', jobId).maybeSingle()
-    if (!job) return none()
-    const wasDue = !!(job as { commission_change_due_at?: string | null }).commission_change_due_at
-    if ((job as { billing_mode?: string | null }).billing_mode !== 'time_materials') {
-      if (wasDue) await markDue(admin, orgId, jobId, null)
-      return none()
-    }
-    const paid = await loadPaidJobLines(admin, orgId, jobId)
-    if (!paid || paid.length === 0) {
+    const { data: jobData } = await orgDb(admin, orgId)
+      .from('production_jobs')
+      .select('id, job_number, billing_mode, commission_change_due_at, commission_comp_base, sale_amount, allow_close_with_balance, close_balance_by')
+      .eq('id', jobId)
+      .maybeSingle()
+    if (!jobData) return none()
+    const job = jobData as FollowedJob
+    const wasDue = !!job.commission_change_due_at
+    const hourly = job.billing_mode === 'time_materials'
+    const allPaid = await loadPaidJobLines(admin, orgId, jobId)
+    // Fixed price: only payouts approved under today's base rule are followed (see FIXED_PRICE_CHANGES_FROM).
+    const paid = hourly ? allPaid : (allPaid ?? []).filter((l) => l.cutoffAt.slice(0, 10) >= FIXED_PRICE_CHANGES_FROM)
+    const follow = !paid || paid.length === 0 ? null : hourly ? { base: await loadPayableBase(admin, orgId, jobId), holdIncreases: false } : await fixedPriceTarget(admin, jobId, job)
+    if (!paid || paid.length === 0 || !follow) {
       if (wasDue) await markDue(admin, orgId, jobId, null)
       return none()
     }
     const lines = planCommissionChanges({
-      jobNumber: (job as { job_number?: string | null }).job_number ?? null,
-      currentBase: await loadPayableBase(admin, orgId, jobId),
+      jobNumber: job.job_number ?? null,
+      currentBase: follow.base,
+      holdIncreases: follow.holdIncreases,
+      hourly,
       paid,
       prior: await loadPrior(admin, orgId, jobId),
     })
@@ -257,7 +312,7 @@ export async function retryDueCommissionChanges(admin: SupabaseClient, orgId: st
     try {
       // An error may have stopped the base sync itself: redo it first (it is the one writer and a no-op when in step).
       // Only a job billed by the hour: a fixed-price job's base is the contract's and is never re-synced from here
-      // (syncCommissionChangesForJob below just clears its mark).
+      // (syncCommissionChangesForJob below follows the base as stored, and clears the mark when there is nothing to do).
       const isHourly = wait === 'retry_error' && (await orgDb(admin, orgId).from('production_jobs').select('billing_mode').eq('id', id).maybeSingle()).data?.billing_mode === 'time_materials'
       if (isHourly) {
         const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
@@ -301,7 +356,7 @@ export async function loadCommissionChangesWaitingQueue(admin: SupabaseClient, o
       const ref = r.job_number ? `Job ${r.job_number}` : 'Job'
       const note =
         r.commission_change_wait === 'pay_week_off'
-          ? 'more hours paid after this job’s commission — paid once the new Pay this week is on'
+          ? 'the commission base moved after this job was paid — paid once the new Pay this week is on'
           : r.commission_change_wait === 'retry_error'
             ? 'could not be written (a database error) — retried every morning'
             : 'retrying after the approval in progress'

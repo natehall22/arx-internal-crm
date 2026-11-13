@@ -64,6 +64,7 @@ import {
 } from '@/lib/supplier-orders'
 import { supplierChannelProblem, type SupplierOrderTransmission, type SupplierOrderTransmitResult } from '@/lib/suppliers/send-order'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 export type PoScope = { jobId: string } | { workOrderId: string }
 
@@ -585,6 +586,8 @@ type PoContext = {
   vendor: SupplierRecord & { contactName: string | null }
   target: PoTarget
   orgName: string
+  /** The company's own From for order emails (lib/crm-email-from.ts). */
+  fromAddress: string
   orgPhone: string | null
   order: SupplierOrderRecord
   lastLines: LineSnapshot[] | null
@@ -642,6 +645,7 @@ export async function loadPoContext(admin: SupabaseClient, orgId: string, poId: 
       vendor,
       target,
       orgName: brand.name,
+      fromAddress: await getCrmEmailFrom(orgId, admin),
       orgPhone: brand.phone || null,
       order,
       lastLines,
@@ -712,6 +716,7 @@ export function buildPoPreview(ctx: PoContext, req: PoPreviewRequest, sender: Su
     totalText: l.unitCostCents > 0 ? formatMoney(lineTotalCents(l.quantity, l.unitCostCents)) : null,
   }))
   const email = composePurchaseOrderEmail({
+    from: ctx.fromAddress,
     kind,
     vendor,
     sender,

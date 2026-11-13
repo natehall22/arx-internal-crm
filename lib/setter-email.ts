@@ -59,7 +59,7 @@ export async function sendSetterEmail(params: {
     .join('')
 
   await transporter.sendMail({
-    from: getCrmEmailFrom(),
+    from: await getCrmEmailFrom(params.orgId),
     to: params.to,
     subject: params.subject,
     html: `

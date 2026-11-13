@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { getJobPaymentSummary } from '@/lib/job-payments'
+import { followPaidCommissionBase } from '@/lib/job-commission-base'
 import { projectStatusForJobStatus } from '@/lib/job-status'
 
 const MAX_REASON_LENGTH = 500
@@ -150,6 +151,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
       .eq('id', job.project_id)
       .eq('org_id', profile.org_id)
   }
+
+  // A change order that raised the base after this job was paid pays its commission once the job counts as paid in full.
+  await followPaidCommissionBase(admin, profile.org_id, job.id)
 
   return NextResponse.json({ success: true, status: update.status ?? job.status })
 }

@@ -7,7 +7,7 @@ function fakeAdmin(tables: Record<string, Array<Record<string, unknown>>>) {
     from(table: string) {
       const rows = tables[table] ?? []
       const b: any = {}
-      for (const m of ['select', 'eq', 'lte', 'gte', 'not', 'limit', 'order']) b[m] = () => b
+      for (const m of ['select', 'eq', 'neq', 'is', 'in', 'lte', 'gte', 'not', 'limit', 'order']) b[m] = () => b
       b.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: rows, error: null }).then(res)
       return b
     },

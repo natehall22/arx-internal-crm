@@ -26,8 +26,8 @@ const OFFICE_TITLES: Record<PaymentProblem, string> = {
   dispute: 'Card payment disputed',
 }
 
-function mailReady(): boolean {
-  return !!process.env.SMTP_HOST && !!getCrmEmailFrom()
+async function mailReady(orgId: string): Promise<boolean> {
+  return !!process.env.SMTP_HOST && !!(await getCrmEmailFrom(orgId))
 }
 
 async function loadInvoice(admin: SupabaseClient, orgId: string, invoiceId: string): Promise<JobInvoice | null> {
@@ -42,7 +42,7 @@ export async function notifyOfficeOfPaymentProblem(
   p: { problem: PaymentProblem; invoiceId: string; amountCents: number; detail: string; nextTry?: Date | null }
 ): Promise<void> {
   try {
-    if (!mailReady()) return
+    if (!(await mailReady(orgId))) return
     const { data: org } = await admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
     const { emails } = await resolveEmailBlastRecipients(admin, { orgId, blastType: 'job_payment', settings: getOrgEmailBlastSettings((org as { settings?: unknown } | null)?.settings) })
     if (emails.length === 0) return
@@ -63,7 +63,7 @@ export async function notifyOfficeOfPaymentProblem(
 </div>`
     const transport = getMailTransport(orgId)
     for (const to of emails) {
-      await transport.sendMail({ from: getCrmEmailFrom(), to, subject: `${title}: ${number}`, html, text: lines.join('\n') }).catch((e: unknown) => console.error('notifyOfficeOfPaymentProblem: send failed', to, e))
+      await transport.sendMail({ from: await getCrmEmailFrom(orgId), to, subject: `${title}: ${number}`, html, text: lines.join('\n') }).catch((e: unknown) => console.error('notifyOfficeOfPaymentProblem: send failed', to, e))
     }
   } catch (e) {
     console.error('notifyOfficeOfPaymentProblem failed', e)
@@ -77,7 +77,7 @@ export async function notifyCustomerOfFailedPayment(
   p: { invoiceId: string; kind: 'autopay' | 'bank'; nextTry?: Date | null }
 ): Promise<void> {
   try {
-    if (!mailReady()) return
+    if (!(await mailReady(orgId))) return
     const inv = await loadInvoice(admin, orgId, p.invoiceId)
     if (!inv || inv.status === 'void' || inv.status === 'paid') return
     const doc = await loadInvoiceDocument(admin, orgId, inv)
@@ -97,7 +97,7 @@ export async function notifyCustomerOfFailedPayment(
   <p style="font-size:14px;color:#374151;">Questions? Reply to this email${doc.company.phone ? ` or call ${escapeHtml(doc.company.phone)}` : ''}.</p>
 </div>`
     await getMailTransport(orgId).sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(orgId),
       to: doc.billTo.email as string,
       ...(doc.company.email ? { replyTo: doc.company.email } : {}),
       subject: `Payment didn't go through — invoice ${inv.invoice_number}`,

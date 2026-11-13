@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { legacyLockPayrollPeriod } from '@/lib/legacy-payroll-lock'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
+import { oldPayrollWriteGone } from '@/lib/payroll-admin-api'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { PAYROLL_PERIOD_COLUMNS as PERIOD_COLUMNS } from '@/lib/payroll-period-lock'
 
@@ -81,7 +82,14 @@ export async function PATCH(
       }
       // One lock path once the flag is on: "Pay this week → Approve" (POST /api/admin/payroll/pay-week/approve), which commits the week
       // atomically and only for the total the admin was shown. The old period API had no total to check against.
-      return NextResponse.json({ error: 'Approve the week from Pay this week.', code: 'use_pay_this_week' }, { status: 410 })
+      return oldPayrollWriteGone('Approve the week from Pay this week.') as NextResponse
+    }
+
+    // Everything else here except cancel (mark paid, reopen, label / cutoff / pay-date edits) is the old path's too. Cancel stays: it
+    // is one guarded SQL transaction (refuses a week with pay lines) and the only way to clear a stray duplicate week.
+    if (body.action !== 'cancel') {
+      const gone = oldPayrollWriteGone()
+      if (gone) return gone
     }
 
     if (body.action === 'mark_paid') {

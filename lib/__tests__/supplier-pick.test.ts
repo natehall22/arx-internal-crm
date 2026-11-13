@@ -38,7 +38,7 @@ const order = (over: Partial<SupplierOrderRecord>): SupplierOrderRecord => ({
 function ctx(over: Partial<SupplierOrderContext> = {}): SupplierOrderContext {
   return {
     orgId: 'org', jobId: 'job-1', jobNumber: '26-0042', jobStatus: 'materials', primaryTrade: 'roofing', address: '12 Elm St',
-    scheduledDate: null, orgName: 'Co', orgPhone: null,
+    scheduledDate: null, orgName: 'Co', fromAddress: 'Co <info@co.test>', orgPhone: null,
     baseSheet: { sections: [], product: null, accessories: null, isEmpty: false } as never,
     displayByKey: new Map(), lines: [line('shingles', 'roofing'), line('gutter', 'gutters')],
     suppliers: [ABC, QXO], trades: [], tradeOverrides: [], orgSourceDefaults: {}, orders: [], sends: [], lastSentSourcing: null, ...over,

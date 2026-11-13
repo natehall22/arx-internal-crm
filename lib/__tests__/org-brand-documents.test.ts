@@ -381,14 +381,14 @@ describe('neutral fallback on a fenced deployment (DEPLOYMENT_ORG_ID set)', () =
     }
   })
 
-  it('the From header comes from this deployment’s SMTP env, never a company literal', () => {
+  it('the From header (no company) comes from this deployment’s SMTP env, never a company literal', async () => {
     process.env.SMTP_FROM = 'Green Leaf <office@green.example>'
-    expect(getCrmEmailFrom()).toBe('Green Leaf <office@green.example>')
+    expect(await getCrmEmailFrom(null)).toBe('Green Leaf <office@green.example>')
     delete process.env.SMTP_FROM
     process.env.SMTP_USER = 'mailer@green.example'
-    expect(getCrmEmailFrom()).toBe('mailer@green.example')
+    expect(await getCrmEmailFrom(null)).toBe('mailer@green.example')
     delete process.env.SMTP_USER
-    expect(getCrmEmailFrom()).toBe('')
+    expect(await getCrmEmailFrom(null)).toBe('')
   })
 
   it('website-estimate errors read the org brand and drop blank parts', () => {
@@ -401,10 +401,10 @@ describe('neutral fallback on a fenced deployment (DEPLOYMENT_ORG_ID set)', () =
 })
 
 describe('legacy gate (unfenced = ARX prod today) keeps the old strings', () => {
-  it('From header and estimate errors are unchanged', () => {
+  it('From header and estimate errors are unchanged', async () => {
     const saved = process.env.SMTP_FROM
     delete process.env.SMTP_FROM
-    expect(getCrmEmailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
+    expect(await getCrmEmailFrom(null)).toBe('ARX Roofing <info@arxroofing.com>')
     if (saved !== undefined) process.env.SMTP_FROM = saved
     expect(misconfiguredMessage(resolveOrgBrand(null).phone)).toBe('Public roof estimate is not configured. Please call (704) 313-8834.')
   })

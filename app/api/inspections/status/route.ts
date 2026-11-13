@@ -890,7 +890,7 @@ export async function POST(request: NextRequest) {
           })
 
           await transporter.sendMail({
-            from: getCrmEmailFrom(),
+            from: await getCrmEmailFrom(profile.org_id),
             to: setterUser.email,
             subject: `Inspection update: ${outcomeDisplayLabel} - ${customerName}`,
             html: `
