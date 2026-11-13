@@ -9,6 +9,8 @@ export type ChecklistItem = { label: string; done: boolean }
 
 export const MAX_SERVICE_LINES = 30
 export const MAX_LINE_LENGTH = 60
+/** What one visit may store (work_orders.visit_checklist CHECK, migration 202611240030): the plan's lines plus checked ones the office has since removed. */
+export const MAX_VISIT_CHECKLIST = 40
 
 const keyOf = (label: string) => label.trim().toLowerCase()
 
@@ -67,7 +69,8 @@ export function visitChecklist(planLines: string[], stored: ChecklistItem[], ope
   const out: ChecklistItem[] = planLines.map((label) => ({ label, done: done.get(keyOf(label)) === true }))
   const have = new Set(out.map((o) => keyOf(o.label)))
   for (const s of stored) if (s.done && !have.has(keyOf(s.label))) out.push({ label: s.label, done: true })
-  return out
+  // Never more than the column allows, or the tap / Done save would fail on the CHECK (plan lines come first and are kept).
+  return out.slice(0, MAX_VISIT_CHECKLIST)
 }
 
 /** Pure: one tap. The label must be on the visit's list (the page and a tampered request alike). */

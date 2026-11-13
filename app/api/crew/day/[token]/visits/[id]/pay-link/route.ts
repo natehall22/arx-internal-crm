@@ -35,5 +35,6 @@ export async function POST(request: Request, { params }: { params: { token: stri
   }
   if (await tooManyLinks(admin, crew.orgId, { invoiceId: invoice.id })) return NextResponse.json({ error: 'Too many links for this invoice this hour.' }, { status: 429 })
   const link = await createPaymentLink(admin, crew.orgId, { kind: 'invoice', invoiceId: invoice.id }, null)
-  return NextResponse.json({ url: link.url })
+  // amountCents: what THIS link pays (the oldest open invoice's balance), so the phone never shows a different total.
+  return NextResponse.json({ url: link.url, amountCents: invoice.balanceCents })
 }

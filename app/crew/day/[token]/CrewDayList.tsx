@@ -247,12 +247,13 @@ export default function CrewDayList({
     setBusy(v.id)
     setError(null)
     const res = await fetch(`${base(v.id)}/pay-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }).catch(() => null)
-    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; message?: string; url?: string; status?: string }
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; message?: string; url?: string; amountCents?: number; status?: string }
     setBusy(null)
     if (res && res.status === 404) return void recheck()
     if (mode === 'qr') {
       if (!res || !res.ok || !out.url) return setError(out.error || 'No signal? Try again in a moment.')
-      return setPanel({ id: v.id, kind: 'qr', method: 'cash', amount: '', checkNumber: '', qrUrl: out.url, tapId: '' })
+      // The link pays ONE invoice (the oldest open one): say that invoice's amount, not everything the customer owes.
+      return setPanel({ id: v.id, kind: 'qr', method: 'cash', amount: typeof out.amountCents === 'number' ? formatCents(out.amountCents) : '', checkNumber: '', qrUrl: out.url, tapId: '' })
     }
     if (!res) return setError('No signal? Try again in a moment.')
     if (res.ok) return setPayNote((n) => ({ ...n, [v.id]: out.message || 'Pay link texted to the customer.' }))
@@ -472,7 +473,7 @@ export default function CrewDayList({
                     ) : null}
                     {panel?.id === v.id && panel.kind === 'qr' && panel.qrUrl ? (
                       <div className="flex flex-col items-center gap-2">
-                        <p className="text-base font-bold">Customer scans this to pay {v.money ? formatCents(v.money.dueCents) : ''}</p>
+                        <p className="text-base font-bold">Customer scans this to pay {panel.amount}</p>
                         <QrCode value={panel.qrUrl} size={260} label="Pay link QR code" />
                         <button type="button" className={`${btn} w-full border-2 border-[#2c2c2a] bg-white`} onClick={() => setPanel(null)}>
                           Close

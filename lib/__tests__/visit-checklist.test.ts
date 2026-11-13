@@ -68,3 +68,14 @@ describe('tapVisitChecklist (the one writer)', () => {
     expect(await tapVisitChecklist(db.client as never, ORG, 's1', 'v1', 'Plant a tree', true)).toMatchObject({ ok: false, status: 400 })
   })
 })
+
+describe('stored list size', () => {
+  it('never exceeds what the visit column allows', () => {
+    const { visitChecklist, MAX_VISIT_CHECKLIST } = jest.requireActual('@/lib/visit-checklist') as typeof import('@/lib/visit-checklist')
+    const plan = Array.from({ length: 30 }, (_, i) => `Line ${i}`)
+    const stored = Array.from({ length: 20 }, (_, i) => ({ label: `Old ${i}`, done: true }))
+    const out = visitChecklist(plan, stored, true)
+    expect(out).toHaveLength(MAX_VISIT_CHECKLIST)
+    expect(out.slice(0, 30).map((c) => c.label)).toEqual(plan)
+  })
+})
