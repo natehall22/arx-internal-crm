@@ -100,6 +100,17 @@ describe('snippet → webhook → lead', () => {
     expect(db.tables.notifications[0]).toEqual(expect.objectContaining({ recipient_user_id: B, type: 'new_lead' }))
     expect(sendMail.mock.calls[0][0].to).toBe('b@x.test')
   })
+  test('routing by category: the form’s category (slug or label) or the source default picks the person; free text is dropped', async () => {
+    seed({ leadIntake: { mode: 'category', userIds: [], rules: [], categoryRules: [{ category: 'commercial', userIds: [B] }] } }, { default_category: 'residential' })
+    await post({ name: 'Plaza', phone: '1', category: 'Commercial' })
+    await post({ name: 'Home', phone: '2' }) // the source default (residential): no rule → the fallback
+    await post({ name: 'Bot', phone: '3', category: 'whatever you like' }) // not on the list → the source default
+    expect(db.tables.leads.map((l) => [l.homeowner_name, l.category, l.owner_user_id])).toEqual([
+      ['Plaza', 'commercial', B],
+      ['Home', 'residential', 'adm'],
+      ['Bot', 'residential', 'adm'],
+    ])
+  })
   test('taking turns across two form posts', async () => {
     seed({ leadIntake: { mode: 'rotate', userIds: [A, B], rules: [] } })
     await post(formPayload({ name: 'One', phone: '1' }))

@@ -19,6 +19,8 @@ export type NewLeadInput = {
   lng?: unknown
   /** The structured service the lead asked for (leads.service_requested); only written when given. */
   service_requested?: unknown
+  /** The work category slug (leads.category), already matched to the company's list by the caller; only written when given. */
+  category?: unknown
 }
 
 export async function createLeadRecord(admin: SupabaseClient, orgId: string, ownerUserId: string, body: NewLeadInput): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
@@ -39,6 +41,7 @@ export async function createLeadRecord(admin: SupabaseClient, orgId: string, own
       lat: body.lat || null,
       lng: body.lng || null,
       ...(service ? { service_requested: service } : {}),
+      ...(typeof body.category === 'string' && body.category ? { category: body.category } : {}),
     })
     .select('id')
     .single()

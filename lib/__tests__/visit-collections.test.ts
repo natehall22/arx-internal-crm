@@ -4,8 +4,16 @@ import { confirmCollection, loadCrewMoney, loadOwedByCustomer, loadPendingCollec
 
 const mockUnpaid = jest.fn()
 const mockRecord = jest.fn()
+const mockJobRecord = jest.fn()
+const mockApply = jest.fn()
+const mockFindInvoice = jest.fn()
 jest.mock('@/lib/service-billing-db', () => ({ loadUnpaidInvoices: (...a: unknown[]) => mockUnpaid(...a) }))
-jest.mock('@/lib/invoices', () => ({ recordCustomerInvoicePayment: (...a: unknown[]) => mockRecord(...a) }))
+jest.mock('@/lib/invoices', () => ({
+  recordCustomerInvoicePayment: (...a: unknown[]) => mockRecord(...a),
+  applyPaymentToInvoice: (...a: unknown[]) => mockApply(...a),
+  findOrgInvoice: (...a: unknown[]) => mockFindInvoice(...a),
+}))
+jest.mock('@/lib/job-invoice-payment', () => ({ recordJobInvoicePayment: (...a: unknown[]) => mockJobRecord(...a) }))
 jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_York' }))
 jest.mock('@/lib/online-payments/accounts', () => ({ loadOnlinePayments: async () => ({ ready: true }) }))
 
@@ -25,12 +33,17 @@ const row = (id: string, customerId: string, balanceCents: number, jobId: string
 beforeEach(() => {
   mockUnpaid.mockReset()
   mockRecord.mockReset()
+  mockJobRecord.mockReset()
+  mockApply.mockReset()
+  mockFindInvoice.mockReset()
+  mockFindInvoice.mockImplementation(async (_c: unknown, id: string) => (id === 'ij' ? { id: 'ij', job_id: 'job-1', status: 'sent' } : null))
+  mockJobRecord.mockImplementation(async () => ({ ok: true, paymentId: 'jpay-1', balanceCents: 0 }))
   mockUnpaid.mockResolvedValue({ rows: [row('i1', 'c1', 4000), row('i2', 'c1', 3000), row('ij', 'c1', 9999, 'job-1'), row('i3', 'c2', 5000)], capped: false })
   let n = 0
   mockRecord.mockImplementation(async () => ({ ok: true, paymentId: `pay-${++n}`, status: 'paid', balanceCents: 0, duplicate: false }))
 })
 
-const db = () => createFakeDb({ visit_collections: [], customers: [{ id: 'c1', org_id: ORG, name: 'Pat' }], sub_contractors: [{ id: 's1', org_id: ORG, company_name: 'Crew One' }], work_orders: [{ id: 'v1', org_id: ORG, address: '1 Oak St' }] }, { unique: { visit_collections: [['org_id', 'client_tap_id']] } })
+const db = () => createFakeDb({ visit_collections: [], job_payments: [], customers: [{ id: 'c1', org_id: ORG, name: 'Pat' }], sub_contractors: [{ id: 's1', org_id: ORG, company_name: 'Crew One' }], work_orders: [{ id: 'v1', org_id: ORG, address: '1 Oak St' }] }, { unique: { visit_collections: [['org_id', 'client_tap_id']] } })
 
 describe('pure rules', () => {
   it('reads dollars and cleans a collection body', () => {
@@ -50,9 +63,10 @@ describe('pure rules', () => {
 })
 
 describe('what a crew can see', () => {
-  it('owed is the customer’s service invoices only (a job’s invoice is the office’s) and carries no price detail', async () => {
+  it('owed is ALL the customer’s open invoices (job and service) and carries no price or invoice detail', async () => {
     const m = await loadCrewMoney(db().client, ORG, [{ id: 'v1', customerId: 'c1' }, { id: 'v9', customerId: null }])
-    expect(m).toEqual({ v1: { dueCents: 7000, pendingCents: 0, canPayOnline: true } })
+    expect(m).toEqual({ v1: { dueCents: 16999, pendingCents: 0, canPayOnline: true } })
+    expect(JSON.stringify(m)).not.toMatch(/job-1|INV-|ij/)
     expect(Object.keys(m.v1).sort()).toEqual(['canPayOnline', 'dueCents', 'pendingCents'])
   })
   it('nothing owed = no money block', async () => {
@@ -70,10 +84,10 @@ describe('pending collection lifecycle', () => {
     expect(r).toMatchObject({ ok: true, duplicate: false })
     expect(mockRecord).not.toHaveBeenCalled()
     const owed = (await loadOwedByCustomer(d.client, ORG, ['c1'])).get('c1')!
-    expect(owed.totalCents).toBe(7000) // invoice balances untouched
+    expect(owed.totalCents).toBe(16999) // invoice balances untouched
     expect(owed.pendingCents).toBe(4000)
-    expect(owed.dueCents).toBe(3000)
-    expect(await recordPendingCollection(d.client, ORG, { subId: 's1', visitId: 'v1', customerId: 'c1', input: input(3001) })).toMatchObject({ ok: false, status: 400 })
+    expect(owed.dueCents).toBe(12999)
+    expect(await recordPendingCollection(d.client, ORG, { subId: 's1', visitId: 'v1', customerId: 'c1', input: input(13000) })).toMatchObject({ ok: false, status: 400 })
   })
 
   it('a resend with the same tap id is the same row', async () => {
@@ -127,7 +141,7 @@ describe('pending collection lifecycle', () => {
     // i1 records; i2 is refused (e.g. paid online meanwhile)
     mockRecord.mockResolvedValueOnce({ ok: true, paymentId: 'pay-1', status: 'paid', balanceCents: 0, duplicate: false }).mockResolvedValueOnce({ ok: false, status: 400, error: 'That is more than the balance due' })
     expect(await confirmCollection(d.client, ORG, 'office-1', id)).toMatchObject({ ok: false, status: 409 })
-    expect(d.tables.visit_collections[0].payments).toEqual([{ invoice_id: 'i1', cents: 4000, payment_id: 'pay-1' }])
+    expect(d.tables.visit_collections[0].payments).toEqual([{ invoice_id: 'i1', cents: 4000, payment_id: 'pay-1', job_id: null }])
     // The office opens a new invoice i4 for the rest: the remaining 1000 goes there, i1 is never paid twice.
     mockUnpaid.mockResolvedValue({ rows: [row('i1', 'c1', 4000), row('i4', 'c1', 2500)], capped: false })
     mockRecord.mockClear()
@@ -199,5 +213,65 @@ describe('pending collection lifecycle', () => {
     expect(await confirmCollection(d.client, ORG, 'office-1', id)).toMatchObject({ ok: false, status: 409 })
     expect(mockRecord).not.toHaveBeenCalled()
     expect(d.tables.visit_collections[0].status).toBe('pending')
+  })
+
+  describe('job invoices', () => {
+    const jobOnly = () => mockUnpaid.mockResolvedValue({ rows: [row('i1', 'c1', 4000), row('ij', 'c1', 9999, 'job-1')], capped: false })
+    const make = async (d: ReturnType<typeof db>, cents: number) => ((await recordPendingCollection(d.client, ORG, { subId: 's1', visitId: 'v1', customerId: 'c1', input: input(cents) })) as { id: string }).id
+
+    it('confirm splits oldest first across service and job invoices, each through its own writer', async () => {
+      jobOnly()
+      const d = db()
+      const id = await make(d, 6000)
+      expect(await confirmCollection(d.client, ORG, 'office-1', id)).toEqual({ ok: true })
+      expect(mockRecord.mock.calls.map((c) => [c[2], c[3].amountCents])).toEqual([['i1', 4000]])
+      expect(mockJobRecord).toHaveBeenCalledTimes(1)
+      const [, org, inv, p] = mockJobRecord.mock.calls[0]
+      expect([org, inv, p.amountCents, p.method, p.createdBy, p.idempotencyKey]).toEqual([ORG, { id: 'ij', job_id: 'job-1', status: 'sent' }, 2000, 'cash', 'office-1', `visit-collection:${id}:ij`])
+      expect(d.tables.visit_collections[0]).toMatchObject({ status: 'confirmed' })
+      expect(d.tables.visit_collections[0].payments).toEqual([
+        { invoice_id: 'i1', cents: 4000, payment_id: 'pay-1', job_id: null },
+        { invoice_id: 'ij', cents: 2000, payment_id: 'jpay-1', job_id: 'job-1' },
+      ])
+    })
+
+    it('pending job money is no payment: nothing is written until confirmed, and a reject writes nothing', async () => {
+      jobOnly()
+      const d = db()
+      const id = await make(d, 6000)
+      expect(mockJobRecord).not.toHaveBeenCalled()
+      expect(mockRecord).not.toHaveBeenCalled()
+      expect(await rejectCollection(d.client, ORG, 'office-1', id, null)).toEqual({ ok: true })
+      expect(mockJobRecord).not.toHaveBeenCalled()
+    })
+
+    it('a retry finds the job payment already saved under the key and only applies it (never a second payment)', async () => {
+      jobOnly()
+      const d = db()
+      const id = await make(d, 6000)
+      // First try: the service part is real, the job payment is saved but its apply fails.
+      mockJobRecord.mockResolvedValueOnce({ ok: false, status: 500, error: 'saved on the job but could not be applied' })
+      expect(await confirmCollection(d.client, ORG, 'office-1', id)).toMatchObject({ ok: false, status: 500 })
+      // The split is kept (a retry must not split again) and the collection can't be thrown away.
+      expect((d.tables.visit_collections[0].payments as unknown[]).length).toBe(2)
+      expect(await rejectCollection(d.client, ORG, 'office-1', id, null)).toMatchObject({ ok: false, status: 409 })
+      d.tables.job_payments.push({ id: 'jp-saved', job_id: 'job-1', idempotency_key: `visit-collection:${id}:ij` })
+      mockRecord.mockClear()
+      mockJobRecord.mockClear()
+      expect(await confirmCollection(d.client, ORG, 'office-1', id)).toEqual({ ok: true })
+      expect(mockApply).toHaveBeenCalledWith(expect.anything(), ORG, 'ij', 'jp-saved', 2000, 'office-1')
+      expect(mockJobRecord).not.toHaveBeenCalled()
+      expect(mockRecord).not.toHaveBeenCalled() // the service part was already real
+    })
+
+    it('a job invoice that is gone from this company is refused and dropped, not paid', async () => {
+      jobOnly()
+      mockFindInvoice.mockResolvedValue(null)
+      const d = db()
+      const id = await make(d, 6000)
+      expect(await confirmCollection(d.client, ORG, 'office-1', id)).toMatchObject({ ok: false, status: 409 })
+      expect(mockJobRecord).not.toHaveBeenCalled()
+      expect(d.tables.visit_collections[0].status).toBe('pending')
+    })
   })
 })

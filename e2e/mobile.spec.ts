@@ -457,7 +457,16 @@ const SCREENS: Screen[] = [
     },
     states: [
       { name: 'skip-undo', run: async (p) => { await p.getByRole('button', { name: 'Skip', exact: true }).first().click(); await p.getByRole('button', { name: 'Rain / weather' }).click(); await p.getByRole('button', { name: 'Undo' }).waitFor() } },
-      { name: 'done-photo', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).first().click(); await p.waitForSelector('text=Done. Add a photo?') } },
+      // Both ways to add photos on a visit: the camera ("Take photo", capture) and the library ("Choose photos", several at once). The sweep checks both are 44px+.
+      { name: 'photo-buttons', run: async (p) => {
+        await p.getByRole('button', { name: /^Take photo/ }).first().waitFor()
+        await p.getByRole('button', { name: 'Choose photos' }).first().waitFor()
+        const cam = await p.locator('input[data-testid="crew-photo-camera"]').first().evaluate((el) => ({ capture: (el as HTMLInputElement).getAttribute('capture'), multiple: (el as HTMLInputElement).multiple }))
+        if (cam.capture !== 'environment') throw new Error(`camera input capture=${cam.capture}`)
+        const lib = await p.locator('input[type=file][multiple]:not([capture])').first().evaluate((el) => (el as HTMLInputElement).accept)
+        if (lib !== 'image/*') throw new Error(`library input accept=${lib}`)
+      } },
+      { name: 'done-photo', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).first().click(); await p.waitForSelector('text=Done. Add a photo?'); await p.getByRole('button', { name: /^Take photo/ }).first().waitFor(); await p.getByRole('button', { name: 'Choose photos' }).first().waitFor() } },
       { name: 'skip-reasons', run: async (p) => { await p.getByRole('button', { name: 'Skip', exact: true }).first().click(); await p.waitForSelector('text=Why skip?') } },
       { name: 'step-results', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('text=Needs a return trip') } },
     ] },
@@ -486,12 +495,22 @@ const SCREENS: Screen[] = [
     mock: async (p) => {
       await p.route('**/api/leads/scheduling-resources**', (route) => route.fulfill(json({ closers: [], inspectionTypes: [] })))
       await p.route('**/api/leads', (route) => route.fulfill(json({ id: 'l1' })))
-    } },
+      await p.route('**/api/categories', (route) => route.fulfill(json({ categories: HARNESS_CATEGORIES })))
+    },
+    // The one-tap category picker (every chip is a 44px target; picking one is a radio, not a dropdown).
+    states: [
+      { name: 'category', run: async (p) => {
+        await p.getByRole('radio', { name: 'Commercial' }).click()
+        if ((await p.getByRole('radio', { name: /Commercial/ }).getAttribute('aria-checked')) !== 'true') throw new Error('Commercial not selected')
+        if ((await p.getByRole('radio', { name: 'Not set' }).getAttribute('aria-checked')) !== 'false') throw new Error('Not set still selected')
+      } },
+    ] },
   { name: 'lead-routing-settings', path: '/dev-harness/lead-routing-settings', ready: 'text=Who gets new leads',
     mock: async (p) => {
       await p.route('**/api/admin/lead-routing', (route) => route.fulfill(json({ ok: true })))
     },
     states: [
+      { name: 'by-category', run: async (p) => { await p.getByRole('radio', { name: /By category/ }).first().click(); await p.getByRole('button', { name: 'Add a category' }).click(); await p.waitForSelector('text=Remove this category') } },
       { name: 'rotate', run: async (p) => { await p.getByRole('radio', { name: /Take turns/ }).first().click(); await p.waitForSelector('text=Who takes turns') } },
       { name: 'dirty', run: async (p) => { await p.getByRole('switch').click(); await p.waitForSelector('text=Save changes') } },
     ] },

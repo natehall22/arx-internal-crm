@@ -1,6 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+
+import CategoryPicker from '@/components/categories/CategoryPicker'
+import { useOrgCategories } from '@/hooks/useOrgCategories'
+import { activeCategories } from '@/lib/categories'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
@@ -64,6 +68,9 @@ export default function LeadFormWithReferral({
   const [schedulingLoadError, setSchedulingLoadError] = useState<string | null>(null)
   const [source, setSource] = useState('')
   const [serviceRequested, setServiceRequested] = useState('')
+  // The work category (Residential / Commercial / ...): one tap, optional. Hidden when the company has none turned on.
+  const categories = useOrgCategories()
+  const [category, setCategory] = useState<string | null>(null)
   const [ownerChoice, setOwnerChoice] = useState(userId)
   
   // Referral state
@@ -207,6 +214,7 @@ export default function LeadFormWithReferral({
         // server routes it; a person picked by hand always wins.
         ...(ownerChoices && ownerChoice === 'auto' ? {} : { owner_user_id: ownerChoices ? ownerChoice : userId }),
         service_requested: serviceRequested || null,
+        category,
         homeowner_name: form.homeowner_name || null,
         phone: form.phone || null,
         email: form.email || null,
@@ -443,6 +451,14 @@ export default function LeadFormWithReferral({
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+          </div>
+        )}
+        {categories && activeCategories(categories).length > 0 && (
+          <div>
+            <span className="text-sm font-medium text-[#2c2c2a]">Category</span>
+            <div className="mt-2">
+              <CategoryPicker options={categories} value={category} onChange={setCategory} label="Category" />
+            </div>
           </div>
         )}
         {ownerChoices && (

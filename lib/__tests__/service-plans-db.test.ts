@@ -342,6 +342,29 @@ describe('templates: copied at sale, never change a sold plan, pushed on purpose
     expect(again.ok && again.plans).toBe(0)
   })
 
+  it('“What’s included” is copied at sale, untouched by a template edit, and carried by the owner’s push (preview first)', async () => {
+    const db = seed()
+    const t = await saveTemplate(db.client, ORG, 'u1', null, { ...tmpl, service_lines: ['Gutter cleaning', 'Roof inspection'] })
+    if (!t.ok) throw new Error(t.error)
+    const sold = await createServicePlan(db.client, ORG, 'u1', 'c1', { template_id: t.template.id, property_id: 'p1', start_date: '2026-11-03', preferred_weekday: 2, tier_key: 'standard', pricing_inputs: { stories: 2 } }, NOW)
+    if (!sold.ok) throw new Error(sold.error)
+    expect(sold.plan.service_lines).toEqual(['Gutter cleaning', 'Roof inspection'])
+    const edited = await saveTemplate(db.client, ORG, 'u1', t.template.id, { service_lines: ['Gutter cleaning', 'Roof inspection', 'Downspout flush'] })
+    if (!edited.ok) throw new Error(edited.error)
+    expect((db.tables.service_plans[0] as Record<string, unknown>).service_lines).toEqual(['Gutter cleaning', 'Roof inspection']) // editing alone changes no sold plan
+
+    const preview = await applyTemplateToPlans(db.client, ORG, 'u1', t.template.id, { preview: true, now: NOW })
+    if (!preview.ok) throw new Error(preview.error)
+    expect(preview.plans).toBe(1)
+    expect((db.tables.service_plans[0] as Record<string, unknown>).service_lines).toEqual(['Gutter cleaning', 'Roof inspection']) // preview wrote nothing
+
+    const applied = await applyTemplateToPlans(db.client, ORG, 'u1', t.template.id, { preview: false, now: NOW })
+    if (!applied.ok) throw new Error(applied.error)
+    expect((db.tables.service_plans[0] as Record<string, unknown>).service_lines).toEqual(['Gutter cleaning', 'Roof inspection', 'Downspout flush'])
+    // The plan's own name / description / trade are still the sold ones.
+    expect(db.tables.service_plans[0]).toMatchObject({ name: 'Roof & gutter care', trade: 'gutters', template_version: 2 })
+  })
+
   it('a push that drops the plan’s tier keeps its price as custom and says so', async () => {
     const db = seed()
     const t = await saveTemplate(db.client, ORG, 'u1', null, tmpl)

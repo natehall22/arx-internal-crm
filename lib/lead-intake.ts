@@ -11,20 +11,26 @@
  *             `lead_routing_next` under a row lock, so two leads arriving together never get the same turn.
  * - service : each service maps to ONE person or a turn group (a list of people: one = a person); a lead whose service
  *             matches no rule goes to the fallback.
+ * - category: the same, by the lead's work category (Residential / Commercial / ... , lib/categories.ts): each category maps
+ *             to a person or a turn group (the commercial team works commercial leads); no category or no rule → fallback.
  *
  * FALLBACK, always: the source's own person, then the company's lead owner, then the oldest active admin — the exact
  * chain `person` mode uses (resolveCompanyRecipient). A lead is never dropped for lack of a match.
  */
 
+import { CATEGORY_SLUG_RE } from '@/lib/categories'
+
 export const LEAD_INTAKE_SETTINGS_KEY = 'leadIntake'
 
-export const ROUTING_MODES = ['person', 'rotate', 'service'] as const
+export const ROUTING_MODES = ['person', 'rotate', 'service', 'category'] as const
 export type RoutingMode = (typeof ROUTING_MODES)[number]
 
 export type RoutingRule = { service: string; userIds: string[] }
-export type LeadRouting = { mode: RoutingMode; userIds: string[]; rules: RoutingRule[] }
+/** `category` is a category slug (customers.category format); only read in `category` mode. */
+export type CategoryRule = { category: string; userIds: string[] }
+export type LeadRouting = { mode: RoutingMode; userIds: string[]; rules: RoutingRule[]; categoryRules: CategoryRule[] }
 
-export const DEFAULT_ROUTING: LeadRouting = { mode: 'person', userIds: [], rules: [] }
+export const DEFAULT_ROUTING: LeadRouting = { mode: 'person', userIds: [], rules: [], categoryRules: [] }
 
 export const MAX_ROUTING_PEOPLE = 25
 export const MAX_ROUTING_RULES = 30
@@ -149,7 +155,16 @@ export function readRouting(v: unknown): LeadRouting | null {
     seen.add(key)
     rules.push({ service, userIds: Array.from(new Set(ids)) })
   }
-  return { mode: v.mode as RoutingMode, userIds: Array.from(new Set(userIds)), rules }
+  const categoryRules: CategoryRule[] = []
+  const seenCategories = new Set<string>()
+  for (const r of Array.isArray(v.categoryRules) ? v.categoryRules : []) {
+    if (!isObject(r) || typeof r.category !== 'string' || !CATEGORY_SLUG_RE.test(r.category) || seenCategories.has(r.category)) continue
+    const ids = (Array.isArray(r.userIds) ? r.userIds : []).filter((x): x is string => typeof x === 'string' && UUID_RE.test(x))
+    if (ids.length === 0) continue
+    seenCategories.add(r.category)
+    categoryRules.push({ category: r.category, userIds: Array.from(new Set(ids)) })
+  }
+  return { mode: v.mode as RoutingMode, userIds: Array.from(new Set(userIds)), rules, categoryRules }
 }
 
 /** A save → a valid routing, or why not. Stricter than readRouting: a mode must have what it needs. */
@@ -177,9 +192,24 @@ export function parseRoutingPatch(v: unknown): { routing: LeadRouting } | { erro
       rules.push({ service, userIds: ids })
     }
   }
+  const categoryRules: CategoryRule[] = []
+  if (v.categoryRules !== undefined) {
+    if (!Array.isArray(v.categoryRules) || v.categoryRules.length > MAX_ROUTING_RULES) return { error: `Up to ${MAX_ROUTING_RULES} categories` }
+    const seen = new Set<string>()
+    for (const r of v.categoryRules) {
+      if (!isObject(r) || typeof r.category !== 'string' || !CATEGORY_SLUG_RE.test(r.category)) return { error: 'Each rule needs a category' }
+      if (seen.has(r.category)) return { error: 'A category is listed twice' }
+      seen.add(r.category)
+      const ids = uuidList(r.userIds)
+      if (!ids || ids.length === 0) return { error: 'Pick at least one person for each category' }
+      if (ids.length > MAX_ROUTING_PEOPLE) return { error: `Up to ${MAX_ROUTING_PEOPLE} people for a category` }
+      categoryRules.push({ category: r.category, userIds: ids })
+    }
+  }
   if (mode === 'rotate' && userIds.length === 0) return { error: 'Pick at least one person to take turns' }
   if (mode === 'service' && rules.length === 0) return { error: 'Add at least one service and who gets it' }
-  return { routing: { mode: mode as RoutingMode, userIds, rules } }
+  if (mode === 'category' && categoryRules.length === 0) return { error: 'Add at least one category and who gets it' }
+  return { routing: { mode: mode as RoutingMode, userIds, rules, categoryRules } }
 }
 
 /** The rule for a lead's service, matched ignoring case, spaces and - _ /; null when no service or no rule. */
@@ -187,6 +217,11 @@ export function findRuleForService(rules: readonly RoutingRule[], service: strin
   if (!service) return null
   const key = normalizeService(service)
   return key ? rules.find((r) => normalizeService(r.service) === key) ?? null : null
+}
+
+/** The rule for a lead's category (a slug); null when the lead has none or no rule names it. */
+export function findRuleForCategory(rules: readonly CategoryRule[], category: string | null | undefined): CategoryRule | null {
+  return category ? rules.find((r) => r.category === category) ?? null : null
 }
 
 /** Moves the stored turn pointer for `scope` and returns whose turn it is (null: nobody in the list can take a lead). */
@@ -198,6 +233,8 @@ export type RouteInput = {
   /** 'org' for the company's setting, `source:<id>` when the source has its own: separate turn pointers. */
   scopeBase: string
   service: string | null
+  /** The lead's work category slug (leads.category); only `category` mode reads it. */
+  category?: string | null
   /** `lead_sources.auto_assign_user_id` — the source's own person. */
   sourceUserId: string | null | undefined
   /** `orgs.settings.web_leads_owner_id` — the company's lead owner. */
@@ -218,6 +255,11 @@ export async function routeLeadCandidates(input: RouteInput, next: NextInRotatio
     const rule = findRuleForService(routing.rules, input.service)
     if (rule) {
       routed = rule.userIds.length === 1 ? rule.userIds[0] : await next(`${input.scopeBase}:service:${normalizeService(rule.service)}`, rule.userIds)
+    }
+  } else if (routing.mode === 'category') {
+    const rule = findRuleForCategory(routing.categoryRules, input.category)
+    if (rule) {
+      routed = rule.userIds.length === 1 ? rule.userIds[0] : await next(`${input.scopeBase}:category:${rule.category}`, rule.userIds)
     }
   }
   return [routed, input.sourceUserId, input.fallbackUserId].filter((x): x is string => typeof x === 'string' && x.trim() !== '')
@@ -256,7 +298,7 @@ export type LeadIntakePatch = {
   /** The company's lead owner (`orgs.settings.web_leads_owner_id`); null clears it. Undefined = leave alone. */
   leadOwnerId?: string | null
   /** Per-source overrides: routing null = use the company's setting. */
-  sources: Array<{ id: string; routing: LeadRouting | null; autoAssignUserId?: string | null }>
+  sources: Array<{ id: string; routing: LeadRouting | null; autoAssignUserId?: string | null; defaultCategory?: string | null }>
 }
 
 /** A save from the Lead routing screen → what to write, or why not. People are checked against the company by the route. */
@@ -269,6 +311,7 @@ export function parseLeadIntakePatch(body: unknown): LeadIntakePatch | { error: 
     out.set.mode = parsed.routing.mode
     out.set.userIds = parsed.routing.userIds
     out.set.rules = parsed.routing.rules
+    out.set.categoryRules = parsed.routing.categoryRules
   }
   if (b.reminder !== undefined) {
     if (!isObject(b.reminder)) return { error: 'Reminder settings are not valid' }
@@ -299,7 +342,15 @@ export function parseLeadIntakePatch(body: unknown): LeadIntakePatch | { error: 
       if (s.autoAssignUserId !== undefined && s.autoAssignUserId !== null && !(typeof s.autoAssignUserId === 'string' && UUID_RE.test(s.autoAssignUserId))) {
         return { error: 'Pick a person from your team' }
       }
-      out.sources.push({ id: s.id, routing, ...(s.autoAssignUserId !== undefined ? { autoAssignUserId: s.autoAssignUserId as string | null } : {}) })
+      if (s.defaultCategory !== undefined && s.defaultCategory !== null && !(typeof s.defaultCategory === 'string' && CATEGORY_SLUG_RE.test(s.defaultCategory))) {
+        return { error: 'Pick a category from your list' }
+      }
+      out.sources.push({
+        id: s.id,
+        routing,
+        ...(s.autoAssignUserId !== undefined ? { autoAssignUserId: s.autoAssignUserId as string | null } : {}),
+        ...(s.defaultCategory !== undefined ? { defaultCategory: s.defaultCategory as string | null } : {}),
+      })
     }
   }
   if (Object.keys(out.set).length === 0 && out.leadOwnerId === undefined && out.sources.length === 0) return { error: 'Nothing to save' }
@@ -312,11 +363,13 @@ export function patchUserIds(p: LeadIntakePatch): string[] {
   const add = (xs: readonly string[] | undefined) => xs?.forEach((x) => ids.add(x))
   add(p.set.userIds as string[] | undefined)
   for (const r of (p.set.rules as RoutingRule[] | undefined) ?? []) add(r.userIds)
+  for (const r of (p.set.categoryRules as CategoryRule[] | undefined) ?? []) add(r.userIds)
   if (p.leadOwnerId) ids.add(p.leadOwnerId)
   for (const s of p.sources) {
     if (s.routing) {
       add(s.routing.userIds)
       for (const r of s.routing.rules) add(r.userIds)
+      for (const r of s.routing.categoryRules) add(r.userIds)
     }
     if (s.autoAssignUserId) ids.add(s.autoAssignUserId)
   }
@@ -339,10 +392,12 @@ export function dropInactiveFromRotations(p: LeadIntakePatch, isActive: (id: str
   const removed = new Set<string>()
   const keep = (ids: string[]) => ids.filter((id) => (isActive(id) ? true : (removed.add(id), false)))
   const rules = (rs: RoutingRule[]) => rs.map((r) => ({ ...r, userIds: keep(r.userIds) }))
+  const catRules = (rs: CategoryRule[]) => rs.map((r) => ({ ...r, userIds: keep(r.userIds) }))
   const set = { ...p.set }
   if (Array.isArray(set.userIds)) set.userIds = keep(set.userIds as string[])
   if (Array.isArray(set.rules)) set.rules = rules(set.rules as RoutingRule[])
-  const sources = p.sources.map((s) => (s.routing ? { ...s, routing: { ...s.routing, userIds: keep(s.routing.userIds), rules: rules(s.routing.rules) } } : s))
+  if (Array.isArray(set.categoryRules)) set.categoryRules = catRules(set.categoryRules as CategoryRule[])
+  const sources = p.sources.map((s) => (s.routing ? { ...s, routing: { ...s.routing, userIds: keep(s.routing.userIds), rules: rules(s.routing.rules), categoryRules: catRules(s.routing.categoryRules) } } : s))
   return { patch: { ...p, set, sources }, removed: Array.from(removed) }
 }
 

@@ -57,7 +57,7 @@
   "lib/project-review.ts": 2,
   "lib/public-estimate-lead.ts": 7,
   "lib/public-estimate-preview-store.ts": 5,
-  "lib/push-apns.ts": 2,
+  "lib/push-apns.ts": 1,
   "lib/repair-order-form-project.ts": 1,
   "lib/round-robin.ts": 8,
   "lib/sales-doc-access.ts": 1,

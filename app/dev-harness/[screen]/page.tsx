@@ -675,12 +675,13 @@ export default function Harness({ params }: { params: { screen: string } }) {
         <div className="mx-auto max-w-3xl p-4">
           <LeadRoutingSettings
             initial={{
-              routing: { mode: 'service', userIds: [], rules: [{ service: 'Weekly lawn care', userIds: ['p1'] }, { service: 'Pressure washing', userIds: ['p1', 'p2'] }] },
+              routing: { mode: 'service', userIds: [], rules: [{ service: 'Weekly lawn care', userIds: ['p1'] }, { service: 'Pressure washing', userIds: ['p1', 'p2'] }], categoryRules: [] },
               reminder: { enabled: true, hours: 24 },
               leadOwnerId: null,
               people: [{ id: 'p1', name: 'Jordan Rivera' }, { id: 'p2', name: 'Sam Okafor-Whitfield' }],
               sources: [{ id: 's1', name: 'Website Contact Form', routing: null, autoAssignUserId: null, services: ['Weekly lawn care', 'Pressure washing'] }],
               services: ['Weekly lawn care', 'Pressure washing'],
+              categories: [{ slug: 'residential', label: 'Residential' }, { slug: 'commercial', label: 'Commercial' }],
             }}
           />
         </div>

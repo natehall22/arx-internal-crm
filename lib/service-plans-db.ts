@@ -486,7 +486,10 @@ export async function saveTemplate(admin: SupabaseClient, orgId: string, userId:
   return { ok: true, template: templateFromRow(row) }
 }
 
-/** A template's parts as plan values (what is copied at sale, or pushed later). Trade only at sale. */
+/**
+ * A template's parts as plan values (what is copied at sale, or pushed later). Trade, name and description only at sale;
+ * "What's included" (service_lines) at sale AND on the owner's push (editing a template alone never changes a sold plan).
+ */
 export function templatePlanValues(
   t: ServicePlanTemplate,
   atSale: boolean
@@ -495,7 +498,8 @@ export function templatePlanValues(
   template_version: number
 } {
   return {
-    ...(atSale ? { trade: t.trade, name: t.name, description: t.description, service_lines: t.service_lines } : {}),
+    ...(atSale ? { trade: t.trade, name: t.name, description: t.description } : {}),
+    service_lines: t.service_lines,
     seasons: t.seasons,
     billing_basis: t.billing_basis,
     taxable: t.taxable,

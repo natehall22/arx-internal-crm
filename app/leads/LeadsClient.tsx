@@ -9,6 +9,8 @@ import { StatusPill } from '@/components/ui/badge'
 import { PageHeader } from '@/components/ui/page-header'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { formatPhone } from '@/lib/format'
+import { useOrgCategories } from '@/hooks/useOrgCategories'
+import { activeCategories, categoryLabel } from '@/lib/categories'
 
 type Lead = {
   id: string
@@ -22,6 +24,7 @@ type Lead = {
   channel: string | null
   campaign_id: string | null
   lead_source_id: string | null
+  category?: string | null
   owner_user_id: string | null
   owner_display_name?: string | null
   created_at: string
@@ -74,6 +77,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
   const [query, setQuery] = useState<{ page: number; search: string; filters: Record<string, string> }>({ page: 1, search: '', filters: {} })
+  const categories = useOrgCategories()
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [debounced, setDebounced] = useState(query)
 
@@ -94,6 +98,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
       if (f.campaign) params.set('campaign_id', f.campaign)
       if (f.source) params.set('source_id', f.source)
       if (f.owner) params.set('owner_id', f.owner)
+      if (f.category) params.set('category', f.category)
       if (f.channel === 'inbound' || f.channel === 'outbound') params.set('channel', f.channel)
       const response = await fetch(`/api/leads?${params.toString()}`)
       if (!response.ok) {
@@ -137,6 +142,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
       { id: 'status', header: 'Status', enableSorting: false, accessorFn: (l) => l.status, cell: (c) => <StatusPill domain="lead" value={c.getValue()} /> },
     ]
     if (canViewInbound) cols.push({ id: 'channel', header: 'Channel', enableSorting: false, accessorFn: (l) => l.channel ?? '', cell: (c) => (c.getValue() ? <span className="capitalize">{c.getValue()}</span> : '—'), meta: { mobile: 'hide' } })
+    if (categories && categories.length > 0) cols.push({ id: 'category', header: 'Category', enableSorting: false, accessorFn: (l) => l.category ?? '', cell: (c) => (c.getValue() ? categoryLabel(c.getValue() as string, categories) : '—'), meta: { mobile: 'hide' } })
     cols.push(
       {
         id: 'source',
@@ -165,7 +171,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
       }
     )
     return cols
-  }, [canViewInbound])
+  }, [canViewInbound, categories])
 
   const filters = useMemo<TableFilter<Lead>[]>(() => {
     const f: TableFilter<Lead>[] = [
@@ -174,9 +180,10 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
     if (canViewInbound) f.push({ key: 'channel', label: 'Channel', options: [{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }] })
     if (canViewInbound && campaigns.length > 0) f.push({ key: 'campaign', label: 'Campaign', options: campaigns.map((c) => ({ value: c.id, label: c.name })) })
     if (canViewInbound && leadSources.length > 0) f.push({ key: 'source', label: 'Source', options: leadSources.map((s) => ({ value: s.id, label: s.name })) })
+    if (categories && activeCategories(categories).length > 0) f.push({ key: 'category', label: 'Category', options: activeCategories(categories).map((c) => ({ value: c.slug, label: c.label })) })
     if (users.length > 0) f.push({ key: 'owner', label: 'Owner', options: [{ value: 'unassigned', label: 'Unassigned' }, ...users.map((u) => ({ value: u.id, label: u.full_name }))] })
     return f
-  }, [canViewInbound, campaigns, leadSources, users])
+  }, [canViewInbound, campaigns, leadSources, users, categories])
 
   const systemViews = useMemo<TableView[]>(() => {
     const views: TableView[] = [{ id: 'sys:new', name: 'New leads', state: { sorting: [], search: '', filters: { status: 'new' } } }]

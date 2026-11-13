@@ -52,7 +52,7 @@ describe('dropInactiveFromRotations', () => {
   const patch: LeadIntakePatch = {
     set: { mode: 'rotate', userIds: ['a', 'gone'], rules: [{ service: 'Mulch', userIds: ['gone', 'b'] }] },
     leadOwnerId: 'a',
-    sources: [{ id: 's1', routing: { mode: 'rotate', userIds: ['gone', 'b'], rules: [] }, autoAssignUserId: 'b' }],
+    sources: [{ id: 's1', routing: { mode: 'rotate', userIds: ['gone', 'b'], rules: [], categoryRules: [] }, autoAssignUserId: 'b' }],
   }
   test('quietly removes inactive people from every list and says who', () => {
     const { patch: out, removed } = dropInactiveFromRotations(patch, (id) => id !== 'gone')

@@ -38,6 +38,8 @@ export async function resolveLeadOwner(
   orgSettings: unknown,
   source: LeadSourceRoutingFields,
   service: string | null,
+  /** The lead's category slug (leads.category), for `category` routing. */
+  category: string | null,
   /** A lead typed in by hand: when the routing matches nobody, THIS person (the typist) keeps it — not the company lead owner or an admin. */
   typedBy?: string
 ): Promise<CompanyRecipient | null> {
@@ -49,6 +51,7 @@ export async function resolveLeadOwner(
       routing: override ?? company,
       scopeBase: override && source ? `source:${source.id}` : 'org',
       service,
+      category,
       sourceUserId: typedBy ?? source?.auto_assign_user_id,
       fallbackUserId: typedBy ? null : typeof settings.web_leads_owner_id === 'string' ? settings.web_leads_owner_id : null,
     },

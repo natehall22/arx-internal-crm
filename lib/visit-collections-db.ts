@@ -1,18 +1,20 @@
 /**
  * Server side of "what the customer owes" and "collected at the door" (rules: lib/visit-collections.ts).
  *
- *  - Owed: the customer's open invoices WITHOUT a job (recurring service), by the one unpaid rule
+ *  - Owed: ALL the customer's open invoices (job invoices and recurring-service invoices), by the one unpaid rule
  *    (lib/service-billing-db.ts loadUnpaidInvoices), oldest due first. A crew sees only the total, never a price line.
  *  - A crew's cash / check is a PENDING row in `visit_collections` (service role only). It counts nowhere until the office
- *    confirms; the confirm writes real payments through `recordCustomerInvoicePayment` (payment row + invoice application +
- *    QuickBooks outbox), one per invoice it pays, each with an idempotency key — so a confirm can be retried safely.
+ *    confirms; the confirm writes real payments, one per invoice it pays, each with an idempotency key — so a confirm can be
+ *    retried safely. A service invoice goes through `recordCustomerInvoicePayment`; a JOB invoice through
+ *    `recordJobInvoicePayment` (recordJobPayment: outbox, paid-in-full, commission sync; then the locked apply).
  *  - The split across invoices is decided once and stored on the row before anything is written, so a retry after a partial
  *    failure finishes the same split instead of recomputing it from balances that already moved.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
-import { recordCustomerInvoicePayment } from '@/lib/invoices'
+import { applyPaymentToInvoice, findOrgInvoice, recordCustomerInvoicePayment } from '@/lib/invoices'
+import { recordJobInvoicePayment } from '@/lib/job-invoice-payment'
 import { ymdInZone } from '@/lib/service-plans'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -29,8 +31,8 @@ export async function loadOwedByCustomer(admin: SupabaseClient, orgId: string, c
   const loaded = await loadUnpaidInvoices(admin, orgId)
   const byCustomer = new Map<string, OpenInvoice[]>()
   for (const r of loaded?.rows ?? []) {
-    if (r.jobId || !ids.includes(r.customerId)) continue // a job's invoice is the office's to collect
-    byCustomer.set(r.customerId, [...(byCustomer.get(r.customerId) ?? []), { id: r.id, number: r.invoiceNumber, balanceCents: r.balanceCents }])
+    if (!ids.includes(r.customerId)) continue
+    byCustomer.set(r.customerId, [...(byCustomer.get(r.customerId) ?? []), { id: r.id, number: r.invoiceNumber, balanceCents: r.balanceCents, jobId: r.jobId }])
   }
   const pending = await pendingCentsByCustomer(admin, orgId, ids)
   for (const [customerId, invoices] of Array.from(byCustomer.entries())) out.set(customerId, summarizeOwed(invoices, pending.get(customerId) ?? 0))
@@ -144,7 +146,8 @@ export async function loadPendingCollections(admin: SupabaseClient, orgId: strin
 export type DecideResult = { ok: true } | { ok: false; status: 404 | 409 | 500; error: string }
 
 type Row = { id: string; customer_id: string; amount_cents: number; method: 'cash' | 'check'; check_number: string | null; status: string; collected_at: string; payments: unknown }
-type Part = { invoice_id: string; cents: number; payment_id: string | null }
+/** `job_id` is stored with the split so a retry pays a job invoice the job way even after balances moved (absent = service). */
+type Part = { invoice_id: string; cents: number; payment_id: string | null; job_id?: string | null }
 
 /**
  * The office confirms: the money becomes real. Splits across the customer's open invoices oldest first (stored on the row
@@ -166,11 +169,13 @@ export async function confirmCollection(admin: SupabaseClient, orgId: string, us
     // failed part was dropped (below), only the rest is split again, never onto an invoice this collection already paid.
     const owed = (await loadOwedByCustomer(admin, orgId, [row.customer_id])).get(row.customer_id)
     const paidHere = new Set(stored.map((p) => p.invoice_id))
-    const split = allocateCollection(row.amount_cents - splitCents, (owed?.invoices ?? []).filter((i) => !paidHere.has(i.id)))
+    const open = (owed?.invoices ?? []).filter((i) => !paidHere.has(i.id))
+    const jobOf = new Map(open.map((i) => [i.id, i.jobId ?? null]))
+    const split = allocateCollection(row.amount_cents - splitCents, open)
     if (split.parts.length === 0 || split.leftoverCents > 0) {
       return { ok: false, status: 409, error: 'The customer’s invoices don’t owe this much any more. Reject it, or check the invoices first.' }
     }
-    parts = [...stored, ...split.parts.map((p) => ({ invoice_id: p.invoiceId, cents: p.cents, payment_id: null }))]
+    parts = [...stored, ...split.parts.map((p) => ({ invoice_id: p.invoiceId, cents: p.cents, payment_id: null, job_id: jobOf.get(p.invoiceId) ?? null }))]
     // Compare-and-set on the split as read: two confirms at once (double tap, two people) must not each write their own split —
     // the second would see the first one's payment already lowering a balance and pay a DIFFERENT invoice (money twice).
     const { data: claimed, error } = await db.from('visit_collections').update({ payments: parts }).eq('id', id).eq('status', 'pending').eq('payments', JSON.stringify(row.payments ?? [])).select('id')
@@ -182,15 +187,11 @@ export async function confirmCollection(admin: SupabaseClient, orgId: string, us
   const note = row.method === 'check' ? `Collected by the crew at the door${row.check_number ? ` · check #${row.check_number}` : ''}` : 'Collected by the crew at the door'
   for (const part of parts) {
     if (part.payment_id) continue
-    const r = await recordCustomerInvoicePayment(admin, orgId, part.invoice_id, {
-      amountCents: part.cents,
-      paidAt: day,
-      method: row.method,
-      note,
-      createdBy: userId,
-      idempotencyKey: `visit-collection:${row.id}:${part.invoice_id}`,
-    })
+    const r = await payPart(admin, orgId, part, { day, method: row.method, note, userId, key: `visit-collection:${row.id}:${part.invoice_id}` })
     if (!r.ok) {
+      // A job payment that was saved but not yet applied to its invoice is real money: keep the stored split so a retry
+      // finds that payment by its key and applies it, instead of splitting again (which would pay the customer's invoices twice).
+      if (r.status === 500) return { ok: false, status: 500, error: r.error }
       // The writer refused and wrote nothing for this part (one SQL transaction). Drop it and every later unwritten part, so
       // a retry splits what is left over the invoices as they are then, instead of retrying a refused part forever (which,
       // once an earlier part is real money, could neither be confirmed nor rejected).
@@ -210,6 +211,46 @@ export async function confirmCollection(admin: SupabaseClient, orgId: string, us
     .select('id')
   if (!done || done.length === 0) return { ok: false, status: 409, error: 'This one was already handled.' }
   return { ok: true }
+}
+
+type PartResult = { ok: true; paymentId: string } | { ok: false; status: number; error: string }
+
+/** One part of a split, through the ONE writer for that kind of invoice. Idempotent by `key` for both kinds. */
+async function payPart(
+  admin: SupabaseClient,
+  orgId: string,
+  part: Part,
+  c: { day: string; method: 'cash' | 'check'; note: string; userId: string; key: string }
+): Promise<PartResult> {
+  if (!part.job_id) {
+    const r = await recordCustomerInvoicePayment(admin, orgId, part.invoice_id, { amountCents: part.cents, paidAt: c.day, method: c.method, note: c.note, createdBy: c.userId, idempotencyKey: c.key })
+    return r.ok ? { ok: true, paymentId: r.paymentId } : { ok: false, status: r.status, error: r.error }
+  }
+  const invoice = await findOrgInvoice(admin, part.invoice_id, orgId)
+  if (!invoice || invoice.job_id !== part.job_id) return { ok: false, status: 404, error: 'That invoice is not there any more.' }
+  // A retry after a crash: the job payment may already exist under this key (even fully applied, when "already paid" would
+  // wrongly refuse a second call). Find it and make sure it is applied (a repeat apply is a no-op).
+  // org-scope-ok: part.job_id was just verified in this company through findOrgInvoice above
+  const { data: first } = await admin.from('job_payments').select('id').eq('job_id', part.job_id).eq('idempotency_key', c.key).maybeSingle()
+  const existing = (first as { id: string } | null)?.id
+  if (existing) {
+    try {
+      await applyPaymentToInvoice(admin, orgId, part.invoice_id, existing, part.cents, c.userId)
+    } catch (e) {
+      console.error('[visit-collections] saved job payment could not be applied', part.invoice_id, (e as Error).message)
+      return { ok: false, status: 500, error: 'The payment was saved but could not be applied to its invoice. Try confirming again.' }
+    }
+    return { ok: true, paymentId: existing }
+  }
+  const r = await recordJobInvoicePayment(admin, orgId, { id: invoice.id, job_id: part.job_id, status: invoice.status }, {
+    amountCents: part.cents,
+    paidAt: c.day,
+    method: c.method,
+    note: c.note,
+    createdBy: c.userId,
+    idempotencyKey: c.key,
+  })
+  return r.ok ? { ok: true, paymentId: r.paymentId } : { ok: false, status: r.status, error: r.error }
 }
 
 /** The office says no (money never arrived, wrong customer, …). Nothing was written, so there is nothing to undo. */
@@ -248,7 +289,7 @@ export async function loadCrewMoney(admin: SupabaseClient, orgId: string, visits
   return out
 }
 
-/** The invoice a pay link / QR is for: the customer's oldest open customer invoice. */
+/** The invoice a pay link / QR is for: the customer's oldest open invoice (job or service). */
 export async function oldestOpenInvoice(admin: SupabaseClient, orgId: string, customerId: string): Promise<OpenInvoice | null> {
   return (await loadOwedByCustomer(admin, orgId, [customerId])).get(customerId)?.invoices[0] ?? null
 }

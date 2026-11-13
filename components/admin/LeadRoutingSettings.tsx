@@ -10,17 +10,20 @@ export type LeadRoutingView = {
   reminder: { enabled: boolean; hours: number }
   leadOwnerId: string | null
   people: Array<{ id: string; name: string; inactive?: boolean }>
-  sources: Array<{ id: string; name: string; routing: LeadRouting | null; autoAssignUserId: string | null; services: string[] }>
+  sources: Array<{ id: string; name: string; routing: LeadRouting | null; autoAssignUserId: string | null; services: string[]; defaultCategory?: string | null }>
   services: string[]
+  /** The company's turned-on categories (plus any a saved rule still names). */
+  categories?: Array<{ slug: string; label: string }>
 }
 
 const MODES: Array<{ mode: RoutingMode; title: string; hint: string }> = [
   { mode: 'person', title: 'One person', hint: 'Every lead goes to the same person.' },
   { mode: 'rotate', title: 'Take turns', hint: 'Leads go to each person in turn.' },
   { mode: 'service', title: 'By service', hint: 'Each service goes to a person or a group that takes turns.' },
+  { mode: 'category', title: 'By category', hint: 'Each category (like Commercial) goes to a person or a group that takes turns.' },
 ]
 
-const empty = (mode: RoutingMode): LeadRouting => ({ mode, userIds: [], rules: [] })
+const empty = (mode: RoutingMode): LeadRouting => ({ mode, userIds: [], rules: [], categoryRules: [] })
 
 function People({ people, value, onChange, label }: { people: LeadRoutingView['people']; value: string[]; onChange: (ids: string[]) => void; label: string }) {
   return (
@@ -42,11 +45,12 @@ function People({ people, value, onChange, label }: { people: LeadRoutingView['p
 }
 
 /** One routing choice. `personId` is the single person for "One person" (company: the lead owner; a source: its own person). */
-function RoutingEditor({ value, onChange, people, services, personId, onPerson, personBlank, idPrefix }: {
+function RoutingEditor({ value, onChange, people, services, categories, personId, onPerson, personBlank, idPrefix }: {
   value: LeadRouting
   onChange: (r: LeadRouting) => void
   people: LeadRoutingView['people']
   services: string[]
+  categories: Array<{ slug: string; label: string }>
   personId: string | null
   onPerson: (id: string | null) => void
   personBlank: string
@@ -55,7 +59,7 @@ function RoutingEditor({ value, onChange, people, services, personId, onPerson, 
   const listId = `${idPrefix}-services`
   return (
     <div className="flex flex-col gap-3">
-      <div role="radiogroup" aria-label="How leads are handed out" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div role="radiogroup" aria-label="How leads are handed out" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {MODES.map((m) => {
           const on = value.mode === m.mode
           return (
@@ -123,12 +127,46 @@ function RoutingEditor({ value, onChange, people, services, personId, onPerson, 
           </Button>
         </div>
       ) : null}
+
+      {value.mode === 'category' ? (
+        <div className="flex flex-col gap-3">
+          {value.categoryRules.map((r, i) => {
+            const taken = value.categoryRules.filter((_, j) => j !== i).map((x) => x.category)
+            return (
+              <div key={i} className="flex flex-col gap-2 rounded-ui border border-surface-line p-3">
+                <label className="flex flex-col gap-1 text-ui-sm font-semibold text-ink">
+                  Category
+                  <Select value={r.category} onChange={(e) => onChange({ ...value, categoryRules: value.categoryRules.map((x, j) => (j === i ? { ...x, category: e.target.value } : x)) })}>
+                    <option value="">Pick a category</option>
+                    {categories.filter((c) => !taken.includes(c.slug)).map((c) => (
+                      <option key={c.slug} value={c.slug}>{c.label}</option>
+                    ))}
+                  </Select>
+                </label>
+                <People
+                  label={r.userIds.length > 1 ? 'Who takes turns on it' : 'Who gets it (pick more than one to take turns)'}
+                  people={people}
+                  value={r.userIds}
+                  onChange={(ids) => onChange({ ...value, categoryRules: value.categoryRules.map((x, j) => (j === i ? { ...x, userIds: ids } : x)) })}
+                />
+                <Button variant="secondary" className="min-h-tap self-start" onClick={() => onChange({ ...value, categoryRules: value.categoryRules.filter((_, j) => j !== i) })}>
+                  Remove this category
+                </Button>
+              </div>
+            )
+          })}
+          <Button variant="secondary" className="min-h-tap self-start" onClick={() => onChange({ ...value, categoryRules: [...value.categoryRules, { category: '', userIds: [] }] })}>
+            Add a category
+          </Button>
+          <p className="text-ui-sm text-ink">A lead with no category, or a category you did not list, goes to the person below.</p>
+        </div>
+      ) : null}
     </div>
   )
 }
 
 /**
- * Settings → Lead routing: who new website leads go to (one person / take turns / by service, with an optional choice per
+ * Settings → Lead routing: who new website leads go to (one person / take turns / by service / by category, with an optional choice per
  * lead source) and when a lead nobody has called counts as waiting. One Save bar at the bottom.
  */
 export default function LeadRoutingSettings({ initial = null }: { initial?: LeadRoutingView | null }) {
@@ -160,10 +198,10 @@ export default function LeadRoutingSettings({ initial = null }: { initial?: Lead
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        routing: { mode: draft.routing.mode, userIds: draft.routing.userIds, rules: draft.routing.rules },
+        routing: { mode: draft.routing.mode, userIds: draft.routing.userIds, rules: draft.routing.rules, categoryRules: draft.routing.categoryRules.filter((r) => r.category) },
         leadOwnerId: draft.leadOwnerId,
         reminder: draft.reminder,
-        sources: draft.sources.map((s) => ({ id: s.id, routing: s.routing, autoAssignUserId: s.autoAssignUserId })),
+        sources: draft.sources.map((s) => ({ id: s.id, routing: s.routing && { ...s.routing, categoryRules: s.routing.categoryRules.filter((r) => r.category) }, autoAssignUserId: s.autoAssignUserId, defaultCategory: s.defaultCategory ?? null })),
       }),
     }).catch(() => null)
     setBusy(false)
@@ -185,6 +223,7 @@ export default function LeadRoutingSettings({ initial = null }: { initial?: Lead
             onChange={(routing) => set({ routing })}
             people={draft.people}
             services={services}
+            categories={draft.categories ?? []}
             personId={draft.leadOwnerId}
             onPerson={(leadOwnerId) => set({ leadOwnerId })}
             personBlank="Your longest-standing admin"
@@ -207,7 +246,7 @@ export default function LeadRoutingSettings({ initial = null }: { initial?: Lead
       {draft.sources.length > 0 ? (
         <Card>
           <CardContent className="flex flex-col gap-4 pt-4">
-            <p className="text-ui-lg font-bold text-ink">Different for one lead source</p>
+            <p className="text-ui-lg font-bold text-ink">For one lead source</p>
             {draft.sources.map((s) => (
               <div key={s.id} className="flex flex-col gap-2 border-t border-surface-line pt-3 first:border-t-0 first:pt-0">
                 <label className="flex flex-col gap-1 text-ui-sm font-semibold text-ink">
@@ -219,6 +258,17 @@ export default function LeadRoutingSettings({ initial = null }: { initial?: Lead
                     ))}
                   </Select>
                 </label>
+                {(draft.categories ?? []).length > 0 ? (
+                  <label className="flex flex-col gap-1 text-ui-sm font-semibold text-ink">
+                    Category for leads from this source
+                    <Select value={s.defaultCategory ?? ''} onChange={(e) => setSource(s.id, { defaultCategory: e.target.value || null })}>
+                      <option value="">None (the form can send one)</option>
+                      {(draft.categories ?? []).map((c) => (
+                        <option key={c.slug} value={c.slug}>{c.label}</option>
+                      ))}
+                    </Select>
+                  </label>
+                ) : null}
                 {s.routing ? (
                   <RoutingEditor
                     idPrefix={`source-${s.id}`}
@@ -226,6 +276,7 @@ export default function LeadRoutingSettings({ initial = null }: { initial?: Lead
                     onChange={(routing) => setSource(s.id, { routing })}
                     people={draft.people}
                     services={Array.from(new Set([...s.services, ...services]))}
+                    categories={draft.categories ?? []}
                     personId={s.autoAssignUserId}
                     onPerson={(autoAssignUserId) => setSource(s.id, { autoAssignUserId })}
                     personBlank="The company’s choice above"

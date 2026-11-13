@@ -9,7 +9,7 @@ import { checklistSummary, unchecked, type ChecklistItem } from '@/lib/visit-che
 import { formatCents } from '@/lib/format'
 import { QrCode } from '@/components/ui/QrCode'
 import type { CrewMoney } from '@/lib/visit-collections'
-import { FileDropZone } from '@/components/ui/file-drop-zone'
+import { CrewPhotoButtons } from './CrewPhotoButtons'
 import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
 import { useClock, usePresence, type ClockState } from '@/components/time/useClock'
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
@@ -397,12 +397,11 @@ export default function CrewDayList({
                     </button>
                   ) : null}
                   {askPhoto !== v.id ? (
-                    <FileDropZone
-                      compact
-                      accept="image/*"
+                    <CrewPhotoButtons
+                      className="col-span-2"
+                      busy={busy === v.id}
                       disabled={busy === v.id}
-                      label={busy === v.id ? 'Saving…' : `Add photos${v.photoCount ? ` (${v.photoCount} saved)` : ''}`}
-                      className="w-full"
+                      savedCount={v.photoCount}
                       onFiles={(files) => void onPhotos(v.id, files)}
                     />
                   ) : null}
@@ -528,7 +527,7 @@ export default function CrewDayList({
                               value={panel.checkNumber}
                               onChange={(e) => setPanel({ ...panel, checkNumber: e.target.value })}
                             />
-                            <span className="text-base font-normal">Tip: tap “Add photos” to take a picture of the check.</span>
+                            <span className="text-base font-normal">Tip: tap “Take photo” for a picture of the check.</span>
                           </label>
                         ) : null}
                         <div className="grid grid-cols-2 gap-2">
@@ -555,10 +554,10 @@ export default function CrewDayList({
                 {askPhoto === v.id ? (
                   <div className="mt-3 flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3">
                     <p className="text-base font-bold">{crewHere.length ? 'Done. Add a photo, then clock the crew out' : 'Done. Add a photo?'}</p>
-                    <FileDropZone
-                      accept="image/*"
+                    <CrewPhotoButtons
+                      busy={busy === v.id}
                       disabled={busy === v.id}
-                      label={busy === v.id ? 'Saving…' : v.photoCount ? `Add another photo (${v.photoCount} saved)` : 'Take or add a photo'}
+                      savedCount={v.photoCount}
                       // With the crew clocked in here the panel stays for the clock choice; otherwise a photo closes it.
                       onFiles={(files) => void onPhotos(v.id, files).then(() => !crewHere.length && setAskPhoto(null))}
                     />

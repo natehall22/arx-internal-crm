@@ -32,7 +32,8 @@ export function cleanCollectionInput(body: unknown): { ok: true; value: Collecti
   return { ok: true, value: { amountCents, method, checkNumber: method === 'check' ? text(b.checkNumber, 40) : null, note: text(b.note, 500), tapId } }
 }
 
-export type OpenInvoice = { id: string; number: string; balanceCents: number }
+/** `jobId` set = a JOB invoice (paid through the job payment path); null/absent = a recurring-service invoice. */
+export type OpenInvoice = { id: string; number: string; balanceCents: number; jobId?: string | null }
 
 /**
  * Pure: which invoices a collection pays, oldest first (the list is already oldest first), never more than each one owes.
@@ -53,7 +54,7 @@ export function allocateCollection(amountCents: number, invoices: OpenInvoice[])
 }
 
 export type OwedSummary = {
-  /** Open customer invoices, oldest due first. */
+  /** Open customer invoices (job and service), oldest due first. */
   invoices: OpenInvoice[]
   /** Everything those invoices still owe. */
   totalCents: number

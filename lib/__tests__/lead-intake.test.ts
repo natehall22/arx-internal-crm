@@ -2,7 +2,7 @@
 /** Lead routing: each mode, the turn pointer, the fallback (a lead is never dropped). */
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import {
-  parseLeadIntakePatch, parseRoutingPatch, parseServiceOptions, readLeadIntakeSettings, readRouting, routeLeadCandidates, normalizeService, type LeadRouting,
+  parseLeadIntakePatch, parseRoutingPatch, patchUserIds, parseServiceOptions, readLeadIntakeSettings, readRouting, routeLeadCandidates, normalizeService, type LeadRouting,
 } from '@/lib/lead-intake'
 import { nextInRotation, resolveLeadOwner } from '@/lib/lead-intake-db'
 
@@ -40,9 +40,9 @@ const dbWith = (extra: Record<string, Array<Record<string, unknown>>> = {}) =>
     { rpc: { lead_routing_next: fakeNext } }
   )
 
-const settingsOf = (routing: LeadRouting, extra: Record<string, unknown> = {}) => ({ leadIntake: routing, ...extra })
-const owner = async (db: ReturnType<typeof dbWith>, settings: unknown, source: Parameters<typeof resolveLeadOwner>[3] = null, service: string | null = null) =>
-  (await resolveLeadOwner(db.client as never, ORG, settings, source, service))?.id
+const settingsOf = (routing: Partial<LeadRouting> & Pick<LeadRouting, 'mode'>, extra: Record<string, unknown> = {}) => ({ leadIntake: routing, ...extra })
+const owner = async (db: ReturnType<typeof dbWith>, settings: unknown, source: Parameters<typeof resolveLeadOwner>[3] = null, service: string | null = null, category: string | null = null) =>
+  (await resolveLeadOwner(db.client as never, ORG, settings, source, service, category))?.id
 
 describe('person (the default, today\'s behavior)', () => {
   test('nothing stored: source person, then the company lead owner, then the oldest admin', async () => {
@@ -122,15 +122,66 @@ describe('by service', () => {
   })
 })
 
+describe('by category', () => {
+  const byCategory = settingsOf(
+    { mode: 'category', userIds: [], rules: [], categoryRules: [{ category: 'commercial', userIds: [A] }, { category: 'new_build', userIds: [A, B] }] },
+    { web_leads_owner_id: B }
+  )
+  test('a category maps to one person (the commercial team works commercial leads)', async () => {
+    const db = dbWith()
+    expect(await owner(db, byCategory, null, null, 'commercial')).toBe(A)
+  })
+  test('a category maps to a turn group, with its own turn pointer', async () => {
+    const db = dbWith()
+    const got = []
+    for (let i = 0; i < 3; i++) got.push(await owner(db, byCategory, null, null, 'new_build'))
+    expect(got).toEqual([A, B, A])
+    expect((db.tables.lead_routing_pointers ?? []).map((p) => p.scope)).toEqual(['org:category:new_build'])
+  })
+  test('no category, an unlisted category, or a person who left → the same fallback chain as every other mode', async () => {
+    const db = dbWith()
+    expect(await owner(db, byCategory, null, null, null)).toBe(B)
+    expect(await owner(db, byCategory, null, null, 'residential')).toBe(B)
+    expect(await owner(db, byCategory, { id: 's', auto_assign_user_id: A }, null, 'residential')).toBe(A) // the source's person comes before the company's
+    expect(await owner(db, settingsOf({ mode: 'category', userIds: [], rules: [], categoryRules: [{ category: 'commercial', userIds: [C] }] }), null, null, 'commercial')).toBe(id(9))
+  })
+  test('the service rules are not consulted in category mode (and vice versa)', async () => {
+    const db = dbWith()
+    const mixed = settingsOf({ mode: 'category', userIds: [], rules: [{ service: 'Mulch', userIds: [A] }], categoryRules: [{ category: 'commercial', userIds: [B] }] })
+    expect(await owner(db, mixed, null, 'Mulch', 'commercial')).toBe(B)
+    expect(await owner(db, mixed, null, 'Mulch', null)).toBe(id(9))
+  })
+  test('a source can carry its own category routing', async () => {
+    const db = dbWith()
+    const src = { id: 'src1', routing: { mode: 'category', userIds: [], rules: [], categoryRules: [{ category: 'commercial', userIds: [B] }] } }
+    expect(await owner(db, settingsOf({ mode: 'person', userIds: [], rules: [], categoryRules: [] }), src, null, 'commercial')).toBe(B)
+  })
+  test('saving: needs at least one rule with people; slugs only; no duplicates; read leniently', () => {
+    expect(parseRoutingPatch({ mode: 'category', categoryRules: [] })).toHaveProperty('error')
+    expect(parseRoutingPatch({ mode: 'category', categoryRules: [{ category: 'commercial', userIds: [] }] })).toHaveProperty('error')
+    expect(parseRoutingPatch({ mode: 'category', categoryRules: [{ category: 'Not A Slug', userIds: [A] }] })).toHaveProperty('error')
+    expect(parseRoutingPatch({ mode: 'category', categoryRules: [{ category: 'commercial', userIds: [A] }, { category: 'commercial', userIds: [B] }] })).toHaveProperty('error')
+    expect(parseRoutingPatch({ mode: 'category', categoryRules: [{ category: 'commercial', userIds: [A] }] })).toEqual({ routing: { mode: 'category', userIds: [], rules: [], categoryRules: [{ category: 'commercial', userIds: [A] }] } })
+    expect(readRouting({ mode: 'category', categoryRules: [{ category: 'commercial', userIds: [A, 'x'] }, { category: 'BAD', userIds: [A] }, { category: 'commercial', userIds: [B] }] })?.categoryRules).toEqual([{ category: 'commercial', userIds: [A] }])
+  })
+  test('a patch names its category people (company checks them) and per-source default category is validated as a slug', () => {
+    const p = parseLeadIntakePatch({ routing: { mode: 'category', categoryRules: [{ category: 'commercial', userIds: [A] }] }, sources: [{ id: '33333333-3333-4333-8333-333333333333', routing: null, defaultCategory: 'commercial' }] })
+    if ('error' in p) throw new Error(p.error)
+    expect(patchUserIds(p)).toEqual([A])
+    expect(p.sources[0].defaultCategory).toBe('commercial')
+    expect(parseLeadIntakePatch({ sources: [{ id: '33333333-3333-4333-8333-333333333333', routing: null, defaultCategory: 'Nope!' }] })).toHaveProperty('error')
+  })
+})
+
 test('routeLeadCandidates: person mode is exactly the old two-person chain', async () => {
   const next = jest.fn()
-  expect(await routeLeadCandidates({ routing: { mode: 'person', userIds: [], rules: [] }, scopeBase: 'org', service: 'x', sourceUserId: A, fallbackUserId: B }, next)).toEqual([A, B])
+  expect(await routeLeadCandidates({ routing: { mode: 'person', userIds: [], rules: [], categoryRules: [] }, scopeBase: 'org', service: 'x', sourceUserId: A, fallbackUserId: B }, next)).toEqual([A, B])
   expect(next).not.toHaveBeenCalled()
 })
 
 describe('parsing', () => {
   test('settings default to today\'s behavior', () => {
-    expect(readLeadIntakeSettings({})).toEqual({ routing: { mode: 'person', userIds: [], rules: [] }, reminderEnabled: false, reminderHours: 24 })
+    expect(readLeadIntakeSettings({})).toEqual({ routing: { mode: 'person', userIds: [], rules: [], categoryRules: [] }, reminderEnabled: false, reminderHours: 24 })
     expect(readLeadIntakeSettings(null).reminderHours).toBe(24)
   })
   test('a mode must have what it needs', () => {
@@ -139,11 +190,11 @@ describe('parsing', () => {
     expect(parseRoutingPatch({ mode: 'service', rules: [{ service: 'A', userIds: [] }] })).toHaveProperty('error')
     expect(parseRoutingPatch({ mode: 'service', rules: [{ service: 'Lawn care', userIds: [A] }, { service: 'lawn-care', userIds: [B] }] })).toHaveProperty('error')
     expect(parseRoutingPatch({ mode: 'rotate', userIds: ['nope'] })).toHaveProperty('error')
-    expect(parseRoutingPatch({ mode: 'person' })).toEqual({ routing: { mode: 'person', userIds: [], rules: [] } })
+    expect(parseRoutingPatch({ mode: 'person' })).toEqual({ routing: { mode: 'person', userIds: [], rules: [], categoryRules: [] } })
   })
   test('stored routing is read leniently', () => {
     expect(readRouting({ mode: 'bogus' })).toBeNull()
-    expect(readRouting({ mode: 'rotate', userIds: [A, 'x', A] })).toEqual({ mode: 'rotate', userIds: [A], rules: [] })
+    expect(readRouting({ mode: 'rotate', userIds: [A, 'x', A] })).toEqual({ mode: 'rotate', userIds: [A], rules: [], categoryRules: [] })
   })
   test('service names compare ignoring case, spaces and - _ /', () => {
     expect(normalizeService(' Weekly_Lawn-Care ')).toBe('weekly lawn care')

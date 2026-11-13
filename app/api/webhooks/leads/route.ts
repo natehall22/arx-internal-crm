@@ -7,6 +7,7 @@ import { deploymentOrgId } from '@/lib/company-host'
 import { escapeHtml } from '@/lib/html'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgCategories, matchLeadCategory } from '@/lib/categories-db'
 import { insertNewLeadBell, loadCompanyServiceChoices, resolveLeadOwner, takeLeadFormAttempt } from '@/lib/lead-intake-db'
 import { LEAD_FORM_HONEYPOT_FIELD, matchServiceChoice, readServiceOptions } from '@/lib/lead-intake'
 import { LEAD_FORM_TEXT } from '@/lib/lead-form-snippet'
@@ -59,6 +60,7 @@ type LeadSourceConfig = {
   public_form?: boolean | null
   form_daily_cap?: number | null
   service_options?: unknown
+  default_category?: string | null
   webhook_enabled: boolean
   is_active: boolean
 }
@@ -410,7 +412,11 @@ export async function POST(request: NextRequest) {
     const sourceChoices = readServiceOptions(leadSource?.service_options)
     const serviceChoices = sourceChoices.length ? sourceChoices : await loadCompanyServiceChoices(adminClient, org_id).catch(() => [] as string[])
     const serviceRequested = matchServiceChoice(service_type, serviceChoices)
-    const owner = await resolveLeadOwner(adminClient, org_id, org.settings, leadSource, serviceRequested)
+    // The work category: what the form sent when it is one of the company's turned-on categories (slug or label), else the
+    // source's default. Free text never lands in the column. Category routing reads it.
+    const categoryList = await loadOrgCategories(adminClient, org_id).catch(() => [])
+    const category = matchLeadCategory(categoryList, body.category ?? body.work_category ?? body.workCategory) ?? matchLeadCategory(categoryList, leadSource?.default_category)
+    const owner = await resolveLeadOwner(adminClient, org_id, org.settings, leadSource, serviceRequested, category)
     const ownerUserId: string | null = owner?.id ?? null
 
     const campaignId = await resolveCampaignId(
@@ -432,6 +438,7 @@ export async function POST(request: NextRequest) {
       status: 'new',
       notes: leadNotes.trim() || null,
       service_requested: serviceRequested,
+      ...(category ? { category } : {}),
       lead_source_id: leadSource?.id || null,
       campaign_id: campaignId,
       source_type: leadSource?.source_type || null,

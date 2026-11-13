@@ -696,7 +696,7 @@ export const HARNESS_CREW_DAY = [
   { id: 'v1', planName: 'Weekly mowing & edging', address: '2410 Crawfordville Hwy, Crawfordville, FL 32327', lat: 30.17, lng: -84.37, accessNotes: 'Gate code 4421. Dog in back yard.', status: 'scheduled', skipReason: null, photoCount: 0, routePosition: 1, resultOptions: [] },
   { id: 'v2', planName: 'Biweekly mowing', address: '88 Oak Ridge Rd, Crawfordville, FL 32327', lat: null, lng: null, accessNotes: null, status: 'completed', skipReason: null, photoCount: 2, routePosition: 2, resultOptions: [] },
   { id: 'v3', planName: 'Clean-up check — Hedges', address: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, accessNotes: null, status: 'scheduled', skipReason: null, photoCount: 0, routePosition: null, resultOptions: [{ key: 'pass', label: 'Passed', tone: 'good' }, { key: 'fail', label: 'Needs a return trip', tone: 'bad' }] },
-]
+].map((v) => ({ officeNotes: null, checklist: [], money: null, ...v })) // the v2 fields every real visit carries
 
 /** Crew day with the v2 pieces: office notes, a checklist (one unchecked) and money owed (card payment ready). */
 export const HARNESS_CREW_DAY_MONEY = [

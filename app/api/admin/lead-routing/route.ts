@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { canEditLeadIntake, dropInactiveFromRotations, LEAD_INTAKE_SETTINGS_KEY, parseLeadIntakePatch, patchSinglePersonIds, patchUserIds, readLeadIntakeSettings, readRouting, readServiceOptions } from '@/lib/lead-intake'
+import { loadOrgCategories } from '@/lib/categories-db'
+import { activeCategories } from '@/lib/categories'
 import { loadCompanyServiceChoices } from '@/lib/lead-intake-db'
 import { crossSiteWrite } from '@/lib/online-payments/access'
 import { mergeOrgSettings } from '@/lib/org-settings'
@@ -21,6 +23,12 @@ async function gate(request: Request | null) {
   return { admin: createServiceClient(), orgId: profile.org_id as string } as const
 }
 
+function categoriesForRouting(list: Awaited<ReturnType<typeof loadOrgCategories>>, named: string[]) {
+  const on = activeCategories(list).map((c) => ({ slug: c.slug, label: c.label }))
+  const extra = Array.from(new Set(named)).filter((slug) => !on.some((c) => c.slug === slug)).map((slug) => ({ slug, label: `${list.find((c) => c.slug === slug)?.label ?? slug} (off)` }))
+  return [...on, ...extra]
+}
+
 async function view(admin: ReturnType<typeof createServiceClient>, orgId: string) {
   const [org, users, sources] = await Promise.all([
     admin.from('orgs').select('settings').eq('id', orgId).maybeSingle(),
@@ -31,7 +39,7 @@ async function view(admin: ReturnType<typeof createServiceClient>, orgId: string
   const intake = readLeadIntakeSettings(settings)
   const rows = (sources.data ?? []) as Array<Record<string, unknown>>
   const named = new Set<string>(patchUserIds({
-    set: { userIds: intake.routing.userIds, rules: intake.routing.rules },
+    set: { userIds: intake.routing.userIds, rules: intake.routing.rules, categoryRules: intake.routing.categoryRules },
     leadOwnerId: typeof settings.web_leads_owner_id === 'string' ? settings.web_leads_owner_id : null,
     sources: rows.map((r) => ({ id: r.id as string, routing: readRouting(r.routing), autoAssignUserId: (r.auto_assign_user_id as string | null) ?? null })),
   }))
@@ -49,8 +57,11 @@ async function view(admin: ReturnType<typeof createServiceClient>, orgId: string
       routing: readRouting(r.routing),
       autoAssignUserId: (r.auto_assign_user_id as string | null) ?? null,
       services: readServiceOptions(r.service_options),
+      defaultCategory: (r.default_category as string | null) ?? null,
     })),
     services: await loadCompanyServiceChoices(admin, orgId),
+    // The company's turned-on categories, plus any a saved rule still names (turned off since: shown so the rule can be seen and removed).
+    categories: categoriesForRouting(await loadOrgCategories(admin, orgId), [...intake.routing.categoryRules, ...rows.flatMap((r) => readRouting(r.routing)?.categoryRules ?? [])].map((r) => r.category)),
   }
 }
 
@@ -87,6 +98,12 @@ export async function PATCH(request: Request) {
     if (((data ?? []) as Array<{ id: string }>).length !== cleaned.sources.length) return NextResponse.json({ error: 'Lead source not found' }, { status: 404 })
   }
 
+  const wanted = cleaned.sources.map((s) => s.defaultCategory).filter((c): c is string => !!c)
+  if (wanted.length) {
+    const on = new Set(activeCategories(await loadOrgCategories(g.admin, g.orgId)).map((c) => c.slug))
+    if (wanted.some((c) => !on.has(c))) return NextResponse.json({ error: 'Pick a category from your list' }, { status: 400 })
+  }
+
   if (Object.keys(cleaned.set).length) {
     const { error } = await mergeOrgSettings(g.admin, g.orgId, cleaned.set, { path: [LEAD_INTAKE_SETTINGS_KEY] })
     if (error) return NextResponse.json({ error: 'Could not save' }, { status: 500 })
@@ -100,7 +117,7 @@ export async function PATCH(request: Request) {
   for (const s of cleaned.sources) {
     const { error } = await g.admin
       .from('lead_sources')
-      .update({ routing: s.routing, ...(s.autoAssignUserId !== undefined ? { auto_assign_user_id: s.autoAssignUserId } : {}) })
+      .update({ routing: s.routing, ...(s.autoAssignUserId !== undefined ? { auto_assign_user_id: s.autoAssignUserId } : {}), ...(s.defaultCategory !== undefined ? { default_category: s.defaultCategory } : {}) })
       .eq('org_id', g.orgId)
       .eq('id', s.id)
     if (error) return NextResponse.json({ error: 'Could not save' }, { status: 500 })

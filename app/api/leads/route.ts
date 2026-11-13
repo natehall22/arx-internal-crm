@@ -13,6 +13,8 @@ import {
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
 import { createLeadRecord } from '@/lib/leads-create'
+import { CATEGORY_SLUG_RE } from '@/lib/categories'
+import { loadOrgCategories, matchLeadCategory } from '@/lib/categories-db'
 import { insertNewLeadBell, loadCompanyServiceChoices, resolveLeadOwner } from '@/lib/lead-intake-db'
 import { matchServiceChoice, readLeadIntakeSettings } from '@/lib/lead-intake'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
@@ -114,19 +116,21 @@ export async function POST(request: NextRequest) {
     // The structured service is stored only when it is one of the company's choices.
     const serviceChoices = await loadCompanyServiceChoices(adminClient, profile.org_id).catch(() => [] as string[])
     const matchedService = matchServiceChoice(body.service_requested, serviceChoices)
+    // The work category is stored only when it is one of the company's turned-on categories.
+    const matchedCategory = matchLeadCategory(await loadOrgCategories(adminClient, profile.org_id).catch(() => []), body.category)
     const source = typeof body.source === 'string' ? body.source.trim().toLowerCase() : ''
     const keepsOwn = isSetterLikeRole(profile.role) || source === 'door_to_door' || source === 'referral'
     if (!pickedByHand && !keepsOwn) {
       const { data: org } = await adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle()
       const settings = (org as { settings?: unknown } | null)?.settings
       if (readLeadIntakeSettings(settings).routing.mode !== 'person') {
-        const routed = await resolveLeadOwner(adminClient, profile.org_id, settings, null, matchedService, user.id)
+        const routed = await resolveLeadOwner(adminClient, profile.org_id, settings, null, matchedService, matchedCategory, user.id)
         if (routed) ownerUserId = routed.id
       }
     }
 
     // Create the lead
-    const created = await createLeadRecord(adminClient, profile.org_id, ownerUserId, { ...body, service_requested: matchedService })
+    const created = await createLeadRecord(adminClient, profile.org_id, ownerUserId, { ...body, service_requested: matchedService, category: matchedCategory })
     if (!created.ok) {
       console.error('Lead creation error:', created.error)
       return NextResponse.json({ error: `Failed to create lead: ${created.error}` }, { status: 400 })
@@ -228,6 +232,9 @@ export async function GET(request: NextRequest) {
     const campaignId = searchParams.get('campaign_id') || ''
     const sourceId = searchParams.get('source_id') || ''
     const ownerId = searchParams.get('owner_id') || ''
+    // Work category slug (leads.category); anything that is not a slug is ignored.
+    const categoryParam = searchParams.get('category') || ''
+    const categoryFilter = CATEGORY_SLUG_RE.test(categoryParam) ? categoryParam : ''
 
     // Role-based filtering - setters/canvassers only see their own leads
     const isRep = ['rep', 'sales_rep', 'canvasser', 'setter'].includes(profile.role)
@@ -322,6 +329,11 @@ export async function GET(request: NextRequest) {
       // Source filter
       if (sourceId) {
         q = q.eq('lead_source_id', sourceId)
+      }
+
+      // Category filter
+      if (categoryFilter) {
+        q = q.eq('category', categoryFilter)
       }
 
       // Owner filter

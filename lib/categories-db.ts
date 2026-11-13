@@ -79,6 +79,32 @@ export async function setJobCategory(admin: SupabaseClient, orgId: string, jobId
   return { ok: true, category: choice.slug }
 }
 
+/**
+ * The category a lead is created with (typed in by hand, from the website form, or a source's default): the slug when it is one
+ * of the company's turned-on categories, else null. A website form may send the slug or the label; anything else (free text a
+ * bot posted) is dropped, never stored. Pure given the list; `list` comes from loadOrgCategories.
+ */
+export function matchLeadCategory(list: readonly Category[], requested: unknown): string | null {
+  if (typeof requested !== 'string' || !requested.trim()) return null
+  const key = requested.trim().toLowerCase().replace(/[\s-]+/g, '_')
+  const hit = list.find((c) => c.active && (c.slug === key || c.label.trim().toLowerCase().replace(/[\s-]+/g, '_') === key))
+  return hit ? hit.slug : null
+}
+
+/** THE writer of `leads.category` on an existing lead (the lead page's picker). '' / null clears it. */
+export async function setLeadCategory(admin: SupabaseClient, orgId: string, leadId: string, requested: unknown): Promise<Write> {
+  const { data: row, error: readError } = await admin.from('leads').select('category').eq('id', leadId).eq('org_id', orgId).maybeSingle()
+  if (readError) return isMissingColumn(readError, 'category') ? { ok: false, status: 503, error: CATEGORIES_NOT_READY } : { ok: false, status: 500, error: 'Could not save' }
+  if (!row) return { ok: false, status: 404, error: 'Lead not found' }
+  const current = ((row as { category?: string | null }).category ?? null) || null
+  const choice = resolveCategoryChoice(await loadOrgCategories(admin, orgId), requested, current)
+  if (!choice.ok) return { ok: false, status: 400, error: choice.error }
+  if (choice.slug === current) return { ok: true, category: current }
+  const { error } = await admin.from('leads').update({ category: choice.slug }).eq('id', leadId).eq('org_id', orgId)
+  if (error) return { ok: false, status: 500, error: 'Could not save' }
+  return { ok: true, category: choice.slug }
+}
+
 const CHUNK = 400
 
 /** `customers.category` for these customers. Empty (never an error) when the column is not there yet. */

@@ -109,7 +109,7 @@ export default function ServicePlanTemplatesCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {!d.ready ? <p className="text-ui-base text-ink">Plan templates turn on once the database update for them is applied.</p> : null}
-        <p className="text-ui-base text-ink">What you sell. A plan copies its template when it’s sold, so changing a template never changes a plan already sold — use “Update plans” to push a change on purpose.</p>
+        <p className="text-ui-base text-ink">What you sell. A plan copies its template when it’s sold, so changing a template never changes a plan already sold — use “Update plans” to push a change on purpose (it carries the schedule, price rules, steps and “What’s included”; you see a preview first).</p>
         {d.starters.length ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-ui-sm font-semibold text-ink">Start from:</span>
@@ -166,7 +166,7 @@ export default function ServicePlanTemplatesCard() {
                   </Select>
                 )}
               </Field>
-              <Field label="What’s included (one per line)" hint="Copied onto each plan sold; the crew checks these off on every visit. No prices.">{(a) => <Textarea {...a} className="text-base" rows={4} maxLength={1800} value={draft.service_lines} onChange={(e) => setDraft({ ...draft, service_lines: e.target.value })} />}</Field>
+              <Field label="What’s included (one per line)" hint="Copied onto each plan sold (and onto sold plans only when you push “Update plans”); the crew checks these off on every visit. No prices.">{(a) => <Textarea {...a} className="text-base" rows={4} maxLength={1800} value={draft.service_lines} onChange={(e) => setDraft({ ...draft, service_lines: e.target.value })} />}</Field>
               <Field label="Description (optional)">{(a) => <Textarea {...a} className="text-base" maxLength={2000} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />}</Field>
               <SeasonsEditor value={draft.seasons} onChange={(seasons) => setDraft({ ...draft, seasons })} />
               <Field label="Billed (custom prices)">

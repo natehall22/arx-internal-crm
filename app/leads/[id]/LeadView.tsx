@@ -12,6 +12,7 @@ import DeleteLeadButton from '@/components/DeleteLeadButton'
 import CreateOpportunityFromLeadButton from '@/components/leads/CreateOpportunityFromLeadButton'
 import LocationMap from '@/components/LocationMap'
 import LeadYardMeasure from '@/components/area-measure/LeadYardMeasure'
+import CategoryField from '@/components/categories/CategoryField'
 import { 
   createCalendarEvent, 
   deleteCalendarEvent, 
@@ -910,6 +911,10 @@ export default async function LeadView({
             Service requested: {(lead as { service_requested?: string | null }).service_requested}
           </p>
         ) : null}
+
+        <div className="mb-6">
+          <CategoryField url={`/api/leads/${params.id}/category`} value={(lead as { category?: string | null }).category ?? null} />
+        </div>
 
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-4">Lead Workflow</h2>
