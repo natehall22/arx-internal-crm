@@ -45,6 +45,8 @@ export type PlanFormValues = {
   template_id: string
   name: string
   description: string
+  /** One service per line ("Mow", "Edge"): the crew's checklist on every visit. */
+  service_lines: string
   property_id: string
   trade: string
   start_date: string
@@ -76,6 +78,7 @@ export function formFromTemplate(t: ServicePlanTemplate | null, d: PlanEditorOpt
     template_id: t?.id ?? '',
     name: t?.name ?? '',
     description: t?.description ?? '',
+    service_lines: (t?.service_lines ?? []).join('\n'),
     property_id: d.properties[0]?.id ?? '',
     trade: t?.trade ?? d.trades[0]?.slug ?? '',
     start_date: todayLocal(),
@@ -100,6 +103,7 @@ export function formFromPlan(p: PlanRow): PlanFormValues {
     template_id: p.template_id ?? '',
     name: p.name,
     description: p.description ?? '',
+    service_lines: p.service_lines.join('\n'),
     property_id: p.property_id,
     trade: p.trade,
     start_date: p.start_date,
@@ -126,6 +130,7 @@ export function bodyFrom(f: PlanFormValues, isNew: boolean): Record<string, unkn
     ...(!isNew && f.price_starts_on ? { price_starts_on: f.price_starts_on } : {}),
     name: f.name,
     description: f.description,
+    service_lines: f.service_lines,
     ...(f.property_id ? { property_id: f.property_id } : {}),
     start_date: f.start_date,
     end_date: f.end_date || null,
@@ -328,6 +333,7 @@ export function PlanFields({
           <SeasonsEditor value={f.seasons} onChange={(seasons) => set({ seasons })} />
           <Field label="Stop #" hint="Order on the crew’s day">{(a) => <Input {...a} type="number" inputMode="numeric" min={1} max={999} className="text-base" value={f.route_position} onChange={(e) => set({ route_position: e.target.value })} />}</Field>
           <StepsEditor value={f.steps} onChange={(steps) => set({ steps })} crews={d.crews} people={d.people} />
+          <Field label="What’s included (one per line)" hint="The crew checks these off on every visit — e.g. Mow, Edge, Blow, Beds. No prices.">{(a) => <Textarea {...a} className="text-base" rows={4} maxLength={1800} value={f.service_lines} onChange={(e) => set({ service_lines: e.target.value })} />}</Field>
           <Field label="Notes for the crew (optional)">{(a) => <Textarea {...a} className="text-base" maxLength={2000} value={f.description} onChange={(e) => set({ description: e.target.value })} />}</Field>
         </>
       )}

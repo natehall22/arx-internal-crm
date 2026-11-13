@@ -9,6 +9,7 @@
  * in the company's own time zone (`ymdInZone`).
  */
 import { HEALTH_RESULTS, HEALTH_RESULT_STYLE } from '@/lib/health-result'
+import { cleanServiceLines } from '@/lib/visit-checklist'
 
 export const SERVICE_FREQUENCIES = ['weekly', 'every_2_weeks', 'every_4_weeks', 'monthly', 'none'] as const
 export type ServiceFrequency = (typeof SERVICE_FREQUENCIES)[number]
@@ -78,6 +79,8 @@ export type ServicePlan = ServicePlanSchedule & {
   trade: string
   name: string
   description: string | null
+  /** What was sold, one short line each ("Mow", "Edge"): the crew's checklist for every visit (lib/visit-checklist.ts). */
+  service_lines: string[]
   price: number | null
   /** "New price starts on": slots before `price_starts_on` keep `previous_price` (both null = `price` applies now). */
   previous_price: number | null
@@ -100,7 +103,7 @@ export type ServicePlan = ServicePlanSchedule & {
 }
 
 export const SERVICE_PLAN_COLUMNS =
-  'id, org_id, customer_id, property_id, template_id, template_version, trade, name, description, price, previous_price, price_starts_on, billing_basis, taxable, pricing, pricing_inputs, tier_key, steps, status, start_date, end_date, paused_until, seasons, preferred_weekday, default_sub_id, route_position, created_by, created_at, updated_at'
+  'id, org_id, customer_id, property_id, template_id, template_version, trade, name, description, service_lines, price, previous_price, price_starts_on, billing_basis, taxable, pricing, pricing_inputs, tier_key, steps, status, start_date, end_date, paused_until, seasons, preferred_weekday, default_sub_id, route_position, created_by, created_at, updated_at'
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Calendar-day arithmetic
@@ -328,6 +331,7 @@ export type ServicePlanInput = {
   trade: string
   name: string
   description: string | null
+  service_lines: string[]
   price: number | null
   billing_basis: BillingBasis
   taxable: boolean
@@ -368,6 +372,11 @@ export function cleanPlanInput(
     out.name = name
   }
   if ('description' in b) out.description = str(b.description, 2000)
+  if ('service_lines' in b) {
+    const lines = cleanServiceLines(b.service_lines)
+    if (!lines.ok) return lines
+    out.service_lines = lines.value
+  }
   if (has('price')) {
     if (b.price === null || b.price === undefined || b.price === '') out.price = null
     else {
@@ -860,6 +869,7 @@ export type ServicePlanTemplate = {
   name: string
   trade: string
   description: string | null
+  service_lines: string[]
   seasons: Season[]
   billing_basis: BillingBasis
   taxable: boolean
@@ -870,9 +880,9 @@ export type ServicePlanTemplate = {
   updated_at: string
 }
 
-export const TEMPLATE_COLUMNS = 'id, org_id, name, trade, description, seasons, billing_basis, taxable, pricing, steps, active, version, updated_at'
+export const TEMPLATE_COLUMNS = 'id, org_id, name, trade, description, service_lines, seasons, billing_basis, taxable, pricing, steps, active, version, updated_at'
 
-export type TemplateInput = Pick<ServicePlanTemplate, 'name' | 'trade' | 'description' | 'seasons' | 'billing_basis' | 'taxable' | 'pricing' | 'steps' | 'active'>
+export type TemplateInput = Pick<ServicePlanTemplate, 'name' | 'trade' | 'description' | 'service_lines' | 'seasons' | 'billing_basis' | 'taxable' | 'pricing' | 'steps' | 'active'>
 
 /** Pure: a template save → clean values, or why not. `partial` = edit. */
 export function cleanTemplateInput(body: unknown, partial = false): R<Partial<TemplateInput>> {
@@ -889,6 +899,11 @@ export function cleanTemplateInput(body: unknown, partial = false): R<Partial<Te
     out.trade = b.trade
   }
   if ('description' in b) out.description = label(b.description, 2000)
+  if ('service_lines' in b) {
+    const lines = cleanServiceLines(b.service_lines)
+    if (!lines.ok) return lines
+    out.service_lines = lines.value
+  }
   if (has('seasons')) {
     const r = cleanSeasons(b.seasons)
     if (!r.ok) return r
@@ -926,6 +941,7 @@ export type TemplatePlanField = (typeof TEMPLATE_PLAN_FIELDS)[number]
 export const PLAN_FIELD_LABELS: Record<string, string> = {
   name: 'Name',
   description: 'Notes for the crew',
+  service_lines: 'What’s included',
   property_id: 'Property',
   trade: 'Service type',
   start_date: 'Starts',
@@ -952,6 +968,7 @@ export const TEMPLATE_FIELD_LABELS: Record<string, string> = {
   name: 'Name',
   trade: 'Service type',
   description: 'Description',
+  service_lines: 'What’s included',
   seasons: 'Seasons',
   billing_basis: 'Billed',
   taxable: 'Sales tax',
