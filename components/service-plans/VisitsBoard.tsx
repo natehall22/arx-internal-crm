@@ -232,10 +232,10 @@ export default function VisitsBoard() {
                         </p>
                         {v.accessNotes && v.status === 'scheduled' ? <p className="whitespace-pre-wrap break-words rounded-ui bg-brand-50 px-3 py-1 text-ui-sm text-brand-900"><span className="font-semibold">Access: </span>{v.accessNotes}</p> : null}
                         {v.notes ? <p className="break-words text-ui-sm text-ink">Note: {v.notes}</p> : null}
-                        {v.checklist.length > 0 && (v.status !== 'scheduled' || v.checklist.some((c) => c.done)) ? (
+                        {(v.checklist ?? []).length > 0 && (v.status !== 'scheduled' || (v.checklist ?? []).some((c) => c.done)) ? (
                           <p className="break-words text-ui-sm text-ink">
                             <span className="font-semibold">{v.status === 'scheduled' ? 'Checked so far: ' : 'Services: '}</span>
-                            {checklistSummary(v.checklist)}
+                            {checklistSummary(v.checklist ?? [])}
                           </p>
                         ) : null}
                         {d.canEdit ? (
