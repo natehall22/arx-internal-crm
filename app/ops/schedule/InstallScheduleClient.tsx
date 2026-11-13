@@ -11,6 +11,7 @@ import {
 } from '@/lib/job-trades'
 import { tradeLabel, type OrgTradeOption, type Trade } from '@/lib/org-trades'
 import { formatPhone } from '@/lib/format'
+import { useOrgBrandNames } from '@/hooks/useOrgFeatures'
 
 /* ------------------------------------------------------------------------ *
  * API contract (GET /api/ops/install-schedule, POST .../assign, .../unassign)
@@ -329,6 +330,7 @@ interface PendingAssignConfirm {
 }
 
 export default function InstallScheduleClient({ embedded = false }: { /** Inside Jobs → Schedule: no Nav (the page provides it). */ embedded?: boolean } = {}) {
+  const brandNames = useOrgBrandNames()
   const [windowStart, setWindowStart] = useState<string>(() => startOfWeekISO(todayISO()))
   const [subs, setSubs] = useState<ScheduleSub[]>([])
   const [scheduled, setScheduled] = useState<ScheduledJob[]>([])
@@ -962,8 +964,8 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                 className="mt-0.5 truncate text-xs text-[#57574f]"
                                 title={
                                   subAvail.shareStatus === 'error'
-                                    ? "ARX couldn't read this sub's calendar right now — availability just isn't shown until that clears."
-                                    : `${sub.company_name} hasn't shared their Google Calendar with ARX. Ask them to share it with ARX at "See only free/busy" to show availability here.`
+                                    ? `${brandNames.shortName} couldn't read this sub's calendar right now — availability just isn't shown until that clears.`
+                                    : `${sub.company_name} hasn't shared their Google Calendar with ${brandNames.shortName}. Ask them to share it with ${brandNames.shortName} at "See only free/busy" to show availability here.`
                                 }
                               >
                                 {subAvail.shareStatus === 'error' ? 'Calendar unavailable' : 'Calendar not shared'}
