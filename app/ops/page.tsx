@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { enrichJobsWithCategory, loadOrgCategories } from '@/lib/categories-db'
 import { sumCollectedCents } from '@/lib/job-collection'
 import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { requireAuth } from '@/lib/auth'
@@ -40,6 +41,9 @@ export default async function OpsPage() {
   await enrichOpsJobsWithPayrollSentAt(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithSoldSquares(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithMeasureSoldSquaresFallback(supabase, profile.org_id, rawJobs)
+  // Work category (job override, else customer's) for the board's filter; its own read, never fails the board.
+  await enrichJobsWithCategory(admin, profile.org_id, rawJobs)
+  const categories = await loadOrgCategories(admin, profile.org_id)
   if (ops.canViewJobFinancials) await enrichJobsWithCostLedger(admin, profile.org_id, rawJobs)
   // Off by default (org setting): when off this is one settings read and the board renders exactly as before.
   const catchUp = await attachBoardCatchUps(admin, profile.org_id, profile, rawJobs)
@@ -105,6 +109,7 @@ export default async function OpsPage() {
       canViewProfitability={ops.canViewJobFinancials}
       catchUp={catchUp.enabled ? { ...catchUp, viewerId: profile.id } : undefined}
       orgProfile={clientOrgProfile(await loadOrgProfile(admin, profile.org_id))}
+      categories={categories}
     />
   )
 }

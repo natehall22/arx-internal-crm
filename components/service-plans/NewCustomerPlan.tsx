@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 
+import CategoryPicker from '@/components/categories/CategoryPicker'
+import { useOrgCategories } from '@/hooks/useOrgCategories'
 import { Button, Dialog, DialogContent, DialogFooter, Field, Input, Textarea, toast } from '@/components/ui'
 import { PlanFields, bodyFrom, formFromTemplate, planFormReady, type PlanEditorOptions, type PlanFormValues } from '@/components/service-plans/PlanForm'
 
@@ -22,6 +24,8 @@ export default function NewCustomerPlan({ onCreated, size = 'sm' }: { onCreated?
   const [who, setWho] = React.useState<Who>(EMPTY)
   const [form, setForm] = React.useState<PlanFormValues | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [category, setCategory] = React.useState<string | null>(null)
+  const categories = useOrgCategories()
 
   React.useEffect(() => {
     let live = true
@@ -38,6 +42,7 @@ export default function NewCustomerPlan({ onCreated, size = 'sm' }: { onCreated?
 
   const start = () => {
     setWho(EMPTY)
+    setCategory(null)
     setForm(formFromTemplate(d.templates[0] ?? null, d))
     setOpen(true)
   }
@@ -51,7 +56,7 @@ export default function NewCustomerPlan({ onCreated, size = 'sm' }: { onCreated?
     const res = await fetch('/api/service-plans', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customer: { name, phone, email }, property, plan: bodyFrom(form, true) }),
+      body: JSON.stringify({ customer: { name, phone, email, category }, property, plan: bodyFrom(form, true) }),
     }).catch(() => null)
     const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; customerId?: string | null; matchedExisting?: boolean }
     setSaving(false)
@@ -88,6 +93,12 @@ export default function NewCustomerPlan({ onCreated, size = 'sm' }: { onCreated?
                 <Field label="State">{(a) => <Input {...a} autoComplete="address-level1" className="text-base" maxLength={20} value={who.state} onChange={(e) => w({ state: e.target.value })} />}</Field>
                 <Field label="ZIP">{(a) => <Input {...a} inputMode="numeric" autoComplete="postal-code" className="text-base" maxLength={10} value={who.zip} onChange={(e) => w({ zip: e.target.value })} />}</Field>
               </div>
+              {categories && categories.some((c) => c.active) ? (
+                <div className="flex flex-col gap-1">
+                  <span className="text-ui-sm font-semibold text-ink">Category (optional)</span>
+                  <CategoryPicker options={categories} value={category} onChange={setCategory} />
+                </div>
+              ) : null}
               <Field label="Gate code / access (optional)">{(a) => <Textarea {...a} className="text-base" rows={2} maxLength={1000} value={who.access_notes} onChange={(e) => w({ access_notes: e.target.value })} />}</Field>
               <PlanFields
                 key={form.template_id}

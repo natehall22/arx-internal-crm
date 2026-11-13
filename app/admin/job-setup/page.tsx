@@ -10,7 +10,7 @@ import JobSetupClient from './JobSetupClient'
 
 export const dynamic = 'force-dynamic'
 
-/** Settings → Job setup: the company's own job lists (Trades now). Owners only. */
+/** Settings → Job setup: the company's own job lists (Trades and Categories). Owners only. */
 export default async function JobSetupPage() {
   const { profile } = await requireAuth()
   if (!isSuperAdmin(profile)) redirect('/admin')

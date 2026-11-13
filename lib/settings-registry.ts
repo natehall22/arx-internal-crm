@@ -72,7 +72,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     id: 'operations',
     title: 'Operations',
     items: [
-      { title: 'Job setup', description: 'Your trades list (owners only)', href: '/admin/job-setup', access: 'superAdmin', keywords: 'trades crews gutters siding windows' },
+      { title: 'Job setup', description: 'Your trades list and work categories: Residential, Commercial, New build and your own (owners only)', href: '/admin/job-setup', access: 'superAdmin', keywords: 'trades crews gutters siding windows categories category residential commercial new build' },
       { title: 'Subcontractors', description: 'Sub network, contacts and calendar sharing', href: '/admin/subs', access: 'leadership', keywords: 'subs crews installers' },
       { title: 'Crews', description: 'In-house installation crews', href: '/admin/crews', access: 'leadership' },
       { title: 'Time clock', description: 'Crew time for the pay week; who clocks in is set on each crew under Subcontractors', href: '/admin/time', access: 'payroll', keywords: 'hours clock in out timesheet lunch overtime', feature: 'timeTracking' },

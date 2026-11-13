@@ -84,6 +84,7 @@ import UiKitHarness from '@/components/ui/UiKitHarness'
 import Nav from '@/components/Nav'
 import SettingsHub from '@/app/admin/SettingsHub'
 import JobSetupClient from '@/app/admin/job-setup/JobSetupClient'
+import CategoryField from '@/components/categories/CategoryField'
 import CustomFieldsClient from '@/app/admin/custom-fields/CustomFieldsClient'
 import CustomFieldsCard from '@/components/custom-fields/CustomFieldsCard'
 import PropertiesCard from '@/components/customer-file/PropertiesCard'
@@ -823,6 +824,16 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return (
         <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
           <YardMeasureCard customerId="cust-1" opportunityId="opp-1" rows={HARNESS_YARD_ROWS as never} properties={[{ id: 'p1', name: 'Home' }, { id: 'p2', name: 'Rental on Oak' }]} canMeasure />
+        </div>
+      )
+    case 'categories':
+      return (
+        <div className="mx-auto flex max-w-md flex-col gap-4 p-4">
+          <h1 className="text-ui-xl font-bold text-ink">Dana Whitfield</h1>
+          <CategoryField url="/api/customers/c1" value={null} />
+          <div className="rounded-xl border bg-white p-4">
+            <CategoryField url="/api/ops/jobs/j1/category" value={null} inheritFrom="residential" label="Category for this job" />
+          </div>
         </div>
       )
     case 'job-setup':

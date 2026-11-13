@@ -5,6 +5,7 @@ import { canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole 
 import { loadCustomerForCaller } from '@/lib/customer-file/customer-read'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { withoutCustomFields } from '@/lib/custom-fields'
+import { CATEGORIES_NOT_READY, setCustomerCategory } from '@/lib/categories-db'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,6 +101,16 @@ export async function PATCH(
     if (email !== undefined) updateData.email = email || null
     if (phone !== undefined) updateData.phone = phone || null
     if (address_text !== undefined) updateData.address_text = address_text || null
+
+    // Work category (Residential / Commercial / …): its own validated writer; '' or null clears it.
+    if ('category' in body) {
+      const c = await setCustomerCategory(adminClient, profile.org_id, params.id, body.category)
+      if (!c.ok) return NextResponse.json({ error: c.status === 503 ? CATEGORIES_NOT_READY : c.error }, { status: c.status })
+      if (Object.keys(updateData).length === 0) {
+        const { data: fresh } = await adminClient.from('customers').select('*').eq('id', params.id).eq('org_id', profile.org_id).single()
+        return NextResponse.json({ customer: fresh })
+      }
+    }
 
     const { data: customer, error: updateError } = await adminClient
       .from('customers')

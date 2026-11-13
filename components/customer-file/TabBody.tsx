@@ -18,6 +18,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 import { HEALTH_RESULT_STYLE } from '@/lib/health-result'
 import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
+import CategoryField from '@/components/categories/CategoryField'
 import PriceListCard from '@/components/customer/PriceListCard'
 import { loadCustomerPriceListId, loadPriceLists } from '@/lib/price-list-server'
 import { loadCustomerTaxExemption, loadOrgSalesTax } from '@/lib/sales-tax-server'
@@ -127,6 +128,11 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
       <Card>
         <CardHeader><CardTitle>This deal</CardTitle><StatusPill domain="opportunity" value={deal.status} /></CardHeader>
         <CardContent>
+          {(ctx.categories.some((c) => c.active) || ctx.category) && (
+            <div className="mb-3 border-b border-surface-line pb-3">
+              <CategoryField url={`/api/customers/${customer.id}`} value={ctx.category} readOnly={!ctx.canEditCategory} initialCategories={ctx.categories} />
+            </div>
+          )}
           <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-ui-base text-ink">
             <dt className="text-ink-muted">Address</dt><dd>{deal.address_text || customer.address_text || '—'}</dd>
             <dt className="text-ink-muted">Phone</dt><dd><PhoneLink value={customer.phone} /></dd>

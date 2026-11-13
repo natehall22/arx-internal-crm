@@ -11,6 +11,7 @@ import {
 import { requireAuthApi } from '@/lib/auth'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
+import { enrichJobsWithCategory } from '@/lib/categories-db'
 import { enrichJobsWithCostLedger } from '@/lib/job-cost-ledger'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import {
@@ -320,6 +321,7 @@ export async function GET(request: Request) {
     await enrichOpsJobsWithPayrollSentAt(adminClient, profile.org_id, jobList)
     await enrichOpsJobsWithSoldSquares(adminClient, profile.org_id, jobList)
     await enrichOpsJobsWithMeasureSoldSquaresFallback(adminClient, profile.org_id, jobList)
+    await enrichJobsWithCategory(adminClient, profile.org_id, jobList)
     if (canViewJobFinancials) await enrichJobsWithCostLedger(adminClient, profile.org_id, jobList)
     // The board's refresh asks for catch-up (`?catch_up=1`); attached only when the org has it on. Other callers unchanged.
     // `catch_up_failed` lets the board show the same "couldn't load" notice as the first render.

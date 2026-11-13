@@ -10,6 +10,7 @@
  * visit today or earlier) is never rewritten.
  */
 import { createHash } from 'crypto'
+import { setCustomerCategory } from '@/lib/categories-db'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
@@ -694,6 +695,8 @@ export async function createCustomerWithPlan(
 
   const addressText = String(prop.value.address_text ?? '')
   const { customer_id: customerId, created } = await upsertCustomer(admin, orgId, { name, phone, email, address_text: addressText })
+  // A work category picked on the form (blank = not set). Never overwrites what a matched customer already has; a bad pick never blocks the plan.
+  if (c.category) await setCustomerCategory(admin, orgId, customerId, c.category, { onlyIfBlank: true })
   // The same home may already be on file for a matched customer: use it rather than refusing.
   const existing = await loadCustomerProperties(admin, orgId, customerId, { accessNotes: false })
   const key = (t: string | null | undefined) => (t ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')

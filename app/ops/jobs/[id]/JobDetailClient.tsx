@@ -22,6 +22,7 @@ import { PAID_IN_FULL_TOLERANCE_CENTS } from '@/lib/job-collection'
 import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobCustomerRow from '@/components/job/JobCustomerRow'
+import JobCategory from '@/components/categories/JobCategory'
 import JobTabsBar from '@/components/job/JobTabsBar'
 import JobRunSheetRow from '@/components/job/JobRunSheetRow'
 import JobQuickLinks from '@/components/job/JobQuickLinks'
@@ -2013,6 +2014,9 @@ export default function JobDetailClient({
 
         {/* Both job bodies: the company's own job fields (absent for a company without any). */}
         {detailsSlot ? <div className="mb-4 sm:mb-6">{detailsSlot}</div> : null}
+
+        {/* Both job bodies: the job's category (defaults to its customer's). */}
+        <JobCategory jobId={job.id} />
 
         {v2 ? (
           <JobCustomerRow jobId={job.id} dealId={job.opportunity_id ?? null} customer={job.customer ?? null} />
