@@ -103,7 +103,7 @@ export function formFromPlan(p: PlanRow): PlanFormValues {
     template_id: p.template_id ?? '',
     name: p.name,
     description: p.description ?? '',
-    service_lines: p.service_lines.join('\n'),
+    service_lines: (p.service_lines ?? []).join('\n'),
     property_id: p.property_id,
     trade: p.trade,
     start_date: p.start_date,

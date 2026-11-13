@@ -43,7 +43,8 @@ export async function GET() {
       return { id: d.id, role: d.role, roleLabel: compPlanRoleLabel(d.role), planId: d.comp_plan_id, planName: plan?.name ?? null, ratePercent: plan?.base_percentage != null ? Number(plan.base_percentage) : null, effectiveFrom: d.effective_from }
     }),
     plans: (plans.data ?? []).filter((p: any) => (p.plan_purpose ?? 'primary') === 'primary'),
-    gaps,
+    // Role defaults only fix people with no plan at all; a gap over a past sale date is fixed on the person's own plan dates.
+    gaps: gaps.filter((g) => g.kind !== 'sale_date'),
   })
 }
 

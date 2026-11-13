@@ -10,9 +10,9 @@
  * Rules (owner decisions, BUILD-BRIEF 2026-10-21):
  * - Commission base = signed sale agreement total + signed commissionable change
  *   orders. Missing, or off by more than $0.05, is a problem.
- * - "Collected" must agree with recorded payments vs contract + change orders,
- *   within $0.05. A collected job that is short counts only when it was forced
- *   through (an explicit force column if one exists — see {@link isCollectedForced}).
+ * - "Collected" must agree with THE paid-in-full rule (lib/job-collection.ts
+ *   `evaluateJobCollection`: payments vs sale amount + issued invoice tax, or a time &
+ *   materials job's issued invoices, within $0.05, or a super admin's force). No local copy.
  * - Sale credit: a closer, and a setter unless the deal is self-generated.
  * - A complete/collected job needs at least one cost line (job_cost_lines is the
  *   one cost ledger).
@@ -33,9 +33,9 @@ import { calendarDaySpan } from '@/lib/job-trades'
 import { loadOrgTrades, tradeLabel, type OrgTrade } from '@/lib/org-trades'
 import { REQUIRED_FINAL_PHOTO_TAGS, missingRequiredPhotoTags } from '@/lib/final-photo-tags'
 import { fetchSupabaseAllPages, selectIn } from '@/lib/supabase-fetch-all-pages'
+import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 
-/** Paid-in-full tolerance (owner decision #2). */
-export const PAID_TOLERANCE_CENTS = 5
 /** Base-vs-sale tolerance, same $0.05. */
 export const MONEY_TOLERANCE = 0.05
 /** Materials should be ordered at least this many days before the crew's first day. */
@@ -132,7 +132,8 @@ export type HealthJobRow = {
   permit_status?: string | null
   allow_close_with_balance?: boolean | null
   close_balance_reason?: string | null
-  /** Any other column — read defensively for force flags that may not exist yet. */
+  close_balance_by?: string | null
+  /** Any other column (the loader selects `*`). */
   [key: string]: unknown
 }
 
@@ -170,6 +171,8 @@ export type JobHealthInput = {
   salesTax?: number
   /** Cleared payments, cents (refunds negative). */
   paidCents: number
+  /** The job's invoice facts (`loadJobInvoiceFacts`): invoice tax and time & materials billing. Omitted = none. */
+  invoiceFacts?: JobInvoiceFacts | null
   costLineCount: number
   deal: HealthDealRow | null
   trades: HealthTradeRow[]
@@ -190,34 +193,6 @@ function money(n: number): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
-}
-
-const FORCE_KEY = /(^|_)force(d)?(_|$)/
-
-/**
- * Was "collected" forced through with a balance? Honors, in order:
- * - any `*force*` / `*forced*` column on the job that is set (the super-admin
- *   force the money-inputs work adds — read defensively so this works before
- *   and after that migration), and
- * - the "close with balance" acknowledgement: after the money-inputs migration
- *   only when a super admin stamped it (`close_balance_by`); before it, only
- *   when it carries a written reason (a bare checkbox with no reason is not a decision anyone can
- *   audit; 6 live jobs have exactly that).
- */
-export function isCollectedForced(job: HealthJobRow): boolean {
-  for (const [key, value] of Object.entries(job)) {
-    if (!FORCE_KEY.test(key)) continue
-    if (value === true) return true
-    if (typeof value === 'string' && value.trim().length > 0 && value !== 'false') return true
-  }
-  if (!job.allow_close_with_balance) return false
-  // Once the money-inputs migration adds `close_balance_by` (set only by a super admin via
-  // force-paid), that is the ONLY thing that counts — a legacy checkbox without it does not.
-  if (Object.prototype.hasOwnProperty.call(job, 'close_balance_by')) {
-    return typeof job.close_balance_by === 'string' && job.close_balance_by.length > 0
-  }
-  // Before that migration: the old acknowledgement counts only with a written reason.
-  return String(job.close_balance_reason ?? '').trim().length > 0
 }
 
 /** What the customer owes: signed agreement + signed change orders, else the job's sale amount. */
@@ -306,20 +281,27 @@ export function evaluateJobHealth(input: JobHealthInput): HealthProblem[] {
     })
   }
 
-  if (owed != null && owed > 0) {
-    const owedCents = Math.round(owed * 100)
-    const shortCents = owedCents - input.paidCents
-    const paidInFull = shortCents <= PAID_TOLERANCE_CENTS
-    if (job.status === 'collected' && !paidInFull && !isCollectedForced(job)) {
+  // Paid in full = THE rule (lib/job-collection.ts), never a local owed − paid.
+  const collection = evaluateJobCollection({
+    saleAmount: job.sale_amount,
+    ...collectionInvoiceFields(input.invoiceFacts),
+    collectedCents: input.paidCents,
+    allowCloseWithBalance: job.allow_close_with_balance,
+    closeBalanceBy: job.close_balance_by,
+  })
+  if (!collection.missingSaleAmount) {
+    if (job.status === 'collected' && !collection.paidInFull) {
       problems.push({
         code: 'collected_but_short',
         area: 'money',
-        message: `Marked collected, but payments are ${money(shortCents / 100)} short.`,
+        message: collection.waitingOnBilling
+          ? 'Marked collected, but the job is still being billed (a draft invoice or unbilled hours).'
+          : `Marked collected, but payments are ${money(collection.remainingCents / 100)} short.`,
         fixLabel: 'Record payment',
         fixHref: jobHref(job.id, 'payments-section'),
         blocksPay: true,
       })
-    } else if (job.status === 'complete' && paidInFull) {
+    } else if (job.status === 'complete' && collection.paidInFull) {
       problems.push({
         code: 'paid_not_marked_collected',
         area: 'money',
@@ -626,7 +608,7 @@ export async function loadDataHealthWithRows(
   admin: SupabaseClient,
   orgId: string,
   opts: { now?: Date; jobIds?: string[]; includeAppointments?: boolean } = {}
-): Promise<{ report: DataHealthReport; rows: { trades: HealthTradeDbRow[]; payments: HealthPaymentRow[]; changeOrders: HealthChangeOrderRow[] } }> {
+): Promise<{ report: DataHealthReport; rows: { trades: HealthTradeDbRow[]; payments: HealthPaymentRow[]; changeOrders: HealthChangeOrderRow[]; invoiceFacts: Map<string, JobInvoiceFacts> } }> {
   const now = opts.now ?? new Date()
   const todayYmd = ymdInBusinessTz(now)
   const includeAppointments = opts.includeAppointments ?? !opts.jobIds
@@ -654,7 +636,7 @@ export async function loadDataHealthWithRows(
   const projectIds = Array.from(new Set(jobs.map((j) => j.project_id).filter((v): v is string => typeof v === 'string')))
 
   const proposalIds = Array.from(new Set(jobs.flatMap((j) => [j.linked_proposal_id, j.accepted_proposal_id]).filter((v): v is string => typeof v === 'string' && v.length > 0)))
-  const [projects, contracts, changeOrders, payments, costLines, trades, proposals, orgTrades] = await Promise.all([
+  const [projects, contracts, changeOrders, payments, costLines, trades, proposals, orgTrades, invoiceFacts] = await Promise.all([
     selectIn<{ id: string; opportunity_id: string | null }>(projectIds, (chunk) =>
       admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('id', chunk)
     ),
@@ -696,6 +678,8 @@ export async function loadDataHealthWithRows(
       admin.from('proposals').select('id, tax_amount').eq('org_id', orgId).in('id', chunk)
     ),
     loadOrgTrades(admin, orgId),
+    // Every loaded job (like crews and payments), so job catch-up's paid chip reuses this read.
+    loadJobInvoiceFacts(admin, loadedJobIds),
   ])
   // Only crews of jobs still in play: collected / cancelled jobs are history and never flagged, so their photos are not fetched.
   const liveJobIds = new Set(jobs.filter((j) => j.status !== 'collected' && j.status !== 'cancelled').map((j) => j.id))
@@ -747,10 +731,8 @@ export async function loadDataHealthWithRows(
       salesTax: proposalId ? taxByProposal.get(proposalId) ?? 0 : 0,
       changeOrderDelta: round2(cos.reduce((s, c) => s + delta(c), 0)),
       commissionableChangeOrderDelta: round2(cos.filter((c) => c.is_commissionable !== false).reduce((s, c) => s + delta(c), 0)),
-      paidCents: (paymentsByJob.get(job.id) ?? [])
-        // Same rule as the collected logic (lib/job-collection.ts on money-inputs): pending money doesn't count.
-        .filter((p) => p.funding_status !== 'pending')
-        .reduce((s, p) => s + (Number(p.amount_cents) || 0), 0),
+      paidCents: sumCollectedCents(paymentsByJob.get(job.id) ?? []),
+      invoiceFacts: invoiceFacts.get(job.id) ?? null,
       costLineCount: costCountByJob.get(job.id) ?? 0,
       deal: opportunityId ? dealById.get(opportunityId) ?? null : null,
       trades: tradesByJob.get(job.id) ?? [],
@@ -822,7 +804,7 @@ export async function loadDataHealthWithRows(
       endedPlans,
       count: flaggedJobs.length + appointmentHealth.length + payPlans.length + (endedPlans.length > 0 ? 1 : 0),
     },
-    rows: { trades, payments, changeOrders },
+    rows: { trades, payments, changeOrders, invoiceFacts },
   }
 }
 

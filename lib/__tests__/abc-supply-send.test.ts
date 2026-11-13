@@ -21,7 +21,7 @@ const supplier = (a: SupplierApiSettings | null = api()): SupplierRecord => ({
 const line = (): OrderLine => ({ key: 'shingles', trade: 'roofing', label: 'Shingles', qty: '10 bundles', detail: null, note: null, status: 'ready', excluded: false })
 const ctx = (over: Partial<SupplierOrderContext> = {}): SupplierOrderContext => ({
   orgId: 'org', jobId: 'job', jobNumber: '26-0042', jobStatus: 'materials', primaryTrade: 'roofing', address: '12 Elm St', scheduledDate: null,
-  orgName: 'ARX', orgPhone: null, baseSheet: { sections: [], product: null, accessories: null, isEmpty: false } as any, displayByKey: new Map(),
+  orgName: 'ARX', fromAddress: 'ARX Roofing <info@arxroofing.com>', orgPhone: null, baseSheet: { sections: [], product: null, accessories: null, isEmpty: false } as any, displayByKey: new Map(),
   lines: [line()], suppliers: [supplier()], trades: [], tradeOverrides: [], orgSourceDefaults: {}, orders: [], sends: [], lastSentSourcing: null, ...over,
 })
 const actor = { id: 'u1', name: 'Ops', email: 'ops@arx.test', canSend: true }

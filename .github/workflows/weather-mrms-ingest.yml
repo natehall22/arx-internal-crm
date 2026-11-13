@@ -20,6 +20,14 @@ on:
         required: false
         type: string
 
+# One live ingest at a time (scheduled, manual and backfill all POST swaths): a run inserts its rows, then deletes rows with an
+# older refreshed_at, so two overlapping runs can leave two generations of swaths (Codex audit #13). Never cancel a run mid-POST.
+# Dry runs never POST, so each gets its own group and never waits. Note: GitHub keeps one PENDING run per group — a third
+# queued run replaces the waiting one.
+concurrency:
+  group: ${{ github.event.inputs.dry_run == 'true' && format('weather-mrms-dry-{0}', github.run_id) || 'weather-mrms-ingest' }}
+  cancel-in-progress: false
+
 jobs:
   ingest-mrms-swaths:
     # Pinned to 22.04 — these GDAL apt packages install reliably here; ubuntu-latest (24.04)

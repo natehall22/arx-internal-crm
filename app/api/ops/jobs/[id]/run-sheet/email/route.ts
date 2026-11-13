@@ -94,7 +94,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const { getMailTransport } = await import('@/lib/setter-email')
   try {
     const info = await getMailTransport(ctx.profile.org_id).sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(ctx.profile.org_id),
       to: to.map((r) => r.email),
       replyTo: ctx.profile.email || undefined,
       subject: `Run sheet ${sheet.jobNumber}`,

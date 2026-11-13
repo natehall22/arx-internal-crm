@@ -16,7 +16,6 @@
   "app/api/cron/sync-setter-ramp/route.ts": 1,
   "app/api/cron/weather-refresh/route.ts": 1,
   "app/api/cron/weather-swaths-ingest/route.ts": 1,
-  "app/api/files/object/route.ts": 1,
   "app/api/inspections/reschedule/route.ts": 4,
   "app/api/inspections/schedule-close/route.ts": 9,
   "app/api/inspections/status/route.ts": 11,

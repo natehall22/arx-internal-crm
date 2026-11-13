@@ -1332,7 +1332,7 @@ export async function POST(request: Request) {
 
           const transporter = getMailTransport(profile.org_id)
           await transporter.sendMail({
-            from: getCrmEmailFrom(),
+            from: await getCrmEmailFrom(profile.org_id),
             to: alertTo,
             subject: '!!!!!ATERT!!!!! Usassigned closer',
             text: `An inspection was scheduled without an assigned closer.\n\nLead: ${leadRow.homeowner_name || 'Unknown'}\nAddress: ${leadRow.address_text || 'TBD'}\nScheduled: ${scheduledTime}\nLead URL: ${leadUrl}`,
@@ -1401,7 +1401,7 @@ export async function POST(request: Request) {
 
             const transporter = getMailTransport(profile.org_id)
             await transporter.sendMail({
-              from: getCrmEmailFrom(),
+              from: await getCrmEmailFrom(profile.org_id),
               to: closerProfile.email,
               subject: 'You were assigned an inspection',
               text: `Hi ${closerName},\n\nYou were just assigned an inspection.\n\nLead Name: ${leadRow.homeowner_name || 'Unknown'}\nAddress: ${leadRow.address_text || 'TBD'}\nPhone: ${leadRow.phone || 'N/A'}\nScheduled: ${scheduledTime}\nSet by: ${setterName}\n\nOpen in CRM: ${recordUrl}`,

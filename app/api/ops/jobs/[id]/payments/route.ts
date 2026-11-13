@@ -103,6 +103,8 @@ export async function POST(
       payer,
       note: note || null,
       createdBy: profile.id,
+      // Per form opening (AddPaymentModal), namespaced to this job: a double tap or retry records once.
+      idempotencyKey: typeof body.idempotency_key === 'string' && body.idempotency_key.trim() ? `office-pay:${params.id}:${body.idempotency_key.trim()}`.slice(0, 120) : null,
     })
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
     const payment = result.payment

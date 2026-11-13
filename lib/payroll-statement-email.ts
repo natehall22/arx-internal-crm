@@ -128,7 +128,7 @@ export async function sendPayrollStatementEmail(input: {
     }
   }
 
-  const fromAddress = getCrmEmailFrom()
+  const fromAddress = await getCrmEmailFrom(input.orgId)
   const html = buildPayrollStatementEmailHtml({
     recipientName: input.recipientName,
     statement: input.statement,

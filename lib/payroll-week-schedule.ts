@@ -106,6 +106,50 @@ export function localInstant(ymd: string, hhmm: string, timeZone: string): Date 
   return fromZonedTime(`${ymd}T${hhmm}:59.999`, timeZone)
 }
 
+/**
+ * Does HH:MM exist exactly once on `ymd` in the zone? 'missing' = skipped by a spring-forward clock change, 'twice' = repeated by a
+ * fall-back one. Round trip through the time zone database: the wall time must come back unchanged, and no instant a clock-change
+ * step away (30 min / 1 h / 2 h) may show the same wall time.
+ */
+export function wallTimeOnDay(ymd: string, hhmm: string, timeZone: string): 'ok' | 'missing' | 'twice' {
+  const wall = `${ymd} ${hhmm}`
+  const at = fromZonedTime(`${ymd}T${hhmm}:00`, timeZone)
+  // Intl, not date-fns-tz formatInTimeZone: that one rebuilds a host-local Date and is itself wrong inside the HOST zone's gap.
+  const show = (d: Date) => `${ymdInZone(d, timeZone)} ${new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d)}`
+  if (show(at) !== wall) return 'missing'
+  for (const minutes of [30, 60, 120]) {
+    for (const sign of [-1, 1]) {
+      if (show(new Date(at.getTime() + sign * minutes * 60_000)) === wall) return 'twice'
+    }
+  }
+  return 'ok'
+}
+
+/** How far ahead a saved schedule is checked against the zone's clock changes (they recur yearly; 3 years covers rule drift). */
+const CLOCK_CHECK_DAYS = 3 * 366
+
+/**
+ * A plain sentence when the cutoff (or late-money) time falls in a clock-change hour on its own weekday in the company's zone —
+ * the hour that does not exist (spring forward) or happens twice (fall back) — else null. Saving such a time would move the
+ * week's close an hour or pick one of two moments, so it is refused at save (checkPayWeekChange); nothing already saved is
+ * re-read through this.
+ */
+export function payWeekClockProblem(s: PayWeekSchedule, from: Date): string | null {
+  const start = ymdInZone(from, s.timeZone)
+  const checks: Array<{ weekday: Weekday; time: string; what: string }> = [{ weekday: cutoffWeekday(s), time: s.cutoffTime, what: 'The week can\'t close at' }]
+  if (s.lateFunding) checks.push({ weekday: s.lateFunding.weekday, time: s.lateFunding.time, what: 'Late money can\'t end at' })
+  for (const c of checks) {
+    for (let i = 0; i < CLOCK_CHECK_DAYS; i++) {
+      const ymd = addDaysYmd(start, i)
+      if (weekdayOfYmd(ymd) !== c.weekday) continue
+      const r = wallTimeOnDay(ymd, c.time, s.timeZone)
+      if (r === 'ok') continue
+      return `${c.what} ${clockWords(c.time)} on ${WEEKDAY_NAMES[c.weekday]}: the clocks change then (${r === 'missing' ? 'that time is skipped' : 'that time happens twice'} on ${ymd}). Pick a different time.`
+    }
+  }
+  return null
+}
+
 /** The cutoff instant of the week that closes on `ymd`. */
 export const cutoffInstantForYmd = (ymd: string, s: PayWeekSchedule): Date => localInstant(ymd, s.cutoffTime, s.timeZone)
 

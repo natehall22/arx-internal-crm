@@ -14,7 +14,7 @@ const line = (key: string, trade: string): OrderLine => ({ key, trade, label: ke
 function ctx(over: Partial<SupplierOrderContext> = {}): SupplierOrderContext {
   return {
     orgId: 'org', jobId: 'job', jobNumber: '26-0042', jobStatus: 'materials', primaryTrade: 'roofing', address: '12 Elm St',
-    scheduledDate: null, orgName: 'ARX', orgPhone: null,
+    scheduledDate: null, orgName: 'ARX', fromAddress: 'ARX Roofing <info@arxroofing.com>', orgPhone: null,
     baseSheet: { sections: [], product: null, accessories: null, isEmpty: false } as any,
     displayByKey: new Map(), lines: [line('shingles', 'roofing'), line('panel', 'electrical')],
     suppliers: [supplier()], trades: [], tradeOverrides: [], orgSourceDefaults: {}, orders: [], sends: [], lastSentSourcing: null, ...over,

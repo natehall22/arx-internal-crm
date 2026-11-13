@@ -56,7 +56,7 @@ export async function POST(request: Request, { params }: Ctx) {
   const link = await createPaymentLink(a.admin, orgId, { kind: 'save_card', customerId: customer.id }, a.profile.id)
   const body = (await request.json().catch(() => ({}))) as { email?: unknown }
   if (body.email !== true) return NextResponse.json({ url: link.url })
-  if (!process.env.SMTP_HOST || !getCrmEmailFrom()) return NextResponse.json({ error: 'Email is not set up for this company yet', url: link.url }, { status: 503 })
+  if (!process.env.SMTP_HOST || !(await getCrmEmailFrom(orgId))) return NextResponse.json({ error: 'Email is not set up for this company yet', url: link.url }, { status: 503 })
   if (!isUsableCustomerEmail(customer.email)) return NextResponse.json({ error: 'This customer has no email address', url: link.url }, { status: 400 })
   const brand = await getDocumentBrand(a.admin, orgId)
   const lines = [
@@ -65,7 +65,7 @@ export async function POST(request: Request, { params }: Ctx) {
     'It takes a minute, and your card is entered on Stripe’s secure page.',
   ]
   await getMailTransport(orgId).sendMail({
-    from: getCrmEmailFrom(),
+    from: await getCrmEmailFrom(orgId),
     to: customer.email as string,
     ...(brand.email ? { replyTo: brand.email } : {}),
     subject: `Automatic payments with ${brand.casualName || brand.name}`,

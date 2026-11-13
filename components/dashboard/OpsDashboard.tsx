@@ -8,7 +8,8 @@ interface OpsStats {
   activeJobs: number
   openWorkOrders: number
   pendingMaterials: number
-  outstandingPayments: number
+  /** null = this viewer has no job financials (the API leaves money out). */
+  outstandingPayments: number | null
 }
 
 interface JobNeedingAttention {
@@ -27,7 +28,8 @@ interface RecentMaterialOrder {
   customer_name?: string
   description: string
   supplier: string | null
-  amount: number
+  /** null = this viewer has no job financials. */
+  amount: number | null
   created_at: string
 }
 
@@ -243,7 +245,7 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
               <p className="text-xs sm:text-sm text-gray-700 truncate">Outstanding</p>
-              <p className="text-xl sm:text-2xl font-bold text-red-600">{formatCurrency(stats.outstandingPayments)}</p>
+              <p className="text-xl sm:text-2xl font-bold text-red-600">{stats.outstandingPayments == null ? '—' : formatCurrency(stats.outstandingPayments)}</p>
             </div>
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
               <svg className="w-5 h-5 sm:w-6 sm:h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -418,11 +420,13 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
                         <p className="text-xs text-gray-700 truncate">{order.supplier}</p>
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-sm font-medium text-gray-900">
-                        {formatCurrency(order.amount)}
-                      </span>
-                    </div>
+                    {order.amount != null ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-sm font-medium text-gray-900">
+                          {formatCurrency(order.amount)}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                 )
                 return canJobBoard ? (

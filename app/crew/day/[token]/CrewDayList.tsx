@@ -80,7 +80,7 @@ export default function CrewDayList({
   /** This crew's bonuses this week (only when the company turned crew incentives on; never another crew's). */
   scoreboard?: Scoreboard | null
 }) {
-  const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(initial)
+  const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(() => initial.map((v) => ({ ...v, checklist: v.checklist ?? [] })))
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [skipping, setSkipping] = useState<{ id: string; reason: SkipReason | ''; notes: string } | null>(null)

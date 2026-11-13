@@ -12,6 +12,7 @@ import { orgDb } from '@/lib/supabase/org-db'
 import { readSalesTaxSettings } from '@/lib/sales-tax'
 import { mappingProblems } from '@/lib/quickbooks/mapping'
 import { loadQbLists } from '@/lib/quickbooks/lists'
+import { earliestSafeStartDate } from '@/lib/quickbooks/sweep'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -55,6 +56,13 @@ export async function PUT(request: Request) {
     const { count } = await orgDb(a.admin, orgId).from('qb_links').select('id', { count: 'exact', head: true }).eq('qb_type', 'Invoice')
     if ((count ?? 0) > 0 && (!next.startDate || next.startDate < today || next.startDate === saved.startDate)) {
       return NextResponse.json({ error: 'Invoices have already been sent in the other style. To change it, pick a new start date of today or later, so nothing is sent twice.' }, { status: 409 })
+    }
+  }
+  // A start date earlier than a payment QuickBooks will never get would post that job's invoice without its payment.
+  if (next.startDate && next.startDate !== saved.startDate) {
+    const floor = await earliestSafeStartDate(a.admin, orgId)
+    if (floor && next.startDate < floor) {
+      return NextResponse.json({ error: `Pick ${floor} or later. Payments before then were never sent to QuickBooks, so their invoices would show as unpaid there. Bring older history in with “Match what is already in QuickBooks”.`, field: 'startDate', earliest: floor }, { status: 409 })
     }
   }
   if (body.confirm === true) {

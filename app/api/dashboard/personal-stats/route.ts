@@ -6,32 +6,33 @@ import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
 import { getContactDispositionIdSet } from '@/lib/sales-metrics'
 import { fetchPeriodMetricRows, summarizePeriodRows } from '@/lib/reporting/period-metrics'
+import { orgTimeZone } from '@/lib/timezone'
 
 export const dynamic = 'force-dynamic'
-
-const TIMEZONE = 'America/New_York'
 
 export async function GET(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
     const supabase = createServiceClient()
 
+    // The company's own zone (`orgs.timezone`) for the period boundaries, and its canvass dispositions — one read.
+    const { data: orgRow } = await supabase
+      .from('orgs')
+      .select('settings, timezone')
+      .eq('id', profile.org_id)
+      .single()
+    const zone = orgTimeZone(orgRow?.timezone)
+
     const timeframe = request.nextUrl.searchParams.get('timeframe') || 'week'
     const customStartDate = request.nextUrl.searchParams.get('startDate')
     const customEndDate = request.nextUrl.searchParams.get('endDate')
     const { start, end } =
       timeframe === 'custom' && customStartDate && customEndDate
-        ? getCustomDateRange(customStartDate, customEndDate, TIMEZONE)
-        : getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
+        ? getCustomDateRange(customStartDate, customEndDate, zone)
+        : getDateRangeForTimeFrame(timeframe, zone, false)
 
     const isSetter = isSetterLikeRole(profile.role)
     const orgWideKpis = isDashboardPersonalKpiOrgWide(profile.role)
-
-    const { data: orgRow } = await supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', profile.org_id)
-      .single()
 
     const contactDispositionIdSet = getContactDispositionIdSet(
       orgRow?.settings?.canvass_dispositions as any[] | undefined

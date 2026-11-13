@@ -1,7 +1,7 @@
 /**
  * Job catch-up org settings (client-safe): the on/off switch and "stuck after N working days", stored as two top-level
  * `orgs.settings` keys and written only by PATCH /api/admin/settings `type: 'job_catch_up'` (admins / owners) through
- * `mergeOrgSettings` (per-key merge). The generic `type: 'settings'` save strips these keys.
+ * `mergeOrgSettings` (per-key merge). (The old generic `type: 'settings'` save is gone, 2026-11-13.)
  * The derivation itself is lib/job-catch-up.ts.
  */
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'

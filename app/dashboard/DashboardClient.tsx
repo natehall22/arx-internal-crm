@@ -86,32 +86,34 @@ interface TeamMemberStat {
 // Timeframe option set lives in lib/time-frames.ts so the dashboard picker, the
 // Sisu leaderboard picker and the API routes that validate it cannot drift.
 
+/** Money / production fields are absent for field roles (`fieldView`): the API sends them only to people allowed to see them. */
 interface AttachedSale {
   id: string
   customerName: string
   projectAddress: string
-  saleAmount: number
+  saleAmount?: number
   signedAt: string | null
   attachment: string
   setterName: string | null
   closerName: string | null
-  jobId: string | null
-  jobNumber: string | null
-  jobStatus: string
-  statusLabel: string
-  progressPercent: number
-  progressTone: string
-  scheduledDate: string | null
-  completedAt: string | null
+  jobId?: string | null
+  jobNumber?: string | null
+  jobStatus?: string
+  statusLabel?: string
+  progressPercent?: number
+  progressTone?: string
+  scheduledDate?: string | null
+  completedAt?: string | null
 }
 
 interface AttachedSalesResponse {
+  fieldView?: boolean
   sales: AttachedSale[]
   summary: {
     count: number
     shown: number
-    totalVolume: number
-    averageProgress: number
+    totalVolume?: number
+    averageProgress?: number
   }
 }
 
@@ -179,6 +181,7 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
 
   const sales = data?.sales || []
   const summary = data?.summary
+  const fieldView = data?.fieldView === true
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6 sm:mb-8 overflow-hidden">
@@ -186,22 +189,26 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
         <div>
           <h2 className="text-base sm:text-lg font-semibold text-gray-900">Attached sales pipeline</h2>
           <p className="text-xs sm:text-sm text-gray-700 mt-0.5">
-            Signed installation sales tied to you or your team as they move through production.
+            {fieldView ? 'Signed installation sales tied to you.' : 'Signed installation sales tied to you or your team as they move through production.'}
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-3">
+        <div className={`grid ${fieldView ? 'grid-cols-1' : 'grid-cols-3'} gap-2 sm:flex sm:items-center sm:gap-3`}>
           <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-gray-700">Sales</p>
             <p className="text-sm font-semibold text-gray-900">{summary?.count ?? 0}</p>
           </div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-700">Volume</p>
-            <p className="text-sm font-semibold text-gray-900">{formatAttachedSalesMoney(summary?.totalVolume ?? 0)}</p>
-          </div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-700">Progress</p>
-            <p className="text-sm font-semibold text-gray-900">{summary?.averageProgress ?? 0}%</p>
-          </div>
+          {fieldView ? null : (
+            <>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-gray-700">Volume</p>
+                <p className="text-sm font-semibold text-gray-900">{formatAttachedSalesMoney(summary?.totalVolume ?? 0)}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-gray-700">Progress</p>
+                <p className="text-sm font-semibold text-gray-900">{summary?.averageProgress ?? 0}%</p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -226,7 +233,7 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
       ) : (
         <div className="divide-y divide-gray-100">
           {sales.map((sale) => {
-            const tone = attachedSalesToneClasses[sale.progressTone] || attachedSalesToneClasses.blue
+            const tone = attachedSalesToneClasses[sale.progressTone ?? ''] || attachedSalesToneClasses.blue
             const people = [sale.setterName ? `Setter: ${sale.setterName}` : null, sale.closerName ? `Closer: ${sale.closerName}` : null]
               .filter(Boolean)
               .join(' · ')
@@ -250,21 +257,26 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
                   </div>
                   <div className="flex items-center justify-between lg:justify-end gap-3 flex-shrink-0">
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-gray-900">{formatAttachedSalesMoney(sale.saleAmount)}</p>
+                      {sale.saleAmount != null ? (
+                        <p className="text-sm font-semibold text-gray-900">{formatAttachedSalesMoney(sale.saleAmount)}</p>
+                      ) : null}
                       <p className="text-xs text-gray-600">Signed {formatAttachedSalesDate(sale.signedAt)}</p>
                     </div>
-                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${tone.chip}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
-                      {sale.statusLabel}
-                    </span>
+                    {sale.statusLabel ? (
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${tone.chip}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+                        {sale.statusLabel}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
+                {sale.progressPercent == null ? null : (
                 <div className="mt-3">
                   <div className="h-2.5 w-full rounded-full bg-gray-100 overflow-hidden">
                     <div
                       className={`h-full rounded-full ${tone.bar} transition-all duration-700 ease-out`}
-                      style={{ width: `${Math.max(8, Math.min(sale.progressPercent, 100))}%` }}
+                      style={{ width: `${Math.max(8, Math.min(sale.progressPercent ?? 0, 100))}%` }}
                     />
                   </div>
                   <div className="mt-1.5 flex items-center justify-between text-[11px] text-gray-600">
@@ -275,6 +287,7 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
                     <span>Collected</span>
                   </div>
                 </div>
+                )}
               </div>
             )
           })}

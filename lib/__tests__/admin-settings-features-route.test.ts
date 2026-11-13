@@ -66,10 +66,10 @@ it('bad input is refused', async () => {
   expect((await patch({ type: 'features', features: { canvassing: 'no' } })).status).toBe(400)
 })
 
-it('the generic managers settings save cannot write features (stored switches are kept)', async () => {
+it('the old generic settings save is gone: refused (400) and nothing is written (stored switches are kept)', async () => {
   superAdmin = false
   role = 'sales_manager'
   const res = await patch({ type: 'settings', features: { canvassing: true }, foo: 2 })
-  expect(res.status).toBe(200)
-  expect(updates).toEqual([{ settings: { features: { canvassing: false }, other: 1, foo: 2 } }])
+  expect(res.status).toBe(400)
+  expect(updates).toEqual([])
 })

@@ -77,7 +77,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       : ''
 
     await getMailTransport(profile.org_id).sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(profile.org_id),
       replyTo: sender?.email && sender.email.includes('@') ? sender.email : undefined,
       to,
       subject: `Roof Inspection Report — ${address}`,

@@ -248,7 +248,7 @@ export async function POST(
           const appUrl = await orgAppUrl(workOrder.org_id)
 
           await transporter.sendMail({
-            from: getCrmEmailFrom(),
+            from: await getCrmEmailFrom(workOrder.org_id),
             to: pmUser.email,
             subject: `✅ Work Order Completed — ${jobAddress}`,
             html: `

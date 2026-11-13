@@ -543,7 +543,7 @@ export async function PATCH(request: NextRequest) {
 
     const transporter = getMailTransport(targetUser.org_id)
     await transporter.sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(targetUser.org_id),
       to: targetUser.email,
       subject: 'Reset your ARX password',
       html: `

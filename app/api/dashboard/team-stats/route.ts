@@ -7,10 +7,9 @@ import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboar
 import { getContactDispositionIdSet } from '@/lib/sales-metrics'
 import { fetchPeriodMetricRows, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { createServiceClient } from '@/lib/supabase/service'
+import { orgTimeZone } from '@/lib/timezone'
 
 export const dynamic = 'force-dynamic'
-
-const TIMEZONE = 'America/New_York'
 
 type TeamStatRow = {
   id: string
@@ -112,6 +111,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
+    // The company's own zone (`orgs.timezone`) for every day/week/custom boundary, and its canvass dispositions — one read.
+    const { data: orgRow } = await supabase
+      .from('orgs')
+      .select('settings, timezone')
+      .eq('id', profile.org_id)
+      .single()
+    const zone = orgTimeZone(orgRow?.timezone)
+
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('timeframe') || 'week'
     const customStartDate = searchParams.get('startDate')
@@ -119,10 +126,10 @@ export async function GET(request: NextRequest) {
     const debug = searchParams.get('debug') === '1'
     const dateRange =
       timeframe === 'custom' && customStartDate && customEndDate
-        ? getCustomDateRange(customStartDate, customEndDate, TIMEZONE)
+        ? getCustomDateRange(customStartDate, customEndDate, zone)
         : debug
-          ? getDateRangeWithDebug(timeframe, TIMEZONE)
-          : getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
+          ? getDateRangeWithDebug(timeframe, zone)
+          : getDateRangeForTimeFrame(timeframe, zone, false)
     const { start, end } = dateRange
     
     // Debug logging for date range issues
@@ -162,14 +169,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ teamMemberStats: [], setterStats: [], closerStats: [] })
     }
 
-    const { data: orgForSits } = await supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', profile.org_id)
-      .single()
-
     const contactDispositionIdSet = getContactDispositionIdSet(
-      orgForSits?.settings?.canvass_dispositions as any[] | undefined
+      orgRow?.settings?.canvass_dispositions as any[] | undefined
     )
     const memberIds = members.map((m) => m.id)
 
@@ -274,7 +275,7 @@ export async function GET(request: NextRequest) {
       const debugDateRange = dateRange as any
       response._debug = {
         timeframe,
-        timezone: TIMEZONE,
+        timezone: zone,
         start_utc: start.toISOString(),
         end_utc: end.toISOString(),
         start_local: debugDateRange.startLocal || start.toISOString(),

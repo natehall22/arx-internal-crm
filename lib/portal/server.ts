@@ -268,7 +268,7 @@ export async function sendLoginLinks(admin: SupabaseClient, orgId: string, match
 }
 
 async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, links: Array<{ name: string; url: string }>, invite = false): Promise<boolean> {
-  if (!emailIsSetUp()) {
+  if (!(await emailIsSetUp(orgId))) {
     console.error('portal sign-in email not sent: email is not set up for this deployment')
     return false
   }
@@ -290,11 +290,12 @@ async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, 
   <p style="font-size:13px;color:#374151;">It works once and expires in ${LOGIN_LINK_MINUTES} minutes. If you did not ask for it, you can ignore this email — nobody can see your account without it.</p>
 </div>`
   const text = [invite ? `${company} set up your online account. You can see your project, photos, documents and invoices, and send us a message.` : `Here is your sign-in link for your ${company} account.`, '', ...links.map((l) => `${l.url}`), '', ...(invite ? [`Next time, go to ${later} and enter your email to get a new link.`, ''] : []), `It works once and expires in ${LOGIN_LINK_MINUTES} minutes. If you did not ask for it, ignore this email.`].join('\n')
-  await getMailTransport(orgId).sendMail({ from: getCrmEmailFrom(), to, ...(brand.email ? { replyTo: brand.email } : {}), subject: invite ? `Your ${company} account is ready` : `Your ${company} account link`, html, text })
+  await getMailTransport(orgId).sendMail({ from: await getCrmEmailFrom(orgId), to, ...(brand.email ? { replyTo: brand.email } : {}), subject: invite ? `Your ${company} account is ready` : `Your ${company} account link`, html, text })
   return true
 }
 
 /** Can this deployment send the sign-in email at all? */
-export const emailIsSetUp = (): boolean => !!process.env.SMTP_HOST && !!getCrmEmailFrom()
+/** SMTP is configured and this company has a From of its own (lib/crm-email-from.ts). */
+export const emailIsSetUp = async (orgId: string): Promise<boolean> => !!process.env.SMTP_HOST && !!(await getCrmEmailFrom(orgId))
 
 export { SESSION_DAYS }

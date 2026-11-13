@@ -129,6 +129,7 @@ export default function QuickBooksCard({ initial = null, title = 'QuickBooks' }:
             {needsReconnect ? <p className="text-ui-base font-semibold text-ink">{view.reason ?? 'QuickBooks stopped accepting this connection.'} Sign in with the QuickBooks owner or admin login.</p> : null}
             {connected && view.expiresSoon ? <p className="text-ui-sm text-ink">QuickBooks ends this connection within 30 days. Reconnecting takes about a minute.</p> : null}
             {!connected && !needsReconnect ? <p className="text-ui-sm text-ink">You’ll sign in to QuickBooks and choose the company to connect. Use the QuickBooks owner or admin login.</p> : null}
+            {!connected && !needsReconnect ? <p className="text-ui-sm text-ink">Test with the demo company; once connected, this company can’t switch to a different QuickBooks company.</p> : null}
           </>
         )}
       </CardContent>

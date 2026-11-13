@@ -41,7 +41,7 @@ async function sendAgreementEmail(input: { to: string; name: string; roleName: s
   const url = `${input.appUrl}/comp-agreements/sign/${input.token}`
   const transport = getMailTransport(input.orgId, { connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 60_000 })
   await transport.sendMail({
-    from: getCrmEmailFrom(), to: input.to,
+    from: await getCrmEmailFrom(input.orgId), to: input.to,
     subject: `${input.companyName ? `${input.companyName} ` : ''}${input.roleName} compensation agreement - signature requested`,
     text: `Hi ${input.name}, please review and sign your ${input.roleName} compensation agreement effective ${input.effectiveDate}: ${url}`,
     html: `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;padding:24px"><h2>Compensation agreement ready for signature</h2><p>Hi ${escapeHtml(input.name)},</p><p>Your hiring manager has signed your <strong>${escapeHtml(input.roleName)}</strong> compensation agreement effective ${escapeHtml(input.effectiveDate)}.</p><p><a href="${url}" style="display:inline-block;background:#116530;color:white;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Review and sign agreement</a></p><p style="color:#6b7280;font-size:12px">This secure link expires in 14 days.</p></div>`,

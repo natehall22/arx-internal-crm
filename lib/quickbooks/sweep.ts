@@ -103,3 +103,48 @@ export async function sweepUnheard(admin: SupabaseClient, orgId: string, setting
   }
   return out
 }
+
+const ID_CHUNK = 200
+
+function nextDay(ymd: string): string {
+  const d = new Date(`${ymd}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * The earliest start date that strands no payment: the day after the newest payment whose QuickBooks event was SKIPPED (the
+ * 2026-11-06 history fix, or the worker's own "before your start date") and that QuickBooks never got (no link). A start date on
+ * or before such a payment's day would make the sweep send that job's invoice (it re-queues unheard invoices) while the payment
+ * stays skipped forever — fully paid jobs showing as open in the books. History is brought in by matching (the backfill), never
+ * by replaying skipped rows, so the safe answer is to refuse those dates. Null = no limit.
+ */
+export async function earliestSafeStartDate(admin: SupabaseClient, orgId: string): Promise<string | null> {
+  const db = orgDb(admin, orgId)
+  const { data: skipped, error } = await db
+    .from('integration_outbox')
+    .select('entity_id')
+    .eq('provider', 'quickbooks')
+    .eq('entity_table', 'job_payments')
+    .eq('status', 'skipped')
+    .limit(5000)
+  if (error) throw new Error(`quickbooks start date: ${error.message}`)
+  const ids = Array.from(new Set(((skipped ?? []) as Array<{ entity_id: string }>).map((r) => r.entity_id)))
+  let latest: string | null = null
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const chunk = ids.slice(i, i + ID_CHUNK)
+    const [{ data: links, error: linkError }, { data: pays, error: payError }] = await Promise.all([
+      db.from('qb_links').select('crm_id').eq('crm_table', 'job_payments').in('crm_id', chunk),
+      // org-scope-ok: ids come from this company's own outbox rows (loaded org-scoped above); job payments carry no org_id by design
+      admin.from('job_payments').select('id, paid_at').in('id', chunk),
+    ])
+    if (linkError || payError) throw new Error(`quickbooks start date: ${(linkError ?? payError)?.message}`)
+    const sent = new Set(((links ?? []) as Array<{ crm_id: string }>).map((l) => l.crm_id))
+    for (const p of (pays ?? []) as Array<{ id: string; paid_at: string | null }>) {
+      const d = typeof p.paid_at === 'string' && /^\d{4}-\d{2}-\d{2}/.test(p.paid_at) ? p.paid_at.slice(0, 10) : null
+      if (!d || sent.has(p.id)) continue
+      if (!latest || d > latest) latest = d
+    }
+  }
+  return latest ? nextDay(latest) : null
+}

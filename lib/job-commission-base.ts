@@ -30,7 +30,8 @@
  * commission base is what was INVOICED minus its sales tax (issued job invoices' total − tax_cents; drafts and void out) — the hours billed,
  * not the estimate. The sale amount stays the signed quote (the estimate). Re-synced after hours are approved and after a
  * job invoice changes (`syncTimeAndMaterialsCommissionBase`); once the job was paid on an approved week, the difference goes
- * on the next open week as commission change lines (lib/payroll-commission-change.ts). Fixed-price jobs: unchanged.
+ * on the next open week as commission change lines (lib/payroll-commission-change.ts). Fixed-price jobs: the base rule is
+ * unchanged; a base that moves after the job was paid gets the same change lines (followPaidCommissionBase).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { enqueueRecordEvent } from '@/lib/integrations'
@@ -342,9 +343,26 @@ export async function syncJobSaleAndCommissionBase(
     // QuickBooks: the job's ONE sale invoice (a signed change order moves the same invoice). The sale amount in cents is the
     // event version, so a new total is always a new event. Never blocks the sale; the worker's sweep catches a miss.
     await enqueueRecordEvent(admin, orgId, { eventType: 'invoice.upserted', table: 'production_jobs', id: jobId, version: Math.round(totals.saleAmount * 100) })
+    // Already paid on an approved week and the base moved (a change order signed after the payout, or one that stopped counting):
+    // the difference goes on the next open week as commission change lines — a drop at once, a rise once the job is paid in full
+    // again. No-op for a job not paid yet. Never blocks the sale; an error marks the job for the morning retry.
+    if (roundMoney(Number(job.commission_comp_base) || 0) !== totals.commissionBase) {
+      await followPaidCommissionBase(admin, orgId, jobId)
+    }
     return { status: 'updated', totals }
   } catch (error) {
     return { status: 'error', error }
+  }
+}
+
+/** Commission change lines for a job already paid on an approved week (lib/payroll-commission-change.ts). Never throws. */
+export async function followPaidCommissionBase(admin: SupabaseClient, orgId: string, jobId: string): Promise<void> {
+  try {
+    const { syncCommissionChangesForJob } = await import('@/lib/payroll-commission-change')
+    // On an unexpected error it marks the job for the morning retry itself.
+    await syncCommissionChangesForJob(admin, orgId, jobId)
+  } catch (error) {
+    console.error('[job-commission-base] commission change lines failed (marked for retry)', { orgId, jobId, error })
   }
 }
 

@@ -17,6 +17,7 @@ import { normalizeEmail } from '@/lib/customer-message-channels'
 import { suppressionOf } from '@/lib/customer-message-suppressions'
 import { isMissingColumn } from '@/lib/supabase/errors'
 import { getMailTransport } from '@/lib/setter-email'
+import { formatFromHeader } from '@/lib/crm-email-from'
 import { orgDb } from '@/lib/supabase/org-db'
 import type { JobInvoice } from '@/lib/types/invoices'
 
@@ -112,8 +113,7 @@ export async function resolveInvoiceSender(admin: SupabaseClient, orgId: string,
     if (!error && (data ?? []).length > 0) return { ok: false, status: 409, error: 'This customer turned off email, so the invoice was not sent. Send it another way.' }
     if (error && !isMissingColumn(error, 'messages_off_at')) throw new Error(`invoice email: ${error.message}`)
   }
-  const name = id.from.name.replace(/["\\\r\n]/g, '')
-  return { ok: true, from: /[^A-Za-z0-9 .'_-]/.test(name) ? `"${name}" <${id.from.address}>` : `${name} <${id.from.address}>`, replyTo: id.from.address }
+  return { ok: true, from: formatFromHeader(id.from.name, id.from.address), replyTo: id.from.address }
 }
 
 export type SendInvoiceResult = { ok: true; invoice: JobInvoice } | { ok: false; status: 400 | 409 | 503; error: string }

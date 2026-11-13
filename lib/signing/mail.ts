@@ -23,7 +23,7 @@ export async function sendSigningEmail(mail: SigningMail, orgId: string | null):
   try {
     const transporter = getMailTransport(orgId)
     await transporter.sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(orgId),
       to: mail.to,
       subject: mail.subject,
       text: mail.text,

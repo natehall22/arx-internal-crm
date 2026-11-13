@@ -93,6 +93,14 @@ describe('a company on Monday–Sunday', () => {
 describe('changing the pay week', () => {
   const legacyOpen = (id: string, cutoff: string) => ({ id, org_id: ORG, status: 'open', cutoff_at: cutoff, scheduled_pay_date: '2026-11-13', period_label: id, created_at: '2026-11-01T00:00:00Z' })
 
+  it('a cutoff in the fall-back hour (Sunday 1:30 AM) is refused before anything is read or saved', async () => {
+    const db = createFakeDb({ orgs: [org()], payroll_periods: [] })
+    const r = await savePayWeekSchedule(db.client, ORG, { ...ARX_WEEK, cutoffTime: '01:30' }, new Date('2026-06-01T15:00:00Z'))
+    expect(r).toMatchObject({ ok: false, status: 400 })
+    if (!r.ok) expect(r.error).toMatch(/clocks change.*happens twice on 2026-11-01/)
+    expect(db.tables.orgs[0].settings).toEqual({})
+  })
+
   it('preview: last Wednesday week exists → Thursday–Sunday in-between week, dates shown before saving', async () => {
     const db = createFakeDb({ orgs: [org()], payroll_periods: [{ ...legacyOpen('wed', '2026-11-12T04:59:59.999Z'), status: 'locked' }] })
     const r = await checkPayWeekChange(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))

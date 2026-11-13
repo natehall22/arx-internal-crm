@@ -89,7 +89,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Bonus line not found' }, { status: 404 })
     }
 
-    // Regional approvers may only approve bonuses for reps in their manager hierarchy
+    // Regional approvers may only approve bonuses for reps in their manager hierarchy — never their own
+    // (isUserInManagerHierarchy answers true for yourself; only a payroll admin may move a person's own line).
+    if (!isFullAdmin && bonusLine.user_id === actorUserId) {
+      return NextResponse.json({ error: 'You cannot change the status of your own bonus' }, { status: 403 })
+    }
     if (!isFullAdmin && isRegionalApprover) {
       const inHierarchy = await isUserInManagerHierarchy(
         supabase,

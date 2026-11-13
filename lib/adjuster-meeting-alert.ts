@@ -167,7 +167,7 @@ export async function sendAdjusterMeetingSyncAlert(
 
     const transporter = getMailTransport(input.orgId)
     await transporter.sendMail({
-      from: getCrmEmailFrom(),
+      from: await getCrmEmailFrom(input.orgId),
       to,
       subject: buildAdjusterMeetingAlertSubject(input),
       text: buildAdjusterMeetingAlertText(input),

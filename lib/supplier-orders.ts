@@ -64,6 +64,7 @@ import { FILES_BUCKET } from '@/lib/files/storage'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { isSuperAdmin, type SuperAdminProfile } from '@/lib/super-admin'
 import { deriveMaterialsState } from '@/lib/job-materials-state'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 /**
  * Who may do what. Viewing/previewing = the job board. Sending, cancelling and changing where a
@@ -111,6 +112,8 @@ export type SupplierOrderContext = {
   address: string | null
   scheduledDate: string | null
   orgName: string
+  /** The company's own From for order emails (lib/crm-email-from.ts). */
+  fromAddress: string
   orgPhone: string | null
   baseSheet: JobMaterialOrderData
   displayByKey: Map<string, DisplayMaterialsOrderItem>
@@ -350,6 +353,7 @@ export async function loadSupplierOrderContext(
       address: sheet.address ?? null,
       scheduledDate: sheet.scheduledDate,
       orgName: sheet.orgName,
+      fromAddress: await getCrmEmailFrom(orgId, admin),
       orgPhone: sheet.orgPhone,
       baseSheet: materialOrderFromRunSheet(sheet),
       displayByKey,
@@ -729,6 +733,7 @@ export function buildSupplierOrderPreview(
   }
 
   const email = composeSupplierOrderEmail({
+    from: ctx.fromAddress,
     kind,
     supplier,
     sender,

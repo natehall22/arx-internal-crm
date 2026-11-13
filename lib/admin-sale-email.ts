@@ -118,7 +118,7 @@ export async function notifyOrgAdminsOfSale(
   for (const to of emails) {
     try {
       await transporter.sendMail({
-        from: getCrmEmailFrom(),
+        from: await getCrmEmailFrom(params.orgId),
         to,
         subject,
         html,

@@ -73,3 +73,13 @@ describe('in-person signing and the e-sign consent step', () => {
     expect((await res.json().catch(() => ({}))).code).not.toBe('consent_required')
   })
 })
+
+describe('in-person change order row is written by the service client (202611240040 drops member writes)', () => {
+  it('inserts job_change_orders through the service client, stamped with the caller\'s company', async () => {
+    const res = await POST(new Request('https://crm.example/api/change-orders/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, signingMode: 'in_person', customerSignature: 'data:image/png;base64,xx' }) }) as never)
+    expect(res.status).toBe(200)
+    const ins = db.writes.filter((w) => w.table === 'job_change_orders' && w.op === 'insert')
+    expect(ins).toHaveLength(1)
+    expect(ins[0].rows[0]).toMatchObject({ org_id: 'org-a', project_id: 'p1', job_id: 'j1', co_number: 'CO-001', status: 'completed', created_by: 'u1' })
+  })
+})

@@ -393,7 +393,7 @@ export async function PATCH(
               </div>`
 
           await transporter.sendMail({
-            from: getCrmEmailFrom(),
+            from: await getCrmEmailFrom(profile.org_id),
             to: newCloser.email,
             subject,
             text: textBody,
@@ -414,7 +414,7 @@ export async function PATCH(
             (await isUserActiveForTransactionalEmail(adminClient, appointment.closer_user_id))
           ) {
             await transporter.sendMail({
-              from: getCrmEmailFrom(),
+              from: await getCrmEmailFrom(profile.org_id),
               to: prevUser.email,
               subject: `${typeLabel} reassigned — ${homeownerLabel}`,
               text: `Hi ${prevUser.full_name || 'there'},\n\nThe ${typeLabel.toLowerCase()} with ${homeownerLabel} on ${scheduledTime} ET was reassigned to ${newCloser.full_name} by ${profile.full_name}.\n\nYou no longer need this on your calendar.\n\n${recordUrl}`,
@@ -447,7 +447,7 @@ export async function PATCH(
             (await isUserActiveForTransactionalEmail(adminClient, setterId))
           ) {
             await transporter.sendMail({
-              from: getCrmEmailFrom(),
+              from: await getCrmEmailFrom(profile.org_id),
               to: setterUser.email,
               subject: `${typeLabel} reassigned — ${homeownerLabel}`,
               text: `Hi ${setterUser.full_name || 'there'},\n\nThe ${typeLabel.toLowerCase()} with ${homeownerLabel} (${scheduledTime} ET) was reassigned from ${previousCloserName} to ${newCloser.full_name} by ${profile.full_name}.\n\nYou are included as a Google Calendar attendee on the new assignee's event (same as when this was first scheduled).\n\n${recordUrl}`,
