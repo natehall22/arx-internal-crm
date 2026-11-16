@@ -769,7 +769,7 @@ describe('structure: the wall stays intact except through this one door', () => 
   }
 
   test('the support cookie is read only by auth, middleware, the support modules/routes and the banner', () => {
-    const allowed = (f: string) => f === 'lib/auth.ts' || f.startsWith('lib/support/') || f.startsWith('app/api/support/') || f === 'components/support/SupportBanner.tsx'
+    const allowed = (f: string) => f === 'lib/auth.ts' || f.startsWith('lib/support/') || f.startsWith('app/api/support/') || f === 'components/support/SupportBanner.tsx' || f === 'lib/supabase/request-client.ts' /* refuses only */
     const offenders = sources(['app', 'lib', 'components']).filter((f) => /SUPPORT_COOKIE|supportCookieFrom|arx_support/.test(read(f)) && !allowed(f))
     expect(offenders).toEqual([])
     expect(read('middleware.ts')).toContain('supportCookieFrom')
