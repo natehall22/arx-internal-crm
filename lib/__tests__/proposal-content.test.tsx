@@ -119,6 +119,10 @@ describe('cover title', () => {
   it('blank → the company\'s word', () => {
     expect(proposalCoverTitle('  ', resolve({ profile: { id: 'exterior_cleaning', version: 1 } }))).toBe('QUOTE')
     expect(proposalCoverTitle(undefined, resolve({}))).toBe('PROPOSAL')
+    // The builder title has no limit; the cover holds 120 characters.
+    const long = proposalCoverTitle('x'.repeat(300), resolve({}))
+    expect(long).toHaveLength(120)
+    expect(long.endsWith('…')).toBe(true)
   })
   it('a roofing proposal with the default title still prints ROOFING PROPOSAL', () => {
     expect(text({ ...base, content: resolve({}) })).toContain('|ROOFING PROPOSAL|')

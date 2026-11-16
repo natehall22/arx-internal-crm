@@ -12,8 +12,10 @@ import { INDUSTRY_PROFILES, type IndustryProfileId } from '@/lib/industry-profil
 export const PROPOSAL_CONTENT_SETTINGS_KEY = 'proposalContent'
 /** Single-line texts (cover subtitle, headings) and the title of a step / item. */
 export const MAX_TITLE_LENGTH = 80
-export const MAX_BODY_LENGTH = 300
-export const MAX_ITEMS = 8
+/** Body / list caps are what still fits the PDF's fixed pages (Process 2x3 grid; Warranties & Why-us on one page), checked by
+ * rendering the real PDF at the caps with 80-character titles — larger lists spilled onto an extra, footer-less page. */
+export const MAX_BODY_LENGTH = 200
+export const MAX_ITEMS = 6
 
 export const TEXT_FIELDS = ['coverSubtitle', 'processTitle', 'processSubtitle', 'whyUsTitle'] as const
 export const LIST_FIELDS = ['processSteps', 'whyUsItems'] as const
@@ -104,8 +106,11 @@ export function fillCompanyToken(text: string, companyName: string): string {
 }
 
 /** The cover's big title: the proposal's own title, else the company's word for the document; always uppercase. */
+export const MAX_COVER_TITLE_LENGTH = 120
 export function proposalCoverTitle(title: string | null | undefined, content: Pick<ProposalPdfContent, 'proposalWord'>): string {
-  return (title?.trim() || content.proposalWord || 'Proposal').toUpperCase()
+  const t = (title?.trim() || content.proposalWord || 'Proposal').toUpperCase()
+  // The builder's title has no length limit; past this it no longer fits the cover page.
+  return t.length > MAX_COVER_TITLE_LENGTH ? `${t.slice(0, MAX_COVER_TITLE_LENGTH - 1).trimEnd()}…` : t
 }
 
 /**

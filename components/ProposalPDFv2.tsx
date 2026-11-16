@@ -205,6 +205,10 @@ const createStyles = (theme: Theme) => {
       textAlign: 'center',
       marginTop: s.xxl,
     },
+    // A long proposal title (free text in the builder) at hero size wraps past the cover page: smaller type keeps it on one sheet.
+    coverTitleLong: {
+      fontSize: f.xxl,
+    },
     coverSubtitle: {
       fontSize: f.lg,
       color: c.textMuted,
@@ -392,10 +396,14 @@ const createStyles = (theme: Theme) => {
       borderColor: c.border,
       minHeight: 140,
     },
-    // More than six steps (a company's own list): tighter cards so the page still holds them.
+    // Wordier steps (a company's own list, lib/proposal-content.ts caps): tighter cards so the page still holds them.
     processCardCompact: {
       padding: s.md,
       minHeight: 0,
+    },
+
+    stepTitleCompact: {
+      fontSize: f.md,
     },
 
     stepDescriptionCompact: {
@@ -500,6 +508,18 @@ const createStyles = (theme: Theme) => {
       fontSize: f.sm,
       color: c.textMuted,
       lineHeight: 1.4,
+    },
+    // More than five items or long ones (a company's own list): tighter rows so the Warranties & Why-us page still holds them.
+    whyUsItemCompact: {
+      marginBottom: s.sm,
+    },
+    whyUsHeadlineCompact: {
+      fontSize: f.base,
+      marginBottom: 1,
+    },
+    whyUsDescriptionCompact: {
+      fontSize: f.xs,
+      lineHeight: 1.3,
     },
 
     // ========== WAYS TO PAY ==========
@@ -813,6 +833,8 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
   const totalPages = 7
   // A longer or wordier step list (a company's own) gets tighter cards so the Process page still holds it; today's six short steps keep the full layout.
   const denseProcess = content.processSteps.length > 6 || content.processSteps.some((st) => st.body.length > 110)
+  const coverTitle = legacy ? 'ROOFING PROPOSAL' : proposalCoverTitle(proposal.title, content)
+  const denseWhyUs = content.whyUsItems.length > 5 || content.whyUsItems.some((it) => it.body.length > 110)
 
   return (
     <Document>
@@ -833,7 +855,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
 
           {/* Title */}
           <View style={styles.coverMiddle}>
-            <Text style={styles.coverTitle}>{legacy ? 'ROOFING PROPOSAL' : proposalCoverTitle(proposal.title, content)}</Text>
+            <Text style={coverTitle.length > 40 ? [styles.coverTitle, styles.coverTitleLong] : styles.coverTitle}>{coverTitle}</Text>
             <Text style={styles.coverSubtitle}>{content.coverSubtitle}</Text>
             
             <View style={{ marginTop: tokens.spacing.xxl }}>
@@ -1026,7 +1048,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
                   <View style={styles.stepNumber}>
                     <Text style={styles.stepNumberText}>{index + 1}</Text>
                   </View>
-                  <Text style={styles.stepTitle}>{fillCompanyToken(step.title, brandShortName)}</Text>
+                  <Text style={denseProcess ? [styles.stepTitle, styles.stepTitleCompact] : styles.stepTitle}>{fillCompanyToken(step.title, brandShortName)}</Text>
                 </View>
                 <Text style={denseProcess ? [styles.stepDescription, styles.stepDescriptionCompact] : styles.stepDescription}>{fillCompanyToken(step.body, brandShortName)}</Text>
               </View>
@@ -1077,9 +1099,9 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           </View>
 
           {content.whyUsItems.map((point, index) => (
-            <View key={index} style={styles.whyUsItem}>
-              <Text style={styles.whyUsHeadline}>{fillCompanyToken(point.title, brandShortName)}</Text>
-              <Text style={styles.whyUsDescription}>{fillCompanyToken(point.body, brandShortName)}</Text>
+            <View key={index} style={denseWhyUs ? [styles.whyUsItem, styles.whyUsItemCompact] : styles.whyUsItem}>
+              <Text style={denseWhyUs ? [styles.whyUsHeadline, styles.whyUsHeadlineCompact] : styles.whyUsHeadline}>{fillCompanyToken(point.title, brandShortName)}</Text>
+              <Text style={denseWhyUs ? [styles.whyUsDescription, styles.whyUsDescriptionCompact] : styles.whyUsDescription}>{fillCompanyToken(point.body, brandShortName)}</Text>
             </View>
           ))}
 
