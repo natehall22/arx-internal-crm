@@ -26,10 +26,12 @@ export async function GET(request: NextRequest) {
   let keepAliveId: NodeJS.Timeout | null = null
 
   // The stream reads with the access token it connected with. Once that token expires every read
-  // 401s and the bell silently freezes, so end the stream instead: the browser reconnects with a
-  // refreshed session (hooks/useRealtimeUpdates.ts).
-  const isExpiredSession = (error: { code?: string; message?: string } | null | undefined, status?: number) =>
-    status === 401 || error?.code === 'PGRST301' || /jwt expired/i.test(error?.message ?? '')
+  // 401s and the bell silently freezes, so end the stream instead. The browser reconnects; that
+  // request 401s at requireAuthApi (middleware does not refresh /api/*), so the client calls
+  // /api/auth/refresh and the next reconnect carries a fresh token (hooks/useRealtimeUpdates.ts).
+  // Only an EXPIRED token ends it: another bad-token error would pass requireAuthApi again and loop.
+  const isExpiredSession = (error: { message?: string } | null | undefined, status?: number) =>
+    status === 401 && /jwt expired/i.test(error?.message ?? '')
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -162,6 +164,7 @@ export async function GET(request: NextRequest) {
 
       // Send initial data immediately
       await fetchAndSendData()
+      if (!isConnected) return
 
       // Poll database every 10 seconds and push updates
       intervalId = setInterval(async () => {
