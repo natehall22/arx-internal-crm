@@ -23,6 +23,13 @@ export async function GET(request: NextRequest) {
   const encoder = new TextEncoder()
   let isConnected = true
   let intervalId: NodeJS.Timeout | null = null
+  let keepAliveId: NodeJS.Timeout | null = null
+
+  // The stream reads with the access token it connected with. Once that token expires every read
+  // 401s and the bell silently freezes, so end the stream instead: the browser reconnects with a
+  // refreshed session (hooks/useRealtimeUpdates.ts).
+  const isExpiredSession = (error: { code?: string; message?: string } | null | undefined, status?: number) =>
+    status === 401 || error?.code === 'PGRST301' || /jwt expired/i.test(error?.message ?? '')
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -44,17 +51,32 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      const endStream = () => {
+        isConnected = false
+        if (intervalId) clearInterval(intervalId)
+        if (keepAliveId) clearInterval(keepAliveId)
+        try {
+          controller.close()
+        } catch {
+          // Already closed
+        }
+      }
+
       const fetchAndSendData = async () => {
         if (!isConnected) return
 
         try {
           // Fetch notifications
-          const { data: notifications } = await supabase
+          const { data: notifications, error: listError, status: listStatus } = await supabase
             .from('notifications')
             .select('*')
             .eq('recipient_user_id', profile.id)
             .order('created_at', { ascending: false })
             .limit(10)
+          if (isExpiredSession(listError, listStatus)) {
+            endStream()
+            return
+          }
 
           const { count: unreadCount } = await supabase
             .from('notifications')
@@ -151,24 +173,16 @@ export async function GET(request: NextRequest) {
       }, 10000)
 
       // Send keepalive every 30 seconds to prevent connection timeout
-      const keepAliveId = setInterval(sendKeepAlive, 30000)
+      keepAliveId = setInterval(sendKeepAlive, 30000)
 
       // Handle client disconnect
-      request.signal.addEventListener('abort', () => {
-        isConnected = false
-        if (intervalId) clearInterval(intervalId)
-        clearInterval(keepAliveId)
-        try {
-          controller.close()
-        } catch {
-          // Already closed
-        }
-      })
+      request.signal.addEventListener('abort', endStream)
     },
 
     cancel() {
       isConnected = false
       if (intervalId) clearInterval(intervalId)
+      if (keepAliveId) clearInterval(keepAliveId)
     },
   })
 
