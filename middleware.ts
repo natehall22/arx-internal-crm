@@ -14,6 +14,7 @@ import {
   signResolvedLookups,
   type ResolvedLookups,
 } from '@/lib/company-host'
+import { SAFE_METHODS, SUPPORT_ALWAYS_ALLOWED_PATHS, SUPPORT_REQUEST_HEADER, supportCookieFrom, verifySupportToken } from '@/lib/support/token'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import {
   isExpired,
@@ -31,6 +32,16 @@ export async function middleware(request: NextRequest) {
   const gate = await companyHostGate(request)
   if (gate.response) return gate.response
   // Every pass-through carries the gate's lookups (signed) and never a client-sent copy of that header.
+  // Support session (lib/support/): a cookie WE signed. Middleware only reads it (signature + expiry); resolveAuth re-checks the
+  // grant on every request. It adds the method + path header resolveAuth enforces writes with (a client-sent copy was deleted in
+  // the gate), and in view-only mode refuses every write itself with a 403, before any route or server action runs.
+  const support = await verifySupportToken(supportCookieFrom(request.cookies), 'session')
+  if (support) {
+    gate.requestHeaders.set(SUPPORT_REQUEST_HEADER, `${request.method.toUpperCase()} ${pathname}`)
+    if (support.l !== 'full' && !SAFE_METHODS.has(request.method.toUpperCase()) && !SUPPORT_ALWAYS_ALLOWED_PATHS.has(pathname)) {
+      return NextResponse.json({ error: 'Support view mode' }, { status: 403, headers: { 'cache-control': 'no-store' } })
+    }
+  }
   const pass = () => NextResponse.next({ request: { headers: gate.requestHeaders } })
 
   // API routes handle their own auth (no HTML redirects to API calls).
@@ -51,6 +62,9 @@ export async function middleware(request: NextRequest) {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
     return pass()
   }
+
+  // A signed support cookie is a session on its own (it carries no Supabase token; resolveAuth validates it for real).
+  if (support) return pass()
 
   const sessionData = getSupabaseSessionFromCookieStore(request.cookies)
 
@@ -124,6 +138,7 @@ type GateResult = { response: NextResponse | null; requestHeaders: Headers }
 async function companyHostGate(request: NextRequest): Promise<GateResult> {
   const requestHeaders = new Headers(request.headers)
   requestHeaders.delete(RESOLVED_LOOKUPS_HEADER)
+  requestHeaders.delete(SUPPORT_REQUEST_HEADER) // never trust a client-sent copy; middleware sets its own for a valid support cookie
   const done = (response: NextResponse | null): GateResult => ({ response, requestHeaders })
 
   const isApi = request.nextUrl.pathname.startsWith('/api/')

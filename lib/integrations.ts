@@ -1,6 +1,7 @@
 import { loadOrgFeatures } from './org-features'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { EnqueueEventParams } from './types/integrations'
+import { supportBlocksSend } from '@/lib/support/send-guard'
 
 /**
  * Generate a deterministic idempotency key for an event.
@@ -44,6 +45,8 @@ export async function enqueueIntegrationEvent(
   )
 
   if (provider === 'quickbooks') {
+    // A support session pushes nothing to QuickBooks (lib/support/send-guard.ts); the sweep finds the record later.
+    if (await supportBlocksSend('quickbooks_push', { orgId, eventType })) return null
     // A company that has not switched QuickBooks on gets no rows at all (nothing will drain them, and a later switch-on must not
     // wake up a backlog of old events; the sweep finds what matters from the start date).
     if (!(await loadOrgFeatures(supabase, orgId)).quickbooks) return null

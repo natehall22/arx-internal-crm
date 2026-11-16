@@ -22,6 +22,7 @@ import type { MessageChannel, RenderedMessage } from '@/lib/customer-messages'
 import { normalizeUsPhone } from '@/lib/sms/phone'
 import { getSmsProvider } from '@/lib/sms/provider'
 import { countSegments } from '@/lib/sms/segments'
+import { supportBlocksSend } from '@/lib/support/send-guard'
 
 export type SendOutcome =
   | { ok: true; providerId: string | null; /** Texts: billable segments and the carrier's cost estimate. */ segments?: number; costMicros?: number | null }
@@ -129,6 +130,7 @@ export const smsChannel: MessageChannelSender = {
     return normalizeUsPhone(r.phone)
   },
   async send(to, m, opts) {
+    if (await supportBlocksSend('text_message', { orgId: opts.orgId })) return { ok: false, permanent: false, error: 'Texts are blocked in a support session' }
     const provider = getSmsProvider()
     if (!provider?.canSend()) return { ok: false, permanent: false, error: 'Text messages are not set up yet' }
     if (!opts.smsFrom) return { ok: false, permanent: false, error: 'This company has no texting number yet' }

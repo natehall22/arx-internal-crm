@@ -13,6 +13,7 @@
 import { abcSupplyConnector } from '@/lib/suppliers/abc/connector'
 import type { LineSnapshot, SendKind, SupplierRecord } from '@/lib/material-sourcing'
 import { deliverSupplierOrderEmail, type ComposedSupplierEmail } from '@/lib/supplier-order-email'
+import { assertNoSupportSend } from '@/lib/support/send-guard'
 
 export type SupplierOrderTransmission = {
   /** The sending company: a demo company's order is logged, never emailed to a real supplier (lib/demo-org-mail.ts). */
@@ -78,6 +79,7 @@ export function supplierChannelProblem(supplier: SupplierRecord, lines?: LineSna
 }
 
 export async function sendOrderToSupplier(order: SupplierOrderTransmission): Promise<SupplierOrderTransmitResult> {
+  await assertNoSupportSend('supplier_order', { orgId: order.orgId }) // a support session orders nothing
   const problem = supplierChannelProblem(order.supplier)
   if (problem) throw new Error(problem)
   const connector = connectorFor(order.supplier)

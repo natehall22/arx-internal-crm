@@ -3,6 +3,7 @@ import { SignJWT, importPKCS8 } from 'jose'
 import { waitUntil } from '@vercel/functions'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isDemoSenderOrg } from '@/lib/demo-org'
+import { supportBlocksSend } from '@/lib/support/send-guard'
 
 /**
  * APNs sender for ARX Sales (com.arx.ARX-Sales).
@@ -232,6 +233,7 @@ export async function sendPushToUser(
     const jwt = await getApnsJwt()
     if (!jwt) return
 
+    if (await supportBlocksSend('push')) return // a support session sends nothing (lib/support/send-guard.ts)
     const admin = createServiceClient()
     // A demo company never pushes to a real device (logged only). Decided on the sending (the user's own) company; the user's
     // company is remembered for 10 minutes and the demo set is cached, so a normal company's push costs no extra read.

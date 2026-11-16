@@ -11,6 +11,8 @@
  */
 import { createHmac, timingSafeEqual } from 'crypto'
 
+import { assertNoSupportSend } from '@/lib/support/send-guard'
+
 export const STRIPE_API_VERSION = '2024-06-20'
 
 export class StripeApiError extends Error {
@@ -86,6 +88,7 @@ export async function stripeRequest<T extends StripeObject = StripeObject>(
   params: Params = {},
   opts: StripeRequestOptions = {}
 ): Promise<T> {
+  if (method !== 'GET') await assertNoSupportSend('payment_charge', { path }) // a support session moves no money
   const key = stripeSecretKey()
   if (!key) throw new StripeApiError(503, null, 'Online payments are not set up (STRIPE_SECRET_KEY)')
   const base = (opts.base ?? process.env.STRIPE_API_BASE ?? 'https://api.stripe.com').replace(/\/+$/, '')

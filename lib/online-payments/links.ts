@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgAppUrl } from '@/lib/company-links'
 import { orgDb } from '@/lib/supabase/org-db'
+import { assertNoSupportSend } from '@/lib/support/send-guard'
 
 export type PaymentLinkKind = 'invoice' | 'save_card'
 
@@ -41,6 +42,7 @@ export async function createPaymentLink(
   createdBy: string | null,
   now: Date = new Date()
 ): Promise<{ id: string; url: string; expiresAt: string }> {
+  await assertNoSupportSend('payment_link', { orgId, kind: target.kind }) // a support session makes no customer links
   const token = randomBytes(32).toString('base64url')
   const days = target.kind === 'invoice' ? INVOICE_LINK_DAYS : SAVE_CARD_LINK_DAYS
   const expiresAt = new Date(now.getTime() + days * 86_400_000).toISOString()
