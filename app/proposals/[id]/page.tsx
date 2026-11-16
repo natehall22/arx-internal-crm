@@ -8,6 +8,7 @@ import { renderProposalPdfBlob } from '@/components/proposal-pdf-render'
 import ProposalSnapshotHistory from '@/components/proposals/ProposalSnapshotHistory'
 import { postProposalSnapshot } from '@/lib/proposal-snapshot-client'
 import type { ProposalPdfSnapshot } from '@/lib/proposal-snapshots'
+import type { ProposalPdfContent } from '@/lib/proposal-content'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import { isCountedLine } from '@/lib/quotes/pricing'
@@ -109,6 +110,7 @@ export default function ProposalDetailPage() {
   const [historyKey, setHistoryKey] = useState(0)
   const [measurement, setMeasurement] = useState<any>(null)
   const [company, setCompany] = useState<any>(null)
+  const [content, setContent] = useState<ProposalPdfContent | null>(null)
   const [rep, setRep] = useState<any>(null)
   const [savingVisibility, setSavingVisibility] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -162,6 +164,7 @@ export default function ProposalDetailPage() {
       setCompany(data.company)
       setRep(data.rep)
       setMeasurement(data.measurement)
+      setContent(data.content ?? null)
       setHasCompletedInstallationContract(Boolean(data.has_completed_installation_contract))
       setUserRole(data.role || '')
       setCurrentUserId(typeof data.current_user_id === 'string' ? data.current_user_id : '')
@@ -288,6 +291,8 @@ export default function ProposalDetailPage() {
           ? { total_squares: measurement.total_squares, total_area_sqft: measurement.total_area_sqft, predominant_pitch: measurement.predominant_pitch, facet_count: measurement.facet_count }
           : measurement,
         company: companyForPdf,
+        // Resolved words for the cover / process / why-us pages: stored with the snapshot so a rebuilt PDF reads the same.
+        ...(content ? { content } : {}),
         rep,
         photos: {
           property: propertyImageUrl,
