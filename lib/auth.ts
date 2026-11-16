@@ -6,7 +6,7 @@ import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie
 import { COMPANY_LOOKUP_UNAVAILABLE, deploymentOrgId, fenceAllowsOrg } from '@/lib/company-host'
 import { getRequestCompanyFence } from '@/lib/company-host-server'
 import { checkSupportSession, logSupportEvent, type SupportMarker } from '@/lib/support/access'
-import { SAFE_METHODS, SUPPORT_REQUEST_HEADER, supportCookieFrom, verifySupportToken } from '@/lib/support/token'
+import { SAFE_METHODS, SUPPORT_REQUEST_HEADER, supportCookieFrom, supportRequestRefusal, verifySupportToken } from '@/lib/support/token'
 
 export type AuthContext = {
   authUser: {
@@ -71,6 +71,9 @@ export function profileAllowedOnThisDeployment(orgId: string | null | undefined)
 async function resolveSupport(): Promise<AuthResolution | null> {
   let cookieValue: string | null
   try {
+    // The iPhone app and other Bearer callers authenticate their own token only: a support cookie never applies to them.
+    const authHeader = headers().get('authorization') ?? ''
+    if (/^bearer\s/i.test(authHeader)) return null
     cookieValue = supportCookieFrom(cookies())
   } catch {
     return null
@@ -101,7 +104,11 @@ async function resolveSupport(): Promise<AuthResolution | null> {
 async function resolveAuth(opts: { ignoreSupport?: boolean } = {}): Promise<AuthResolution> {
   if (!opts.ignoreSupport) {
     const support = await resolveSupport()
-    if (support) return support
+    if (support) {
+      // Every caller (requireAuth in a server action, getAuthContext, requireAuthApi) gets the same write rule.
+      if (support.status === 'ok' && support.context.support) await enforceSupportWrites(support.context.support)
+      return support
+    }
   }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -231,10 +238,7 @@ export async function requireAuth(): Promise<AuthContext> {
  */
 export async function requireAuthApi(): Promise<AuthContext> {
   const r = await resolveAuth()
-  if (r.status === 'ok') {
-    if (r.context.support) await enforceSupportWrites(r.context.support)
-    return r.context
-  }
+  if (r.status === 'ok') return r.context
   if (r.status === 'company_unavailable') throw new CompanyLookupUnavailableError()
   if (r.status === 'inactive') {
     throw new Error('Account disabled')
@@ -254,36 +258,44 @@ export class SupportWriteRefusedError extends Error {
   }
 }
 
-/** The customer's own support-access settings are theirs alone: staff can never extend, end or add anything there. */
-const SUPPORT_OWN_ROUTES = ['/api/admin/support-access']
+/** One 'write' log row per request, however many times auth is resolved in it (keyed on the request's headers object). */
+const loggedWrites = new WeakMap<object, Promise<void>>()
 
 /**
- * View mode: every API write is refused. Full mode: each write is logged first and refused if it cannot be logged. The method
- * and path come from middleware's header (never from the client: middleware deletes any copy and sets its own); a missing or
- * unreadable header inside a support session is treated as a write (fail closed).
+ * View mode: every write is refused. Full mode: each write is logged first and refused if it cannot be logged; credential and
+ * support-settings doors are refused in every mode (`supportRequestRefusal`, lib/support/token.ts — the same rule middleware
+ * applies). The method and path come from middleware's header (never from the client: middleware deletes any copy and sets its
+ * own); a missing or unreadable header inside a support session is treated as a write (fail closed).
  */
 async function enforceSupportWrites(support: SupportMarker): Promise<void> {
   let raw = ''
+  let reqKey: object | null = null
   try {
-    raw = headers().get(SUPPORT_REQUEST_HEADER) ?? ''
+    const h = headers()
+    reqKey = h as unknown as object
+    raw = h.get(SUPPORT_REQUEST_HEADER) ?? ''
   } catch {
     raw = ''
   }
   const space = raw.indexOf(' ')
   const method = space > 0 ? raw.slice(0, space).toUpperCase() : ''
   const path = space > 0 ? raw.slice(space + 1) : ''
+  const refusal = supportRequestRefusal(method, path, support.level)
+  if (refusal) throw new SupportWriteRefusedError(refusal)
   if (method && SAFE_METHODS.has(method)) return
-  if (support.level !== 'full') throw new SupportWriteRefusedError('Support view mode')
-  if (SUPPORT_OWN_ROUTES.some((r) => path === r || path.startsWith(`${r}/`))) {
-    throw new SupportWriteRefusedError("Support staff cannot change the company's support access")
-  }
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!serviceRoleKey) throw new SupportWriteRefusedError('Support write could not be recorded')
-  const admin = createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
-  try {
-    await logSupportEvent(admin, { orgId: support.orgId, staffUserId: support.staffUserId, actingAsUserId: support.actingAsUserId, level: 'full', event: 'write', detail: { method: method || 'unknown', route: path || 'unknown' } })
-  } catch (e) {
-    console.error('[support] write refused: could not record it', e)
-    throw new SupportWriteRefusedError('Support write could not be recorded')
-  }
+  const pending = reqKey ? loggedWrites.get(reqKey) : undefined
+  if (pending) return pending
+  const write = (async () => {
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!serviceRoleKey) throw new SupportWriteRefusedError('Support write could not be recorded')
+    const admin = createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
+    try {
+      await logSupportEvent(admin, { orgId: support.orgId, staffUserId: support.staffUserId, actingAsUserId: support.actingAsUserId, level: 'full', event: 'write', detail: { method: method || 'unknown', route: path || 'unknown' } })
+    } catch (e) {
+      console.error('[support] write refused: could not record it', e)
+      throw new SupportWriteRefusedError('Support write could not be recorded')
+    }
+  })()
+  if (reqKey) loggedWrites.set(reqKey, write)
+  return write
 }
