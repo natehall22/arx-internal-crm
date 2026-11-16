@@ -19,6 +19,8 @@ export const MAX_ITEMS = 6
 
 export const TEXT_FIELDS = ['coverSubtitle', 'processTitle', 'processSubtitle', 'whyUsTitle'] as const
 export const LIST_FIELDS = ['processSteps', 'whyUsItems'] as const
+/** Stored flag: the owner cleared the cover subtitle on purpose, so the cover shows no subtitle line (blank ≠ "use default"). */
+export const COVER_SUBTITLE_HIDDEN_KEY = 'coverSubtitleHidden'
 type TextField = (typeof TEXT_FIELDS)[number]
 type ListField = (typeof LIST_FIELDS)[number]
 export type ProposalContentEdits = Partial<Record<TextField, string> & Record<ListField, ProposalContentItem[]>>
@@ -77,6 +79,7 @@ export function readProposalContentEdits(stored: unknown): ProposalContentEdits 
     const t = cleanText(s[f], MAX_TITLE_LENGTH)
     if (t) out[f] = t
   }
+  if (s[COVER_SUBTITLE_HIDDEN_KEY] === true) out.coverSubtitle = ''
   for (const f of LIST_FIELDS) {
     const l = cleanItems(s[f])
     if (l) out[f] = l
@@ -120,7 +123,7 @@ export function proposalCoverTitle(title: string | null | undefined, content: Pi
  */
 export function parseProposalContentPatch(body: unknown, defaults: ProposalContentDefaults): { set: ProposalContentEdits; remove: string[] } | { error: string } {
   const b = obj(body)
-  const allKeys = [...TEXT_FIELDS, ...LIST_FIELDS] as string[]
+  const allKeys = [...TEXT_FIELDS, ...LIST_FIELDS, COVER_SUBTITLE_HIDDEN_KEY] as string[]
   if (b.reset === true) return { set: {}, remove: allKeys }
   const p = obj(b.settings)
   const set: Record<string, unknown> = {}
@@ -130,6 +133,15 @@ export function parseProposalContentPatch(body: unknown, defaults: ProposalConte
       if (typeof v !== 'string') return { error: 'Texts must be text' }
       if (v.trim().length > MAX_TITLE_LENGTH) return { error: `Titles can be up to ${MAX_TITLE_LENGTH} characters` }
       const t = v.trim()
+      if (k === 'coverSubtitle') {
+        // Blank cover subtitle = no subtitle line (the only text that can be switched off).
+        if (!t) {
+          remove.push(k)
+          set[COVER_SUBTITLE_HIDDEN_KEY] = true
+          continue
+        }
+        remove.push(COVER_SUBTITLE_HIDDEN_KEY)
+      }
       if (!t || t === defaults[k as TextField]) remove.push(k)
       else set[k] = t
     } else if ((LIST_FIELDS as readonly string[]).includes(k)) {

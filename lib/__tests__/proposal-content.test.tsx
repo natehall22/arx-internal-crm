@@ -99,6 +99,13 @@ describe('resolveProposalContent', () => {
     expect(c.processSteps[0]!.body).toHaveLength(MAX_BODY_LENGTH)
   })
 
+  it('a hidden cover subtitle prints no subtitle line', () => {
+    const c = resolve({ proposalContent: { coverSubtitleHidden: true } })
+    expect(c.coverSubtitle).toBe('')
+    expect(text({ ...base, content: c })).not.toContain('Professional Roofing Services')
+    expect(resolve({}).coverSubtitle).toBe('Professional Roofing Services')
+  })
+
   it('an edit shows on the PDF', () => {
     const c = resolve({ proposalContent: { whyUsTitle: 'Why {company}?', whyUsItems: [{ title: 'Fast', body: 'Quick.' }] } })
     const t = text({ ...base, content: c })
@@ -154,10 +161,18 @@ describe('parseProposalContentPatch', () => {
   it('a field equal to the default (or blank) is cleared so it keeps following the profile', () => {
     const r = parseProposalContentPatch({ settings: { coverSubtitle: d.coverSubtitle, processTitle: ' ', processSteps: d.processSteps, whyUsTitle: 'Mine' } }, d) as { set: object; remove: string[] }
     expect(r.set).toEqual({ whyUsTitle: 'Mine' })
-    expect(r.remove.sort()).toEqual(['coverSubtitle', 'processSteps', 'processTitle'])
+    expect(r.remove.sort()).toEqual(['coverSubtitle', 'coverSubtitleHidden', 'processSteps', 'processTitle'])
   })
   it('reset clears everything', () => {
-    expect((parseProposalContentPatch({ reset: true }, d) as { remove: string[] }).remove).toHaveLength(6)
+    expect((parseProposalContentPatch({ reset: true }, d) as { remove: string[] }).remove).toHaveLength(7)
+  })
+  it('a blank cover subtitle switches the line off; typing one switches it back on', () => {
+    const off = parseProposalContentPatch({ settings: { coverSubtitle: '  ' } }, d) as { set: Record<string, unknown>; remove: string[] }
+    expect(off.set).toEqual({ coverSubtitleHidden: true })
+    expect(off.remove).toEqual(['coverSubtitle'])
+    const on = parseProposalContentPatch({ settings: { coverSubtitle: 'Mine' } }, d) as { set: Record<string, unknown>; remove: string[] }
+    expect(on.set).toEqual({ coverSubtitle: 'Mine' })
+    expect(on.remove).toEqual(['coverSubtitleHidden'])
   })
 })
 

@@ -93,6 +93,7 @@ export default function ProposalContentCard({ proposalWord = 'Proposal' }: { pro
           <>
             <label className="flex flex-col gap-1">
               <span className="text-ui-base font-semibold text-ink">Cover subtitle</span>
+              <span className="text-ui-sm text-ink">Leave blank for no subtitle.</span>
               <input value={form.coverSubtitle} maxLength={MAX_TITLE_LENGTH} onChange={(e) => setForm({ ...form, coverSubtitle: e.target.value })} className={field} />
             </label>
             <label className="flex flex-col gap-1">
@@ -112,7 +113,7 @@ export default function ProposalContentCard({ proposalWord = 'Proposal' }: { pro
 
             <section aria-label="Preview" className="flex flex-col gap-2 rounded-ui border border-surface-line bg-surface-subtle p-3 text-ink">
               <h3 className="text-ui-base font-semibold">Preview (text only)</h3>
-              <p className="text-ui-base">{fillCompanyToken(form.coverSubtitle, co)}</p>
+              {form.coverSubtitle.trim() ? <p className="text-ui-base">{fillCompanyToken(form.coverSubtitle, co)}</p> : <p className="text-ui-sm text-ink">(No cover subtitle)</p>}
               <p className="mt-2 text-ui-base font-semibold">{fillCompanyToken(form.processTitle, co)}</p>
               <p className="text-ui-base">{fillCompanyToken(form.processSubtitle, co)}</p>
               <ol className="list-decimal pl-5 text-ui-base">
