@@ -117,6 +117,7 @@ import VisitsBoard from '@/components/service-plans/VisitsBoard'
 import ReadyToBill from '@/components/billing/ReadyToBill'
 import HoursToBill from '@/components/billing/HoursToBill'
 import JobHourlyCard from '@/components/billing/JobHourlyCard'
+import CompanyLogoCard from '@/components/admin/CompanyLogoCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
 import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSettingsCard'
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
@@ -721,6 +722,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-md p-4"><CrewIncentivesSettingsCard /></div>
     case 'crew-scoreboard':
       return <div className="mx-auto max-w-md p-4"><CrewScoreboardCard data={HARNESS_CREW_SCOREBOARD as never} /></div>
+    case 'company-logo':
+      return <div className="mx-auto max-w-2xl p-4"><CompanyLogoCard initialLogoUrl="/dev-harness-logo.svg" initialDarkLogoUrl={null} confirmRemove={async () => true} /></div>
     case 'hourly-settings':
       return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
     case 'customer-invoices':

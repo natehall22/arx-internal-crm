@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
@@ -20,7 +20,8 @@ import {
   UNDERLAYMENT_SQ_PER_ROLL,
 } from '@/lib/roof-shingle-constants'
 import { toast } from '@/components/ui/toast'
-import { orgLogoHref } from '@/lib/files/files-object'
+import CompanyLogoCard from '@/components/admin/CompanyLogoCard'
+import { orgLogoHref, storedOrgDarkLogo } from '@/lib/files/files-object'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import GeneralSettingsCard, { GENERAL_BRAND_INPUTS, type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
@@ -200,9 +201,8 @@ export default function AdminSettingsPage() {
   
   // Logo state
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
-  const [uploadingLogo, setUploadingLogo] = useState(false)
+  const [darkLogoUrl, setDarkLogoUrl] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('')
-  const logoInputRef = useRef<HTMLInputElement>(null)
   
   // Notification Templates state
   interface NotificationTemplate {
@@ -464,7 +464,9 @@ export default function AdminSettingsPage() {
           currency: data.org.currency || data.settings?.currency || 'USD',
         })
         // Logo through the public logo route (the `files` bucket is not read by public URL)
-        setLogoUrl(orgLogoHref(data.org.id, { logo_url: data.org.logo_url, settings: data.settings ?? data.org.settings }))
+        const logoSource = { logo_url: data.org.logo_url, settings: data.settings ?? data.org.settings }
+        setLogoUrl(orgLogoHref(data.org.id, logoSource))
+        setDarkLogoUrl(storedOrgDarkLogo(logoSource) ? orgLogoHref(data.org.id, logoSource, { variant: 'dark' }) : null)
         setSchedulingSettings({
           inspection_feedback_buffer_minutes: data.org.inspection_feedback_buffer_minutes ?? 0,
           default_scheduling_gap_minutes: data.org.default_scheduling_gap_minutes ?? 15,
@@ -624,79 +626,6 @@ export default function AdminSettingsPage() {
     }
   }
 
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    // Validate file type
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml']
-    if (!allowedTypes.includes(file.type)) {
-      toast.error('Invalid file type. Please upload a PNG, JPG, WEBP, or SVG image.')
-      return
-    }
-
-    // Validate file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      toast('File too large. Maximum size is 2MB.')
-      return
-    }
-
-    setUploadingLogo(true)
-    try {
-      const formData = new FormData()
-      formData.append('logo', file)
-
-      const response = await fetch('/api/admin/logo', {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const data = await response.json()
-        toast.error(data.error || 'Failed to upload logo')
-        return
-      }
-
-      const data = await response.json()
-      setLogoUrl(data.logo_url)
-      toast.success('Logo uploaded')
-    } catch (error) {
-      console.error('Error uploading logo:', error)
-      toast.error('Failed to upload logo')
-    } finally {
-      setUploadingLogo(false)
-      // Reset the input
-      if (logoInputRef.current) {
-        logoInputRef.current.value = ''
-      }
-    }
-  }
-
-  const handleLogoRemove = async () => {
-    if (!(await confirmDialog({ title: 'Are you sure you want to remove the company logo?', destructive: true }))) return
-
-    setUploadingLogo(true)
-    try {
-      const response = await fetch('/api/admin/logo', {
-        method: 'DELETE',
-      })
-
-      if (!response.ok) {
-        const data = await response.json()
-        toast.error(data.error || 'Failed to remove logo')
-        return
-      }
-
-      setLogoUrl(null)
-      toast.success('Logo removed')
-    } catch (error) {
-      console.error('Error removing logo:', error)
-      toast.error('Failed to remove logo')
-    } finally {
-      setUploadingLogo(false)
-    }
-  }
-
   const menuSections = [
     {
       title: 'WORKFLOWS & FIELDS',
@@ -794,76 +723,13 @@ export default function AdminSettingsPage() {
               
               {/* Company Logo Section - Admin Only */}
               {userRole === 'admin' && (
-                <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Company Logo</h2>
-                  <p className="text-sm text-gray-700 mb-4">
-                    Upload your company logo. This will be visible to all team members and can be used on proposals and documents.
-                  </p>
-                  
-                  <div className="flex items-start gap-6">
-                    {/* Logo Preview */}
-                    <div className="flex-shrink-0">
-                      {logoUrl ? (
-                        <div className="relative w-32 h-32 border-2 border-gray-200 rounded-xl overflow-hidden bg-gray-50">
-                          <Image
-                            src={logoUrl}
-                            alt="Company Logo"
-                            fill
-                            className="object-contain p-2"
-                            unoptimized
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-32 h-32 border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center bg-gray-50">
-                          <div className="text-center">
-                            <svg className="w-10 h-10 text-gray-400 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            <span className="text-xs text-gray-600">No logo</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Upload Controls */}
-                    <div className="flex-1">
-                      <input
-                        ref={logoInputRef}
-                        type="file"
-                        accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
-                        onChange={handleLogoUpload}
-                        className="hidden"
-                        id="logo-upload"
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => logoInputRef.current?.click()}
-                          disabled={uploadingLogo}
-                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
-                        >
-                          {uploadingLogo ? 'Uploading...' : logoUrl ? 'Change Logo' : 'Upload Logo'}
-                        </button>
-                        {logoUrl && (
-                          <button
-                            onClick={handleLogoRemove}
-                            disabled={uploadingLogo}
-                            className="px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50 text-sm font-medium"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-700 mt-2">
-                        Accepted formats: PNG, JPG, WEBP, SVG. Max size: 2MB.
-                      </p>
-                      <p className="text-xs text-gray-700 mt-1">
-                        Recommended: Square image, at least 200x200 pixels.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <CompanyLogoCard
+                  initialLogoUrl={logoUrl}
+                  initialDarkLogoUrl={darkLogoUrl}
+                  confirmRemove={(what) => confirmDialog({ title: `Are you sure you want to remove ${what}?`, destructive: true })}
+                />
               )}
-              
+
               <GeneralSettingsCard
                 value={generalSettings}
                 onChange={(patch) => setGeneralSettings((prev) => ({ ...prev, ...patch }))}

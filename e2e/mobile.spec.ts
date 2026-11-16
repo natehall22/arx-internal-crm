@@ -439,6 +439,15 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'by-the-hour', run: async (p) => { await p.getByRole('button', { name: 'By the hour' }).click(); await p.waitForSelector('text=of 20 h estimated') } },
     ] },
+  { name: 'company-logo', path: '/dev-harness/company-logo', ready: 'text=Logo for dark backgrounds (optional, e.g. all-white)', mock: async (p) => {
+    await p.route('**/dev-harness-logo.svg', (route) => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#888"/></svg>' }))
+    await p.route('**/api/admin/logo', (route) => route.fulfill(json({ success: true, logo_url: '/dev-harness-logo.svg' })))
+  },
+    states: [
+      { name: 'svg-warning', run: async (p) => {
+        await p.locator('#logo-upload-dark').setInputFiles({ name: 'white.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') })
+        await p.waitForSelector("text=SVG logos won't appear on PDFs") } },
+    ] },
   { name: 'hourly-settings', path: '/dev-harness/hourly-settings', ready: 'text=Hourly billing', mock: async (p) => {
     await p.route('**/api/admin/hourly-billing', (route) => route.fulfill(json({ ok: true, ...HARNESS_HOURLY_SETTINGS })))
   } },

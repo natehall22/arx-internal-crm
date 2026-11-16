@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { requireAuthApi } from '@/lib/auth'
 import { FILES_OBJECT_BUCKET, orgLogoHref } from '@/lib/files/files-object'
+import { mergeOrgSettings } from '@/lib/org-settings'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -30,9 +31,9 @@ async function requireLogoAdmin(): Promise<{ orgId: string } | NextResponse> {
   return { orgId: profile.org_id }
 }
 
-async function removeLogoObjects(admin: SupabaseClient, orgId: string) {
+async function removeLogoObjects(admin: SupabaseClient, orgId: string, prefix = 'logo.') {
   const { data: existingFiles } = await admin.storage.from(FILES_OBJECT_BUCKET).list(`org/${orgId}`, { search: 'logo' })
-  const names = (existingFiles ?? []).filter((f) => f.name.startsWith('logo.')).map((f) => `org/${orgId}/${f.name}`)
+  const names = (existingFiles ?? []).filter((f) => f.name.startsWith(prefix)).map((f) => `org/${orgId}/${f.name}`)
   if (names.length > 0) await admin.storage.from(FILES_OBJECT_BUCKET).remove(names)
 }
 
@@ -50,6 +51,14 @@ async function writeOrgLogo(admin: SupabaseClient, orgId: string, value: string 
   return error?.message ?? null
 }
 
+/** The optional dark-background logo lives only in `orgs.settings.logo_dark_url` (no column), written per key. */
+async function writeDarkLogo(admin: SupabaseClient, orgId: string, value: string | null): Promise<string | null> {
+  const { error } = value ? await mergeOrgSettings(admin, orgId, { logo_dark_url: value }) : await mergeOrgSettings(admin, orgId, {}, { remove: ['logo_dark_url'] })
+  return error
+}
+
+const isDarkVariant = (v: unknown) => v === 'dark'
+
 // POST - Upload company logo (admin only). Stores the storage path (`org/<orgId>/logo.<ext>?v=<ts>`), never a public URL;
 // readers link to it through orgLogoHref → GET /api/org-logo/<orgId>.
 export async function POST(request: NextRequest) {
@@ -61,6 +70,7 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData()
     const file = formData.get('logo') as File
+    const dark = isDarkVariant(formData.get('variant'))
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
@@ -79,11 +89,11 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    const filePath = `org/${orgId}/logo.${fileExt}`
+    const filePath = `org/${orgId}/${dark ? 'logo-dark' : 'logo'}.${fileExt}`
     const buffer = Buffer.from(await file.arrayBuffer())
 
     // Old logo may have a different extension.
-    await removeLogoObjects(adminClient, orgId)
+    await removeLogoObjects(adminClient, orgId, dark ? 'logo-dark.' : 'logo.')
 
     const { error: uploadError } = await adminClient.storage
       .from(FILES_OBJECT_BUCKET)
@@ -99,14 +109,16 @@ export async function POST(request: NextRequest) {
 
     // `?v=` makes the stored value change on every upload, so orgLogoHref's cache tag changes too (the path does not).
     const storedValue = `${filePath}?v=${Date.now()}`
-    const updateError = await writeOrgLogo(adminClient, orgId, storedValue)
+    const updateError = dark ? await writeDarkLogo(adminClient, orgId, storedValue) : await writeOrgLogo(adminClient, orgId, storedValue)
     if (updateError) {
       return NextResponse.json({ error: updateError }, { status: 500 })
     }
 
     return NextResponse.json({
       success: true,
-      logo_url: orgLogoHref(orgId, { logo_url: storedValue }),
+      logo_url: dark
+        ? orgLogoHref(orgId, { logo_url: storedValue, settings: { logo_dark_url: storedValue } }, { variant: 'dark' })
+        : orgLogoHref(orgId, { logo_url: storedValue }),
     })
   } catch (error) {
     console.error('Logo upload error:', error)
@@ -117,15 +129,16 @@ export async function POST(request: NextRequest) {
 }
 
 // DELETE - Remove company logo (admin only)
-export async function DELETE() {
+export async function DELETE(request?: NextRequest) {
   try {
     const auth = await requireLogoAdmin()
     if (auth instanceof NextResponse) return auth
     const { orgId } = auth
     const adminClient = createServiceClient()
 
-    await removeLogoObjects(adminClient, orgId)
-    const updateError = await writeOrgLogo(adminClient, orgId, null)
+    const dark = isDarkVariant(new URL(request?.url ?? 'http://x').searchParams.get('variant'))
+    await removeLogoObjects(adminClient, orgId, dark ? 'logo-dark.' : 'logo.')
+    const updateError = dark ? await writeDarkLogo(adminClient, orgId, null) : await writeOrgLogo(adminClient, orgId, null)
     if (updateError) {
       return NextResponse.json({ error: updateError }, { status: 500 })
     }
