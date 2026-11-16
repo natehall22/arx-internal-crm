@@ -6,7 +6,7 @@ import { HARNESS_CATEGORIES, JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYM
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 async function mockApi(page: Page) {
-  await page.route('**/api/me/effective-permissions', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ role: 'owner', fullAccess: true, permissions: [] }) }))
+  await page.route('**/api/me/effective-permissions', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ role: 'owner', fullAccess: true, permissions: [], org: { name: 'Summit Lawn Care', logoHref: null, logoDarkHref: null } }) }))
   // Any direct Supabase call from a component (browser client) gets an empty answer.
   await page.route('http://127.0.0.1:9/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
   await page.route('**/api/**', async (route) => {
@@ -49,7 +49,7 @@ async function mockApi(page: Page) {
     if (p === '/api/referral-partners/summary') return route.fulfill(json({ assigned_count: 9, opening_soon: [{ id: 'rp1', name: 'Concord Realty Group', days_until_open: 3 }], opening_soon_count: 1, jobs_this_month: 2 }))
     if (p === '/api/admin/comp-plans/defaults') return route.fulfill(json(DEFAULT_PLANS))
     if (p === '/api/users') return route.fulfill(json(USERS))
-    if (p.includes('/effective-permissions')) return route.fulfill(json({ permissions: [], fullAccess: true }))
+    if (p.includes('/effective-permissions')) return route.fulfill(json({ permissions: [], fullAccess: true, org: { name: 'Summit Lawn Care', logoHref: null, logoDarkHref: null } }))
     return route.fulfill(json({}))
   })
 }
@@ -1264,6 +1264,16 @@ test('Ask AI in the top bar opens the assistant panel', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'AI Assistant' })).toBeVisible()
 })
 
+test('nav shows the company name as text when it has no logo, never ARX', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/dev-harness/nav')
+  await page.waitForSelector('text=Page content')
+  await expect(page.locator('header a', { hasText: 'Summit Lawn Care' })).toBeVisible()
+  await expect(page.locator('img[src*="arx-shield"]')).toHaveCount(0)
+  await expect(page.getByText('ARX CRM')).toHaveCount(0)
+  await expectNoSidewaysScroll(page)
+})
+
 test('Ask AI is not shown to someone who is not on the assistant list', async ({ page }) => {
   await mockApi(page)
   await page.route('**/api/settings', (route) => route.fulfill(json({ profile: { aiAssistantAllowlisted: false }, userSettings: {} })))
@@ -1275,16 +1285,15 @@ test('Ask AI is not shown to someone who is not on the assistant list', async ({
 
 test('top bar fits the phone with a wide company logo, Ask AI and + Partner; minimized assistant taps are 44px', async ({ page }) => {
   await mockApi(page)
+  // a 4:1 company logo served by the API (logo only, no name text, no ARX shield)
+  const wide = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="150"><rect width="600" height="150" fill="#333"/></svg>')
+  await page.route('**/api/me/effective-permissions', (route) => route.fulfill(json({ role: 'owner', fullAccess: true, permissions: [], org: { name: 'Summit Lawn Care', logoHref: wide, logoDarkHref: wide } })))
   await mockAllowlistedAssistant(page)
   await page.goto('/dev-harness/nav')
   await page.waitForSelector('text=Page content')
   await page.getByRole('button', { name: 'Ask AI' }).waitFor()
-  // a 4:1 company logo (the harness has no org row, so swap the fallback image in place)
-  await page.evaluate(() => {
-    const img = document.querySelector('header a img') as HTMLImageElement
-    img.className = 'h-9 w-auto max-w-[160px] object-contain'
-    img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="150"><rect width="600" height="150" fill="#333"/></svg>')
-  })
+  await expect(page.locator('header a img')).toHaveAttribute('alt', 'Summit Lawn Care')
+  await expect(page.locator('img[src*="arx-shield"]')).toHaveCount(0)
   await page.waitForTimeout(300)
   const vw = page.viewportSize()!.width
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(vw)

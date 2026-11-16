@@ -213,9 +213,6 @@
   "components/InspectionStatusCard.tsx": {
     "timezone": 1
   },
-  "components/Nav.tsx": {
-    "brand": 2
-  },
   "components/SetterFeedbackPrompt.tsx": {
     "timezone": 1
   },

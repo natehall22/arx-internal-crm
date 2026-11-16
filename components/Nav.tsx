@@ -4,7 +4,6 @@ import { useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
-import { orgLogoHref } from '@/lib/files/files-object'
 import {
   canAccessCustomerRecords,
   canAccessCustomerRecordsFromPermissionNames,
@@ -21,7 +20,7 @@ import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { DEFAULT_ORG_FEATURES, type OrgFeatures } from '@/lib/org-features'
-import { featuresFromEffectivePermissions, fetchEffectivePermissions, profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
+import { featuresFromEffectivePermissions, fetchEffectivePermissions, navBrandingFromEffectivePermissions, profileFromEffectivePermissions, type NavBranding } from '@/hooks/useOrgFeatures'
 import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
 import { useAIAssistantLauncher } from '@/components/AIAssistantProvider'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -49,8 +48,9 @@ export default function Nav() {
   const [orgProfile, setOrgProfile] = useState<ClientOrgProfile>(() => coerceClientOrgProfile(null))
   const [effectivePermissionNames, setEffectivePermissionNames] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
-  const [companyName, setCompanyName] = useState<string>('ARX CRM')
-  const [companyLogo, setCompanyLogo] = useState<string | null>(null)
+  // The company's own name + logo from /api/me/effective-permissions. null = not loaded yet: the header shows nothing (no other company's mark).
+  const [branding, setBranding] = useState<NavBranding | null>(null)
+  const [logoFailed, setLogoFailed] = useState(false)
   const [customRoleName, setCustomRoleName] = useState<string | null>(null)
   const [customRoleDisplayName, setCustomRoleDisplayName] = useState<string | null>(null)
 
@@ -91,6 +91,8 @@ export default function Nav() {
           setPayWeekEnabled((data as { flags?: { payWeek?: unknown } }).flags?.payWeek === true)
           setOrgFeatures(featuresFromEffectivePermissions(data))
           setOrgProfile(profileFromEffectivePermissions(data))
+          setBranding(navBrandingFromEffectivePermissions(data))
+          setLogoFailed(false)
           if (!apiFullAccess) {
             setEffectivePermissionNames(new Set(serverPerms))
           }
@@ -103,8 +105,8 @@ export default function Nav() {
         setEffectivePermsReady(true)
       }
 
-      // Org branding and legacy user-permission grants still use the Supabase client.
-      // These are cosmetic/additive — a null user here is non-fatal.
+      // Legacy user-permission grants still use the Supabase client.
+      // These are additive — a null user here is non-fatal.
       const {
         data: { session },
       } = await supabase.auth.getSession()
@@ -126,27 +128,6 @@ export default function Nav() {
           : (profile as any)?.custom_role
         if (customRole?.name) setCustomRoleName(customRole.name)
         if (customRole?.display_name) setCustomRoleDisplayName(customRole.display_name)
-
-        // Load org info for company name and logo
-        if (profile?.org_id) {
-          const { data: org, error: orgError } = await supabase
-            .from('orgs')
-            .select('*')
-            .eq('id', profile.org_id)
-            .single()
-
-          if (orgError) {
-            console.error('Nav: failed to load org branding', orgError)
-          }
-
-          if (org) {
-            if (org.name) {
-              setCompanyName(org.name)
-            }
-            // Public logo route; its `?v=` changes on every upload (lib/files/files-object.ts). The Nav is dark: dark variant, main logo if none.
-            setCompanyLogo(orgLogoHref(profile.org_id, org, { variant: 'dark' }))
-          }
-        }
 
         // Load user-specific permissions (legacy additive grants shown in filter)
         const { data: userPerms } = await supabase
@@ -173,39 +154,17 @@ export default function Nav() {
     loadUserRoleAndPermissions()
   }, [])
 
-  // Re-fetch org data when navigating away from settings (to pick up changes)
+  // Pick up a changed name/logo after leaving Settings/Admin: same API call (shared, 5 s reuse), no second reader.
   useEffect(() => {
-    const fetchOrgData = async () => {
-      if (!supabaseRef.current) return
-      
-      const { data: { user } } = await supabaseRef.current.auth.getUser()
-      if (!user) return
-
-      const { data: profile } = await supabaseRef.current
-        .from('users')
-        .select('org_id')
-        .eq('id', user.id)
-        .single()
-
-      if (profile?.org_id) {
-        const { data: org } = await supabaseRef.current
-          .from('orgs')
-          .select('name, logo_url, settings')
-          .eq('id', profile.org_id)
-          .single()
-        
-        if (org) {
-          if (org.name) {
-            setCompanyName(org.name)
-          }
-          setCompanyLogo(orgLogoHref(profile.org_id, org, { variant: 'dark' }))
-        }
-      }
-    }
-
-    // Only re-fetch when navigating away from settings
-    if (!pathname.includes('/settings') && !pathname.includes('/admin')) {
-      fetchOrgData()
+    if (pathname.includes('/settings') || pathname.includes('/admin')) return
+    let cancelled = false
+    void fetchEffectivePermissions().then((r) => {
+      if (cancelled || !r.ok) return
+      setBranding(navBrandingFromEffectivePermissions(r.data))
+      setLogoFailed(false)
+    })
+    return () => {
+      cancelled = true
     }
   }, [pathname])
 
@@ -275,10 +234,15 @@ export default function Nav() {
   const overflowSections = nav.sections.filter((s) => !bottomSections.includes(s))
   const homeHref = nav.sections[0]?.href ?? '/today'
 
-  const logo = companyLogo ? (
-    <img src={companyLogo} alt={companyName} className="h-9 w-auto max-w-[160px] object-contain" onError={() => setCompanyLogo(null)} />
+  // Logo only when the company has one (it already carries the name); else the name as text; while loading, an empty box of the same height.
+  const companyName = branding?.name ?? ''
+  const logoSrc = branding && !logoFailed ? branding.logoDarkHref ?? branding.logoHref : null
+  const logo = !branding ? (
+    <span aria-hidden className="block h-10 w-10" />
+  ) : logoSrc ? (
+    <img src={logoSrc} alt={companyName} className="h-10 w-auto max-w-[200px] object-contain" onError={() => setLogoFailed(true)} />
   ) : (
-    <img src="/brand/arx-shield.png" alt="ARX" className="h-8 w-auto flex-shrink-0 object-contain" />
+    <span className="truncate text-lg font-bold">{companyName}</span>
   )
 
   const linkBase = 'flex min-h-[44px] items-center gap-3 rounded-md px-3 text-sm font-medium'
@@ -289,7 +253,6 @@ export default function Nav() {
       <aside aria-label="Main" className="print:hidden fixed inset-y-0 left-0 z-40 hidden w-60 flex-col overflow-y-auto bg-gray-900 text-white md:flex">
         <Link href={homeHref} className="flex min-h-[64px] items-center gap-2 px-4 text-lg font-bold">
           {logo}
-          <span className="truncate">{companyName}</span>
         </Link>
         <nav className="flex flex-1 flex-col gap-1 px-2 pb-4">
           {nav.sections.map((s) => {
@@ -337,7 +300,7 @@ export default function Nav() {
       <header className="bg-gray-800 text-white print:hidden">
         <div className="flex h-14 items-center justify-between gap-2 px-3 sm:px-6">
           {/* min-w-0 on the link and its logo: a wide company logo shrinks instead of pushing the top bar past 375px */}
-          <Link href={homeHref} className="flex min-h-[44px] min-w-0 items-center gap-2 md:hidden [&>img]:min-w-0">
+          <Link href={homeHref} className="flex min-h-[44px] min-w-0 items-center gap-2 md:hidden [&>img]:min-w-0 [&>span]:min-w-0">
             {logo}
           </Link>
           <button
