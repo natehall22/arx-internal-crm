@@ -7,8 +7,30 @@ import { clientBrandNames } from '@/lib/org-brand-client'
 import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { createServiceClient } from '@/lib/supabase/service'
+import { orgLogoHref } from '@/lib/files/files-object'
 
 export const dynamic = 'force-dynamic'
+
+/** The caller's own company's chrome branding: name + logo hrefs (public logo route, dark variant for the dark nav). Not money, so every role gets it. */
+async function loadNavBranding(admin: ReturnType<typeof createServiceClient>, orgId: string, name: string) {
+  let logoHref: string | null = null
+  let logoDarkHref: string | null = null
+  try {
+    const { data, error } = await admin
+      .from('orgs')
+      .select('logo_url, settings_logo:settings->logo_url, settings_logo_dark:settings->logo_dark_url')
+      .eq('id', orgId)
+      .maybeSingle()
+    if (error) throw error
+    const row = data as { logo_url?: string | null; settings_logo?: unknown; settings_logo_dark?: unknown } | null
+    const org = { logo_url: row?.logo_url ?? null, settings: { logo_url: row?.settings_logo, logo_dark_url: row?.settings_logo_dark } }
+    logoHref = orgLogoHref(orgId, org)
+    logoDarkHref = orgLogoHref(orgId, org, { variant: 'dark' })
+  } catch (e) {
+    console.error('GET /api/me/effective-permissions: org logo not readable', orgId, e)
+  }
+  return { name, logoHref, logoDarkHref }
+}
 
 export async function GET() {
   try {
@@ -24,6 +46,8 @@ export async function GET() {
       getDocumentBrand(admin, profile.org_id),
     ])
 
+    const org = await loadNavBranding(admin, profile.org_id as string, documentBrand.name)
+
     return NextResponse.json({
       role: profile.role,
       fullAccess,
@@ -31,6 +55,7 @@ export async function GET() {
       // Server-side feature flags the client needs (the new payroll screens ship OFF; company feature switches,
       // lib/org-features.ts — and the industry profile's words/menu/price book lists, lib/org-profile.ts — read
       // client-side through hooks/useOrgFeatures.ts). `features` is the profile-aware map (one rule, resolveOrgFeatures).
+      org,
       flags: { payWeek: isPayWeekEnabled(), features: orgProfile.features, profile: clientOrgProfile(orgProfile), brand: clientBrandNames(documentBrand) },
     })
   } catch (e) {

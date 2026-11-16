@@ -56,6 +56,16 @@ export function brandFromEffectivePermissions(data: unknown): ClientBrandNames {
   return coerceClientBrandNames(flags?.brand)
 }
 
+/** The company's chrome branding (Nav): name + logo hrefs; a missing field is null/blank, never another company's. */
+export type NavBranding = { name: string; logoHref: string | null; logoDarkHref: string | null }
+
+export function navBrandingFromEffectivePermissions(data: unknown): NavBranding {
+  const o = data && typeof data === 'object' ? (data as { org?: unknown }).org : undefined
+  const r = o && typeof o === 'object' ? (o as Record<string, unknown>) : {}
+  const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  return { name: s(r.name) ?? '', logoHref: s(r.logoHref), logoDarkHref: s(r.logoDarkHref) }
+}
+
 /** The company's names for client components — same shared fetch; `initial` (server-resolved) wins on first render. */
 export function useOrgBrandNames(initial?: ClientBrandNames | null): ClientBrandNames {
   const [brand, setBrand] = useState<ClientBrandNames>(() => initial ?? lastKnownBrand ?? { ...GENERIC_BRAND_NAMES })
