@@ -105,7 +105,8 @@ export default async function TodayPage() {
     : undefined
   const usd = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
   const profileTileList = (profileTiles ?? []).flatMap<{ label: string; value: string | number }>((key) => {
-    if (key === 'visits-left-today') return [{ label: 'Visits left today', value: visitQueues.find((q) => q.id === 'todays-visits')?.count ?? 0 }]
+    // No service plans = no visits to count (hide the tile); a failed visits load shows '—', never a false 0.
+    if (key === 'visits-left-today') return visitsOn ? [{ label: 'Visits left today', value: visitQueues.find((q) => q.id === 'todays-visits')?.count ?? '—' }] : []
     if (key === 'unpaid-invoices') return unpaidInvoices ? [{ label: 'Unpaid invoices', value: unpaidInvoices.empty.includes('couldn’t load') ? '—' : unpaidInvoices.count }] : []
     return billedWeek === undefined ? [] : [{ label: 'Billed, last 7 days', value: billedWeek === null ? '—' : usd(billedWeek) }]
   })
