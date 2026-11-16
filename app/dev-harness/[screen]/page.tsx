@@ -134,6 +134,7 @@ import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import QuoteClient from '@/components/quotes/QuoteClient'
 import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
+import ProposalSnapshotHistory from '@/components/proposals/ProposalSnapshotHistory'
 import type { QuoteView } from '@/lib/quotes/load'
 import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
 import type { PayPageView } from '@/lib/online-payments/public'
@@ -754,6 +755,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={{ ...HARNESS_QUOTE_VIEW, state: 'approved', approval: { typedName: 'Pat Doe', approvedAt: '2026-11-11T15:00:00.000Z', totalCents: 180000, depositCents: 45000, taxCents: 11800, chosenNames: ['Mulch refresh (6 yards)'], depositState: 'due', canPayOnline: true, copyHref: '/api/files/signed/contract/harness' } }} />
     case 'quote-send-card':
       return <div className="mx-auto max-w-2xl p-4"><QuoteLinkCard proposalId="harness-proposal" /></div>
+    case 'proposal-snapshot-history':
+      return <div className="mx-auto max-w-2xl p-4"><ProposalSnapshotHistory proposalId="harness-proposal" /></div>
     case 'quote-settings':
       return <div className="mx-auto max-w-2xl p-4"><QuoteApprovalCard /></div>
     case 'invoice-online':
