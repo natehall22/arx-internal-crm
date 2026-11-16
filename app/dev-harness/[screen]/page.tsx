@@ -595,6 +595,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <WorkOrdersClient initialWorkOrders={HARNESS_WORK_ORDERS as never} />
     case 'customers':
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS} query="" /></div>
+    case 'customers-recurring':
+      return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS.map((c) => ({ ...c, recurring: c.id === 'c1' }))} query="" showRecurring /></div>
     case 'proposals':
       return <ProposalsPage />
     case 'proposal-builder':

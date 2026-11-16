@@ -155,6 +155,35 @@ export async function loadServicePlans(
   return { ready: true, plans: out }
 }
 
+/**
+ * For the Customers list. `recurring` = customers with at least one ACTIVE plan (paused / ended do not count; an active
+ * plan whose start date is still ahead counts — they signed up): the "Recurring" tag. `onPlan` = customers with any plan
+ * at all, in any status — a plan is a sale, so they are customers, not prospects (a "New customer + plan" has no project
+ * or won deal). Derived on read from service_plans — no stored flag. null = plans not set up yet.
+ */
+export async function loadPlanCustomerIds(admin: SupabaseClient, orgId: string): Promise<{ recurring: Set<string>; onPlan: Set<string> } | null> {
+  const recurring = new Set<string>()
+  const onPlan = new Set<string>()
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await orgDb(admin, orgId)
+      .from('service_plans')
+      .select('customer_id, status')
+      .order('id')
+      .range(from, from + PAGE - 1)
+    if (error) {
+      if (!isServicePlansNotReadyError(error)) console.error('[service-plans] plan customers failed', error)
+      return null
+    }
+    for (const r of data ?? []) {
+      if (!r.customer_id) continue
+      onPlan.add(r.customer_id as string)
+      if (r.status === 'active') recurring.add(r.customer_id as string)
+    }
+    if ((data ?? []).length < PAGE) break
+  }
+  return { recurring, onPlan }
+}
+
 export async function loadServicePlan(admin: SupabaseClient, orgId: string, planId: string): Promise<ServicePlan | null> {
   if (typeof planId !== 'string' || !planId) return null
   const { data, error } = await orgDb(admin, orgId).from('service_plans').select(SERVICE_PLAN_COLUMNS).eq('id', planId).maybeSingle()

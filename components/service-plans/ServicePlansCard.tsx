@@ -110,21 +110,23 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
   const tierLabel = (p: PlanRow) => p.pricing.tiers.find((t) => t.key === p.tier_key)?.label ?? null
 
   const f = editing?.form
+  // One-time customer: no active plan. Same start-a-plan flow, just said plainly.
+  const oneTime = !d.plans.some((p) => p.status === 'active')
 
   return (
-    <Card>
+    <Card id="service-plans">
       <CardHeader>
         <CardTitle>Service plans</CardTitle>
         {d.canEdit && d.properties.length > 0 ? (
           <Button size="sm" onClick={() => setEditing({ plan: null, form: formFromTemplate(d.templates[0] ?? null, d) })}>
-            + Add plan
+            {oneTime ? 'Put on a plan' : '+ Add plan'}
           </Button>
         ) : null}
       </CardHeader>
       <CardContent>
         {d.canEdit && d.properties.length === 0 ? <p className="text-ui-base text-ink">Add a property first — a plan is for one property.</p> : null}
         {d.plans.length === 0 ? (
-          d.properties.length > 0 ? <p className="text-ui-base text-ink">No service plans yet.</p> : null
+          d.properties.length > 0 ? <p className="text-ui-base text-ink">One-time customer — no recurring plan yet.</p> : null
         ) : (
           <ul className="divide-y divide-surface-line">
             {d.plans.map((p) => (

@@ -7,6 +7,8 @@ import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { notFound } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { resolveServicePlanAccess } from '@/lib/service-plans-access'
+import { loadPlanCustomerIds } from '@/lib/service-plans-db'
 import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
 
 export default async function CustomersPage({
@@ -66,6 +68,19 @@ export default async function CustomersPage({
   ])
   customers = customers.map((c) => ({ ...c, category: categoryById.get(c.id as string) ?? null }))
 
+  // Service plans on: anyone with a plan (any status) has bought — a "New customer + plan" has no project or won deal.
+  // Recurring / One-time (active plan or not) only for viewers who may see plans.
+  const plansAccess = rep ? null : await resolveServicePlanAccess(adminForCategories, authUser.id, profile).catch(() => null)
+  const planIds = plansAccess?.feature ? await loadPlanCustomerIds(adminForCategories, profile.org_id).catch(() => null) : null
+  const showRecurring = !!planIds && plansAccess?.view === true
+  if (planIds) {
+    customers = customers.map((c) => ({
+      ...c,
+      bought: c.bought || planIds.onPlan.has(c.id as string),
+      ...(showRecurring ? { recurring: planIds.recurring.has(c.id as string) } : {}),
+    }))
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -76,7 +91,7 @@ export default async function CustomersPage({
             <NewCustomerPlan size="md" />
           </div>
         ) : null}
-        <CustomersPageClient customers={customers} categories={categories} query={query} isAdmin={profile.role === 'admin'} />
+        <CustomersPageClient customers={customers} categories={categories} showRecurring={showRecurring} query={query} isAdmin={profile.role === 'admin'} />
       </div>
     </div>
   )

@@ -198,11 +198,13 @@ const SERVICE_REPORTS = [
   'payroll-by-person',
 ] as const
 
+/** Service companies: Leads (Pipeline) → Customers → Jobs → Money (Billing = Ready to bill / request payment). */
+const SERVICE_NAV_ORDER: readonly NavSectionId[] = ['today', 'dashboard', 'pipeline', 'customers', 'jobs', 'money', 'reports', 'sisu']
 const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
-  version: 5,
+  version: 6,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
   features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, areaMeasure: true, ...ROOF_ONLY_OFF },
@@ -224,7 +226,7 @@ const lawnLandscape: IndustryProfile = {
     install: 'Work',
     installed: 'Done',
   },
-  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: SERVICE_NAV_HIDDEN },
+  nav: { order: SERVICE_NAV_ORDER, hidden: SERVICE_NAV_HIDDEN },
   today: {
     order: ['todays-visits', 'skipped-visits', 'leads-waiting', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'door-collections', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],
@@ -268,7 +270,7 @@ const lawnLandscape: IndustryProfile = {
 
 const exteriorCleaning: IndustryProfile = {
   id: 'exterior_cleaning',
-  version: 3,
+  version: 4,
   label: 'Exterior cleaning',
   description: 'Pressure washing, soft washing, window and gutter cleaning — one-off and repeat.',
   // Door knocking stays on: many cleaning companies sell door to door.
@@ -280,7 +282,7 @@ const exteriorCleaning: IndustryProfile = {
     { label: 'Gutter cleaning', matchKeywords: ['gutter'] },
   ],
   terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done', leadName: 'Customer / company name' },
-  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: SERVICE_NAV_HIDDEN },
+  nav: { order: SERVICE_NAV_ORDER, hidden: SERVICE_NAV_HIDDEN },
   today: {
     order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment', 'door-collections', 'unpaid-invoices'],
     hidden: [],
