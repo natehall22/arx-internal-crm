@@ -832,6 +832,12 @@ const SCREENS: Screen[] = [
     await p.route('**/api/opportunities/opp-harness/sale-credit', (route) => route.fulfill(json({ closerUserId: 'u1', setterUserId: '', isSelfGenerated: false, locked: false, canChange: true })))
     await p.route('**/api/users', (route) => route.fulfill(json({ users: [{ id: 'u1', full_name: 'Sam Closer' }, { id: 'u2', full_name: 'Riley Setter' }] })))
   } },
+  { name: 'proposal-snapshot-history', path: '/dev-harness/proposal-snapshot-history', ready: 'text=History: versions shown to the customer', mock: async (p) => {
+    await p.route('**/api/proposals/harness-proposal/snapshots**', (route) => route.fulfill(json({ snapshots: [
+      { id: 's1', reason: 'pdf', createdAt: '2026-11-12T15:00:00.000Z', createdBy: 'u1', createdByName: 'Sam Closer with a rather long display name', total: 18432.5 },
+      { id: 's2', reason: 'sent', createdAt: '2026-11-10T15:00:00.000Z', createdBy: 'u1', createdByName: 'Sam Closer', total: 17900 },
+    ] })))
+  } },
   { name: 'quote-settings', path: '/dev-harness/quote-settings', ready: 'text=Deposit after approval', mock: async (p) => {
     await p.route('**/api/admin/quote-approval', (route) => route.fulfill(json({ settings: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0, linkDays: 30, terms: 'Work is scheduled within two weeks.' } })))
   } },

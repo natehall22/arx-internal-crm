@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { pdf } from '@react-pdf/renderer'
-import ProposalPDFv2 from '@/components/ProposalPDFv2'
+import { renderProposalPdfBlob } from '@/components/proposal-pdf-render'
+import ProposalSnapshotHistory from '@/components/proposals/ProposalSnapshotHistory'
+import { postProposalSnapshot } from '@/lib/proposal-snapshot-client'
+import type { ProposalPdfSnapshot } from '@/lib/proposal-snapshots'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import { isCountedLine } from '@/lib/quotes/pricing'
@@ -104,6 +106,7 @@ export default function ProposalDetailPage() {
   const [userRole, setUserRole] = useState<string>('')
   const [sending, setSending] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [historyKey, setHistoryKey] = useState(0)
   const [measurement, setMeasurement] = useState<any>(null)
   const [company, setCompany] = useState<any>(null)
   const [rep, setRep] = useState<any>(null)
@@ -208,6 +211,12 @@ export default function ProposalDetailPage() {
         return
       }
 
+      // First time marked sent: keep what the customer was shown (never blocks the send).
+      if (!proposal.sent_at) {
+        const snapshot = buildSnapshot()
+        if (snapshot) await saveSnapshot('sent', snapshot)
+      }
+
       // In a real app, this would send an email with the proposal link
       toast.error(`Proposal would be sent to ${proposal.customer_email || 'customer'}`)
       
@@ -219,71 +228,28 @@ export default function ProposalDetailPage() {
     setSending(false)
   }
 
-  // Helper to convert image URL to base64 for PDF rendering
-  const imageUrlToBase64 = async (url: string): Promise<string | null> => {
-    try {
-      const response = await fetch(url)
-      if (!response.ok) {
-        console.error('Failed to fetch image:', response.status)
-        return null
-      }
-      const blob = await response.blob()
-      return new Promise((resolve) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.onerror = () => resolve(null)
-        reader.readAsDataURL(blob)
-      })
-    } catch (error) {
-      console.error('Error converting image to base64:', error)
-      return null
-    }
+  // The record of what the customer was shown. A failure here is logged and ignored: it must never break a download or a send.
+  const saveSnapshot = async (reason: 'pdf' | 'sent', snapshot: ProposalPdfSnapshot) => {
+    if (await postProposalSnapshot(proposalId, reason, snapshot)) setHistoryKey((k) => k + 1)
   }
 
-  const generatePDF = async () => {
-    if (!proposal) return
-    setGenerating(true)
-
-    try {
+  // Exactly what the customer is shown: the data + theme fed to the renderer. Images stay as paths / URLs (never bytes).
+  const buildSnapshot = (): ProposalPdfSnapshot | null => {
+    if (!proposal) return null
+    {
       // Use custom cover image if set, otherwise fall back to satellite image
       // A `files`-bucket cover goes through the signed-read route (same origin, session cookie); anything else as stored.
       let propertyImageUrl = filesObjectHrefOrExternal(proposal.cover_image_url) ?? undefined
       
       if (!propertyImageUrl) {
         // Generate satellite image URL as fallback
-        const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
-        propertyImageUrl = proposal.customer_address && googleMapsApiKey
-          ? `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${googleMapsApiKey}`
+        propertyImageUrl = proposal.customer_address && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+          ? `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite`
           : undefined
       }
 
-      // Convert property image to base64 for reliable PDF embedding
-      let imageForPdf: string | undefined = undefined
-      if (propertyImageUrl) {
-        const base64Image = await imageUrlToBase64(propertyImageUrl)
-        if (base64Image) {
-          imageForPdf = base64Image
-        } else {
-          console.warn('Could not load property image for PDF, skipping image')
-        }
-      }
-
-      // Convert company logo to base64 if it exists
-      console.log('PDF Generation - Company data:', company)
-      let companyForPdf = company ? { ...company } : undefined
-      if (company?.logo_url) {
-        console.log('PDF Generation - Fetching logo from:', company.logo_url)
-        const logoBase64 = await imageUrlToBase64(company.logo_url)
-        if (logoBase64 && companyForPdf) {
-          console.log('PDF Generation - Logo converted to base64 successfully')
-          companyForPdf.logo_url = logoBase64
-        } else {
-          // A relative /api/org-logo URL would make react-pdf fail the whole render; drop the logo instead.
-          console.log('PDF Generation - Failed to convert logo to base64')
-          if (companyForPdf) delete companyForPdf.logo_url
-        }
-      }
-      console.log('PDF Generation - Company for PDF:', companyForPdf)
+      // Images stay as paths / URLs in the record; the shared renderer fetches them for the PDF (components/proposal-pdf-render.tsx).
+      const companyForPdf = company ? { ...company } : undefined
 
       const pricing = getProposalCustomerPricing(proposal)
 
@@ -310,18 +276,35 @@ export default function ProposalDetailPage() {
           created_at: proposal.created_at,
         },
         // An option the customer has not been sold (unticked on a quote) never prints; roofing has none, so no change.
-        lineItems: lineItems.filter((li) => isCountedLine(li as { is_optional?: boolean | null; optional_default_on?: boolean | null })),
-        measurement,
+        // Only the fields the renderer reads (ProposalPDFData): the full rows carry the measurement's raw geometry (often past the
+        // snapshot size cap, so no history was kept) and internal line columns the customer never sees.
+        lineItems: lineItems
+          .filter((li) => isCountedLine(li as { is_optional?: boolean | null; optional_default_on?: boolean | null }))
+          .map((li) => ({ id: li.id, category: li.category, name: li.name, unit: li.unit, quantity: li.quantity, unit_price: li.unit_price, line_total: li.line_total, is_adder: li.is_adder, show_to_customer: li.show_to_customer })),
+        measurement: measurement
+          ? { total_squares: measurement.total_squares, total_area_sqft: measurement.total_area_sqft, predominant_pitch: measurement.predominant_pitch, facet_count: measurement.facet_count }
+          : measurement,
         company: companyForPdf,
         rep,
         photos: {
-          property: imageForPdf,
+          property: propertyImageUrl,
         },
         inspectionNotes: inspectionNotes.length > 0 ? inspectionNotes : undefined,
         ...(pricing.financing ? { financing: pricing.financing } : {}),
       }
-      const blob = await pdf(<ProposalPDFv2 data={pdfDataV2} theme={pdfTheme} />).toBlob()
-      
+      return { v: 1, theme: pdfTheme, data: pdfDataV2 as unknown as Record<string, unknown> }
+    }
+  }
+
+  const generatePDF = async () => {
+    if (!proposal) return
+    setGenerating(true)
+
+    try {
+      const snapshot = buildSnapshot()
+      if (!snapshot) return
+      const blob = await renderProposalPdfBlob(snapshot)
+
       // Create filename
       const filename = `${proposal.proposal_number}_${proposal.customer_name.replace(/\s+/g, '_')}.pdf`
       
@@ -334,6 +317,9 @@ export default function ProposalDetailPage() {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
+
+      // Keep a record of exactly what was shown. Never blocks or fails the download (the route skips quietly when the table is missing).
+      await saveSnapshot('pdf', snapshot)
 
       // Update proposal with PDF generated timestamp and inspection notes via API
       await fetch(`/api/proposals/${proposalId}`, {
@@ -766,7 +752,7 @@ export default function ProposalDetailPage() {
                         const target = e.target as HTMLImageElement
                         const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
                         if (googleMapsApiKey && proposal.customer_address) {
-                          target.src = `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${googleMapsApiKey}`
+                          target.src = `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite`
                         }
                       }}
                     />
@@ -1123,6 +1109,8 @@ export default function ProposalDetailPage() {
             </div>
 
             {orgFeatures.quoteApproval && proposal.status !== 'declined' ? <QuoteLinkCard proposalId={proposal.id} /> : null}
+
+            <ProposalSnapshotHistory proposalId={proposal.id} refreshKey={historyKey} />
 
             {/* Create Contract / Decline */}
             {proposal.status !== 'declined' && (
