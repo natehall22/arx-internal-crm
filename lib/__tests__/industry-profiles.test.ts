@@ -27,7 +27,7 @@ import { profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { parseCompanySeedInput } from '@/lib/company-seed'
 
 const read = (f: string) => readFileSync(path.join(process.cwd(), f), 'utf8')
-const lawnSettings = { profile: { id: 'lawn_landscape', version: 5 } }
+const lawnSettings = { profile: { id: 'lawn_landscape', version: 6 } }
 
 const flags = { isOpsOnly: false, canSeeOpsDashboard: true, canSeeJobBoard: true, canSeeInsideSales: true, projectsBarred: false, salesDocBarred: false, customerRecords: true, reports: true, isPayrollAdmin: true, earnsPay: true, payWeek: true }
 const owner = (extra: Partial<NavContext> = {}): NavContext => ({ permsReady: true, role: 'owner', fullAccess: true, permissionNames: new Set(), flags, ...extra })
@@ -105,7 +105,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
 
   it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing + customer messages on', () => {
     expect(lawn.id).toBe('lawn_landscape')
-    expect(lawn.storedVersion).toBe(5)
+    expect(lawn.storedVersion).toBe(6)
     for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval' || k === 'areaMeasure'])
   })
 
@@ -115,7 +115,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
     // Crews are a job's per-trade crews; subcontractors keep their own word (no clash).
     expect(t(lawn, 'subs')).toBe('Subcontractors')
     const nav = visibleNav(owner({ features: lawn.features, profile: clientOrgProfile(lawn) }))
-    expect(nav.sections.map((s) => s.id)).toEqual(['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports'])
+    expect(nav.sections.map((s) => s.id)).toEqual(['today', 'dashboard', 'pipeline', 'customers', 'jobs', 'money', 'reports'])
     expect(nav.sections.find((s) => s.id === 'jobs')!.label).toBe('Work')
     const hrefs = nav.sections.flatMap((s) => (s.children.length ? s.children.map((c) => c.href) : [s.href]))
     for (const gone of ['/inside-sales', '/ops/checkups', '/projects', '/sisu']) expect(hrefs).not.toContain(gone)
