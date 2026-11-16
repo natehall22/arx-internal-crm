@@ -21,7 +21,7 @@ import {
 } from '@/lib/roof-shingle-constants'
 import { toast } from '@/components/ui/toast'
 import CompanyLogoCard from '@/components/admin/CompanyLogoCard'
-import { orgLogoHref, storedOrgDarkLogo } from '@/lib/files/files-object'
+import { orgLogoHref, orgLogoPath } from '@/lib/files/files-object'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import GeneralSettingsCard, { GENERAL_BRAND_INPUTS, type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
@@ -466,7 +466,7 @@ export default function AdminSettingsPage() {
         // Logo through the public logo route (the `files` bucket is not read by public URL)
         const logoSource = { logo_url: data.org.logo_url, settings: data.settings ?? data.org.settings }
         setLogoUrl(orgLogoHref(data.org.id, logoSource))
-        setDarkLogoUrl(storedOrgDarkLogo(logoSource) ? orgLogoHref(data.org.id, logoSource, { variant: 'dark' }) : null)
+        setDarkLogoUrl(orgLogoPath(data.org.id, logoSource, { variant: 'dark' })?.includes('/logo-dark.') ? orgLogoHref(data.org.id, logoSource, { variant: 'dark' }) : null)
         setSchedulingSettings({
           inspection_feedback_buffer_minutes: data.org.inspection_feedback_buffer_minutes ?? 0,
           default_scheduling_gap_minutes: data.org.default_scheduling_gap_minutes ?? 15,
