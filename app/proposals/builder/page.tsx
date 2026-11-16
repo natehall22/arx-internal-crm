@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { t } from '@/lib/org-profile'
 import { findStaleSquareLines, isPerSquareUnit, keepLinesWhenRoofingTypeChanges } from '@/lib/proposal-line-squares'
 import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { toast } from '@/components/ui/toast'
@@ -180,9 +181,22 @@ export default function ProposalBuilderPage() {
   /** Roof squares pricing switched off (Settings → Features): no waste-factor (squares) step, no Squares figure. */
   const orgFeatures = useOrgFeatures()
   const squaresOn = orgFeatures.squaresPricing
+  /**
+   * A company whose quote is not priced from a roof measurement (lawn, cleaning, builders) gets the simple quote:
+   * Customer → Items (its price list) → Review. No roofing type, tear-off or waste steps; email optional. Roofing is untouched.
+   */
+  const simple = !squaresOn
+  /** The company's word for a proposal ("Proposal" for roofing, "Quote" for lawn / cleaning). */
+  const orgProfile = useOrgProfile()
+  const pw = t(orgProfile, 'proposal')
+  const pwLower = pw.toLowerCase()
   useEffect(() => {
     if (!squaresOn && step === 2) setStep(3)
   }, [squaresOn, step])
+  // Simple quote: the roofing steps (2 waste, 3 roofing type, 4 base price) never show; the price-list step is 5.
+  useEffect(() => {
+    if (simple && (step === 2 || step === 3 || step === 4)) setStep(5)
+  }, [simple, step])
   const [form, setForm] = useState<ProposalForm>(defaultForm)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
   /**
@@ -235,6 +249,10 @@ export default function ProposalBuilderPage() {
   const capLineItemsInjectedRef = useRef(false)
 
   const effectiveOpportunityId = opportunityId || resolvedOpportunityId
+  // Simple quote: a NEW quote starts titled with the company's word ("Quote"), not the roofing default.
+  useEffect(() => {
+    if (simple && !loading && !editingProposalId) setForm((prev) => (prev.title === 'Roofing Proposal' ? { ...prev, title: pw } : prev))
+  }, [simple, loading, editingProposalId, pw])
 
   useEffect(() => {
     loadData()
@@ -914,7 +932,8 @@ export default function ProposalBuilderPage() {
     if (!form.customer_name?.trim()) missingFields.push('Customer Name')
     if (!form.customer_phone?.trim()) missingFields.push('Phone Number')
     if (!form.customer_address?.trim()) missingFields.push('Address')
-    if (!form.customer_email?.trim()) missingFields.push('Email')
+    // Email is only needed to email the quote link (the quote page asks then); text and print work without it.
+    if (!simple && !form.customer_email?.trim()) missingFields.push('Email')
     
     if (missingFields.length > 0) {
       toast.error(`Please fill in required fields: ${missingFields.join(', ')}`)
@@ -1009,7 +1028,7 @@ export default function ProposalBuilderPage() {
       if (!response.ok) {
         const data = await response.json()
         console.error('Failed to save proposal:', data.error)
-        toast.error(`Failed to save proposal: ${data.error || 'Unknown error'}`)
+        toast.error(`Failed to save ${pwLower}: ${data.error || 'Unknown error'}`)
         setSaving(false)
         return
       }
@@ -1018,7 +1037,7 @@ export default function ProposalBuilderPage() {
       router.push(`/proposals/${proposal.id}`)
     } catch (error) {
       console.error('Error saving proposal:', error)
-      toast.error(`Failed to save proposal: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      toast.error(`Failed to save ${pwLower}: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setSaving(false)
     }
@@ -1102,6 +1121,9 @@ export default function ProposalBuilderPage() {
   }
 
   // The item in the quantity box: its size options (if any) and the price the box shows right now.
+  // Simple quote: the whole price list in one picker (items and add-ons alike), grouped by each item's own category.
+  const simpleItems = [...pricebookItems, ...adders.filter((a) => !pricebookItems.some((p) => p.id === a.id))]
+  const simpleCategories = Array.from(new Set(simpleItems.map((i) => i.adder_category || i.category).filter(Boolean)))
   const modalOptions = quantityModalItem ? readPriceOptions(quantityModalItem.price_options) : []
   const modalPrice = quantityModalItem
     ? (modalOptions.find((o) => o.key === quantityModalOption)?.price ?? (modalOptions.length ? 0 : Number(quantityModalItem.unit_price) || 0))
@@ -1116,14 +1138,21 @@ export default function ProposalBuilderPage() {
         <div className="max-w-5xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-8 overflow-x-auto">
-              {[
-                { num: 1, label: 'Customer Info' },
-                ...(squaresOn ? [{ num: 2, label: 'Waste' }] : []),
-                { num: 3, label: 'Roofing Type' },
-                { num: 4, label: 'Items' },
-                { num: 5, label: 'Add-Ons' },
-                { num: 6, label: 'Review' },
-              ].map((s, idx) => (
+              {(simple
+                ? [
+                    { num: 1, label: 'Customer Info' },
+                    { num: 5, label: 'Items' },
+                    { num: 6, label: 'Review' },
+                  ]
+                : [
+                    { num: 1, label: 'Customer Info' },
+                    ...(squaresOn ? [{ num: 2, label: 'Waste' }] : []),
+                    { num: 3, label: 'Roofing Type' },
+                    { num: 4, label: 'Items' },
+                    { num: 5, label: 'Add-Ons' },
+                    { num: 6, label: 'Review' },
+                  ]
+              ).map((s, idx) => (
                 <button
                   key={s.num}
                   onClick={() => setStep(s.num)}
@@ -1225,14 +1254,14 @@ export default function ProposalBuilderPage() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Email <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email {simple ? <span className="font-normal text-gray-700">(optional — needed only to email the {pwLower})</span> : <span className="text-red-500">*</span>}</label>
                 <input
                   type="email"
                   value={form.customer_email}
                   onChange={(e) => setForm(prev => ({ ...prev, customer_email: e.target.value }))}
-                  className={`w-full px-4 py-3 border rounded-xl ${!form.customer_email?.trim() ? 'border-red-300' : 'border-gray-300'}`}
+                  className={`w-full px-4 py-3 border rounded-xl ${!simple && !form.customer_email?.trim() ? 'border-red-300' : 'border-gray-300'}`}
                   placeholder="john@example.com"
-                  required
+                  required={!simple}
                 />
               </div>
               
@@ -1261,13 +1290,13 @@ export default function ProposalBuilderPage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Proposal Title</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">{pw} Title</label>
                 <input
                   type="text"
                   value={form.title}
                   onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl"
-                  placeholder="Roofing Proposal"
+                  placeholder={simple ? pw : 'Roofing Proposal'}
                 />
               </div>
 
@@ -1291,8 +1320,8 @@ export default function ProposalBuilderPage() {
 
             <div className="mt-8 flex justify-end">
               <button
-                onClick={() => setStep(squaresOn ? 2 : 3)}
-                disabled={!form.customer_name?.trim() || !form.customer_address?.trim() || !form.customer_phone?.trim() || !form.customer_email?.trim()}
+                onClick={() => setStep(simple ? 5 : squaresOn ? 2 : 3)}
+                disabled={!form.customer_name?.trim() || !form.customer_address?.trim() || !form.customer_phone?.trim() || (!simple && !form.customer_email?.trim())}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Continue
@@ -1862,14 +1891,14 @@ export default function ProposalBuilderPage() {
         {step === 5 && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Add-Ons & Upgrades</h2>
-              <p className="text-gray-700 mb-4">Select additional items for this project</p>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">{simple ? 'Pick from your price list' : 'Add-Ons & Upgrades'}</h2>
+              <p className="text-gray-700 mb-4">{simple ? 'Tap an item to add it, then set the amount on its line.' : 'Select additional items for this project'}</p>
               
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-6">
+              {!simple && <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-6">
                 <p className="text-sm text-blue-800">
                   <strong>Note:</strong> Add-on pricing is visible to you while building. The customer proposal will only show the <strong>final total price</strong> - individual add-ons will not be itemized.
                 </p>
-              </div>
+              </div>}
 
               {/* Category filter */}
               <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
@@ -1881,7 +1910,7 @@ export default function ProposalBuilderPage() {
                 >
                   All
                 </button>
-                {adderCategories.map((cat) => (
+                {(simple ? simpleCategories : adderCategories).map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedAdderCategory(cat)}
@@ -1895,11 +1924,11 @@ export default function ProposalBuilderPage() {
               </div>
 
               {/* Selected adders */}
-              {lineItems.filter(i => i.is_adder).length > 0 && (
+              {lineItems.filter(i => simple || i.is_adder).length > 0 && (
                 <div className="mb-6 p-4 bg-green-50 rounded-xl border border-green-200">
-                  <h3 className="font-medium text-green-800 mb-3">Selected Add-Ons</h3>
+                  <h3 className="font-medium text-green-800 mb-3">{simple ? 'On this quote' : 'Selected Add-Ons'}</h3>
                   <div className="space-y-3">
-                    {lineItems.filter(i => i.is_adder).map((item) => {
+                    {lineItems.filter(i => simple || i.is_adder).map((item) => {
                       const isPercent = isPercentageItem(item)
                       const baseSubtotal = lineItems
                         .filter(li => !isPercentageItem(li))
@@ -1993,8 +2022,8 @@ export default function ProposalBuilderPage() {
 
               {/* Available adders */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {adders
-                  .filter(a => selectedAdderCategory === 'all' || a.adder_category === selectedAdderCategory)
+                {(simple ? simpleItems : adders)
+                  .filter(a => selectedAdderCategory === 'all' || (simple ? (a.adder_category || a.category) : a.adder_category) === selectedAdderCategory)
                   .filter(a => !lineItems.find(li => li.pricebook_item_id === a.id))
                   .map((adder) => {
                     const isPercent = adder.price_type === 'percentage' || adder.unit === 'percent'
@@ -2052,16 +2081,16 @@ export default function ProposalBuilderPage() {
                   })}
               </div>
 
-              {adders.length === 0 && (
+              {(simple ? simpleItems : adders).length === 0 && (
                 <div className="text-center py-8 text-gray-700">
-                  No add-ons available. Contact admin to add items.
+                  {simple ? 'Your price list has no items yet. Ask your admin to add them.' : 'No add-ons available. Contact admin to add items.'}
                 </div>
               )}
             </div>
 
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(4)}
+                onClick={() => setStep(simple ? 1 : 4)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
@@ -2070,7 +2099,7 @@ export default function ProposalBuilderPage() {
                 onClick={() => setStep(6)}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
               >
-                Review Proposal
+                Review {pw}
               </button>
             </div>
           </div>
@@ -2159,9 +2188,9 @@ export default function ProposalBuilderPage() {
                       </span>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-700 mt-4 pt-3 border-t">
+                  {!simple && <p className="text-xs text-gray-700 mt-4 pt-3 border-t">
                     Note: Customer will only see the total investment amount. Line items and adders are not shown on the customer proposal.
-                  </p>
+                  </p>}
                 </div>
 
                 {/* Financing */}
@@ -2295,7 +2324,7 @@ export default function ProposalBuilderPage() {
 
             {/* Additional Options */}
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Proposal Options</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{pw} Options</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -2472,7 +2501,7 @@ export default function ProposalBuilderPage() {
                   disabled={saving}
                   className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {saving ? 'Saving...' : 'Create Proposal'}
+                  {saving ? 'Saving...' : `Create ${pw}`}
                 </button>
               </div>
             </div>
@@ -2708,7 +2737,7 @@ export default function ProposalBuilderPage() {
                   onClick={confirmQuantityAndAdd}
                   className="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
                 >
-                  Add to Proposal
+                  Add to {pw}
                 </button>
               </div>
             </div>
