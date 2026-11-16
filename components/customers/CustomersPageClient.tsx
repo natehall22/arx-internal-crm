@@ -18,6 +18,8 @@ interface Customer {
   bought?: boolean
   /** Work category slug (customers.category); null = not set. */
   category?: string | null
+  /** Has an active service plan (derived; only set when the company uses service plans). */
+  recurring?: boolean
 }
 
 const kindOf = (c: Customer) => (c.bought ? 'customer' : 'prospect')
@@ -43,7 +45,17 @@ interface Props {
   categories?: Category[]
   query: string
   isAdmin?: boolean
+  /** Company uses service plans: add the Recurring / One-time column and filter. */
+  showRecurring?: boolean
 }
+
+const planKindOf = (c: Customer) => (c.recurring ? 'recurring' : 'one_time')
+const planKindColumn: ColumnDef<Customer, any> = { enableGlobalFilter: false, id: 'plan_kind', header: 'Plan', accessorFn: planKindOf, cell: (c) => (c.getValue() === 'recurring' ? 'Recurring' : 'One-time') }
+const planKindFilter: TableFilter<Customer> = { key: 'plan_kind', label: 'Plan', options: [{ value: 'recurring', label: 'Recurring' }, { value: 'one_time', label: 'One-time' }], accessor: planKindOf }
+const RECURRING_VIEWS: TableView[] = [
+  { id: 'sys:recurring', name: 'Recurring (active plan)', state: { sorting: [{ id: 'name', desc: false }], search: '', filters: { plan_kind: 'recurring' } } },
+  { id: 'sys:one-time', name: 'One-time (no plan)', state: { sorting: [{ id: 'name', desc: false }], search: '', filters: { plan_kind: 'one_time' } } },
+]
 
 /** Category column + filter: its own words, "Not set" for blank. Only offered when some category is on or in use. */
 function withCategory(categories: Category[], customers: Customer[]) {
@@ -63,8 +75,11 @@ function withCategory(categories: Category[], customers: Customer[]) {
   }
 }
 
-export default function CustomersPageClient({ customers, categories = [], query, isAdmin = false }: Props) {
-  const { columns, filters } = withCategory(categories, customers)
+export default function CustomersPageClient({ customers, categories = [], query, isAdmin = false, showRecurring = false }: Props) {
+  const withCat = withCategory(categories, customers)
+  const columns = showRecurring ? [...withCat.columns, planKindColumn] : withCat.columns
+  const filters = showRecurring ? [...withCat.filters, planKindFilter] : withCat.filters
+  const systemViews = showRecurring ? [...SYSTEM_VIEWS, ...RECURRING_VIEWS] : SYSTEM_VIEWS
   const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isBackfilling, setIsBackfilling] = useState(false)
@@ -132,7 +147,7 @@ export default function CustomersPageClient({ customers, categories = [], query,
         getRowHref={(c) => `/customers/${c.id}`}
         searchPlaceholder="Search name, phone, email or address"
         filters={filters}
-        systemViews={SYSTEM_VIEWS}
+        systemViews={systemViews}
         defaultViewId={query ? 'sys:everyone' : 'sys:customers'}
         initialSearch={query}
         initialSorting={[{ id: 'name', desc: false }]}

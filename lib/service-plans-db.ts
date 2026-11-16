@@ -155,6 +155,29 @@ export async function loadServicePlans(
   return { ready: true, plans: out }
 }
 
+/**
+ * Customers with at least one ACTIVE plan (paused / ended do not count): the "Recurring" tag on the Customers list.
+ * Derived on read from service_plans — no stored flag. null = plans not set up yet (the list then shows no tag).
+ */
+export async function loadRecurringCustomerIds(admin: SupabaseClient, orgId: string): Promise<Set<string> | null> {
+  const ids = new Set<string>()
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await orgDb(admin, orgId)
+      .from('service_plans')
+      .select('customer_id')
+      .eq('status', 'active')
+      .order('id')
+      .range(from, from + PAGE - 1)
+    if (error) {
+      if (!isServicePlansNotReadyError(error)) console.error('[service-plans] recurring customers failed', error)
+      return null
+    }
+    for (const r of data ?? []) if (r.customer_id) ids.add(r.customer_id as string)
+    if ((data ?? []).length < PAGE) break
+  }
+  return ids
+}
+
 export async function loadServicePlan(admin: SupabaseClient, orgId: string, planId: string): Promise<ServicePlan | null> {
   if (typeof planId !== 'string' || !planId) return null
   const { data, error } = await orgDb(admin, orgId).from('service_plans').select(SERVICE_PLAN_COLUMNS).eq('id', planId).maybeSingle()

@@ -7,6 +7,8 @@ import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { notFound } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { resolveServicePlanAccess } from '@/lib/service-plans-access'
+import { loadRecurringCustomerIds } from '@/lib/service-plans-db'
 import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
 
 export default async function CustomersPage({
@@ -66,6 +68,11 @@ export default async function CustomersPage({
   ])
   customers = customers.map((c) => ({ ...c, category: categoryById.get(c.id as string) ?? null }))
 
+  // Recurring / One-time: derived from active service plans, only for companies with service plans on and viewers who may see plans.
+  const plansAccess = rep ? null : await resolveServicePlanAccess(adminForCategories, authUser.id, profile).catch(() => null)
+  const recurringIds = plansAccess?.view ? await loadRecurringCustomerIds(adminForCategories, profile.org_id).catch(() => null) : null
+  if (recurringIds) customers = customers.map((c) => ({ ...c, recurring: recurringIds.has(c.id as string) }))
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -76,7 +83,7 @@ export default async function CustomersPage({
             <NewCustomerPlan size="md" />
           </div>
         ) : null}
-        <CustomersPageClient customers={customers} categories={categories} query={query} isAdmin={profile.role === 'admin'} />
+        <CustomersPageClient customers={customers} categories={categories} showRecurring={!!recurringIds} query={query} isAdmin={profile.role === 'admin'} />
       </div>
     </div>
   )
