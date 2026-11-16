@@ -746,6 +746,33 @@ describe('middleware + route: company web address', () => {
     expect(r.status).toBe(401)
     expect(findings(mockWorld, r.text)).toEqual([])
   })
+
+  // Support access (lib/support/): B's owner is NOT platform staff. A forged / hand-made support cookie naming A, or a client-sent
+  // method header, must change nothing — B stays B (own record still served), and A's records stay out of reach.
+  test('a forged support cookie naming A, sent by B: ignored — still B, A refused, nothing of A', async () => {
+    for (const forged of ['aaa.bbb', `${Buffer.from(JSON.stringify({ k: 'session', s: ATTACKER_ID, o: ORG_A, a: VICTIM_ID, l: 'full', exp: Date.now() + 3_600_000 })).toString('base64url')}.AAAA`]) {
+      for (const [id, status] of [[VICTIM_ID, 404], [BRAVO_ROW_ID, 200]] as const) {
+        mockWorld = createWorld(TABLES, ORG_TABLES)
+        const url = `https://old.example/api/customers/${id}`
+        const cookie = `sb-proj-auth-token=${cookieValue}; arx_support=${forged}`
+        const headers = new Headers({ host: 'old.example', authorization: `Bearer ${ATTACKER_TOKEN}`, cookie, 'x-support-request': 'GET /pretend' })
+        const mw = await middleware(new NextRequest(url, { headers }))
+        // What the route receives is exactly the override list (a header middleware deleted is not in it).
+        const forwarded = new Headers()
+        for (const name of (mw.headers.get('x-middleware-override-headers') ?? '').split(',').filter(Boolean)) {
+          const v = mw.headers.get(`x-middleware-request-${name}`)
+          if (v !== null) forwarded.set(name, v)
+        }
+        expect(forwarded.get('x-support-request')).toBeNull()
+        mockReq = { headers: forwarded, cookies: [{ name: 'sb-proj-auth-token', value: cookieValue }, { name: 'arx_support', value: forged }] }
+        const res = await route.GET(new NextRequest(url, { headers: forwarded }), { params: { id } })
+        const text = await res.text()
+        expect(res.status).toBe(status)
+        expect(findings(mockWorld, text)).toEqual([])
+        expect(mockWorld.readsOfA).toEqual([])
+      }
+    }
+  })
 })
 
 

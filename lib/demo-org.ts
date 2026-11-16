@@ -12,6 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import type { OrgFeature } from '@/lib/org-features'
 import { isMissingColumn } from '@/lib/supabase/errors'
+import { supportBlocksSend } from '@/lib/support/send-guard'
 
 /** Switches a demo company can never turn on (real money / real books / AI writing to the CRM). */
 export const DEMO_LOCKED_FEATURES: readonly OrgFeature[] = Object.freeze(['quickbooks', 'aiConnectorWrites'] as OrgFeature[])
@@ -159,6 +160,7 @@ export function allRecipientsReserved(...fields: unknown[]): boolean {
 /** Unknown demo status (database down) sends as asked: a crew must still hear about a cancelled install. Only a confirmed demo company goes quiet. */
 export async function calendarSendUpdates<T extends 'all' | 'externalOnly' | 'none'>(admin: SupabaseClient, orgId: string | null | undefined, wanted: T): Promise<T | 'none'> {
   if (wanted === 'none') return 'none'
+  if (await supportBlocksSend('calendar_invite', { orgId: orgId ?? null })) return 'none' // a support session invites nobody
   return (await demoStatusOf(admin, orgId)) === 'demo' ? 'none' : wanted
 }
 

@@ -379,14 +379,14 @@ function routingHmacKey(): Promise<CryptoKey | null> {
   return routingKey
 }
 
-function toB64Url(bytes: ArrayBuffer | Uint8Array): string {
+export function toB64Url(bytes: ArrayBuffer | Uint8Array): string {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
   let bin = ''
   for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i])
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function fromB64Url(s: string): Uint8Array<ArrayBuffer> {
+export function fromB64Url(s: string): Uint8Array<ArrayBuffer> {
   const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4))
   const out = new Uint8Array(new ArrayBuffer(bin.length))
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)

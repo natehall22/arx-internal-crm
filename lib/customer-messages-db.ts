@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { isDemoSenderOrg } from '@/lib/demo-org'
+import { supportBlocksSend } from '@/lib/support/send-guard'
 import { demoSuppressedChannel, channelSender, normalizeEmail, type MessageChannelSender } from '@/lib/customer-message-channels'
 import { suppressAddress, suppressionOf, type SuppressionReason } from '@/lib/customer-message-suppressions'
 import { smsWords } from '@/lib/sms/compliance'
@@ -236,6 +237,8 @@ export async function loadSendContext(
   const settings = messageSettingsOf(o.settings)
   const autoOn = (!sms || features.customerMessages) && anyMessageOn(settings, channelId)
   if (purpose === 'auto' && !autoOn) return { ok: false, reason: sms && !features.customerMessages ? 'feature_off' : 'all_off' }
+  // A support session sends nothing and records nothing (lib/support/send-guard.ts).
+  if (await supportBlocksSend('customer_message', { channel: channelId, orgId })) return { ok: false, reason: 'not_ready' }
   // A demo company runs the whole pipeline but only logs the message (lib/demo-org.ts).
   let demo: boolean
   try {

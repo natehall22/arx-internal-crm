@@ -49,6 +49,8 @@ export const OWNER_TAG = '__owner_org'
 export const GLOBAL_TABLES = new Set([
   'permissions', 'preset_permissions', 'canvass_parcel_years', 'instant_estimate_calibration', 'lidar_tiles', 'solar_candidates',
   'solar_installs', 'weather_refresh_runs', 'nope',
+  // The platform's own support staff (lib/support/access.ts): one unrelated person, seeded below — neither company's user.
+  'platform_support_staff',
 ])
 
 /** Company tables (have org_id) — the SAME list the org-scope gate uses (scripts/org-scope-check.mjs). */
@@ -172,6 +174,7 @@ export function seedTables(tables: string[], orgTables: Set<string>, attackerRol
     { ...victimRow('orgs'), id: ORG_A, org_id: undefined, settings: { brand: { shortName: MARK }, features: DEFAULT_OFF_MODULES_ON, customerMessages: ALL_CUSTOMER_MESSAGES_ON }, subdomain: 'alpha' },
     { id: ORG_B, name: 'Bravo Co', email: 'office@bravo.test', address: '1 Bravo Way', settings: { features: DEFAULT_OFF_MODULES_ON, customerMessages: ALL_CUSTOMER_MESSAGES_ON }, subdomain: 'bravo', timezone: 'America/New_York' },
   ]
+  seed.platform_support_staff = [{ user_id: 'platform-support-staff-unrelated', added_at: '2026-01-01T00:00:00Z' }]
   seed.users = [
     { ...victimRow('users'), role: 'admin', is_super_admin: true, active: true },
     {
@@ -192,6 +195,12 @@ export function seedTables(tables: string[], orgTables: Set<string>, attackerRol
  * before the "before" snapshot), so the attack reaches the org check instead of a "wrong kind" 404.
  */
 export function seedForRoute(seed: Record<string, Row[]>, routePath: string) {
+  // Support access: company A has granted AND is always-on, so company B's owner reaches the staff check instead of "no grant" —
+  // B is not platform staff, so the door must still refuse (a 404, no cookie, nothing of A read).
+  if (/^\/api\/(support|admin\/support-access)(\/|$)/.test(routePath)) {
+    for (const r of seed.support_access_grants ?? []) Object.assign(r, { expires_at: new Date(Date.now() + 86_400_000).toISOString(), ended_at: null })
+    for (const o of seed.orgs ?? []) if (o.id === ORG_A) o.support_access_always = true
+  }
   // Service-plan visits are work_orders rows of type 'service_visit' with no job (lib/service-plans-db.ts).
   if (/^\/api\/(ops\/visits|crew\/day)\//.test(routePath)) {
     for (const r of seed.work_orders ?? []) Object.assign(r, { work_order_type: 'service_visit', visit_step: 'service', job_id: null, service_planned_date: r.scheduled_date ?? null })

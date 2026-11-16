@@ -24,7 +24,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { addDaysToDateOnly } from '@/lib/install-calendar'
+import { addDaysToDateOnly } from '@/lib/date-only'
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'

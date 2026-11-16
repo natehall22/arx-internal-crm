@@ -5,6 +5,8 @@ import type { User } from '@/lib/types/database'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import { COMPANY_LOOKUP_UNAVAILABLE, deploymentOrgId, fenceAllowsOrg } from '@/lib/company-host'
 import { getRequestCompanyFence } from '@/lib/company-host-server'
+import { checkSupportSession, logSupportEvent, type SupportMarker } from '@/lib/support/access'
+import { SAFE_METHODS, SUPPORT_REQUEST_HEADER, supportCookieFrom, supportRequestRefusal, verifySupportToken } from '@/lib/support/token'
 
 export type AuthContext = {
   authUser: {
@@ -12,6 +14,11 @@ export type AuthContext = {
     email: string | null
   }
   profile: User
+  /**
+   * Present ONLY inside a support session (lib/support/access.ts): `profile` is then the acting-as user's and `support`
+   * says who is really behind it. Set by `resolveSupport` below and nowhere else.
+   */
+  support?: SupportMarker
 }
 
 type AuthResolution =
@@ -54,7 +61,55 @@ export function profileAllowedOnThisDeployment(orgId: string | null | undefined)
   return orgId === pinned
 }
 
-async function resolveAuth(): Promise<AuthResolution> {
+/**
+ * Support session (lib/support/access.ts): the signed cookie + a fresh database check of the staff row, the company's live
+ * grant (or always-on) and the acting-as user. The ONLY way another company's profile can come out of resolveAuth for someone who
+ * is not that company's own user. Anything short of a fully valid session (no cookie, forged, expired, grant ended, staff
+ * removed) returns null and the ordinary path runs — a support cookie never widens anything by being present.
+ * The company fence applies to the ACTING profile's company, so a company's copy or address admits support only into itself.
+ */
+async function resolveSupport(): Promise<AuthResolution | null> {
+  let cookieValue: string | null
+  try {
+    // The iPhone app and other Bearer callers authenticate their own token only: a support cookie never applies to them.
+    const authHeader = headers().get('authorization') ?? ''
+    if (/^bearer\s/i.test(authHeader)) return null
+    cookieValue = supportCookieFrom(cookies())
+  } catch {
+    return null
+  }
+  if (!cookieValue) return null
+  const payload = await verifySupportToken(cookieValue, 'session')
+  if (!payload) return null
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceRoleKey) return null
+  const admin = createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
+  const checked = await checkSupportSession(admin, payload)
+  if (checked.status !== 'ok') {
+    console.error('requireAuth: support session refused', checked.reason)
+    return null
+  }
+  const fence = await getRequestCompanyFence()
+  if (fence.kind === 'closed' && fence.reason === 'lookup_error') return { status: 'company_unavailable' }
+  if (!fenceAllowsOrg(fence, checked.profile.org_id)) {
+    console.error('requireAuth: support session not allowed on this company address')
+    return null
+  }
+  return {
+    status: 'ok',
+    context: { authUser: { id: checked.profile.id, email: checked.profile.email ?? null }, profile: checked.profile, support: checked.support },
+  }
+}
+
+async function resolveAuth(opts: { ignoreSupport?: boolean } = {}): Promise<AuthResolution> {
+  if (!opts.ignoreSupport) {
+    const support = await resolveSupport()
+    if (support) {
+      // Every caller (requireAuth in a server action, getAuthContext, requireAuthApi) gets the same write rule.
+      if (support.status === 'ok' && support.context.support) await enforceSupportWrites(support.context.support)
+      return support
+    }
+  }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -156,6 +211,15 @@ export async function getAuthContext(): Promise<AuthContext | null> {
 }
 
 /**
+ * The person's OWN signed-in identity, support session ignored (a support cookie is never consulted). Only for the staff side
+ * (`/support`, lib/support/staff.ts): "who am I really", not "who am I acting as".
+ */
+export async function getRealAuthContext(): Promise<AuthContext | null> {
+  const r = await resolveAuth({ ignoreSupport: true })
+  return r.status === 'ok' ? r.context : null
+}
+
+/**
  * Use in Server Components and pages - redirects to login on failure
  */
 export async function requireAuth(): Promise<AuthContext> {
@@ -180,4 +244,58 @@ export async function requireAuthApi(): Promise<AuthContext> {
     throw new Error('Account disabled')
   }
   throw new Error('Unauthorized')
+}
+
+/**
+ * Thrown by requireAuthApi when a support session may not make this write. Middleware already answers 403 "Support view mode"
+ * before the route runs; this is the backstop (a route's own catch-all may turn it into a 401, which is still a refusal).
+ */
+export class SupportWriteRefusedError extends Error {
+  readonly status = 403
+  constructor(message: string) {
+    super(message)
+    this.name = 'SupportWriteRefusedError'
+  }
+}
+
+/** One 'write' log row per request, however many times auth is resolved in it (keyed on the request's headers object). */
+const loggedWrites = new WeakMap<object, Promise<void>>()
+
+/**
+ * View mode: every write is refused. Full mode: each write is logged first and refused if it cannot be logged; credential and
+ * support-settings doors are refused in every mode (`supportRequestRefusal`, lib/support/token.ts — the same rule middleware
+ * applies). The method and path come from middleware's header (never from the client: middleware deletes any copy and sets its
+ * own); a missing or unreadable header inside a support session is treated as a write (fail closed).
+ */
+async function enforceSupportWrites(support: SupportMarker): Promise<void> {
+  let raw = ''
+  let reqKey: object | null = null
+  try {
+    const h = headers()
+    reqKey = h as unknown as object
+    raw = h.get(SUPPORT_REQUEST_HEADER) ?? ''
+  } catch {
+    raw = ''
+  }
+  const space = raw.indexOf(' ')
+  const method = space > 0 ? raw.slice(0, space).toUpperCase() : ''
+  const path = space > 0 ? raw.slice(space + 1) : ''
+  const refusal = supportRequestRefusal(method, path, support.level)
+  if (refusal) throw new SupportWriteRefusedError(refusal)
+  if (method && SAFE_METHODS.has(method)) return
+  const pending = reqKey ? loggedWrites.get(reqKey) : undefined
+  if (pending) return pending
+  const write = (async () => {
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!serviceRoleKey) throw new SupportWriteRefusedError('Support write could not be recorded')
+    const admin = createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
+    try {
+      await logSupportEvent(admin, { orgId: support.orgId, staffUserId: support.staffUserId, actingAsUserId: support.actingAsUserId, level: 'full', event: 'write', detail: { method: method || 'unknown', route: path || 'unknown' } })
+    } catch (e) {
+      console.error('[support] write refused: could not record it', e)
+      throw new SupportWriteRefusedError('Support write could not be recorded')
+    }
+  })()
+  if (reqKey) loggedWrites.set(reqKey, write)
+  return write
 }

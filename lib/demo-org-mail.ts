@@ -7,7 +7,12 @@ import nodemailer from 'nodemailer'
 
 import { guardReservedRecipients, isDemoSenderOrg } from '@/lib/demo-org'
 import { createServiceClient } from '@/lib/supabase/service'
+import { assertNoSupportSend } from '@/lib/support/send-guard'
 
 export function createGuardedTransport(options: Parameters<typeof nodemailer.createTransport>[0], sendingOrgId?: string | null) {
-  return guardReservedRecipients(nodemailer.createTransport(options), sendingOrgId ? () => isDemoSenderOrg(createServiceClient(), sendingOrgId) : undefined)
+  // A support session (lib/support/send-guard.ts) can send nothing: the mail is refused, never faked as sent.
+  return guardReservedRecipients(nodemailer.createTransport(options), async () => {
+    await assertNoSupportSend('email', { sendingOrgId: sendingOrgId ?? null })
+    return sendingOrgId ? isDemoSenderOrg(createServiceClient(), sendingOrgId) : false
+  })
 }

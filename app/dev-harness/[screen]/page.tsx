@@ -77,6 +77,8 @@ import ReportsPage from '@/app/reports/page'
 import PayWeekClient from '@/components/payroll/PayWeekClient'
 import MyPayClient from '@/components/payroll/MyPayClient'
 import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
+import SupportAccessCard from '@/components/admin/SupportAccessCard'
+import SupportBannerView from '@/components/support/SupportBannerView'
 import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD } from '@/e2e/fixtures'
 import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
 import DashboardClient from '@/app/dashboard/DashboardClient'
@@ -614,6 +616,15 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-7xl p-4"><AppointmentsList /></div>
     case 'ui-kit':
       return <UiKitHarness />
+    case 'support-access':
+      return <div className="mx-auto max-w-4xl p-3"><SupportAccessCard /></div>
+    case 'support-banner':
+      return (
+        <div>
+          <SupportBannerView company="Summit Lawn Care" user="Olive Owner" level="view" />
+          <div className="p-4"><button type="button" className="min-h-[44px] rounded-lg bg-indigo-700 px-4 text-white">Page main action</button></div>
+        </div>
+      )
     case 'default-plans':
       return <div className="p-3"><DefaultPlansCard /></div>
     case 'project-tools-money':
