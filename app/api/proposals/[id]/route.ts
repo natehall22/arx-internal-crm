@@ -183,7 +183,7 @@ export async function GET(
       // `settings` is read only to find an older logo value; never send it to the browser.
       // orgs has no website column: the website comes from the org brand (lib/org-brand, settings.brand → default).
       company: company
-        ? { ...omitSettings(company), website: companyBrand?.website, short_name: companyBrand?.shortName, logo_url: orgLogoHref(profile.org_id, company) }
+        ? { ...omitSettings(company), website: companyBrand?.website, short_name: companyBrand?.shortName, logo_url: orgLogoHref(profile.org_id, company), logo_dark_url: orgLogoHref(profile.org_id, company, { variant: 'dark' }) }
         : company,
       rep: proposalForClient.users,
       measurement,

@@ -143,8 +143,8 @@ export default function Nav() {
             if (org.name) {
               setCompanyName(org.name)
             }
-            // Public logo route; its `?v=` changes on every upload (lib/files/files-object.ts)
-            setCompanyLogo(orgLogoHref(profile.org_id, org))
+            // Public logo route; its `?v=` changes on every upload (lib/files/files-object.ts). The Nav is dark: dark variant, main logo if none.
+            setCompanyLogo(orgLogoHref(profile.org_id, org, { variant: 'dark' }))
           }
         }
 
@@ -198,7 +198,7 @@ export default function Nav() {
           if (org.name) {
             setCompanyName(org.name)
           }
-          setCompanyLogo(orgLogoHref(profile.org_id, org))
+          setCompanyLogo(orgLogoHref(profile.org_id, org, { variant: 'dark' }))
         }
       }
     }

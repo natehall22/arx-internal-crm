@@ -111,6 +111,8 @@ export interface ProposalPDFData {
   company?: {
     name: string
     logo_url?: string
+    /** Logo for dark backgrounds (the dark theme); the renderer swaps it into `logo_url`. */
+    logo_dark_url?: string
     phone?: string
     email?: string
     address?: string

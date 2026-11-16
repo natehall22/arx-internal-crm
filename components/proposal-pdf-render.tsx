@@ -37,6 +37,9 @@ export async function renderProposalPdfBlob(snapshot: ProposalPdfSnapshot): Prom
     if (b64) data.photos.property = b64
     else if (data.photos) delete data.photos.property // skip the image rather than fail the PDF
   }
+  // The dark theme prints on a dark page: use the logo made for dark backgrounds (the API sends the main logo's link when there is none).
+  if (snapshot.theme === 'dark' && typeof data.company?.logo_dark_url === 'string' && data.company.logo_dark_url) data.company.logo_url = data.company.logo_dark_url
+  if (data.company) delete data.company.logo_dark_url
   const logo = data.company?.logo_url
   if (typeof logo === 'string' && logo) {
     const b64 = await imageUrlToBase64(logo)
