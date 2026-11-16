@@ -102,7 +102,8 @@ export function resolveProposalContent(org: { settings?: unknown } | null | unde
 
 /** `{company}` in a text → the company's short name (drawn in the PDF and the Settings preview). */
 export function fillCompanyToken(text: string, companyName: string): string {
-  return text.replace(/\{company\}/g, companyName)
+  // A function replacer: a name with $ in it ("A$$ Roofing") must print as typed, not as a replacement pattern.
+  return text.replace(/\{company\}/g, () => companyName)
 }
 
 /** The cover's big title: the proposal's own title, else the company's word for the document; always uppercase. */

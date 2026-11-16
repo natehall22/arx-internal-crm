@@ -16,7 +16,7 @@ import { ProposalPDFv2, type ProposalPDFData } from '@/components/ProposalPDFv2'
 import { INDUSTRY_PROFILE_IDS } from '@/lib/industry-profiles'
 import { resolveOrgProfile } from '@/lib/org-profile'
 import { mergeSettingsAt } from '@/lib/org-settings'
-import { defaultProposalContent, parseProposalContentPatch, proposalCoverTitle, resolveProposalContent, MAX_BODY_LENGTH, MAX_ITEMS, MAX_TITLE_LENGTH } from '@/lib/proposal-content'
+import { defaultProposalContent, fillCompanyToken, parseProposalContentPatch, proposalCoverTitle, resolveProposalContent, MAX_BODY_LENGTH, MAX_ITEMS, MAX_TITLE_LENGTH } from '@/lib/proposal-content'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 
 const resolve = (settings: unknown) => resolveProposalContent({ settings }, resolveOrgProfile(settings))
@@ -115,6 +115,9 @@ describe('cover title', () => {
     const t = text({ ...base, proposal: { ...base.proposal, title: 'Siding Quote - Option A' }, content: lawn })
     expect(t).toContain('|SIDING QUOTE - OPTION A|')
     expect(t).not.toContain('ROOFING PROPOSAL')
+  })
+  it('a $ in the company name prints as typed', () => {
+    expect(fillCompanyToken('Why choose {company}', "A$$ & $& Co")).toBe("Why choose A$$ & $& Co")
   })
   it('the cover subtitle fills {company} like every other text', () => {
     expect(text({ ...base, content: { ...resolve({}), coverSubtitle: '{company} Services' } })).toContain('|ARX Services|')
