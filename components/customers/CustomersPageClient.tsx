@@ -49,8 +49,9 @@ interface Props {
   showRecurring?: boolean
 }
 
-const planKindOf = (c: Customer) => (c.recurring ? 'recurring' : 'one_time')
-const planKindColumn: ColumnDef<Customer, any> = { enableGlobalFilter: false, id: 'plan_kind', header: 'Plan', accessorFn: planKindOf, cell: (c) => (c.getValue() === 'recurring' ? 'Recurring' : 'One-time') }
+// A prospect (never bought, no plan) is neither: '' shows a dash and matches no Plan filter.
+const planKindOf = (c: Customer) => (c.recurring ? 'recurring' : c.bought ? 'one_time' : '')
+const planKindColumn: ColumnDef<Customer, any> = { enableGlobalFilter: false, id: 'plan_kind', header: 'Plan', accessorFn: planKindOf, cell: (c) => (c.getValue() === 'recurring' ? 'Recurring' : c.getValue() === 'one_time' ? 'One-time' : '—') }
 const planKindFilter: TableFilter<Customer> = { key: 'plan_kind', label: 'Plan', options: [{ value: 'recurring', label: 'Recurring' }, { value: 'one_time', label: 'One-time' }], accessor: planKindOf }
 const RECURRING_VIEWS: TableView[] = [
   { id: 'sys:recurring', name: 'Recurring (active plan)', state: { sorting: [{ id: 'name', desc: false }], search: '', filters: { plan_kind: 'recurring' } } },
