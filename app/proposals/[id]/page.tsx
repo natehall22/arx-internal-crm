@@ -249,7 +249,10 @@ export default function ProposalDetailPage() {
       }
 
       // Images stay as paths / URLs in the record; the shared renderer fetches them for the PDF (components/proposal-pdf-render.tsx).
+      // logo_dark_url is kept only where it changes the render (dark theme, an actual dark logo), so print snapshots and
+      // orgs without a dark logo hash exactly as before (lib/proposal-snapshots.ts dedupes on the content hash).
       const companyForPdf = company ? { ...company } : undefined
+      if (companyForPdf && (pdfTheme !== 'dark' || !companyForPdf.logo_dark_url || companyForPdf.logo_dark_url === companyForPdf.logo_url)) delete companyForPdf.logo_dark_url
 
       const pricing = getProposalCustomerPricing(proposal)
 
