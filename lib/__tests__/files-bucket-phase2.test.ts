@@ -31,6 +31,7 @@ const uploaded: string[] = []
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     from: (t: string) => (db.client as any).from(t),
+    rpc: async () => ({ error: { code: 'PGRST202', message: 'missing' } }), // mergeOrgSettings falls back to read-merge-write
     storage: {
       from: (bucket: string) => ({
         createSignedUrl: async (p: string, ttl: number) => {
@@ -139,6 +140,28 @@ describe('writers store paths, not public URLs', () => {
     expect(org.settings.timezone).toBe('America/New_York')
     expect(body.logo_url).toBe(orgLogoHref(ORG, org))
     expect(uploaded).toEqual([`files:org/${ORG}/logo.png`])
+  })
+
+  it('dark logo upload/remove touches only settings.logo_dark_url; the main logo stays', async () => {
+    admin()
+    await postLogo(form('logo', new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })))
+    const before = (db.tables.orgs.find((o) => o.id === ORG) as any).logo_url
+    const fd = new FormData()
+    fd.append('logo', new File([new Uint8Array([1])], 'w.png', { type: 'image/png' }))
+    fd.append('variant', 'dark')
+    const res = await postLogo({ formData: async () => fd } as any)
+    expect(res.status).toBe(200)
+    const org = db.tables.orgs.find((o) => o.id === ORG) as any
+    expect(org.logo_url).toBe(before)
+    expect(org.settings.logo_url).toBe(before)
+    expect(org.settings.logo_dark_url).toMatch(new RegExp(`^org/${ORG}/logo-dark\\.png\\?v=\\d+$`))
+    expect(uploaded).toContain(`files:org/${ORG}/logo-dark.png`)
+    expect((await res.json()).logo_url).toBe(orgLogoHref(ORG, org, { variant: 'dark' }))
+    const del = await deleteLogo({ url: 'http://x/api/admin/logo?variant=dark' } as any)
+    expect(del.status).toBe(200)
+    const after = db.tables.orgs.find((o) => o.id === ORG) as any
+    expect(after.settings.logo_dark_url).toBeUndefined()
+    expect(after.logo_url).toBe(before)
   })
 
   it('admin logo delete clears both the column and settings; non-admins and anonymous are refused', async () => {

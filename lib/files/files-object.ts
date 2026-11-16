@@ -227,8 +227,8 @@ export function orgLogoHref(
   org: OrgLogoSource,
   opts: { absolute?: boolean; appUrl?: string | null; variant?: OrgLogoVariant } = {}
 ): string | null {
-  if (!orgLogoPath(orgId, org)) return null
-  const dark = opts.variant === 'dark' && ownLogoPath(String(orgId), storedOrgDarkLogo(org), /^logo-dark\.[A-Za-z0-9]+$/) ? storedOrgDarkLogo(org) : null
+  const dark = opts.variant === 'dark' && orgLogoPath(orgId, org, { variant: 'dark' })?.includes('/logo-dark.') ? storedOrgDarkLogo(org) : null
+  if (!dark && !orgLogoPath(orgId, org)) return null
   const rel = dark
     ? `/api/org-logo/${encodeURIComponent(String(orgId))}?variant=dark&v=${logoVersion(dark)}`
     : `/api/org-logo/${encodeURIComponent(String(orgId))}?v=${logoVersion(storedOrgLogo(org) ?? '')}`
