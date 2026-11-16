@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { fenceAllowsOrg, companyAppUrl } from '@/lib/company-host'
-import { getRequestCompanyFence } from '@/lib/company-host-server'
+import { getRequestHostFence } from '@/lib/company-host-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { enterSupportSession } from '@/lib/support/access'
 import { requirePlatformStaffApi } from '@/lib/support/staff'
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   if (!entered.ok) return NextResponse.json({ error: entered.error }, { status: entered.status })
 
   const secure = new URL(request.url).protocol === 'https:'
-  const fence = await getRequestCompanyFence()
+  const fence = await getRequestHostFence() // the cookie is set for this host: only the host decides, never a client header
   if (fenceAllowsOrg(fence, orgId)) {
     const res = NextResponse.json({ ok: true, redirect: '/today' })
     await setSupportCookie(res, entered.payload, secure)
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   }
   const { data: org } = await admin.from('orgs').select('subdomain').eq('id', orgId).maybeSingle()
   const url = companyAppUrl((org as { subdomain?: string | null } | null)?.subdomain ?? null)
-  const token = url ? await signSupportToken({ ...entered.payload, k: 'handoff', exp: Math.min(entered.payload.exp, Date.now() + SUPPORT_HANDOFF_MAX_MS) }) : null
+  const token = url ? await signSupportToken({ ...entered.payload, k: 'handoff', n: crypto.randomUUID(), exp: Math.min(entered.payload.exp, Date.now() + SUPPORT_HANDOFF_MAX_MS) }) : null
   if (!url || !token) return NextResponse.json({ error: "Open this company's own web address to enter it." }, { status: 409 })
   return NextResponse.json({ ok: true, redirect: `${url.replace(/\/+$/, '')}/api/support/handoff?t=${encodeURIComponent(token)}` })
 }

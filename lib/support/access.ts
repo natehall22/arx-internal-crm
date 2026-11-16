@@ -101,7 +101,7 @@ export async function checkSupportSession(admin: SupabaseClient, payload: Suppor
 /** Append one row to the log. THROWS when it cannot be written: callers that must be audited (enter, upgrade, write) stop on it. */
 export async function logSupportEvent(
   admin: SupabaseClient,
-  e: { orgId: string; staffUserId: string; actingAsUserId: string | null; level: SupportLevel; event: SupportEvent; detail?: Record<string, unknown> }
+  e: { orgId: string; staffUserId: string; actingAsUserId: string | null; level: SupportLevel; event: SupportEvent; detail?: Record<string, unknown>; handoffId?: string }
 ): Promise<void> {
   const { error } = await admin.from('support_access_log').insert({
     org_id: e.orgId,
@@ -110,6 +110,7 @@ export async function logSupportEvent(
     level: e.level,
     event: e.event,
     detail: e.detail ?? {},
+    ...(e.handoffId ? { handoff_id: e.handoffId } : {}),
   })
   if (error) throw new Error(`support log failed: ${error.message}`)
 }

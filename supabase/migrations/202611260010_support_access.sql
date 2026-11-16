@@ -93,9 +93,12 @@ CREATE TABLE IF NOT EXISTS public.support_access_log (
   level             text NOT NULL CHECK (level IN ('view', 'full')),
   event             text NOT NULL CHECK (event IN ('enter', 'exit', 'upgrade', 'write', 'blocked_send')),
   detail            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  handoff_id        text,
   at                timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS support_access_log_org_idx ON public.support_access_log (org_id, at DESC);
+-- A hand-off link is good once: its one-time id is logged with the 'enter' row, and a second use breaks this index.
+CREATE UNIQUE INDEX IF NOT EXISTS support_access_log_handoff_once ON public.support_access_log (handoff_id) WHERE handoff_id IS NOT NULL;
 ALTER TABLE public.support_access_log ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.support_access_log FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT ON public.support_access_log TO service_role;
