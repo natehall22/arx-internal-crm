@@ -49,3 +49,8 @@ export function leadSourceEditOptions(current: string | null | undefined): strin
   if (current && !values.includes(current)) values.push(current)
   return values
 }
+
+/** The sources a person may pick by hand for this company: every one, less the ones its industry profile hides (`hiddenLeadSources`). */
+export function manualLeadSourcesFor(hidden: readonly string[] | null | undefined): typeof MANUAL_LEAD_SOURCES[number][] {
+  return MANUAL_LEAD_SOURCES.filter((s) => !(hidden ?? []).includes(s.value))
+}

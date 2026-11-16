@@ -71,5 +71,5 @@ export async function GET() {
   const datasets = offeredDatasets(ctx).map((d) => ({ key: d.key, label: d.label, description: d.description, columns: visibleColumns(ctx, d) }))
   // Starter templates follow the company's industry profile (null = all); Explore still offers every allowed dataset.
   const templates = offeredTemplates(ctx)
-  return NextResponse.json({ templates, datasets, canExport: ctx.canExport, finance: ctx.finance, scope: ctx.scope, role: profile.role ?? null })
+  return NextResponse.json({ templates, datasets, canExport: ctx.canExport, finance: ctx.finance, scope: ctx.scope, role: profile.role ?? null, overview: ctx.overview ?? null })
 }

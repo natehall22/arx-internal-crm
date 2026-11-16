@@ -28,6 +28,8 @@ export type ReportContext = {
   features?: OrgFeatures
   /** Report templates the company's industry profile offers (lib/org-profile.ts); null/missing = every template. */
   starterReports?: readonly string[] | null
+  /** The company's Reports overview row and cards (lib/industry-profiles.ts); null/missing = the roofing overview. */
+  overview?: { kpis: readonly string[]; tiles: readonly string[] } | null
 }
 
 type Viewer = { id: string; org_id: string; role: string; custom_role_id?: string | null; team_id?: string | null; region_id?: string | null }
@@ -63,6 +65,7 @@ export async function buildReportContext(admin: SupabaseClient, profile: Viewer)
     scopedUserIds,
     features: orgProfile.features,
     starterReports: orgProfile.starterReports,
+    overview: orgProfile.reportsOverview,
   }
 }
 

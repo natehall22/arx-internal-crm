@@ -21,6 +21,7 @@ import {
   type IndustryProfileId,
   type NavSectionId,
   type PricebookProfile,
+  type ReportsOverviewProfile,
   type TermKey,
   type Terms,
   type TodayProfile,
@@ -47,6 +48,8 @@ export type ResolvedOrgProfile = {
   today: TodayProfile
   pricebook: PricebookProfile
   starterReports: readonly string[] | null
+  reportsOverview: ReportsOverviewProfile | null
+  hiddenLeadSources: readonly string[]
 }
 
 function asObject(v: unknown): Record<string, unknown> {
@@ -74,6 +77,8 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
     today: p.today,
     pricebook: p.pricebook,
     starterReports: p.starterReports,
+    reportsOverview: p.reportsOverview ?? null,
+    hiddenLeadSources: p.hiddenLeadSources ?? [],
   }
 }
 
@@ -102,10 +107,10 @@ export async function loadOrgProfile(client: SupabaseClient, orgId: string | nul
  * What the client needs (Nav, customer file tabs, price book forms) — sent on /api/me/effective-permissions.
  * ------------------------------------------------------------------------ */
 
-export type ClientOrgProfile = Pick<ResolvedOrgProfile, 'id' | 'label' | 'terms' | 'nav' | 'pricebook'>
+export type ClientOrgProfile = Pick<ResolvedOrgProfile, 'id' | 'label' | 'terms' | 'nav' | 'pricebook' | 'hiddenLeadSources'>
 
 export function clientOrgProfile(p: ResolvedOrgProfile): ClientOrgProfile {
-  return { id: p.id, label: p.label, terms: p.terms, nav: p.nav, pricebook: p.pricebook }
+  return { id: p.id, label: p.label, terms: p.terms, nav: p.nav, pricebook: p.pricebook, hiddenLeadSources: p.hiddenLeadSources }
 }
 
 /** Pure: a profile that came over the wire (or is missing) → a full one; anything malformed → roofing defaults. */

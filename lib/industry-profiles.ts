@@ -87,7 +87,22 @@ export type TodayProfile = {
   texts: Readonly<Record<string, string>>
   /** Wanted cards with no loader yet (shown nowhere; documented for the build list). */
   planned: ReadonlyArray<{ id: string; title: string; needs: string }>
+  /**
+   * The "This week" number tiles an owner sees, by key (app/today/page.tsx knows how to fill each). Left out = today's
+   * roofing tiles (Sits / Sales / Inspections set / Appointments), exactly as before.
+   */
+  ownerTiles?: readonly TodayTileKey[]
 }
+
+/** Owner tiles a profile can ask for on Today; each is filled from an existing loader (lib/today.ts, the reporting layer). */
+export const TODAY_TILE_KEYS = ['visits-left-today', 'unpaid-invoices', 'billed-week'] as const
+export type TodayTileKey = (typeof TODAY_TILE_KEYS)[number]
+
+/**
+ * The Reports overview (app/reports/page.tsx): which KPI numbers and which starter report cards, by key. Left out = the
+ * page's own roofing row and cards, exactly as before. Keys are the page's (`KPI_DEFS`) and lib/reporting/templates.ts keys.
+ */
+export type ReportsOverviewProfile = { kpis: readonly string[]; tiles: readonly string[] }
 
 /** A price book unit choice for add-ons (`pricebook_items.unit`, DB enum `unit`). */
 export type PricebookUnit = { value: string; label: string }
@@ -122,6 +137,10 @@ export type IndustryProfile = {
   pricebook: PricebookProfile
   /** Report template keys offered on Reports (lib/reporting/templates.ts); null = all of them. */
   starterReports: readonly string[] | null
+  /** The Reports overview row and cards; left out = today's roofing overview. */
+  reportsOverview?: ReportsOverviewProfile
+  /** `MANUAL_LEAD_SOURCES` values this profile never offers when a person picks a lead source by hand; left out = all of them (roofing). */
+  hiddenLeadSources?: readonly string[]
   /** Schedule stage templates a job can start from (project tools, lib/job-schedule.ts). Left out = none. */
   scheduleTemplates?: readonly ScheduleTemplate[]
 }
@@ -198,6 +217,14 @@ const SERVICE_REPORTS = [
   'payroll-by-person',
 ] as const
 
+/** Service companies' Reports overview: money first (billed and collected side by side), then new leads. */
+const SERVICE_REPORTS_OVERVIEW: ReportsOverviewProfile = {
+  kpis: ['billed', 'collected', 'new-leads'],
+  tiles: ['revenue-by-month', 'revenue-by-service', 'ar-aging', 'leads-by-source', 'pipeline-by-stage'],
+}
+/** Service companies' Today owner tiles. */
+const SERVICE_OWNER_TILES: readonly TodayTileKey[] = ['visits-left-today', 'unpaid-invoices', 'billed-week']
+
 /** Service companies: Leads (Pipeline) → Customers → Jobs → Money (Billing = Ready to bill / request payment). */
 const SERVICE_NAV_ORDER: readonly NavSectionId[] = ['today', 'dashboard', 'pipeline', 'customers', 'jobs', 'money', 'reports', 'sisu']
 const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
@@ -246,6 +273,7 @@ const lawnLandscape: IndustryProfile = {
       'Materials are ordered on every open job.': 'Materials are ordered on every open project.',
     },
     planned: [],
+    ownerTiles: SERVICE_OWNER_TILES,
   },
   pricebook: {
     serviceTypeUnits: [],
@@ -266,6 +294,9 @@ const lawnLandscape: IndustryProfile = {
     ],
   },
   starterReports: SERVICE_REPORTS,
+  reportsOverview: SERVICE_REPORTS_OVERVIEW,
+  // No door knocking and no call center: a lawn office's leads come in by phone, web, ads and referrals.
+  hiddenLeadSources: ['door_to_door', 'call_center'],
 }
 
 const exteriorCleaning: IndustryProfile = {
@@ -295,6 +326,7 @@ const exteriorCleaning: IndustryProfile = {
       'Every sold job has an install date.': 'Every approved job has a date.',
     },
     planned: [],
+    ownerTiles: SERVICE_OWNER_TILES,
   },
   pricebook: {
     serviceTypeUnits: [],
@@ -311,6 +343,9 @@ const exteriorCleaning: IndustryProfile = {
     ],
   },
   starterReports: SERVICE_REPORTS,
+  reportsOverview: SERVICE_REPORTS_OVERVIEW,
+  // Door knocking stays on for cleaning companies; there is no call center.
+  hiddenLeadSources: ['call_center'],
 }
 
 /** Stage templates for a home builder: a new build and a major remodel. Durations are workdays; trade labels match the profile's trades. */
