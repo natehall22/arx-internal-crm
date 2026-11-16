@@ -14,7 +14,7 @@ import {
   signResolvedLookups,
   type ResolvedLookups,
 } from '@/lib/company-host'
-import { SAFE_METHODS, SUPPORT_ALWAYS_ALLOWED_PATHS, SUPPORT_REQUEST_HEADER, supportCookieFrom, verifySupportToken } from '@/lib/support/token'
+import { SUPPORT_REQUEST_HEADER, supportCookieFrom, supportRequestRefusal, verifySupportToken } from '@/lib/support/token'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import {
   isExpired,
@@ -38,9 +38,8 @@ export async function middleware(request: NextRequest) {
   const support = await verifySupportToken(supportCookieFrom(request.cookies), 'session')
   if (support) {
     gate.requestHeaders.set(SUPPORT_REQUEST_HEADER, `${request.method.toUpperCase()} ${pathname}`)
-    if (support.l !== 'full' && !SAFE_METHODS.has(request.method.toUpperCase()) && !SUPPORT_ALWAYS_ALLOWED_PATHS.has(pathname)) {
-      return NextResponse.json({ error: 'Support view mode' }, { status: 403, headers: { 'cache-control': 'no-store' } })
-    }
+    const refusal = supportRequestRefusal(request.method, pathname, support.l)
+    if (refusal) return NextResponse.json({ error: refusal }, { status: 403, headers: { 'cache-control': 'no-store' } })
   }
   const pass = () => NextResponse.next({ request: { headers: gate.requestHeaders } })
 

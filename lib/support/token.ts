@@ -27,6 +27,8 @@ export type SupportSessionPayload = {
   l: SupportLevel
   /** expiry, ms since epoch */
   exp: number
+  /** hand-off only: a random one-time id; the hand-off route records it and refuses a second use. */
+  n?: string
 }
 
 let keyPromise: Promise<CryptoKey | null> | null = null
@@ -66,6 +68,7 @@ export async function verifySupportToken(value: string | null | undefined, kind:
     const p = JSON.parse(new TextDecoder().decode(fromB64Url(body))) as Partial<SupportSessionPayload>
     if (p.k !== kind || typeof p.s !== 'string' || typeof p.o !== 'string' || typeof p.a !== 'string' || !isSupportLevel(p.l)) return null
     if (typeof p.exp !== 'number' || !(p.exp > now)) return null
+    if (kind === 'handoff' && (typeof p.n !== 'string' || p.n.length < 16)) return null
     return p as SupportSessionPayload
   } catch {
     return null
@@ -82,3 +85,29 @@ export const SUPPORT_REQUEST_HEADER = 'x-support-request'
 export const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS'])
 /** The two POSTs a view-only session must still be able to make. */
 export const SUPPORT_ALWAYS_ALLOWED_PATHS: ReadonlySet<string> = new Set(['/api/support/exit', '/api/support/upgrade'])
+
+/**
+ * Doors a support session may never use, in ANY mode and with ANY method (several of them write on a GET): connecting an outside
+ * account (Google, QuickBooks) or approving an AI app would leave a credential behind that outlives the grant.
+ */
+export const SUPPORT_NEVER_PATHS: readonly string[] = ['/api/auth/google', '/api/integrations/quickbooks', '/api/oauth', '/oauth']
+/**
+ * Writes refused even in full mode: the company's own support settings, and anything that creates or changes a login or a
+ * long-lived key (users + passwords, AI connector keys, push devices), so nobody can keep access after the grant ends.
+ */
+export const SUPPORT_NO_WRITE_PATHS: readonly string[] = ['/api/admin/support-access', '/api/admin/users', '/api/admin/ai-connector', '/api/mobile/push-token']
+
+const underPrefix = (path: string, prefixes: readonly string[]) => prefixes.some((p) => path === p || path.startsWith(`${p}/`))
+
+/**
+ * The ONE rule for what a support session may do on a request (middleware answers it first; requireAuthApi re-asks it from the
+ * header middleware set). null = allowed; otherwise the refusal message. An unknown method is a write (fail closed).
+ */
+export function supportRequestRefusal(method: string, path: string, level: SupportLevel): string | null {
+  if (underPrefix(path, SUPPORT_NEVER_PATHS)) return 'Not available in a support session'
+  if (method && SAFE_METHODS.has(method.toUpperCase())) return null
+  if (SUPPORT_ALWAYS_ALLOWED_PATHS.has(path)) return null
+  if (level !== 'full') return 'Support view mode'
+  if (underPrefix(path, SUPPORT_NO_WRITE_PATHS)) return 'Not available in a support session'
+  return null
+}
