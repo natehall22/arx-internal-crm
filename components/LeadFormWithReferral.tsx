@@ -37,6 +37,8 @@ interface LeadFormWithReferralProps {
   serviceChoices?: string[]
   /** People to pick as owner. Given only for a company that set up lead routing: the default is "Me"; "Assign automatically" is an explicit choice. */
   ownerChoices?: Array<{ id: string; name: string }> | null
+  /** Source choices for this company (industry profile hides some); none given = every manual source (roofing). */
+  leadSources?: ReadonlyArray<{ value: string; label: string }>
 }
 
 type SchedulingResources = {
@@ -55,6 +57,7 @@ export default function LeadFormWithReferral({
   inspectionWord = 'inspection',
   serviceChoices = [],
   ownerChoices = null,
+  leadSources = MANUAL_LEAD_SOURCES,
 }: LeadFormWithReferralProps) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
@@ -430,7 +433,7 @@ export default function LeadFormWithReferral({
             className="mt-2 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 text-base text-[#2c2c2a]"
           >
             <option value="">Select source</option>
-            {MANUAL_LEAD_SOURCES.map((s) => (
+            {leadSources.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
               </option>

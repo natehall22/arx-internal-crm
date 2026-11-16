@@ -10,6 +10,8 @@ import { PageHeader } from '@/components/ui/page-header'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { formatPhone } from '@/lib/format'
 import { useOrgCategories } from '@/hooks/useOrgCategories'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { activeCategories, categoryLabel } from '@/lib/categories'
 
 type Lead = {
@@ -78,6 +80,8 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
   const [total, setTotal] = useState(0)
   const [query, setQuery] = useState<{ page: number; search: string; filters: Record<string, string> }>({ page: 1, search: '', filters: {} })
   const categories = useOrgCategories()
+  // Companies not priced from a roof (lawn, cleaning) start every new caller from one "+ New customer" sheet.
+  const startAll = !useOrgFeatures().squaresPricing
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [debounced, setDebounced] = useState(query)
 
@@ -197,7 +201,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
-      <PageHeader title="Leads" subtitle={`${total.toLocaleString()} leads`} actions={<Button asChild><Link href="/leads/new">New lead</Link></Button>} />
+      <PageHeader title="Leads" subtitle={`${total.toLocaleString()} leads`} actions={startAll ? <NewCustomerPlan size="md" /> : <Button asChild><Link href="/leads/new">New lead</Link></Button>} />
       <DataTable
         columns={columns}
         data={leads}

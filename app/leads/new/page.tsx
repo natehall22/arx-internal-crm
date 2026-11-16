@@ -7,6 +7,7 @@ import { userHasSchedulingCreate } from '@/lib/scheduling-create-permission'
 import { loadOrgProfile, t } from '@/lib/org-profile'
 import { loadCompanyServiceChoices } from '@/lib/lead-intake-db'
 import { readLeadIntakeSettings } from '@/lib/lead-intake'
+import { manualLeadSourcesFor } from '@/lib/lead-sources'
 
 export default async function NewLeadPage() {
   const { profile } = await requireAuth()
@@ -49,6 +50,7 @@ export default async function NewLeadPage() {
             inspectionWord={t(profile_, 'inspection').toLowerCase()}
             serviceChoices={serviceChoices}
             ownerChoices={ownerChoices}
+            leadSources={manualLeadSourcesFor(profile_.hiddenLeadSources)}
           />
         </div>
       </div>
