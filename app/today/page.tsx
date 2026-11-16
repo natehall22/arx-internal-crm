@@ -18,6 +18,7 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { hasFinancials } from '@/lib/financials-access'
 import { canBillService } from '@/lib/service-billing-access'
 import { canAccessJobBoardFromPermissionNames, isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { buildReportContext, runReport } from '@/lib/reporting/run'
 import { fetchPeriodMetricRows, getContactDispositionIdSet, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -93,8 +94,25 @@ export default async function TodayPage() {
   const needsYou = report?.report ?? null
   const needsYouAudience: 'owner' | 'ops' = report?.audience === 'owner' ? 'owner' : 'ops'
 
+  // Service companies (industry profile `today.ownerTiles`): this week in their own terms, each number from an existing
+  // loader — today's visit queue, the unpaid-invoices card, and the revenue report (money only for people who see financials).
+  const profileTiles = kind === 'owner' ? orgProfile.today.ownerTiles : undefined
+  const billedWeek = profileTiles?.includes('billed-week') && hasFinancials(perms)
+    ? await buildReportContext(admin, profile)
+        .then((ctx) => runReport(admin, ctx, { dataset: 'revenue', mode: 'summary', groupBy: null, metric: { kind: 'sum', column: 'billed' }, date: { preset: '7d' }, filters: [], sortDesc: true }))
+        .then((r) => r.summary?.value ?? 0)
+        .catch((e) => { console.error('today: billed this week failed', e); return null })
+    : undefined
+  const usd = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+  const profileTileList = (profileTiles ?? []).flatMap<{ label: string; value: string | number }>((key) => {
+    if (key === 'visits-left-today') return [{ label: 'Visits left today', value: visitQueues.find((q) => q.id === 'todays-visits')?.count ?? 0 }]
+    if (key === 'unpaid-invoices') return unpaidInvoices ? [{ label: 'Unpaid invoices', value: unpaidInvoices.empty.includes('couldn’t load') ? '—' : unpaidInvoices.count }] : []
+    return billedWeek === undefined ? [] : [{ label: 'Billed, last 7 days', value: billedWeek === null ? '—' : usd(billedWeek) }]
+  })
   const tiles =
-    kind === 'setter'
+    profileTiles
+      ? profileTileList
+      : kind === 'setter'
       ? [{ label: 'Doors this week', value: mine.doors }, { label: 'Inspections set', value: mine.inspectionsSet }]
       : kind === 'ops'
         ? [{ label: 'Sales this week', value: mine.sales }]

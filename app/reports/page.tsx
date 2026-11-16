@@ -13,19 +13,25 @@ import type { ReportTemplate } from '@/lib/reporting/templates'
  * applies the company fence and the viewer's scope on the server. The old Overview ran ~25 queries
  * from the browser, which has no database session here and so showed zeros.
  */
-type Meta = { templates: ReportTemplate[]; canExport: boolean; finance: boolean; scope: string; role: string | null }
+type Meta = { templates: ReportTemplate[]; canExport: boolean; finance: boolean; scope: string; role: string | null; overview?: { kpis: string[]; tiles: string[] } | null }
 
 const INK = '#2c2c2a'
 const card: React.CSSProperties = { background: '#fff', color: INK, border: '1px solid #d3d1c7', borderRadius: 12, padding: 16 }
 
-const KPIS: { label: string; money?: boolean; spec: Omit<ReportSpec, 'date'> }[] = [
-  { label: 'Sales signed ($)', money: true, spec: { dataset: 'sales', mode: 'summary', metric: { kind: 'sum', column: 'amount' }, filters: [] } },
-  { label: 'Inspections set', spec: { dataset: 'inspection_sets', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
-  { label: 'Sits', spec: { dataset: 'sits', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
-  { label: 'Doors knocked', spec: { dataset: 'canvass_doors', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
-  { label: 'New leads', spec: { dataset: 'leads', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
+type KpiDef = { key: string; label: string; money?: boolean; spec: Omit<ReportSpec, 'date'> }
+const KPI_DEFS: KpiDef[] = [
+  { key: 'sales', label: 'Sales signed ($)', money: true, spec: { dataset: 'sales', mode: 'summary', metric: { kind: 'sum', column: 'amount' }, filters: [] } },
+  { key: 'inspections-set', label: 'Inspections set', spec: { dataset: 'inspection_sets', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
+  { key: 'sits', label: 'Sits', spec: { dataset: 'sits', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
+  { key: 'doors', label: 'Doors knocked', spec: { dataset: 'canvass_doors', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
+  { key: 'new-leads', label: 'New leads', spec: { dataset: 'leads', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
+  // Service companies (industry profile): the same revenue view the Revenue by month card reads, billed and collected as two numbers.
+  { key: 'billed', label: 'Billed ($)', money: true, spec: { dataset: 'revenue', mode: 'summary', metric: { kind: 'sum', column: 'billed' }, filters: [] } },
+  { key: 'collected', label: 'Collected ($)', money: true, spec: { dataset: 'revenue', mode: 'summary', metric: { kind: 'sum', column: 'collected' }, filters: [] } },
 ]
-const TILES = ['revenue-by-month', 'sales-by-closer', 'sold-rate-by-closer', 'doors-by-rep', 'appointments-by-type', 'leads-by-source', 'sales-by-month']
+/** Today's roofing row, in today's order. */
+const ROOFING_KPIS = ['sales', 'inspections-set', 'sits', 'doors', 'new-leads']
+const ROOFING_TILES = ['revenue-by-month', 'sales-by-closer', 'sold-rate-by-closer', 'doors-by-rep', 'appointments-by-type', 'leads-by-source', 'sales-by-month']
 
 async function run(spec: ReportSpec): Promise<ReportResult | null> {
   const r = await fetch('/api/reports/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spec }) })
@@ -36,7 +42,7 @@ async function run(spec: ReportSpec): Promise<ReportResult | null> {
 const usd = (v: unknown) => Number(v).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const plain = (label: string) => label.replace(/^Total /, '')
 
-function Tile({ template, preset }: { template: ReportTemplate; preset: DatePreset }) {
+function Tile({ template, preset, labelled = false }: { template: ReportTemplate; preset: DatePreset; labelled?: boolean }) {
   const [result, setResult] = useState<ReportResult | null | undefined>(undefined)
   useEffect(() => {
     setResult(undefined)
@@ -53,28 +59,27 @@ function Tile({ template, preset }: { template: ReportTemplate; preset: DatePres
   return (
     <Link href={`/reports/explore?template=${encodeURIComponent(template.key)}&period=${preset}`} style={{ ...card, display: 'block', textDecoration: 'none' }}>
       <strong>{template.title}</strong>
-      {extra && result && <p style={{ margin: '2px 0 0', fontSize: 14 }}>{plain(result.columns[1].label)} (top bar) and {plain(extra.label)} (bottom bar)</p>}
+      {extra && result && !labelled && <p style={{ margin: '2px 0 0', fontSize: 14 }}>{plain(result.columns[1].label)} (top bar) and {plain(extra.label)} (bottom bar)</p>}
       {result === undefined && <p>Loading…</p>}
       {result === null && <p>Not available for your role.</p>}
       {result && rows.length === 0 && <p>No data for this period.</p>}
       {rows.map((r) => (
         <div key={String(r.group)} style={{ margin: '8px 0' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: labelled && extra ? '1fr 150px' : '1fr 90px', gap: 8 }}>
             <div>
               <div style={{ fontSize: 14 }}>{String(r.group)}</div>
               <div style={{ background: '#e6e4dc', height: 8, borderRadius: 3 }}>
                 <div style={{ background: '#5f5e5a', height: 8, borderRadius: 3, width: `${Math.max(2, ((Number(r.value) || 0) / max) * 100)}%` }} />
               </div>
-              {extra && (
+              {extra && !labelled && (
                 <div style={{ background: '#e6e4dc', height: 8, borderRadius: 3, marginTop: 3 }}>
                   <div style={{ background: '#2b0a3d', height: 8, borderRadius: 3, width: `${Math.max(2, ((Number(r[extra.key]) || 0) / max) * 100)}%` }} />
                 </div>
               )}
             </div>
             <div style={{ textAlign: 'right', fontSize: 14 }}>
-              {money ? usd(r.value) : Number(r.value).toLocaleString()}
-              {template.spec.metric.kind === 'rate' ? '%' : ''}
-              {extra && <div>{usd(r[extra.key])}</div>}
+              {labelled && extra ? `${plain(result!.columns[1].label)} ${usd(r.value)}` : <>{money ? usd(r.value) : Number(r.value).toLocaleString()}{template.spec.metric.kind === 'rate' ? '%' : ''}</>}
+              {extra && <div>{labelled ? `${plain(extra.label)} ` : ''}{usd(r[extra.key])}</div>}
             </div>
           </div>
           {rest.length > 0 && (
@@ -118,8 +123,12 @@ export default function ReportsPage() {
   }, [])
   useEffect(() => { void load() }, [load])
 
+  // The company's industry profile picks the KPI row and cards (meta.overview); none = today's roofing overview.
+  const TILES = meta?.overview?.tiles ?? ROOFING_TILES
+  const kpiKeys = meta?.overview?.kpis ?? ROOFING_KPIS
   const tiles = (meta?.templates ?? []).filter((t) => TILES.includes(t.key)).sort((a, b) => TILES.indexOf(a.key) - TILES.indexOf(b.key))
   const have = new Set((meta?.templates ?? []).map((t) => t.spec.dataset))
+  const kpis = kpiKeys.map((key) => KPI_DEFS.find((k) => k.key === key)).filter((k): k is KpiDef => !!k)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -159,10 +168,10 @@ export default function ReportsPage() {
         {meta && activeTab === 'overview' && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
-              {KPIS.filter((k) => have.has(k.spec.dataset) && (meta.finance || !k.money || meta.scope === 'own')).map((k) => <Kpi key={k.label} label={k.label} spec={k.spec} preset={preset} />)}
+              {kpis.filter((k) => have.has(k.spec.dataset) && (meta.finance || !k.money || (meta.scope === 'own' && k.spec.dataset !== 'revenue'))).map((k) => <Kpi key={k.label} label={k.label} spec={k.spec} preset={preset} />)}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-              {tiles.map((t) => <Tile key={t.key} template={t} preset={preset} />)}
+              {tiles.map((t) => <Tile key={t.key} template={t} preset={preset} labelled={!!meta.overview} />)}
             </div>
           </>
         )}
