@@ -108,6 +108,8 @@ export interface ProposalPDFData {
     eaves_lf?: number
     valleys_lf?: number
   }
+  /** Words on the cover, process and why-us pages (lib/proposal-content.ts). Absent on a snapshot made before this existed = roofing, as it always printed. */
+  content?: ProposalPdfContent
   company?: {
     name: string
     logo_url?: string
@@ -389,6 +391,16 @@ const createStyles = (theme: Theme) => {
       borderWidth: 1,
       borderColor: c.border,
       minHeight: 140,
+    },
+    // More than six steps (a company's own list): tighter cards so the page still holds them.
+    processCardCompact: {
+      padding: s.md,
+      minHeight: 0,
+    },
+
+    stepDescriptionCompact: {
+      fontSize: f.sm,
+      lineHeight: 1.4,
     },
     processCardHeader: {
       flexDirection: 'row',
@@ -704,6 +716,7 @@ export {
   shouldShowSelectedFinancingPayment,
 } from '@/lib/proposal-pricing-visibility'
 import { formatPhone } from '@/lib/format'
+import { defaultProposalContent, fillCompanyToken, proposalCoverTitle, type ProposalPdfContent } from '@/lib/proposal-content'
 
 const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -717,62 +730,12 @@ const formatDate = (dateString: string) => {
 // STATIC CONTENT
 // ============================================================================
 
-const processSteps = [
-  {
-    title: 'Initial Consultation',
-    description: 'We assess your roof, discuss your needs, and provide a detailed proposal.',
-  },
-  {
-    title: 'Material Selection',
-    description: 'Choose from premium roofing materials that fit your style and budget.',
-  },
-  {
-    title: 'Project Scheduling',
-    description: 'We coordinate a convenient installation date that works for you.',
-  },
-  {
-    title: 'Professional Installation',
-    description: 'Our certified crew completes your roof with precision and care.',
-  },
-  {
-    title: 'Quality Inspection',
-    description: 'We perform a thorough walkthrough to ensure everything meets our standards.',
-  },
-  {
-    title: 'Final Cleanup & Warranty',
-    description: 'We leave your property clean and provide all warranty documentation.',
-  },
-]
-
 const warranties = [
   { text: '5-Year Workmanship Warranty' },
   { text: '1-Year No-Leak Guarantee' },
   { text: '25-Year Manufacturer Warranty' },
   { text: '6-Month Post-Installation Checkup' },
   { text: '12-Month Roof Inspection' },
-]
-
-const whyUsPoints = [
-  {
-    headline: 'Local & Long-Term',
-    description: 'We are Charlotte-based and committed to serving our community for years to come.',
-  },
-  {
-    headline: 'Complete Roofing Systems',
-    description: 'We install full roofing systems—not patchwork fixes—built for long-term performance.',
-  },
-  {
-    headline: 'Clear Communication',
-    description: 'Every project is documented with photos and written scopes. You always know what to expect.',
-  },
-  {
-    headline: 'Professional Process',
-    description: 'Clean job sites, final walkthroughs, and a step-by-step approach from start to finish.',
-  },
-  {
-    headline: 'Insurance Guidance',
-    description: 'Filing a claim? We help you through the process without overpromising outcomes.',
-  },
 ]
 
 export const WAYS_TO_PAY_TITLE = 'Ways to Pay'
@@ -828,6 +791,9 @@ export function getWaysToPayCustomerCopy(): string {
 export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
   const styles = createStyles(theme)
   const { proposal, lineItems, measurement, company, rep, photos, inspectionNotes, financing } = data
+  // A snapshot from before the content was editable has none: it printed the roofing text and "ROOFING PROPOSAL".
+  const legacy = !data.content
+  const content: ProposalPdfContent = data.content ?? { ...defaultProposalContent('roofing'), proposalWord: 'Proposal' }
   // Company identity comes from the org row (lib/org-brand); the defaults only cover a missing company payload.
   const brandName = company?.name || DEFAULT_ORG_BRAND.name
   const brandShortName = company?.short_name || DEFAULT_ORG_BRAND.shortName
@@ -845,6 +811,8 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
   ]
 
   const totalPages = 7
+  // A longer or wordier step list (a company's own) gets tighter cards so the Process page still holds it; today's six short steps keep the full layout.
+  const denseProcess = content.processSteps.length > 6 || content.processSteps.some((st) => st.body.length > 110)
 
   return (
     <Document>
@@ -865,8 +833,8 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
 
           {/* Title */}
           <View style={styles.coverMiddle}>
-            <Text style={styles.coverTitle}>ROOFING PROPOSAL</Text>
-            <Text style={styles.coverSubtitle}>Professional Roofing Services</Text>
+            <Text style={styles.coverTitle}>{legacy ? 'ROOFING PROPOSAL' : proposalCoverTitle(proposal.title, content)}</Text>
+            <Text style={styles.coverSubtitle}>{content.coverSubtitle}</Text>
             
             <View style={{ marginTop: tokens.spacing.xxl }}>
               <Text style={styles.coverPreparedFor}>Prepared For</Text>
@@ -897,7 +865,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           {/* Section Header */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Project Details</Text>
-            <Text style={styles.sectionSubtitle}>Property information and roof measurements</Text>
+            <Text style={styles.sectionSubtitle}>{measurement ? 'Property information and roof measurements' : content.detailsSubtitle}</Text>
           </View>
 
           {/* Property Info */}
@@ -1046,21 +1014,21 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
       <Page size="LETTER" style={styles.page}>
         <View style={styles.processPageContent}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>The Process</Text>
-            <Text style={styles.sectionSubtitle}>Your roof replacement from start to finish</Text>
+            <Text style={styles.sectionTitle}>{fillCompanyToken(content.processTitle, brandShortName)}</Text>
+            <Text style={styles.sectionSubtitle}>{fillCompanyToken(content.processSubtitle, brandShortName)}</Text>
           </View>
 
           {/* 2x3 Grid of Process Cards */}
           <View style={styles.processGrid}>
-            {processSteps.map((step, index) => (
-              <View key={index} style={styles.processCard}>
+            {content.processSteps.map((step, index) => (
+              <View key={index} style={denseProcess ? [styles.processCard, styles.processCardCompact] : styles.processCard}>
                 <View style={styles.processCardHeader}>
                   <View style={styles.stepNumber}>
                     <Text style={styles.stepNumberText}>{index + 1}</Text>
                   </View>
-                  <Text style={styles.stepTitle}>{step.title}</Text>
+                  <Text style={styles.stepTitle}>{fillCompanyToken(step.title, brandShortName)}</Text>
                 </View>
-                <Text style={styles.stepDescription}>{step.description}</Text>
+                <Text style={denseProcess ? [styles.stepDescription, styles.stepDescriptionCompact] : styles.stepDescription}>{fillCompanyToken(step.body, brandShortName)}</Text>
               </View>
             ))}
           </View>
@@ -1105,13 +1073,13 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
 
           {/* Why us */}
           <View style={[styles.sectionHeader, { marginTop: tokens.spacing.xl }]}>
-            <Text style={styles.sectionTitle}>{`Why Homeowners Choose ${brandShortName}`}</Text>
+            <Text style={styles.sectionTitle}>{fillCompanyToken(content.whyUsTitle, brandShortName)}</Text>
           </View>
 
-          {whyUsPoints.map((point, index) => (
+          {content.whyUsItems.map((point, index) => (
             <View key={index} style={styles.whyUsItem}>
-              <Text style={styles.whyUsHeadline}>{point.headline}</Text>
-              <Text style={styles.whyUsDescription}>{point.description}</Text>
+              <Text style={styles.whyUsHeadline}>{fillCompanyToken(point.title, brandShortName)}</Text>
+              <Text style={styles.whyUsDescription}>{fillCompanyToken(point.body, brandShortName)}</Text>
             </View>
           ))}
 

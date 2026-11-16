@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveOrgBrand } from '@/lib/org-brand'
+import { resolveOrgProfile } from '@/lib/org-profile'
+import { resolveProposalContent } from '@/lib/proposal-content'
 import { createClient } from '@supabase/supabase-js'
 import { PROPOSAL_DELETE_PRIVILEGED_ROLES } from '@/lib/proposal-delete-access'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
@@ -187,6 +189,8 @@ export async function GET(
         : company,
       rep: proposalForClient.users,
       measurement,
+      // The words on the PDF's cover / process / why-us pages, resolved once here (lib/proposal-content.ts) so the snapshot holds what was shown.
+      content: resolveProposalContent(company, resolveOrgProfile(company?.settings)),
       has_completed_installation_contract: Boolean(signedSaleAgreement),
       role: profile.role,
       current_user_id: user.id,

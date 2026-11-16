@@ -847,6 +847,11 @@ const SCREENS: Screen[] = [
       { id: 's2', reason: 'sent', createdAt: '2026-11-10T15:00:00.000Z', createdBy: 'u1', createdByName: 'Sam Closer', total: 17900 },
     ] })))
   } },
+  { name: 'proposal-content-settings', path: '/dev-harness/proposal-content-settings', ready: 'text=Process steps', mock: async (p) => {
+    const item = (t: string, b: string) => ({ title: t, body: b })
+    const content = { coverSubtitle: 'Professional Roofing Services', processTitle: 'The Process', processSubtitle: 'Your roof replacement from start to finish', processSteps: [item('Initial Consultation', 'We assess your roof, discuss your needs, and provide a detailed proposal.'), item('Material Selection', 'Choose from premium roofing materials that fit your style and budget.')], whyUsTitle: 'Why Homeowners Choose {company}', whyUsItems: [item('Local & Long-Term', 'We are Charlotte-based and committed to serving our community for years to come.')], detailsSubtitle: 'Property information and roof measurements', proposalWord: 'Proposal' }
+    await p.route('**/api/admin/proposal-content', (route) => route.fulfill(json({ content, defaults: content, companyName: 'Example' })))
+  } },
   { name: 'quote-settings', path: '/dev-harness/quote-settings', ready: 'text=Deposit after approval', mock: async (p) => {
     await p.route('**/api/admin/quote-approval', (route) => route.fulfill(json({ settings: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0, linkDays: 30, terms: 'Work is scheduled within two weeks.' } })))
   } },

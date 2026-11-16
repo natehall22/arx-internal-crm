@@ -132,6 +132,7 @@ import QuickBooksMappingCard from '@/components/admin/QuickBooksMappingCard'
 import QuickBooksBackfillCard from '@/components/admin/QuickBooksBackfillCard'
 import QuickBooksSetup from '@/components/admin/QuickBooksSetup'
 import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
+import ProposalContentCard from '@/components/admin/ProposalContentCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import QuoteClient from '@/components/quotes/QuoteClient'
 import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
@@ -760,6 +761,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><QuoteLinkCard proposalId="harness-proposal" /></div>
     case 'proposal-snapshot-history':
       return <div className="mx-auto max-w-2xl p-4"><ProposalSnapshotHistory proposalId="harness-proposal" /></div>
+    case 'proposal-content-settings':
+      return <div className="mx-auto max-w-2xl p-4"><ProposalContentCard proposalWord="Proposal" /></div>
     case 'quote-settings':
       return <div className="mx-auto max-w-2xl p-4"><QuoteApprovalCard /></div>
     case 'invoice-online':

@@ -16,6 +16,13 @@
 import type { ScheduleTemplate } from '@/lib/job-schedule'
 import type { OrgFeature } from '@/lib/org-features'
 import type { OrgTradeSeed } from '@/lib/org-trades-admin'
+import {
+  EXTERIOR_CLEANING_PROPOSAL_CONTENT,
+  HOME_BUILDER_PROPOSAL_CONTENT,
+  LAWN_LANDSCAPE_PROPOSAL_CONTENT,
+  ROOFING_PROPOSAL_CONTENT,
+  type ProposalContentDefaults,
+} from '@/lib/industry-profiles-proposal'
 import { PRICE_SHEET_UNITS, PROFILE_ONLY_UNITS, SERVICE_UNIT_MIGRATION } from '@/lib/price-list'
 
 export const INDUSTRY_PROFILE_IDS = ['roofing', 'lawn_landscape', 'exterior_cleaning', 'home_builder'] as const
@@ -143,6 +150,8 @@ export type IndustryProfile = {
   hiddenLeadSources?: readonly string[]
   /** Schedule stage templates a job can start from (project tools, lib/job-schedule.ts). Left out = none. */
   scheduleTemplates?: readonly ScheduleTemplate[]
+  /** The words on the customer proposal PDF's cover, process and why-us pages (lib/industry-profiles-proposal.ts). Left out = neutral text. */
+  proposalContent?: ProposalContentDefaults
 }
 
 /** Today's add-on units, in the order the add-on form shows them (app/admin/proposals/page.tsx). */
@@ -172,6 +181,7 @@ const NO_TODAY: TodayProfile = { order: [], hidden: [], texts: {}, planned: [] }
 
 const roofing: IndustryProfile = {
   id: 'roofing',
+  proposalContent: ROOFING_PROPOSAL_CONTENT,
   version: 1,
   label: 'Roofing',
   description: 'Storm and retail roofing: door knocking, inspections, insurance claims, roof measuring and squares pricing.',
@@ -231,6 +241,7 @@ const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
+  proposalContent: LAWN_LANDSCAPE_PROPOSAL_CONTENT,
   version: 6,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
@@ -301,6 +312,7 @@ const lawnLandscape: IndustryProfile = {
 
 const exteriorCleaning: IndustryProfile = {
   id: 'exterior_cleaning',
+  proposalContent: EXTERIOR_CLEANING_PROPOSAL_CONTENT,
   version: 4,
   label: 'Exterior cleaning',
   description: 'Pressure washing, soft washing, window and gutter cleaning — one-off and repeat.',
@@ -387,6 +399,7 @@ const HOME_BUILDER_SCHEDULE_TEMPLATES: readonly ScheduleTemplate[] = [
 
 const homeBuilder: IndustryProfile = {
   id: 'home_builder',
+  proposalContent: HOME_BUILDER_PROPOSAL_CONTENT,
   version: 3,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
