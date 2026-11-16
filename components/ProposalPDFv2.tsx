@@ -856,7 +856,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           {/* Title */}
           <View style={styles.coverMiddle}>
             <Text style={coverTitle.length > 40 ? [styles.coverTitle, styles.coverTitleLong] : styles.coverTitle}>{coverTitle}</Text>
-            <Text style={styles.coverSubtitle}>{content.coverSubtitle}</Text>
+            <Text style={styles.coverSubtitle}>{fillCompanyToken(content.coverSubtitle, brandShortName)}</Text>
             
             <View style={{ marginTop: tokens.spacing.xxl }}>
               <Text style={styles.coverPreparedFor}>Prepared For</Text>

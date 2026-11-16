@@ -116,6 +116,9 @@ describe('cover title', () => {
     expect(t).toContain('|SIDING QUOTE - OPTION A|')
     expect(t).not.toContain('ROOFING PROPOSAL')
   })
+  it('the cover subtitle fills {company} like every other text', () => {
+    expect(text({ ...base, content: { ...resolve({}), coverSubtitle: '{company} Services' } })).toContain('|ARX Services|')
+  })
   it('blank → the company\'s word', () => {
     expect(proposalCoverTitle('  ', resolve({ profile: { id: 'exterior_cleaning', version: 1 } }))).toBe('QUOTE')
     expect(proposalCoverTitle(undefined, resolve({}))).toBe('PROPOSAL')
