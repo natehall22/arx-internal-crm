@@ -1118,6 +1118,128 @@ test('no floating assistant button on the proposal builder', async ({ page }) =>
   expect(await fixedOverlapping(page, cont), 'fixed elements covering Continue to Pricing').toEqual([])
 })
 
+/** A lawn company: not priced from a roof (squaresPricing off), service plans on. Registered after mockApi, so it wins. */
+async function asLawnCompany(page: Page) {
+  await page.route('**/api/me/effective-permissions', (route) => route.fulfill(json({
+    role: 'owner', fullAccess: true, permissions: [],
+    flags: { features: { squaresPricing: false, canvassing: false, servicePlans: true, insurance: false, roofMeasure: false }, profile: { id: 'lawn_landscape' } },
+  })))
+}
+
+async function expectNoSidewaysScroll(page: Page) {
+  const vw = page.viewportSize()!.width
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(vw)
+}
+
+// Simple quote (lawn): Customer → price list → Review. No roofing type, tear-off or waste step; email optional; the company's word is "Quote".
+test('simple quote (lawn) / three steps, email optional, price list first', async ({ page }) => {
+  await mockApi(page)
+  await asLawnCompany(page)
+  await page.route('**/api/proposals/builder**', (route) => route.fulfill(json({
+    role: 'admin', roofingTypes: [],
+    pricebookItems: [{ id: 'p1', name: 'Weekly mowing', category: 'Lawn care', unit: 'visit', unit_price: 45, is_adder: false, adder_category: null, visibility: 'all' }],
+    adders: [{ id: 'p2', name: 'Mulch install', category: 'Landscaping', unit: 'each', unit_price: 120, is_adder: true, adder_category: 'Landscaping', visibility: 'all' }],
+    priceLists: [], templates: [], financingPrograms: [],
+  })))
+  await page.goto('/dev-harness/proposal-builder?opportunity_id=opp-1')
+  await page.waitForSelector('text=Customer Information')
+  // The step bar shows only the steps that appear: 1, 2, 3 (no fourth, fifth or sixth).
+  await expect(page.getByRole('button', { name: '3', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '4', exact: true })).toHaveCount(0)
+  await expect(page.getByText('Quote Title')).toBeVisible()
+  await expect(page.getByText('(optional — needed only to email the quote)')).toBeVisible()
+  await page.getByPlaceholder('John Smith').fill('Pat Lee')
+  await page.getByPlaceholder('(555) 123-4567').fill('7045550101')
+  await page.getByPlaceholder('123 Main St, City, State 12345').fill('12 Oak Ln, Concord NC')
+  const cont = page.getByRole('button', { name: 'Continue', exact: true })
+  await expect(cont).toBeEnabled() // no email typed
+  expect((await cont.boundingBox())!.height).toBeGreaterThanOrEqual(43.5)
+  await cont.click()
+  await page.waitForSelector('text=Pick from your price list')
+  await expect(page.getByText('Select Roofing Type')).toHaveCount(0)
+  await expect(page.getByText('tear-off', { exact: false })).toHaveCount(0)
+  await expect(page.getByText('will not be itemized')).toHaveCount(0)
+  await expect(page.getByText('Weekly mowing')).toBeVisible()
+  await expect(page.getByText('Mulch install')).toBeVisible()
+  const review = page.getByRole('button', { name: 'Review Quote' })
+  expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(43.5)
+  await expectNoSidewaysScroll(page)
+  await review.click()
+  await page.getByRole('button', { name: 'Create Quote' }).waitFor()
+})
+
+// The roofing flow is the same builder: its steps, its required email, its words.
+test('simple quote / roofing keeps its six steps and required email', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/proposals/builder**', (route) => route.fulfill(json({
+    role: 'admin', roofingTypes: [{ id: 'rt1', name: 'Asphalt Shingles', price_per_square: 451.2, is_default: true }],
+    pricebookItems: [], adders: [], priceLists: [], templates: [], financingPrograms: [],
+    measurement: { id: 'm1', total_squares: 11.75, suggested_waste_percent: 12 },
+  })))
+  await page.goto('/dev-harness/proposal-builder?opportunity_id=opp-1&measurement_id=m1')
+  await page.waitForSelector('text=Customer Information')
+  await expect(page.getByRole('button', { name: '6', exact: true })).toBeVisible()
+  await expect(page.getByText('Proposal Title')).toBeVisible()
+  await page.getByPlaceholder('John Smith').fill('Pat Lee')
+  await page.getByPlaceholder('(555) 123-4567').fill('7045550101')
+  await page.getByPlaceholder('123 Main St, City, State 12345').fill('12 Oak Ln, Concord NC')
+  await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled() // email still required
+})
+
+// One "+ New customer" start (lawn): one sheet, three ways to finish, all tappable on a phone.
+test('new customer (lawn) / one sheet, three end buttons', async ({ page }) => {
+  await mockApi(page)
+  await asLawnCompany(page)
+  await page.route(/\/api\/ops\/visits(\?.*)?$/, (route) => route.fulfill(json(HARNESS_VISITS)))
+  await page.route(/\/api\/service-plans$/, (route) => route.fulfill(json({ ...HARNESS_SERVICE_PLANS, properties: [] })))
+  await page.goto('/dev-harness/visits-board')
+  await page.getByRole('button', { name: '+ New customer', exact: true }).click()
+  await page.waitForSelector('[role=dialog] >> text=Who and where')
+  const dialog = page.getByRole('dialog')
+  // Lawn never sees door to door / call center as a lead source.
+  const options = await dialog.locator('select option').allTextContents()
+  expect(options).toContain('Referral')
+  expect(options).not.toContain('Door to door')
+  expect(options).not.toContain('Call center')
+  const vw = page.viewportSize()!.width
+  for (const name of ['Save as lead', 'Start a quote', 'Start a plan']) {
+    const b = dialog.getByRole('button', { name, exact: true })
+    await b.scrollIntoViewIfNeeded()
+    const r = (await b.boundingBox())!
+    expect(r.height, name).toBeGreaterThanOrEqual(43.5)
+    expect(r.x, name).toBeGreaterThanOrEqual(0)
+    expect(r.x + r.width, name).toBeLessThanOrEqual(vw)
+    await expect(b, name).toBeDisabled() // needs a name first
+  }
+  for (const input of await dialog.locator('input:visible').all()) {
+    expect(await input.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)), 'inputs >= 16px').toBeGreaterThanOrEqual(16)
+  }
+  await dialog.getByLabel('Customer name *').fill('Pat Lee')
+  await dialog.getByLabel('Street address *').fill('12 Oak Ln')
+  await expect(dialog.getByRole('button', { name: 'Start a plan', exact: true })).toBeEnabled()
+  await dialog.getByRole('button', { name: 'Start a plan', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Start plan', exact: true }).waitFor()
+  await expectNoSidewaysScroll(page)
+})
+
+// Reports home for a service company: billed and collected as two labelled numbers; no roofing KPIs.
+test('reports home (lawn) / billed and collected, no roofing numbers', async ({ page }) => {
+  await mockApi(page)
+  await asLawnCompany(page)
+  await page.route('**/api/reports/run', (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const meta = TEMPLATE_META(REPORT_TEMPLATES)
+    return route.fulfill(json({ ...meta, datasets: [], overview: { kpis: ['billed', 'collected', 'new-leads'], tiles: ['revenue-by-month', 'ar-aging'] } }))
+  })
+  await page.goto('/dev-harness/reports-home')
+  await page.waitForSelector('text=Billed ($)')
+  await expect(page.getByText('Collected ($)')).toBeVisible()
+  await expect(page.getByText('Doors knocked')).toHaveCount(0)
+  await expect(page.getByText('Inspections set')).toHaveCount(0)
+  await expect(page.getByText('(top bar)')).toHaveCount(0)
+  await expectNoSidewaysScroll(page)
+})
+
 test('Ask AI in the top bar opens the assistant panel', async ({ page }) => {
   await mockApi(page)
   await mockAllowlistedAssistant(page)
