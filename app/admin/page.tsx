@@ -17,6 +17,7 @@ import OrgProfileCard from '@/components/admin/OrgProfileCard'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { loadOrgProfile } from '@/lib/org-profile'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
+import ProposalContentCard from '@/components/admin/ProposalContentCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import SigningSettingsCard from '@/components/admin/SigningSettingsCard'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
@@ -94,6 +95,8 @@ export default async function SettingsPage() {
           {orgProfile.id === 'lawn_landscape' && canEditFeatures ? <CrewIncentivesSettingsCard /> : null}
           {/* Owners, when the company bills by the hour: rounding, minimums, drive time (lib/hourly-billing.ts). */}
           {features.hourlyBilling && canEditFeatures ? <HourlyBillingSettingsCard /> : null}
+          {/* Owners: the words on the proposal PDF's cover, process and why-us pages (lib/proposal-content.ts). */}
+          {canEditFeatures && <ProposalContentCard proposalWord={orgProfile.terms.proposal} />}
           {/* Owners, when the company sends quote links: default deposit, link life, terms (lib/quotes/settings.ts). */}
           {features.quoteApproval && canEditFeatures ? <QuoteApprovalCard /> : null}
           {/* Owners: the e-sign notice, decline, filing, reminders, signed-copy emails (lib/signing/settings.ts). */}
