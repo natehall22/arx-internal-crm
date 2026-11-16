@@ -97,6 +97,71 @@ export const SUPPORT_NEVER_PATHS: readonly string[] = ['/api/auth/google', '/api
  */
 export const SUPPORT_NO_WRITE_PATHS: readonly string[] = ['/api/admin/support-access', '/api/admin/users', '/api/admin/ai-connector', '/api/mobile/push-token']
 
+/**
+ * Routes and pages that authenticate the browser's OWN Supabase token by hand (Known Redundancy 3b: a local
+ * getSessionFromRequest / getAuthClient, a raw `auth.getUser(`, or lib/supabase-api-request-auth). They never see the support
+ * session, so on an address where staff are also signed in they would show and change the STAFF member's own company. Inside a
+ * support session they are refused in every mode. Next route patterns (`[id]` = one segment, route groups left out), exact match.
+ * `lib/__tests__/support-access.test.ts` derives this list from the files and fails if it differs: a new hand-rolled route must be
+ * added here (or, better, moved onto requireAuthApi and taken off).
+ */
+export const SUPPORT_OWN_TOKEN_ROUTES: readonly string[] = [
+  '/admin/campaigns',
+  '/admin/door-drop',
+  '/admin/print-kit',
+  '/admin/print-kit/appointment-cards',
+  '/api/admin/canvass-territories',
+  '/api/admin/canvass-territories/[id]',
+  '/api/admin/crews',
+  '/api/admin/dashboard-settings',
+  '/api/admin/financing-programs',
+  '/api/admin/presets',
+  '/api/admin/pricing',
+  '/api/admin/proposals',
+  '/api/admin/roles',
+  '/api/admin/roofing-types',
+  '/api/admin/scheduling',
+  '/api/admin/settings',
+  '/api/appointments',
+  '/api/appointments/[id]',
+  '/api/auth/google/callback',
+  '/api/calendar/profile',
+  '/api/calendar/sync',
+  '/api/canvass/data',
+  '/api/canvass/leads/viewport',
+  '/api/close-appointments/context',
+  '/api/close-appointments/outcomes',
+  '/api/close-appointments/submit',
+  '/api/dashboard/team-stats',
+  '/api/financing-programs',
+  '/api/financing-programs/estimate',
+  '/api/inspections/outcomes',
+  '/api/inspections/schedule-close',
+  '/api/inspections/status',
+  '/api/leads',
+  '/api/leads/[id]',
+  '/api/leads/[id]/opportunity',
+  '/api/leads/scheduling-resources',
+  '/api/opportunities/[id]/inside-sales-follow-up',
+  '/api/opportunities/inside-sales',
+  '/api/proposals',
+  '/api/proposals/[id]',
+  '/api/proposals/[id]/create-project',
+  '/api/proposals/[id]/line-items/[itemId]',
+  '/api/proposals/builder',
+  '/api/referrals',
+  '/api/user/comp-plan',
+  '/api/whoami',
+  '/canvass/stats',
+  '/commissions/estimator',
+]
+
+const routeRegex = (pattern: string) => new RegExp(`^${pattern.split('/').map((seg) => (/^\[.+\]$/.test(seg) ? '[^/]+' : seg.replace(/[.*+?^${}()|\\]/g, '\\$&'))).join('/')}/?$`)
+const OWN_TOKEN_ROUTE_REGEXES = SUPPORT_OWN_TOKEN_ROUTES.map(routeRegex)
+export const isSupportOwnTokenRoute = (path: string): boolean => OWN_TOKEN_ROUTE_REGEXES.some((r) => r.test(path))
+
+export const SUPPORT_NOT_AVAILABLE = 'Not available in support access'
+
 const underPrefix = (path: string, prefixes: readonly string[]) => prefixes.some((p) => path === p || path.startsWith(`${p}/`))
 
 /**
@@ -104,10 +169,10 @@ const underPrefix = (path: string, prefixes: readonly string[]) => prefixes.some
  * header middleware set). null = allowed; otherwise the refusal message. An unknown method is a write (fail closed).
  */
 export function supportRequestRefusal(method: string, path: string, level: SupportLevel): string | null {
-  if (underPrefix(path, SUPPORT_NEVER_PATHS)) return 'Not available in a support session'
+  if (underPrefix(path, SUPPORT_NEVER_PATHS) || isSupportOwnTokenRoute(path)) return SUPPORT_NOT_AVAILABLE
   if (method && SAFE_METHODS.has(method.toUpperCase())) return null
   if (SUPPORT_ALWAYS_ALLOWED_PATHS.has(path)) return null
   if (level !== 'full') return 'Support view mode'
-  if (underPrefix(path, SUPPORT_NO_WRITE_PATHS)) return 'Not available in a support session'
+  if (underPrefix(path, SUPPORT_NO_WRITE_PATHS)) return SUPPORT_NOT_AVAILABLE
   return null
 }

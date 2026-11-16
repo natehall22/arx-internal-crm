@@ -14,7 +14,7 @@ import {
   signResolvedLookups,
   type ResolvedLookups,
 } from '@/lib/company-host'
-import { SUPPORT_REQUEST_HEADER, supportCookieFrom, supportRequestRefusal, verifySupportToken } from '@/lib/support/token'
+import { SAFE_METHODS, SUPPORT_REQUEST_HEADER, supportCookieFrom, supportRequestRefusal, verifySupportToken } from '@/lib/support/token'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import {
   isExpired,
@@ -39,7 +39,11 @@ export async function middleware(request: NextRequest) {
   if (support) {
     gate.requestHeaders.set(SUPPORT_REQUEST_HEADER, `${request.method.toUpperCase()} ${pathname}`)
     const refusal = supportRequestRefusal(request.method, pathname, support.l)
-    if (refusal) return NextResponse.json({ error: refusal }, { status: 403, headers: { 'cache-control': 'no-store' } })
+    if (refusal) {
+      // A page opened in the browser gets a readable page; everything else (API, server actions) the JSON answer.
+      if (!pathname.startsWith('/api/') && SAFE_METHODS.has(request.method.toUpperCase())) return supportRefusalPage(refusal)
+      return NextResponse.json({ error: refusal }, { status: 403, headers: { 'cache-control': 'no-store' } })
+    }
   }
   const pass = () => NextResponse.next({ request: { headers: gate.requestHeaders } })
 
@@ -130,6 +134,12 @@ function companyOnlyPages(request: NextRequest): NextResponse | null {
   to.pathname = p === '/' ? '/today' : '/login'
   to.search = ''
   return NextResponse.redirect(to)
+}
+
+/** The page a support session sees on a screen it may not use (message is one of our own constants, never user text). */
+function supportRefusalPage(message: string): NextResponse {
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${message}</title></head><body style="margin:0;font-family:system-ui,sans-serif;background:#fff;color:#2c2c2a"><main style="max-width:32rem;margin:0 auto;padding:48px 20px"><h1 style="font-size:22px;margin:0 0 12px">${message}</h1><p style="font-size:16px;line-height:1.5;margin:0 0 24px">This screen can’t be used while you are inside a company as support.</p><a href="/today" style="display:inline-block;min-height:44px;line-height:44px;padding:0 20px;border-radius:8px;background:#2c2c2a;color:#fff;font-size:16px;text-decoration:none">Back to Today</a></main></body></html>`
+  return new NextResponse(html, { status: 403, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
 }
 
 type GateResult = { response: NextResponse | null; requestHeaders: Headers }

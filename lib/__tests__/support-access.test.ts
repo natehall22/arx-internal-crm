@@ -65,7 +65,7 @@ import {
   listSupportCompanies,
   listSupportLog,
 } from '@/lib/support/access'
-import { SUPPORT_COOKIE, SUPPORT_REQUEST_HEADER, signSupportToken, verifySupportToken, type SupportSessionPayload } from '@/lib/support/token'
+import { SUPPORT_COOKIE, SUPPORT_OWN_TOKEN_ROUTES, SUPPORT_REQUEST_HEADER, isSupportOwnTokenRoute, signSupportToken, verifySupportToken, type SupportSessionPayload } from '@/lib/support/token'
 import { supportBlocksSend } from '@/lib/support/send-guard'
 import { POST as enterPost } from '@/app/api/support/enter/route'
 import { POST as exitPost } from '@/app/api/support/exit/route'
@@ -357,7 +357,7 @@ describe('view vs full', () => {
   test("full: staff can never change the company's own support-access settings", async () => {
     cookieList = [await sessionCookie({ l: 'full' })]
     asApi('POST', '/api/admin/support-access')
-    await expect(requireAuthApi()).rejects.toThrow('Not available in a support session')
+    await expect(requireAuthApi()).rejects.toThrow('Not available in support access')
     expect(events()).not.toContain('write')
   })
 })
@@ -423,10 +423,46 @@ describe('doors a support session never uses (credentials that would outlive the
   test('requireAuthApi backstop refuses the same doors (and logs nothing)', async () => {
     cookieList = [await sessionCookie({ l: 'full' })]
     asApi('GET', '/api/auth/google/finish')
-    await expect(requireAuthApi()).rejects.toThrow('Not available in a support session')
+    await expect(requireAuthApi()).rejects.toThrow('Not available in support access')
     asApi('POST', '/api/admin/users')
-    await expect(requireAuthApi()).rejects.toThrow('Not available in a support session')
+    await expect(requireAuthApi()).rejects.toThrow('Not available in support access')
     expect(logRows()).toHaveLength(0)
+  })
+})
+
+describe("screens that read the staff member's own token are refused inside a support session", () => {
+  const mk = (method: string, path: string, cookie?: string) =>
+    new NextRequest(`https://old-app.vercel.app${path}`, { method, headers: { host: 'old-app.vercel.app', ...(cookie ? { cookie: `${SUPPORT_COOKIE}=${cookie}` } : {}) } })
+
+  test('API routes: 403 "Not available in support access" in view and full, any method', async () => {
+    for (const l of ['view', 'full'] as const) {
+      const c = (await sessionCookie({ l })).value
+      for (const [m, p] of [['GET', '/api/leads'], ['GET', '/api/leads/abc'], ['POST', '/api/leads/abc/opportunity'], ['GET', '/api/proposals/p1/line-items/i9'], ['GET', '/api/whoami'], ['PATCH', '/api/admin/settings']] as const) {
+        const res = await middleware(mk(m, p, c))
+        expect(res.status).toBe(403)
+        expect(await res.json()).toEqual({ error: 'Not available in support access' })
+      }
+    }
+  })
+
+  test('pages: the page shows the message (view and full)', async () => {
+    for (const l of ['view', 'full'] as const) {
+      const c = (await sessionCookie({ l })).value
+      for (const p of ['/admin/campaigns', '/admin/print-kit', '/admin/print-kit/appointment-cards', '/canvass/stats', '/commissions/estimator']) {
+        const res = await middleware(mk('GET', p, c))
+        expect(res.status).toBe(403)
+        expect(res.headers.get('content-type')).toMatch(/text\/html/)
+        expect(await res.text()).toContain('Not available in support access')
+      }
+    }
+  })
+
+  test('exact routes only: neighbours on requireAuthApi still work, and nothing changes without a support cookie', async () => {
+    const c = (await sessionCookie({ l: 'view' })).value
+    expect(isSupportOwnTokenRoute('/api/leads/abc/notes')).toBe(false)
+    expect(isSupportOwnTokenRoute('/admin/campaigns/new')).toBe(false)
+    expect((await middleware(mk('GET', '/api/leads/abc/notes', c))).status).not.toBe(403)
+    expect((await middleware(mk('GET', '/api/leads'))).status).not.toBe(403)
   })
 })
 
@@ -739,10 +775,13 @@ describe('structure: the wall stays intact except through this one door', () => 
     expect(read('middleware.ts')).toContain('supportCookieFrom')
   })
 
-  test('hand-rolled-cookie routes (Known Redundancy 3b) never touch a support session: they authenticate the real token only', () => {
-    const hand = sources(['app/api']).filter((f) => /function (getSessionFromRequest|getAuthClient)\(/.test(read(f)))
+  test('hand-rolled-cookie / raw auth.getUser routes and pages (Known Redundancy 3b) never touch a support session, and are ALL on the refused list', () => {
+    const hand = sources(['app']).filter((f) => /\/(route\.ts|page\.tsx)$/.test(f) && /function (getSessionFromRequest|getAuthClient)\(|auth\.getUser\(|supabase-api-request-auth/.test(read(f)))
     expect(hand.length).toBeGreaterThan(10)
     for (const f of hand) expect(read(f)).not.toMatch(/lib\/support|SUPPORT_COOKIE|arx_support/)
+    const asRoute = (f: string) => '/' + f.replace(/^app\//, '').replace(/\/(route\.ts|page\.tsx)$/, '').split('/').filter((s) => !/^\(.*\)$/.test(s)).join('/')
+    // One list: a new hand-rolled route must be added to SUPPORT_OWN_TOKEN_ROUTES (or moved onto requireAuthApi and taken off).
+    expect(hand.map(asRoute).sort()).toEqual([...SUPPORT_OWN_TOKEN_ROUTES].sort())
   })
 
   test('nothing in the app writes the staff list or the always-on flag', () => {
