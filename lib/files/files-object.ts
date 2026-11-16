@@ -157,7 +157,7 @@ export function classifyFilesPath(path: string): FilesPathClass {
 export function fieldRoleMayReadFilesPath(c: FilesPathClass): boolean {
   if (c.kind === 'proposal_image') return true
   if (c.kind !== 'org') return false
-  if (c.segments.length === 3 && c.area.startsWith('logo.')) return true
+  if (c.segments.length === 3 && (c.area.startsWith('logo.') || c.area.startsWith('logo-dark.'))) return true
   if (c.area === 'opportunities') {
     const sub = c.segments[4]
     return c.segments.length >= 5 && sub !== 'contracts' && sub !== 'design'
@@ -179,17 +179,35 @@ export function storedOrgLogo(org: OrgLogoSource): string | null {
   return v || null
 }
 
+export type OrgLogoVariant = 'main' | 'dark'
+
+/** The optional logo for dark backgrounds: `orgs.settings.logo_dark_url` only (it has no column). */
+export function storedOrgDarkLogo(org: OrgLogoSource): string | null {
+  if (!org) return null
+  const settings = org.settings && typeof org.settings === 'object' ? (org.settings as Record<string, unknown>) : null
+  return String(settings?.logo_dark_url ?? '').trim() || null
+}
+
+function ownLogoPath(orgId: string, stored: string | null, name: RegExp): string | null {
+  const path = filesPathFromStoredUrl(stored)
+  if (!path) return null
+  const c = classifyFilesPath(path)
+  if (c.kind !== 'org' || c.orgId !== orgId || c.segments.length !== 3 || !name.test(c.area)) return null
+  return path
+}
+
 /**
  * Storage path of the org's logo, only when the stored value is that org's own `org/<orgId>/logo.<ext>` object. The public
  * logo route signs exactly this, so a tampered stored value can never make it sign anything else in the bucket.
+ * `variant: 'dark'` returns the org's own `logo-dark.<ext>` object, or the main logo when it has no dark one.
  */
-export function orgLogoPath(orgId: string | null | undefined, org: OrgLogoSource): string | null {
+export function orgLogoPath(orgId: string | null | undefined, org: OrgLogoSource, opts: { variant?: OrgLogoVariant } = {}): string | null {
   if (!orgId) return null
-  const path = filesPathFromStoredUrl(storedOrgLogo(org))
-  if (!path) return null
-  const c = classifyFilesPath(path)
-  if (c.kind !== 'org' || c.orgId !== orgId || c.segments.length !== 3 || !/^logo\.[A-Za-z0-9]+$/.test(c.area)) return null
-  return path
+  if (opts.variant === 'dark') {
+    const dark = ownLogoPath(orgId, storedOrgDarkLogo(org), /^logo-dark\.[A-Za-z0-9]+$/)
+    if (dark) return dark
+  }
+  return ownLogoPath(orgId, storedOrgLogo(org), /^logo\.[A-Za-z0-9]+$/)
 }
 
 /** Short stable tag of the stored value, so a new upload (new `?v=`) busts caches and an unchanged logo stays cached. */
@@ -201,15 +219,19 @@ function logoVersion(stored: string): string {
 
 /**
  * Link to the org's logo through `GET /api/org-logo/<orgId>`, or null when there is none. Pass `appUrl` (or `absolute: true`)
- * for an absolute URL (emails, anything rendered off-site).
+ * for an absolute URL (emails, anything rendered off-site). `variant: 'dark'` is for dark surfaces: it links the dark logo
+ * when the org has one, and is otherwise exactly the main logo's link.
  */
 export function orgLogoHref(
   orgId: string | null | undefined,
   org: OrgLogoSource,
-  opts: { absolute?: boolean; appUrl?: string | null } = {}
+  opts: { absolute?: boolean; appUrl?: string | null; variant?: OrgLogoVariant } = {}
 ): string | null {
   if (!orgLogoPath(orgId, org)) return null
-  const rel = `/api/org-logo/${encodeURIComponent(String(orgId))}?v=${logoVersion(storedOrgLogo(org) ?? '')}`
+  const dark = opts.variant === 'dark' && ownLogoPath(String(orgId), storedOrgDarkLogo(org), /^logo-dark\.[A-Za-z0-9]+$/) ? storedOrgDarkLogo(org) : null
+  const rel = dark
+    ? `/api/org-logo/${encodeURIComponent(String(orgId))}?variant=dark&v=${logoVersion(dark)}`
+    : `/api/org-logo/${encodeURIComponent(String(orgId))}?v=${logoVersion(storedOrgLogo(org) ?? '')}`
   return opts.absolute || opts.appUrl ? `${getAppUrl({ appUrl: opts.appUrl })}${rel}` : rel
 }
 
