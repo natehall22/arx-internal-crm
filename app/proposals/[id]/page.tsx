@@ -276,8 +276,14 @@ export default function ProposalDetailPage() {
           created_at: proposal.created_at,
         },
         // An option the customer has not been sold (unticked on a quote) never prints; roofing has none, so no change.
-        lineItems: lineItems.filter((li) => isCountedLine(li as { is_optional?: boolean | null; optional_default_on?: boolean | null })),
-        measurement,
+        // Only the fields the renderer reads (ProposalPDFData): the full rows carry the measurement's raw geometry (often past the
+        // snapshot size cap, so no history was kept) and internal line columns the customer never sees.
+        lineItems: lineItems
+          .filter((li) => isCountedLine(li as { is_optional?: boolean | null; optional_default_on?: boolean | null }))
+          .map((li) => ({ id: li.id, category: li.category, name: li.name, unit: li.unit, quantity: li.quantity, unit_price: li.unit_price, line_total: li.line_total, is_adder: li.is_adder, show_to_customer: li.show_to_customer })),
+        measurement: measurement
+          ? { total_squares: measurement.total_squares, total_area_sqft: measurement.total_area_sqft, predominant_pitch: measurement.predominant_pitch, facet_count: measurement.facet_count }
+          : measurement,
         company: companyForPdf,
         rep,
         photos: {
