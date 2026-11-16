@@ -129,14 +129,14 @@ export async function POST(request: NextRequest) {
 }
 
 // DELETE - Remove company logo (admin only)
-export async function DELETE(request?: NextRequest) {
+export async function DELETE(request: NextRequest) {
   try {
     const auth = await requireLogoAdmin()
     if (auth instanceof NextResponse) return auth
     const { orgId } = auth
     const adminClient = createServiceClient()
 
-    const dark = isDarkVariant(new URL(request?.url ?? 'http://x').searchParams.get('variant'))
+    const dark = isDarkVariant(new URL(request.url).searchParams.get('variant'))
     await removeLogoObjects(adminClient, orgId, dark ? 'logo-dark.' : 'logo.')
     const updateError = dark ? await writeDarkLogo(adminClient, orgId, null) : await writeOrgLogo(adminClient, orgId, null)
     if (updateError) {

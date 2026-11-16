@@ -166,11 +166,11 @@ describe('writers store paths, not public URLs', () => {
 
   it('admin logo delete clears both the column and settings; non-admins and anonymous are refused', async () => {
     authResult = null
-    expect((await deleteLogo()).status).toBe(401)
+    expect((await deleteLogo({ url: 'http://x/api/admin/logo' } as any)).status).toBe(401)
     authResult = { authUser: { id: 'u2', email: null }, profile: { id: 'u2', org_id: ORG, role: 'closer' } }
-    expect((await deleteLogo()).status).toBe(403)
+    expect((await deleteLogo({ url: 'http://x/api/admin/logo' } as any)).status).toBe(403)
     admin()
-    expect((await deleteLogo()).status).toBe(200)
+    expect((await deleteLogo({ url: 'http://x/api/admin/logo' } as any)).status).toBe(200)
     const org = db.tables.orgs.find((o) => o.id === ORG) as any
     expect(org.logo_url).toBeNull()
     expect(org.settings.logo_url).toBeUndefined()
