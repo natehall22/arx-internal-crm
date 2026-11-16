@@ -616,6 +616,20 @@ const SCREENS: Screen[] = [
   { name: 'ui-kit', path: '/dev-harness/ui-kit', ready: 'text=Pay this week',
     states: [{ name: 'sheet-open', run: async (p) => { await p.getByRole('button', { name: 'Open sheet' }).click(); await p.waitForSelector('text=Save this view') } }] },
   { name: 'default-plans-card', path: '/dev-harness/default-plans', ready: 'text=Default pay plan by role' },
+  { name: 'support-access-card', path: '/dev-harness/support-access', ready: 'text=What support did in your company',
+    mock: async (p) => {
+      await p.route('**/api/admin/support-access', (route) => route.fulfill(json({
+        always: false,
+        active: { grantedAt: '2026-11-16T14:00:00Z', expiresAt: '2026-11-23T14:00:00Z' },
+        durations: [{ key: 'day', label: '1 day' }, { key: 'week', label: '1 week' }, { key: 'month', label: '1 month' }, { key: 'year', label: '1 year' }],
+        log: [
+          { id: 3, at: '2026-11-16T15:30:00Z', event: 'write', level: 'full', staff: 'Sam Support', actingAs: 'Olive Owner', detail: { method: 'POST', route: '/api/ops/jobs/9f2c/cancel' } },
+          { id: 2, at: '2026-11-16T15:10:00Z', event: 'upgrade', level: 'full', staff: 'Sam Support', actingAs: 'Olive Owner', detail: {} },
+          { id: 1, at: '2026-11-16T15:00:00Z', event: 'enter', level: 'view', staff: 'Sam Support', actingAs: 'Olive Owner', detail: {} },
+        ],
+      })))
+    } },
+  { name: 'support-banner', path: '/dev-harness/support-banner', ready: 'text=Support access — viewing Summit Lawn Care as Olive Owner (view only).' },
   { name: 'project-budget-selections', path: '/dev-harness/project-tools-money', ready: 'text=Kitchen faucet',
     mock: async (p) => {
       await p.route('**/api/ops/jobs/*/budget', (route) => route.fulfill(json(HARNESS_BUDGET)))

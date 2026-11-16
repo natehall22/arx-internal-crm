@@ -52,7 +52,7 @@
  * NOT an error either: the assignment simply succeeds with no calendar event.
  */
 
-import { addDays, format } from 'date-fns'
+import { addDaysToDateOnly } from '@/lib/date-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import {
@@ -172,26 +172,7 @@ export function resolveInstallCalendarId(): string {
   return process.env.GOOGLE_INSTALL_CALENDAR_ID || 'primary'
 }
 
-/**
- * Build a local (non-UTC) Date from a bare `YYYY-MM-DD` string's own y/m/d
- * parts. This is NOT `new Date(dateStr)` — that parses as UTC midnight and is
- * exactly the round-trip this file must avoid.
- */
-function dateOnlyFromParts(dateStr: string): Date {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr)
-  if (!match) throw new Error(`Invalid YYYY-MM-DD date: ${dateStr}`)
-  const [, y, m, d] = match
-  return new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0)
-}
-
-/**
- * Add `days` calendar days to a bare `YYYY-MM-DD` string, returning a bare
- * `YYYY-MM-DD` string. Pure date-only arithmetic — see file header.
- */
-export function addDaysToDateOnly(dateStr: string, days: number): string {
-  const shifted = addDays(dateOnlyFromParts(dateStr), days)
-  return format(shifted, 'yyyy-MM-dd')
-}
+export { addDaysToDateOnly }
 
 function minutesToWallClock(minutes: number): string {
   const h = Math.floor(minutes / 60)

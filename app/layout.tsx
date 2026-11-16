@@ -10,6 +10,7 @@ import SessionOnly from '@/components/SessionOnly'
 import { Toaster } from '@/components/ui/toast'
 import { ConfirmHost } from '@/components/ui/confirm-dialog'
 import { getRequestHostFence } from '@/lib/company-host-server'
+import SupportBanner from '@/components/support/SupportBanner'
 
 /** The original company's metadata — served ONLY on the unfenced legacy address (see generateMetadata). */
 const LEGACY_METADATA: Metadata = {
@@ -72,6 +73,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="overscroll-none">
+        <SupportBanner />
         <AIAssistantProvider>
           {children}
           <ServiceWorkerRegistration />
