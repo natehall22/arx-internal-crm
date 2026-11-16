@@ -22,7 +22,12 @@ const TOKENS: Record<string, { id: string; email: string }> = {
 }
 
 jest.mock('next/headers', () => ({
-  headers: () => ({ get: (k: string) => requestHeaders.get(k.toLowerCase()) ?? null }),
+  // one headers object per request (as in Next), so per-request memos behave as they do in production
+  headers: () => {
+    const cache = (globalThis as unknown as { __hdrs?: WeakMap<object, object> }).__hdrs ??= new WeakMap()
+    if (!cache.has(requestHeaders)) cache.set(requestHeaders, { get: (k: string) => requestHeaders.get(k.toLowerCase()) ?? null })
+    return cache.get(requestHeaders)
+  },
   cookies: () => ({ getAll: () => cookieList, get: (n: string) => cookieList.find((c) => c.name === n) }),
 }))
 jest.mock('next/navigation', () => ({
@@ -94,7 +99,7 @@ function seed(extra: Partial<Record<string, Row[]>> = {}) {
     support_access_grants: [{ id: 'g1', org_id: ACME, granted_by: 'owner-acme', granted_at: new Date(Date.now() - HOUR).toISOString(), expires_at: new Date(Date.now() + 24 * HOUR).toISOString(), ended_at: null }],
     support_access_log: [],
     ...extra,
-  } as Record<string, Row[]>)
+  } as Record<string, Row[]>, { unique: { support_access_log: [{ name: 'support_access_log_handoff_once', cols: ['handoff_id'] }] } })
 }
 
 const tbl = (n: string): Row[] => (db.tables[n] ??= [])
@@ -352,7 +357,7 @@ describe('view vs full', () => {
   test("full: staff can never change the company's own support-access settings", async () => {
     cookieList = [await sessionCookie({ l: 'full' })]
     asApi('POST', '/api/admin/support-access')
-    await expect(requireAuthApi()).rejects.toThrow('cannot change')
+    await expect(requireAuthApi()).rejects.toThrow('Not available in a support session')
     expect(events()).not.toContain('write')
   })
 })
@@ -391,6 +396,62 @@ describe('middleware', () => {
   test('a valid support cookie counts as the session for a page (no Supabase cookie needed)', async () => {
     const page = await middleware(mk('GET', '/ops', (await sessionCookie()).value))
     expect(page.status).toBe(200)
+  })
+})
+
+describe('doors a support session never uses (credentials that would outlive the grant)', () => {
+  const mk = (method: string, path: string, cookie: string) =>
+    new NextRequest(`https://old-app.vercel.app${path}`, { method, headers: { host: 'old-app.vercel.app', cookie: `${SUPPORT_COOKIE}=${cookie}` } })
+
+  test('connect Google / QuickBooks and AI-app approval: refused in view AND full, even on a GET', async () => {
+    for (const l of ['view', 'full'] as const) {
+      const c = (await sessionCookie({ l })).value
+      for (const [m, p] of [['GET', '/api/auth/google'], ['GET', '/api/auth/google/finish'], ['GET', '/api/integrations/quickbooks/finish'], ['POST', '/api/oauth/consent'], ['GET', '/oauth/authorize']] as const) {
+        expect((await middleware(mk(m, p, c))).status).toBe(403)
+      }
+    }
+  })
+
+  test('full mode still cannot create users / set passwords, mint AI connector keys or register a push device', async () => {
+    const c = (await sessionCookie({ l: 'full' })).value
+    for (const [m, p] of [['POST', '/api/admin/users'], ['PUT', '/api/admin/users'], ['PATCH', '/api/admin/users'], ['POST', '/api/admin/ai-connector'], ['POST', '/api/mobile/push-token'], ['POST', '/api/admin/support-access']] as const) {
+      expect((await middleware(mk(m, p, c))).status).toBe(403)
+    }
+    expect((await middleware(mk('GET', '/api/admin/users', c))).status).not.toBe(403)
+  })
+
+  test('requireAuthApi backstop refuses the same doors (and logs nothing)', async () => {
+    cookieList = [await sessionCookie({ l: 'full' })]
+    asApi('GET', '/api/auth/google/finish')
+    await expect(requireAuthApi()).rejects.toThrow('Not available in a support session')
+    asApi('POST', '/api/admin/users')
+    await expect(requireAuthApi()).rejects.toThrow('Not available in a support session')
+    expect(logRows()).toHaveLength(0)
+  })
+})
+
+describe('every auth entry point applies the write rule', () => {
+  test('a server action (requireAuth on a POST to a page) in full mode is logged once per request; in view mode refused', async () => {
+    cookieList = [await sessionCookie({ l: 'full' })]
+    const shared = new Map(Object.entries({ host: 'old-app.vercel.app', [SUPPORT_REQUEST_HEADER]: 'POST /leads/abc' }))
+    requestHeaders = shared
+    await requireAuth()
+    await requireAuth() // layout + action: the same request resolves auth twice
+    await getAuthContext()
+    expect(events()).toEqual(['write'])
+    expect(logRows()[0].detail).toEqual({ method: 'POST', route: '/leads/abc' })
+    cookieList = [await sessionCookie({ l: 'view' })]
+    await expect(requireAuth()).rejects.toThrow('Support view mode')
+    await expect(getAuthContext()).rejects.toThrow('Support view mode')
+  })
+
+  test('a Bearer request (iPhone app) ignores the support cookie and stays itself', async () => {
+    cookieList = [await sessionCookie({ l: 'full' })]
+    req('old-app.vercel.app', { authorization: 'Bearer acme-rep-token', [SUPPORT_REQUEST_HEADER]: 'POST /api/x' })
+    const c = await requireAuthApi()
+    expect(c.profile.id).toBe('rep-acme')
+    expect(c.support).toBeUndefined()
+    expect(logRows()).toHaveLength(0)
   })
 })
 
@@ -454,6 +515,15 @@ describe('routes', () => {
     const landed = await handoffGet(new Request(`https://acme.crm-product.test/api/support/handoff?t=${encodeURIComponent(t)}`, { headers: { host: 'acme.crm-product.test' } }))
     expect(landed.status).toBe(303)
     expect(landed.headers.get('set-cookie')).toMatch(/arx_support=/)
+    expect(landed.headers.get('referrer-policy')).toBe('no-referrer')
+    // replay: the same link a second time (history, a copied URL) gets nothing
+    const again = await handoffGet(new Request(`https://acme.crm-product.test/api/support/handoff?t=${encodeURIComponent(t)}`, { headers: { host: 'acme.crm-product.test' } }))
+    expect(again.status).toBe(404)
+    expect(again.headers.get('set-cookie')).toBeNull()
+    expect(logRows().filter((r) => r.handoff_id)).toHaveLength(1)
+    // a hand-off token without a one-time id is refused
+    const noNonce = await signSupportToken({ k: 'handoff', s: 'staff-1', o: ACME, a: 'owner-acme', l: 'view', exp: Date.now() + 30_000 })
+    expect(await verifySupportToken(noNonce, 'handoff')).toBeNull()
     // a forged / session-kind token is refused
     expect((await handoffGet(new Request(`https://acme.crm-product.test/api/support/handoff?t=${encodeURIComponent((await sessionCookie()).value)}`, { headers: { host: 'acme.crm-product.test' } }))).status).toBe(404)
   })
