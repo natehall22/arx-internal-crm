@@ -16,7 +16,7 @@ import { randomBytes, createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { assertDemoOrg } from '@/lib/demo-org'
-import { buildDemoDataset, type DemoQuote, DEMO_CREWS, DEMO_CUSTOM_FIELDS, DEMO_DEFAULTS, DEMO_FEATURES, DEMO_PEOPLE, type DemoDataset } from '@/lib/demo-company-data'
+import { buildDemoDataset, type DemoQuote, DEMO_CREWS, DEMO_CUSTOM_FIELDS, DEMO_DEFAULTS, DEMO_FEATURES, DEMO_PEOPLE, DEMO_MAIL_DOMAIN, type DemoDataset } from '@/lib/demo-company-data'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { orgDb } from '@/lib/supabase/org-db'
 import { companyAppUrl } from '@/lib/company-host'
@@ -25,7 +25,7 @@ import { createProperty } from '@/lib/properties-db'
 import { saveCustomFieldValues, saveDefinitionChange, loadCustomFieldDefinitions } from '@/lib/custom-fields-db'
 import { saveTemplate, createServicePlan, ensureServiceVisits, applyVisitAction, bulkShiftVisits, loadVisits, loadTemplates } from '@/lib/service-plans-db'
 import { saveCrewSetup, addTimeEntry, loadClockConfig } from '@/lib/time-tracking-db'
-import { createServiceInvoiceFromLines, recordCustomerInvoicePayment, createCustomAmountInvoice, applyPaymentToInvoice } from '@/lib/invoices'
+import { createServiceInvoiceFromLines, recordCustomerInvoicePayment, createCustomAmountInvoice, applyPaymentToInvoice, finalizeAndSendInvoice } from '@/lib/invoices'
 import { recordJobPayment } from '@/lib/job-payment-record'
 import { savePoDraft, loadPoTarget, recordPoBill } from '@/lib/purchase-orders-db'
 import { postMessage, postCustomerMessage } from '@/lib/threads/post-message'
@@ -346,19 +346,28 @@ async function visitsStep(ctx: Ctx) {
 async function timeStep(ctx: Ctx) {
   const { admin, orgId, ownerId } = ctx
   const tz = (await loadClockConfig(admin, orgId)).timeZone
+  // Work time must sit on a visit or a job (constraint time_entries_where): book each plain day on one of that day's visits.
+  const db = orgDb(admin, orgId)
   const dayWork = async (ymd: string, jobId: string | null) => {
+    let workOrderId: string | null = null
+    if (!jobId) {
+      const { data: wo } = await db.from('work_orders').select('id').eq('scheduled_date', ymd).limit(1).maybeSingle()
+      workOrderId = (wo as { id?: string } | null)?.id ?? null
+      if (!workOrderId) return false
+    }
     for (const key of ['lead1', 'crew1', 'crew2']) {
       const userId = ctx.userIds.get(key)!
-      const a = await addTimeEntry(admin, orgId, ownerId, { userId, kind: 'work', startedAt: localInstant(ymd, '07:30', tz).toISOString(), endedAt: localInstant(ymd, '12:00', tz).toISOString(), jobId }, 'Sample data')
-      const b = await addTimeEntry(admin, orgId, ownerId, { userId, kind: 'work', startedAt: localInstant(ymd, '12:30', tz).toISOString(), endedAt: localInstant(ymd, '16:00', tz).toISOString(), jobId }, 'Sample data')
+      const a = await addTimeEntry(admin, orgId, ownerId, { userId, kind: 'work', startedAt: localInstant(ymd, '07:30', tz).toISOString(), endedAt: localInstant(ymd, '12:00', tz).toISOString(), jobId, workOrderId }, 'Sample data')
+      const b = await addTimeEntry(admin, orgId, ownerId, { userId, kind: 'work', startedAt: localInstant(ymd, '12:30', tz).toISOString(), endedAt: localInstant(ymd, '16:00', tz).toISOString(), jobId, workOrderId }, 'Sample data')
       if (!a.ok) throw new Error(a.error)
       if (!b.ok) throw new Error(b.error)
     }
     for (const key of ['lead2', 'crew3']) {
       const userId = ctx.userIds.get(key)!
-      const a = await addTimeEntry(admin, orgId, ownerId, { userId, kind: 'work', startedAt: localInstant(ymd, '08:00', tz).toISOString(), endedAt: localInstant(ymd, '16:30', tz).toISOString(), jobId }, 'Sample data')
+      const a = await addTimeEntry(admin, orgId, ownerId, { userId, kind: 'work', startedAt: localInstant(ymd, '08:00', tz).toISOString(), endedAt: localInstant(ymd, '16:30', tz).toISOString(), jobId, workOrderId }, 'Sample data')
       if (!a.ok) throw new Error(a.error)
     }
+    return true
   }
   // Ordinary days over the last 9 days (Mon-Fri), no job (visit time).
   let days = 0
@@ -367,8 +376,7 @@ async function timeStep(ctx: Ctx) {
     const dow = new Date(`${ymd}T12:00:00Z`).getUTCDay()
     if (dow === 0 || dow === 6) continue
     if (ctx.data.grading.days.some((g) => g.ymd === ymd)) continue
-    await dayWork(ymd, null)
-    days += 1
+    if (await dayWork(ymd, null)) days += 1
   }
   return `${days} days of crew time`
 }
@@ -505,6 +513,8 @@ async function quotesStep(ctx: Ctx) {
     const inv = await createCustomAmountInvoice(admin, job.id, ownerId, depositCents, 'Deposit (25%)', { noContractCap: true })
     const paid = await recordJobPayment(admin, { orgId, jobId: job.id, paidAt: addDaysYmd(ctx.today, -q.daysAgo + 1), amountCents: depositCents, paymentType: 'deposit', method: 'card', payer: 'homeowner', note: 'Sample deposit', createdBy: ownerId })
     if (!paid.ok) throw new Error(paid.error)
+    // A payment can only go on an issued invoice: send the deposit invoice first (marks it sent; demo mail is suppressed anyway).
+    await finalizeAndSendInvoice(admin, inv.id, `billing@${DEMO_MAIL_DOMAIN}`)
     await applyPaymentToInvoice(admin, orgId, inv.id, paid.payment.id, depositCents, ownerId)
     const addressText = `${p.address_line1}, ${p.city}, ${p.state} ${p.zip}`
     const snapLines = q.lines.map((l, i) => ({ id: `demo-${q.key}-${i}`, name: l.name, quantity: l.qty, unit: l.unit, optional: l.optional === true, chosen: !l.optional || l.defaultOn === true, cents: Math.round(l.qty * l.price * 100) }))
