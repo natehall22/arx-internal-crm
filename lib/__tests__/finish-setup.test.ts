@@ -1,4 +1,6 @@
 /** @jest-environment node */
+const mergeMock = jest.fn(async (..._a: unknown[]) => ({ error: null }))
+jest.mock('@/lib/org-settings', () => ({ mergeOrgSettings: (...a: unknown[]) => mergeMock(...a) }))
 import { buildFinishSetupItems, loadFinishSetup } from '@/lib/finish-setup'
 
 const none = { hasLogo: false, pricebookItems: 0, crews: 0, planTemplates: 0, hasPhone: false, hasEmail: false, servicePlansOn: true }
@@ -47,4 +49,17 @@ test('new company: live status, org-scoped counts; hides when all done', async (
     { pricebook_items: 1, crews: 1 }
   )
   expect(await loadFinishSetup(done as never, 'o1', { servicePlansOn: false })).toBeNull()
+})
+
+test('completion is remembered once (only when every count was read); a remembered company reads no counts', async () => {
+  mergeMock.mockClear()
+  const done = fakeAdmin({ ...newCo, phone: '7045550100', email: 'a@b.co', logo_url: 'org/o1/logo.png?v=1' }, { pricebook_items: 1, crews: 1 })
+  expect(await loadFinishSetup(done as never, 'o1', { servicePlansOn: false })).toBeNull()
+  expect(mergeMock).toHaveBeenCalledWith(expect.anything(), 'o1', { finishSetupDone: true })
+
+  mergeMock.mockClear()
+  const remembered = fakeAdmin({ ...newCo, settings: { finishSetupDone: true } }, {})
+  expect(await loadFinishSetup(remembered as never, 'o1', { servicePlansOn: false })).toBeNull()
+  expect(remembered.seen.some(([t]) => t === 'pricebook_items' || t === 'crews')).toBe(false)
+  expect(mergeMock).not.toHaveBeenCalled()
 })

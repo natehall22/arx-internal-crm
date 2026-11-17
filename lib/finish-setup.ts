@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgLogoPath } from '@/lib/files/files-object'
+import { mergeOrgSettings } from '@/lib/org-settings'
 import { ORG_BRAND_COLUMNS, resolveOrgBrand, type OrgBrandRow } from '@/lib/org-brand'
 
 export interface FinishSetupItem {
@@ -32,7 +33,7 @@ export function buildFinishSetupItems(facts: {
 
 /**
  * The "Finish setup" checklist for Today, for the owner of a company that is NOT the original one (`orgs.original_brand`).
- * Returns null (card hidden) for the original company, when every step is done, or when the company row can't be read
+ * Cheap by design: one org row read, and the three counts only until completion is remembered. Returns null (card hidden) for the original company, when every step is done, or when the company row can't be read
  * (never guess: an unreadable row could be the original company). Org-scoped head counts only.
  */
 export async function loadFinishSetup(
@@ -44,6 +45,8 @@ export async function loadFinishSetup(
   if (orgRes.error || !orgRes.data) return null
   const row = orgRes.data as OrgBrandRow & { logo_url?: string | null; settings?: unknown }
   if (resolveOrgBrand(row).original === true) return null
+  // Once every step was done it is remembered (orgs.settings.finishSetupDone): no counts are read again.
+  if ((row.settings as { finishSetupDone?: unknown } | null | undefined)?.finishSetupDone === true) return null
 
   const count = async (table: string, filter: (q: any) => any): Promise<number | null> => { // eslint-disable-line @typescript-eslint/no-explicit-any
     const { count: n, error } = await filter(admin.from(table).select('id', { count: 'exact', head: true }).eq('org_id', orgId))
@@ -64,5 +67,11 @@ export async function loadFinishSetup(
     hasEmail: !!String(row.email ?? '').trim(),
     servicePlansOn: opts.servicePlansOn,
   })
-  return items.every((i) => i.done) ? null : items
+  if (!items.every((i) => i.done)) return items
+  // Remember completion only when every count was actually read (a failed read above is treated as done for display only).
+  if (pricebook !== null && crews !== null && plans !== null) {
+    const { error } = await mergeOrgSettings(admin, orgId, { finishSetupDone: true })
+    if (error) console.error('finish setup: could not remember completion', error)
+  }
+  return null
 }
