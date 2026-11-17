@@ -359,6 +359,11 @@ describe('entering from the wrong place, and staff sign-in links', () => {
       co.settings = before
     }
   })
+  test('staff link: a missing portal_invited_at column says the update must be applied, not "Not found"', async () => {
+    const chain: any = new Proxy({}, { get: (_t, k) => (k === 'maybeSingle' ? async () => ({ data: null, error: { message: 'column customers.portal_invited_at does not exist' } }) : () => chain) })
+    const r = await createStaffSignInLink({ from: () => chain } as any, A, 'a2', 'staff-1')
+    expect(r).toMatchObject({ ok: false, status: 409, error: 'The link needs the customer portal update to be applied first.' })
+  })
   test("staff link refuses another company's customer", async () => {
     const r = await createStaffSignInLink(admin(), A, 'b1', 'staff-1')
     expect(r).toMatchObject({ ok: false, status: 404 })

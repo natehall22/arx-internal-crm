@@ -12,6 +12,8 @@ import { Button, Card, CardContent, CardHeader, CardTitle, confirmDialog, toast 
 export default function PortalAccessCard({ customerId, hasEmail = true, inviteOnly = false, invitedAt = null, canCopyLink = false, emailSuppressed = false }: { customerId: string; hasEmail?: boolean; inviteOnly?: boolean; invitedAt?: string | null; canCopyLink?: boolean; emailSuppressed?: boolean }) {
   const [busy, setBusy] = React.useState<'' | 'invite' | 'signout' | 'remove' | 'link'>('')
   const [invited, setInvited] = React.useState(!!invitedAt)
+  // Set when the server says this customer needs an invitation although the card thought otherwise (stale props).
+  const [serverInviteOnly, setServerInviteOnly] = React.useState(false)
   async function call(kind: 'invite' | 'signout' | 'remove') {
     setBusy(kind)
     const url = kind === 'signout' ? `/api/customers/${customerId}/portal-signout` : `/api/customers/${customerId}/portal-invite`
@@ -29,7 +31,7 @@ export default function PortalAccessCard({ customerId, hasEmail = true, inviteOn
   /** Owners/admins: a one-time 20-minute link, copied (demo companies send no email, so this is how the portal gets tested). */
   async function copyLink() {
     // Invite-only company + not invited yet: the link only works if they are invited, so say so and make that the explicit choice.
-    const invite = inviteOnly && !invited
+    const invite = (inviteOnly || serverInviteOnly) && !invited
     // A demo company's email is suppressed, so the link goes nowhere else: no confirm. A real company asks first.
     if (!emailSuppressed) {
       const ok = await confirmDialog({
@@ -41,8 +43,13 @@ export default function PortalAccessCard({ customerId, hasEmail = true, inviteOn
     }
     setBusy('link')
     const res = await fetch(`/api/customers/${customerId}/portal-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invite }) }).catch(() => null)
-    const body = (await res?.json().catch(() => null)) as { url?: string; error?: string; invited?: boolean } | null
+    const body = (await res?.json().catch(() => null)) as { url?: string; error?: string; invited?: boolean; needsInvite?: boolean } | null
     setBusy('')
+    if (body?.needsInvite) {
+      // Show the card as uninvited so "Invite and copy link" is offered on the next tap.
+      setInvited(false)
+      setServerInviteOnly(true)
+    }
     if (!res?.ok || !body?.url) return toast.error(body?.error || 'That did not work. Please try again.')
     if (body.invited) setInvited(true)
     try {

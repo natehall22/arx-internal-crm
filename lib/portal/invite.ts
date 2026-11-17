@@ -49,7 +49,13 @@ export const staffLinkDetail = (token: string) => `${STAFF_LINK_DETAIL_PREFIX}${
  */
 export async function createStaffSignInLink(admin: SupabaseClient, orgId: string, customerId: string, staffUserId: string, opts: { invite?: boolean } = {}): Promise<StaffLinkResult> {
   const db = orgDb(admin, orgId)
-  const { data } = await db.from('customers').select('id, email, portal_invited_at').eq('id', customerId).maybeSingle()
+  const { data, error: readErr } = await db.from('customers').select('id, email, portal_invited_at').eq('id', customerId).maybeSingle()
+  // A missing portal_invited_at column (update not applied yet) is not "no such customer".
+  if (readErr) {
+    return /portal_invited_at|column/i.test(readErr.message ?? '')
+      ? { ok: false, status: 409, error: 'The link needs the customer portal update to be applied first.' }
+      : { ok: false, status: 500, error: 'Could not make the link. Please try again.' }
+  }
   const c = data as { id: string; email: string | null; portal_invited_at?: string | null } | null
   if (!c) return { ok: false, status: 404, error: 'Not found' }
   // The address first: if it cannot be built nothing is written (no token, no invitation, no log line).
