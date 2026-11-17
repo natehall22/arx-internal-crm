@@ -20,7 +20,7 @@ import { orgTimeZone } from '@/lib/cron-orgs'
 import { NEW_COST_LINE_PAYROLL_FLAGS } from '@/lib/job-cost-ledger'
 import { loadPlanForWeek, saveHoursEntries } from '@/lib/payroll-hours'
 import { resolveHourlyRate } from '@/lib/payroll-hourly-rate'
-import { findOrCreateWeek, findWeekNear, periodIsEditable } from '@/lib/payroll-periods'
+import { findOrCreateWeek, findWeekNear, PERIOD_COLS, periodIsEditable } from '@/lib/payroll-periods'
 import { isCrewFieldRole, isFieldRoleLike } from '@/lib/permissions'
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -50,7 +50,7 @@ import {
   type TimeTrackingSettings,
   type TimeWarning,
 } from '@/lib/time-tracking'
-import { addDaysYmd, addWeeks, cutoffYmd, daysBetweenYmd, localInstant, nextWeekCutoff, readPayWeekSchedule, weekCutoffContaining, type PayWeekSchedule } from '@/lib/payroll-week-schedule'
+import { addDaysYmd, addWeeks, cutoffYmd, daysBetweenYmd, localInstant, nextWeekCutoff, readPayWeekSchedule, sameWeekEnding, weekCutoffContaining, type PayWeekSchedule } from '@/lib/payroll-week-schedule'
 import { loadPrevCutoff } from '@/lib/payroll-week-schedule-server'
 
 type Fail = { ok: false; status: number; error: string }
@@ -903,11 +903,45 @@ async function answerFinishTime(
   const endedAt = end.toISOString()
   const overlap = await overlapRefusal(admin, orgId, { userId: e.userId, kind: e.kind, startedAt: e.startedAt, endedAt, excludeId: e.id, timeZone: input.config.timeZone })
   if (overlap) return { ok: false, status: 409, error: `${overlap} Ask the office.` }
-  const { error } = await db
-    .from('time_entries')
-    .update({ ended_at: endedAt, end_source: 'typed', ended_recorded_at: new Date().toISOString(), needs_review: false, review_note: 'Finish time given the next day', ended_by_user_id: input.answeredBy })
-    .eq('id', e.id)
-  if (error) throw error
+  // The span up to the auto-close end was recorded then; if its week was approved since, the approval already paid it. Only the
+  // extension past that end is late: keep the original row (and its recorded time) for the span already paid and put the
+  // extension on its own row, recorded now. A shorter answer in an approved week leaves the recorded time alone (nothing new).
+  const origEnd = e.endedAt ? Date.parse(e.endedAt) : NaN
+  const weekOpenForEnd = await weekIsOpen(admin, orgId, [e.startedAt, e.endedAt])
+  const nowIso = new Date().toISOString()
+  const hasPaidSpan = Number.isFinite(origEnd) && origEnd > startMs
+  if (!weekOpenForEnd && hasPaidSpan && end.getTime() > origEnd) {
+    const { error: keepError } = await db
+      .from('time_entries')
+      .update({ needs_review: false, review_note: 'Finish time given the next day (the rest is the entry after it)', ended_by_user_id: input.answeredBy })
+      .eq('id', e.id)
+    if (keepError) throw keepError
+    const { error: extError } = await db.from('time_entries').insert({
+      user_id: e.userId,
+      sub_id: e.subId,
+      work_order_id: e.workOrderId,
+      production_job_id: e.jobId,
+      kind: e.kind,
+      started_at: e.endedAt,
+      ended_at: endedAt,
+      source: 'typed',
+      end_source: 'typed',
+      needs_review: false,
+      review_note: 'Finish time given the next day',
+      tapped_by_user_id: input.answeredBy,
+      ended_by_user_id: input.answeredBy,
+      tapped_via: 'office',
+      ended_recorded_at: nowIso,
+    })
+    if (extError) throw extError
+  } else {
+    const keepRecorded = !weekOpenForEnd && hasPaidSpan && e.endedRecordedAt ? e.endedRecordedAt : nowIso
+    const { error } = await db
+      .from('time_entries')
+      .update({ ended_at: endedAt, end_source: 'typed', ended_recorded_at: keepRecorded, needs_review: false, review_note: 'Finish time given the next day', ended_by_user_id: input.answeredBy })
+      .eq('id', e.id)
+    if (error) throw error
+  }
   await logChange(admin, orgId, e.id, 'finish_answered', input.answeredBy, 'Asked next morning', [{ field: 'ended_at', label: 'End', old: e.endedAt, new: endedAt }])
   if (e.kind === 'shift') {
     // The stop clocks the system also stopped inside this day are answered by the same finish time: no second question.
@@ -1443,15 +1477,19 @@ export async function syncTimeFeeds(
   // A touched week that is already approved can't change: its late time is carried into the first OPEN week after it
   // (past any further approved weeks; the carry below walks back over every approved week in a row).
   const weeks = Array.from(cutoffs.values())
-  for (const c of [...weeks]) {
-    let at = c
-    for (let i = 0; i < 12; i++) {
-      const p = await findWeekNear(admin, orgId, at, config.payWeek)
-      if (periodIsEditable(p)) break
-      at = nextWeekCutoff(at, config.payWeek)
-      if (!cutoffs.has(at.toISOString())) {
-        cutoffs.set(at.toISOString(), at)
-        weeks.push(at)
+  if (weeks.length) {
+    // One read of the stored weeks around the touched ones; the walk over approved weeks is then in memory.
+    const lo = Math.min(...weeks.map((c) => c.getTime())) - 36 * 3_600_000
+    const stored = await loadWeekRows(admin, orgId, lo, Math.max(...weeks.map((c) => c.getTime())) + (APPROVED_RUN_MAX + 1) * 7 * 86_400_000)
+    for (const c of [...weeks]) {
+      let at = c
+      for (let i = 0; i < APPROVED_RUN_MAX; i++) {
+        if (periodIsEditable(weekNearIn(stored, at, config.payWeek))) break
+        at = nextWeekCutoff(at, config.payWeek)
+        if (!cutoffs.has(at.toISOString())) {
+          cutoffs.set(at.toISOString(), at)
+          weeks.push(at)
+        }
       }
     }
   }
@@ -1474,16 +1512,7 @@ export async function syncTimeFeeds(
     // ---- payroll hours
     if (period && weekOpen) {
       // The approved weeks right before this one (one or several in a row): time recorded after an approval began was never paid there.
-      const approvedBefore: Array<{ from: number; to: number; at: number }> = []
-      for (let at = cutoff, i = 0; i < 12; i++) {
-        const pc = await clockWeekPrevCutoff(admin, orgId, at, config.payWeek)
-        const pp = await findWeekNear(admin, orgId, pc, config.payWeek)
-        if (!pp || periodIsEditable(pp)) break
-        const claimedAt = await approvalClaimTime(admin, pp)
-        if (!Number.isFinite(claimedAt)) break
-        approvedBefore.push({ from: (await clockWeekPrevCutoff(admin, orgId, pc, config.payWeek)).getTime() + 1, to: pc.getTime() + 1, at: claimedAt })
-        at = pc
-      }
+      const approvedBefore = input.userIds.length ? await loadApprovedRun(admin, orgId, cutoff, config.payWeek) : []
       const earliestFrom = approvedBefore.length ? approvedBefore[approvedBefore.length - 1].from : from
       for (const userId of input.userIds) {
         // One recompute per person at a time: two taps landing together can't write an older total over a newer one.
@@ -1492,11 +1521,16 @@ export async function syncTimeFeeds(
           const t = paidTime(entries, { timeZone: config.timeZone })
           let paid = totalSeconds(clipIntervals(t.paid, from, to))
           let carried = 0
+          // "Already paid" is measured at the NEWEST approval in the run (the week right before this one): an end recorded before it
+          // was paid by the first open week after the approval that was live then (an open week between two approvals carried it,
+          // and that week's own approval paid it), so only ends recorded after it are carried here — once, never again by the
+          // next week.
+          const paidBy = approvedBefore.length ? approvedBefore[0].at : 0
+          const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > paidBy))
           for (const w of approvedBefore) {
-            // Split at the cutoff: what the approved week should have paid (union over ALL its entries) minus what it did pay
-            // (the entries finished and recorded by the approval claim; a day still open then paid nothing for itself). A day
-            // clock that ends after approval therefore carries only the time no stop already paid, never the whole day twice.
-            const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > w.at))
+            // Split at the cutoff: what the approved week should have paid (union over ALL its entries) minus what was paid by
+            // then (a day still open then paid nothing for itself). A day clock that ends after approval carries only the
+            // time no stop already paid, never the whole day twice.
             const owed = clipIntervals(t.paid, w.from, w.to)
             const paidThen = clipIntervals(paidTime(knownThen, { timeZone: config.timeZone }).paid, w.from, w.to)
             carried += totalSeconds(subtractIntervals(owed, paidThen))
@@ -1610,17 +1644,61 @@ export async function syncTimeFeeds(
   return out
 }
 
-/**
- * When an approved week's approval began: the stored claim time (`approval_claimed_at`, kept by a trigger because the claim
- * columns are cleared at commit; migration 202611300140), else the claim columns, else the lock time. NaN when none.
- */
-async function approvalClaimTime(admin: SupabaseClient, p: { id?: string; lock_claimed_at?: string | null; locked_at?: string | null }): Promise<number> {
-  if (p.id) {
-    const { data, error } = await admin.from('payroll_periods').select('approval_claimed_at').eq('id', p.id).maybeSingle()
-    const v = !error ? (data as { approval_claimed_at?: string | null } | null)?.approval_claimed_at : null // column missing (not applied): fall through
-    if (v && Number.isFinite(Date.parse(v))) return Date.parse(v)
+/** Longest run of approved weeks in a row the feed looks across (a late end older than that is the office's to fix). */
+const APPROVED_RUN_MAX = 12
+type WeekRow = { id?: string; cutoff_at: string; status?: unknown; lock_claimed_at?: string | null; locked_at?: string | null; approval_claimed_at?: string | null; created_at?: string | null }
+
+/** The non-cancelled stored weeks closing in [fromMs, toMs], with their stored approval time, in ONE read (older databases: no approval_claimed_at column). */
+async function loadWeekRows(admin: SupabaseClient, orgId: string, fromMs: number, toMs: number): Promise<WeekRow[]> {
+  const q = (cols: string) =>
+    admin
+      .from('payroll_periods')
+      .select(cols)
+      .eq('org_id', orgId)
+      .neq('status', 'cancelled')
+      .gte('cutoff_at', new Date(fromMs).toISOString())
+      .lte('cutoff_at', new Date(toMs).toISOString())
+      .order('created_at', { ascending: true })
+  let { data, error } = await q(`${PERIOD_COLS}, approval_claimed_at`)
+  if (error) ({ data, error } = await q(PERIOD_COLS))
+  if (error) throw error
+  return (data ?? []) as unknown as WeekRow[]
+}
+
+/** In-memory `findWeekNear`: the stored week closing on the target's calendar date (earliest created first). */
+function weekNearIn(rows: WeekRow[], target: Date, pw: Pick<PayWeekSchedule, 'timeZone'>): WeekRow | null {
+  return rows.find((r) => Math.abs(Date.parse(r.cutoff_at) - target.getTime()) <= 36 * 3_600_000 && sameWeekEnding(r.cutoff_at, target, pw)) ?? null
+}
+
+/** In-memory `clockWeekPrevCutoff`: the stored week before it when 1-13 days back, else one schedule week back. */
+function prevCutoffIn(rows: WeekRow[], cutoff: Date, pw: PayWeekSchedule): Date {
+  let prev: string | null = null
+  for (const r of rows) if (Date.parse(r.cutoff_at) < cutoff.getTime() && (!prev || Date.parse(r.cutoff_at) > Date.parse(prev))) prev = r.cutoff_at
+  if (prev) {
+    const gap = daysBetweenYmd(cutoffYmd(prev, pw), cutoffYmd(cutoff, pw))
+    if (gap >= 1 && gap <= 13) return new Date(prev)
   }
-  return Date.parse((p.lock_claimed_at ?? p.locked_at ?? '') as string)
+  return addWeeks(cutoff, -1, pw)
+}
+
+/**
+ * The run of approved weeks ending right before `cutoff` (newest first; stops at the first open week or after APPROVED_RUN_MAX):
+ * each with its days and when its approval began. Two reads in total however long the run is.
+ */
+async function loadApprovedRun(admin: SupabaseClient, orgId: string, cutoff: Date, pw: PayWeekSchedule): Promise<Array<{ from: number; to: number; at: number }>> {
+  const rows = await loadWeekRows(admin, orgId, cutoff.getTime() - (APPROVED_RUN_MAX + 3) * 7 * 86_400_000, cutoff.getTime())
+  const run: Array<{ from: number; to: number; at: number }> = []
+  let at = cutoff
+  for (let i = 0; i < APPROVED_RUN_MAX; i++) {
+    const pc = prevCutoffIn(rows, at, pw)
+    const pp = weekNearIn(rows, pc, pw)
+    if (!pp || periodIsEditable(pp)) break
+    const claimedAt = Date.parse((pp.approval_claimed_at ?? pp.lock_claimed_at ?? pp.locked_at ?? '') as string)
+    if (!Number.isFinite(claimedAt)) break
+    run.push({ from: prevCutoffIn(rows, pc, pw).getTime() + 1, to: pc.getTime() + 1, at: claimedAt })
+    at = pc
+  }
+  return run
 }
 
 /**
