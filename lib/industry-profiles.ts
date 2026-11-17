@@ -332,7 +332,8 @@ const lawnLandscape: IndustryProfile = {
     install: 'Work',
     installed: 'Done',
   },
-  nav: { order: SERVICE_NAV_ORDER, hidden: SERVICE_NAV_HIDDEN },
+  // Referral partners are roofing-shaped (agents, builders): no menu entry, no "+ Partner" shortcut, no dashboard card.
+  nav: { order: SERVICE_NAV_ORDER, hidden: [...SERVICE_NAV_HIDDEN, '/referral-partners'] },
   settingsHidden: LAWN_SETTINGS_HIDDEN,
   outcomeText: {
     no_problems_found: { label: 'Nothing needed', description: 'The property looked fine; no work needed' },

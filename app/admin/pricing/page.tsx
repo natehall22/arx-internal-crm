@@ -23,12 +23,6 @@ interface RoofingType {
   is_default: boolean
 }
 
-interface OrgPricing {
-  sub_install_per_square: number | null
-  sub_tearoff_per_square: number | null
-  sub_dump_run_flat: number | null
-}
-
 const UNIT_LABELS: Record<string, string> = {
   'square': 'per square (100 sq ft)',
   'sqft': 'per sq ft',
@@ -48,11 +42,6 @@ export default function AdminPricingPage() {
   
   // Simple state
   const [roofingTypes, setRoofingTypes] = useState<RoofingType[]>([])
-  const [orgPricing, setOrgPricing] = useState<OrgPricing>({
-    sub_install_per_square: null,
-    sub_tearoff_per_square: null,
-    sub_dump_run_flat: null,
-  })
   
   /** Roof squares pricing switched off (Settings → Features): no "Per Square" choice, no per-square sub labor. */
   const squaresOn = useOrgFeatures().squaresPricing
@@ -96,14 +85,6 @@ export default function AdminPricingPage() {
       }
 
       // Load org settings
-      const settingsResponse = await fetch('/api/admin/pricing')
-      if (settingsResponse.ok) {
-        const data = await settingsResponse.json()
-        if (data.orgSettings?.pricing) {
-          setOrgPricing(prev => ({ ...prev, ...data.orgSettings.pricing }))
-        }
-      }
-
       setLoading(false)
     } catch (error) {
       console.error('Error loading data:', error)
@@ -183,23 +164,6 @@ export default function AdminPricingPage() {
     } catch (err) {
       console.error('Error setting default:', err)
     }
-  }
-
-  const saveSubRates = async () => {
-    setSaving(true)
-    try {
-      await fetch('/api/admin/pricing', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'org_settings',
-          pricing: orgPricing,
-        }),
-      })
-    } catch (err) {
-      console.error('Error saving:', err)
-    }
-    setSaving(false)
   }
 
   const openAddModal = () => {
@@ -400,90 +364,6 @@ export default function AdminPricingPage() {
               })}
             </div>
           )}
-        </div>
-
-        {/* Sub-Contractor Costs - Simple Section */}
-        <div className="bg-white rounded-2xl shadow-sm border p-6 mb-8">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-gray-900">Your Costs (Optional)</h2>
-            <p className="text-sm text-gray-700">What you pay sub-contractors. Used to calculate profit margins.</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {squaresOn && (<>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Install Labor</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={orgPricing.sub_install_per_square || ''}
-                  onChange={(e) => setOrgPricing(prev => ({ 
-                    ...prev, 
-                    sub_install_per_square: e.target.value ? parseFloat(e.target.value) : null 
-                  }))}
-                  className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg"
-                  placeholder="145"
-                />
-              </div>
-              <p className="text-xs text-gray-700 mt-1">Per square</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Tear-off Labor</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={orgPricing.sub_tearoff_per_square || ''}
-                  onChange={(e) => setOrgPricing(prev => ({ 
-                    ...prev, 
-                    sub_tearoff_per_square: e.target.value ? parseFloat(e.target.value) : null 
-                  }))}
-                  className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg"
-                  placeholder="75"
-                />
-              </div>
-              <p className="text-xs text-gray-700 mt-1">Per square</p>
-            </div>
-            </>)}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Dump Run</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600">$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={orgPricing.sub_dump_run_flat || ''}
-                  onChange={(e) => setOrgPricing(prev => ({ 
-                    ...prev, 
-                    sub_dump_run_flat: e.target.value ? parseFloat(e.target.value) : null 
-                  }))}
-                  className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg"
-                  placeholder="150"
-                />
-              </div>
-              <p className="text-xs text-gray-700 mt-1">Flat rate per job</p>
-            </div>
-          </div>
-
-          {/* The old "Default Tax Rate" box was never read by the proposal builder; sales tax lives in one place now. */}
-          <p className="mt-6 pt-6 border-t text-sm text-[#2c2c2a]">
-            Sales tax rates are set by an owner in <a href="/admin/s/payments#sales-tax" className="font-semibold text-indigo-700 hover:underline">Settings → Sales tax</a>.
-          </p>
-
-          <div className="mt-6 flex justify-end">
-            <button
-              onClick={saveSubRates}
-              disabled={saving}
-              className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : 'Save Costs'}
-            </button>
-          </div>
         </div>
 
         {/* Quick Links */}

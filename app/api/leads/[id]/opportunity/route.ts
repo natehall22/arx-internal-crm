@@ -1,3 +1,4 @@
+import { insertOpportunityRow } from '@/lib/new-deal'
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -150,23 +151,18 @@ export async function POST(
     })
 
     // Omit `source` — some DBs have no `source` on opportunities (see canvass/lead insert).
-    const { data: created, error: insertError } = await adminClient
-      .from('opportunities')
-      .insert({
+    const { data: created, error: insertError } = await insertOpportunityRow(adminClient, profile.org_id, {
         org_id: profile.org_id,
         lead_id: leadId,
         customer_id: await customerIdForLead(adminClient, profile.org_id, lead as never),
         owner_user_id: ownerUserId,
         setter_user_id: setterUserId,
         status: 'open',
-        project_type: 'roofing',
         address_text: lead.address_text || null,
         lat: mapPin.lat,
         lng: mapPin.lng,
         notes: lead.notes || null,
-      })
-      .select('id')
-      .single()
+      }, 'id')
 
     if (insertError || !created?.id) {
       console.error('Create opportunity from lead failed:', insertError)

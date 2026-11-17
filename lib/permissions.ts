@@ -116,6 +116,7 @@ export type Permission = PermissionName
 
 // Role hierarchy - higher index = more permissions (legacy roles)
 const roleHierarchy: UserRole[] = [
+  'field_tech',
   'canvasser',
   'setter',
   'call_center',
@@ -135,6 +136,7 @@ const roleHierarchy: UserRole[] = [
 
 // Hierarchy levels for legacy roles
 export const legacyRoleHierarchyLevels: Record<UserRole, number> = {
+  field_tech: 5,
   canvasser: 10,
   setter: 20,
   call_center: 20, // Same level as setter — appointment-setting scope
@@ -277,6 +279,11 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'scheduling:view', 'scheduling:create', 'scheduling:edit',
   ],
   
+  // Crew member in the field: no permission grants at all. Their day, photos and clock run through the crew phone link and
+  // crew membership (crew_members), never through a role permission — and money / pipeline / settings are denied below
+  // (field-role group, FIELD_ROLE_SLUGS).
+  field_tech: [],
+
   canvasser: [
     'canvass:view', 'canvass:create', 'canvass:edit',
     'leads:view', 'leads:create', 'leads:edit',
@@ -339,16 +346,10 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'users:view',
   ],
 
-  custom: [
-    // Custom roles get minimal permissions by default
-    // Actual permissions should be defined via custom_roles table
-    'canvass:view',
-    'leads:view',
-    'opportunities:view',
-    'teams:view',
-    'users:view',
-    'scheduling:view',
-  ],
+  // A person on the base role `custom` with NO custom role (the service presets Office / Bookkeeper) holds exactly what their
+  // own grants say: no hidden defaults. (A person WITH a custom role never used this list; the live database has no one on
+  // `custom` without a custom role, checked 2026-11-17.)
+  custom: [],
 }
 
 const JOB_BOARD_PERMISSION_NAMES = ['jobs:view', 'jobs:edit'] as const
@@ -415,6 +416,9 @@ const APPOINTMENT_SETTING_ROLE_SLUGS = new Set([
   'inside sales',
   'call_center',
   'call center',
+  // Not appointment setting, but the same bar: a Field Tech never gets pricing, proposals, contracts, roof measurements or
+  // Projects, and the thread rules (isFieldRole) treat them as a field role (lib/threads/visibility.ts).
+  'field_tech',
 ])
 
 /**
@@ -459,13 +463,13 @@ export function isBarredFromSalesDocAccess(
 }
 
 /**
- * THE field-role classification (TypeScript side). Setters, canvassers, inside sales and call center — by role slug OR by custom-role
+ * THE field-role classification (TypeScript side). Setters, canvassers, inside sales, call center and field techs (crew members) — by role slug OR by custom-role
  * NAME (name + display name, lowercased, joined by one space) containing one of those words, unless it is a manager role
  * ("Setter Manager" runs setters; it is not one). By role/name only, never inferred from permissions. The SQL twin is
- * arx_private.is_field_role() (migration 202610280010); lib/__tests__/job-notes-rls-parity.test.ts keeps the two equal.
+ * arx_private.is_field_role() (migration 202610280010, re-created by 202611300020 for field_tech); lib/__tests__/job-notes-rls-parity.test.ts keeps the two equal.
  */
-export const FIELD_ROLE_SLUGS: readonly string[] = ['setter', 'canvasser', 'inside_sales', 'inside sales', 'call_center', 'call center']
-export const FIELD_ROLE_NAME_PATTERN = '(^|[^a-z])(setter|canvasser|inside[ _-]?sales|call[ _-]?cent(er|re))s?([^a-z]|$)'
+export const FIELD_ROLE_SLUGS: readonly string[] = ['setter', 'canvasser', 'inside_sales', 'inside sales', 'call_center', 'call center', 'field_tech']
+export const FIELD_ROLE_NAME_PATTERN = '(^|[^a-z])(setter|canvasser|inside[ _-]?sales|call[ _-]?cent(er|re)|field[ _-]?tech(nician)?)s?([^a-z]|$)'
 const FIELD_ROLE_NAME_RE = new RegExp(FIELD_ROLE_NAME_PATTERN)
 
 export function isFieldRoleLike(input: SalesDocAccessInput | null | undefined): boolean {
@@ -474,6 +478,21 @@ export function isFieldRoleLike(input: SalesDocAccessInput | null | undefined): 
   if (FIELD_ROLE_SLUGS.includes(role)) return true
   const crname = `${input.customRoleName ?? ''} ${input.customRoleDisplayName ?? ''}`.toLowerCase()
   return !/manager/.test(crname) && FIELD_ROLE_NAME_RE.test(crname)
+}
+
+/**
+ * The one field role that is a CREW member (in-house crew doing the visits): it is in the field-role group (no money, job board,
+ * pipeline or settings) but may use the time clock — signed in, and only as a member of a time-tracked crew
+ * (lib/time-tracking-db.ts). Same input as isFieldRoleLike: the role slug `field_tech`, or a custom role NAMED Field Tech /
+ * Field Technician (not a manager role). Sales field roles (setters, canvassers, inside sales) never clock in.
+ */
+const FIELD_TECH_NAME_RE = /(^|[^a-z])field[ _-]?tech(nician)?s?([^a-z]|$)/
+export function isCrewFieldRole(input: SalesDocAccessInput | string | null | undefined): boolean {
+  if (!input) return false
+  const i = typeof input === 'string' ? { role: input } : input
+  if (String(i.role ?? '').toLowerCase().trim() === 'field_tech') return true
+  const crname = `${i.customRoleName ?? ''} ${i.customRoleDisplayName ?? ''}`.toLowerCase()
+  return !/manager/.test(crname) && FIELD_TECH_NAME_RE.test(crname)
 }
 
 /**
@@ -683,6 +702,8 @@ export function hasAllPermissions(role: UserRole, permissions: Permission[]): bo
 export function getPermissions(role: UserRole): Permission[] {
   // Every role may open Referral Partners: reps add and work their own. Managing (reassign,
   // Company Relationship, import) is admin-only and arrives via `admin:full`.
+  // A Field Tech (crew member) gets nothing from a role: no Referral Partners either (lib/effective-permissions.ts).
+  if (role === 'field_tech') return []
   return [...(rolePermissions[role] || []), 'referral_partners:view']
 }
 
@@ -756,6 +777,7 @@ export const roleDisplayNames: Record<UserRole, string> = {
   setter: 'Setter',
   rep: 'Rep',
   canvasser: 'Canvasser',
+  field_tech: 'Field Tech',
   operations: 'Operations',
   call_center: 'Call Center',
   custom: 'Custom',

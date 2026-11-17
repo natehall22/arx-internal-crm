@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 
+import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import { dealTypeLabel } from '@/lib/org-profile'
 import { StatusPill } from '@/components/ui/badge'
 import { DataTable, type TableFilter, type TableView, type ViewState } from '@/components/ui/data-table'
 import { buildOpportunityListQuery, type OpportunityListFilters } from '@/lib/opportunity-list-filters'
@@ -38,6 +40,7 @@ export default function OpportunitiesTable({
   outcomeLookup: Map<string, InspectionOutcomeConfigRow>
   initial: OpportunityListFilters
 }) {
+  const orgProfile = useOrgProfile()
   const [ctx, setCtx] = useState<ViewState>({ sorting: [], search: initial.q, filters: {} })
   const qs = useMemo(
     () =>
@@ -51,7 +54,7 @@ export default function OpportunitiesTable({
   const columns = useMemo<ColumnDef<OpportunityListRow, any>[]>(
     () => [
       { id: 'name', header: 'Lead / customer', accessorFn: (o) => `${nameOf(o)} ${o.address_text ?? ''}`, cell: (c) => <span>{nameOf(c.row.original)}<span className="block max-w-xs truncate text-ui-sm text-ink-muted">{c.row.original.address_text || 'No address'}</span></span>, meta: { mobile: 'title' } },
-      { enableGlobalFilter: false, id: 'type', header: 'Type', accessorFn: (o) => o.project_type ?? '', cell: (c) => <span className="capitalize">{c.getValue() || '—'}</span> },
+      { enableGlobalFilter: false, id: 'type', header: 'Type', accessorFn: (o) => o.project_type ?? '', cell: (c) => <span className="capitalize">{dealTypeLabel(orgProfile, c.getValue()) || '—'}</span> },
       { enableGlobalFilter: false, id: 'status', header: 'Status', accessorFn: (o) => o.status, cell: (c) => <StatusPill domain="opportunity" value={c.getValue()} /> },
       {
         id: 'outcome',
@@ -65,7 +68,7 @@ export default function OpportunitiesTable({
       { enableGlobalFilter: false, id: 'assigned', header: 'Assigned', accessorFn: (o) => o.users?.full_name ?? 'Unassigned' },
       { id: 'created', header: 'Created', accessorFn: (o) => o.created_at, meta: { mobile: 'hide' }, cell: (c) => (c.getValue() ? new Date(c.getValue()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—') },
     ],
-    [outcomeLookup]
+    [outcomeLookup, orgProfile]
   )
 
   const filters = useMemo<TableFilter<OpportunityListRow>[]>(
@@ -77,9 +80,10 @@ export default function OpportunitiesTable({
         options: [{ value: 'none', label: 'No inspection yet' }, ...outcomeRows.map((o) => ({ value: o.id.toLowerCase(), label: `${o.label}${o.active === false ? ' (inactive)' : ''}` }))],
         accessor: (o) => String(o.inspection_outcome || 'none').toLowerCase(),
       },
-      { key: 'type', label: 'Project type', options: ['roofing', 'siding', 'windows', 'mixed'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })), accessor: (o) => String(o.project_type || '').toLowerCase() },
+      // A roofing-shaped list of types: only the roofing company filters by it (the other profiles' deals are all one trade).
+      ...(orgProfile.id === 'roofing' ? [{ key: 'type', label: 'Project type', options: ['roofing', 'siding', 'windows', 'mixed'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })), accessor: (o: OpportunityListRow) => String(o.project_type || '').toLowerCase() }] : []),
     ],
-    [outcomeRows]
+    [outcomeRows, orgProfile]
   )
 
   return (

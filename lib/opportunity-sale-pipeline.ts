@@ -105,7 +105,7 @@ export async function materializeSaleFromInspectionOutcome(
         customer_id: customerId,
         owner_user_id: opp.owner_user_id || actingUserId,
         status: 'in_progress',
-        project_type: (opp.project_type as 'roofing' | 'siding' | 'mixed') || 'roofing',
+        project_type: (opp.project_type as 'roofing' | 'siding' | 'windows' | 'mixed' | 'other') || 'roofing',
         address_text: address,
         lat: opp.lat,
         lng: opp.lng,

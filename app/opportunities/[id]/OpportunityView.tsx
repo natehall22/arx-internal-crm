@@ -3,7 +3,11 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { getOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import Nav from '@/components/Nav'
 import { getOrgFeatures, isOrgFeatureOn } from '@/lib/org-features-server'
-import { builtInContractsAvailable, loadOrgProfile } from '@/lib/org-profile'
+import { builtInContractsAvailable, loadOrgProfile, outcomeLabel, pageHidden, roofSectionsAvailable, t } from '@/lib/org-profile'
+import { BASE_TERMS } from '@/lib/industry-profiles'
+import { markOpportunityLost } from '@/lib/opportunity-lost'
+import { creditLaneWords } from '@/lib/sale-credit-words'
+import OpportunityYardAndPlans from '@/components/opportunities/OpportunityYardAndPlans'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
@@ -385,7 +389,9 @@ export default async function OpportunityView({
   // The company's Roof measuring switch (Settings → Features) — the one answer (the old measure_tool_enabled is retired).
   const measureToolEnabled = await isOrgFeatureOn(profile.org_id, 'roofMeasure')
   const orgBrand = await getOrgBrand(createServiceClient(), profile.org_id)
-  const builtInContracts = builtInContractsAvailable(await loadOrgProfile(createServiceClient(), profile.org_id), usesOriginalCompanyAssets(orgBrand))
+  const orgProfile = await loadOrgProfile(createServiceClient(), profile.org_id)
+  const orgFeatures = await getOrgFeatures(profile.org_id)
+  const builtInContracts = builtInContractsAvailable(orgProfile, usesOriginalCompanyAssets(orgBrand))
 
   // Fetch the most recent inspection appointment linked to this opportunity
   const { data: inspectionAppointment } = await supabase
@@ -448,33 +454,25 @@ export default async function OpportunityView({
         )
       : null
 
-  const markOpportunityLost = async () => {
+  // Section gates by profile / feature (industry profile). The roofing profile (the original company) shows every section
+  // exactly as before; any other company sees the roof-only sections only when its features say so — or when the record
+  // already holds that data (history is never hidden).
+  const roofSections = roofSectionsAvailable(orgProfile, orgFeatures)
+  const isRoofing = roofSections.roofing
+  const showRoofReport = roofSections.report || Boolean(inspectionReport)
+  const showRoofMeasurements = roofSections.measurements || (measurements?.length ?? 0) > 0
+  const showDesign = isRoofing || orgFeatures.roofMeasure || orgFeatures.projectTools || Boolean(designPdfUrl)
+  const showCloseStatus = isRoofing || orgFeatures.canvassing || Boolean(closeScheduledFor)
+  const inspWord = t(orgProfile, 'inspection')
+  const propWord = t(orgProfile, 'proposal')
+  const baseInsp = inspWord === BASE_TERMS.inspection
+  const lowerInsp = inspWord.toLowerCase()
+  const lowerProp = propWord.toLowerCase()
+  const lane = creditLaneWords(orgFeatures.canvassing)
+
+  const markOpportunityLostAction = async () => {
     'use server'
-    const { profile } = await requireAuth()
-    const supabase = createServiceClient()
-
-    await supabase
-      .from('opportunities')
-      .update({ status: 'lost' })
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-
-    if (opportunity.lead_id) {
-      await supabase
-        .from('leads')
-        .update({ status: 'lost' })
-        .eq('id', opportunity.lead_id)
-        .eq('org_id', profile.org_id)
-    }
-
-    await supabase.from('activities').insert({
-      org_id: profile.org_id,
-      opportunity_id: params.id,
-      user_id: profile.id,
-      type: 'status_change',
-      body: 'Opportunity marked as lost.',
-    })
-
+    await markOpportunityLost(params.id, opportunity.lead_id ?? null)
     revalidatePath(`/opportunities/${params.id}`)
   }
 
@@ -530,7 +528,7 @@ export default async function OpportunityView({
     nextStep = { icon: '📋', title: 'Marked as Lost', body: 'You can still follow up or reopen this opportunity if the customer comes back.', bg: 'bg-gray-50 border-gray-200', titleColor: 'text-gray-700' }
   } else if (!opportunityForInspectionUi.inspection_outcome) {
     // Step 1 — no inspection result yet
-    nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Run the inspection and submit your results below.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: inspectionFeedbackUrl, linkLabel: 'Submit Inspection' }
+    nextStep = { icon: '🔍', title: baseInsp ? 'Inspection Needed' : `${inspWord} needed`, body: baseInsp ? 'Run the inspection and submit your results below.' : `Do the ${lowerInsp} and submit your results below.`, bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: inspectionFeedbackUrl, linkLabel: baseInsp ? 'Submit Inspection' : `Submit ${lowerInsp}` }
   } else if (
     opportunityForInspectionUi.inspection_outcome === 'not_home' &&
     hasInsideSalesFollowUp &&
@@ -675,12 +673,12 @@ export default async function OpportunityView({
       : '/appointments?view=calendar'
     nextStep = {
       icon: '📞',
-      title: 'Reschedule the Inspection',
+      title: baseInsp ? 'Reschedule the Inspection' : `Reschedule the ${lowerInsp}`,
       body: 'The customer was not home or requested a new time. Reschedule the appointment or use the calendar to get it back on the board.',
       bg: 'bg-yellow-50 border-yellow-200',
       titleColor: 'text-yellow-800',
       link: rescheduleHref,
-      linkLabel: inspectionAppointment?.id ? 'Reschedule inspection' : 'Open calendar',
+      linkLabel: inspectionAppointment?.id ? (baseInsp ? 'Reschedule inspection' : `Reschedule ${lowerInsp}`) : 'Open calendar',
       secondaryLink: '/appointments?view=calendar',
       secondaryLabel: 'Team calendar',
     }
@@ -702,7 +700,16 @@ export default async function OpportunityView({
     // Inspection ran — determine where we are in the proposal → close → contract flow
     if (!proposals || proposals.length === 0) {
       // Step 2 — need a proposal to bring to the close
-      nextStep = { icon: '📝', title: 'Create a Proposal', body: 'Inspection is done — build a proposal to bring to the close appointment.', bg: 'bg-indigo-50 border-indigo-200', titleColor: 'text-indigo-800', link: proposalBuilderUrl, linkLabel: 'Build Proposal' }
+      nextStep = isRoofing
+        ? { icon: '📝', title: 'Create a Proposal', body: 'Inspection is done — build a proposal to bring to the close appointment.', bg: 'bg-indigo-50 border-indigo-200', titleColor: 'text-indigo-800', link: proposalBuilderUrl, linkLabel: 'Build Proposal' }
+        : { icon: '📝', title: `Create a ${propWord}`, body: `The ${lowerInsp} is done — build the ${lowerProp} for the customer.`, bg: 'bg-indigo-50 border-indigo-200', titleColor: 'text-indigo-800', link: proposalBuilderUrl, linkLabel: `Build ${propWord}` }
+    } else if (!isRoofing && orgFeatures.quoteApproval && !orgFeatures.canvassing && !closeScheduledFor) {
+      // Quote approval companies close by the customer's own approval link (no separate close appointment).
+      const approved = proposals.some((p: any) => p?.status === 'accepted')
+      const latest = proposals[0]
+      nextStep = approved
+        ? { icon: '✅', title: `${propWord} approved`, body: 'The customer approved. Schedule the work from the work board.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800', link: '/ops', linkLabel: `Go to ${t(orgProfile, 'jobBoard')}` }
+        : { icon: '📨', title: `Send the ${lowerProp} for approval`, body: `Send the customer their ${lowerProp} link to approve online.`, bg: 'bg-purple-50 border-purple-200', titleColor: 'text-purple-800', link: `/proposals/${latest.id}`, linkLabel: `Open ${lowerProp}` }
     } else if (!closeScheduledFor) {
       // Step 3 — proposal exists, need to schedule the close
       nextStep = { icon: '📅', title: 'Schedule the Close', body: 'Proposal is ready. Schedule the close appointment to sit down with the customer.', bg: 'bg-purple-50 border-purple-200', titleColor: 'text-purple-800', link: '#close-section', linkLabel: 'Schedule Close' }
@@ -770,9 +777,12 @@ export default async function OpportunityView({
                   }`}>
                     {opportunity.status.replace(/_/g, ' ')}
                   </span>
+                  {/* Every deal was created as 'roofing' (the column default): another trade's company does not show that. */}
+                  {(isRoofing || opportunity.project_type !== 'roofing') && (
                   <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 capitalize">
                     {opportunity.project_type || '—'}
                   </span>
+                  )}
                   {hasRepWorkingHandoffGrace && !hasInsideSalesFollowUp && (
                     <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-violet-100 text-violet-800">
                       Rep working (grace)
@@ -821,19 +831,23 @@ export default async function OpportunityView({
 
             {/* Info grid — compact */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 pt-4 border-t text-sm">
+              {(lane.showSetter || setter) && (
               <div>
                 <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Setter</p>
                 <p className="text-gray-900 mt-0.5">{setter?.full_name || '—'}</p>
               </div>
+              )}
               <div>
-                <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Closer</p>
+                <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">{lane.closer}</p>
                 <p className="text-gray-900 mt-0.5">{closer?.full_name || '—'}</p>
               </div>
+              {(!pageHidden(orgProfile, '/referral-partners') || referredBy) && (
               <ReferredByPicker
                 opportunityId={opportunity.id}
                 current={referredBy}
                 canEdit={canSetReferredBy(profile.role, await getPartnerAccess(supabase, authUser.id, profile))}
               />
+              )}
               <div>
                 <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Customer</p>
                 {opportunity.customer_id ? (
@@ -892,7 +906,7 @@ export default async function OpportunityView({
             {/* Mark Lost — de-emphasized, at bottom of card */}
             {opportunity.status !== 'lost' && opportunity.status !== 'won' && (
               <div className="mt-4 pt-3 border-t flex justify-end">
-                <form action={markOpportunityLost}>
+                <form action={markOpportunityLostAction}>
                   <button
                     type="submit"
                     className="text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:border-red-200 hover:text-red-700 hover:bg-red-50/50 transition-colors"
@@ -930,7 +944,7 @@ export default async function OpportunityView({
                   </Link>
                 )}
                 {nextStep.showMarkLost && opportunity.status !== 'lost' && opportunity.status !== 'won' && (
-                  <form action={markOpportunityLost} className="inline">
+                  <form action={markOpportunityLostAction} className="inline">
                     <button
                       type="submit"
                       className="inline-flex items-center px-3 py-2 text-sm font-semibold rounded-lg border border-red-300 text-red-800 bg-white hover:bg-red-50 shadow-sm"
@@ -983,11 +997,11 @@ export default async function OpportunityView({
         {/* Canvass Notes Section */}
         {leadRow?.canvass_notes && (
           <div className="bg-white shadow rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Canvass Notes</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">{orgFeatures.canvassing ? 'Canvass Notes' : 'Lead notes'}</h2>
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{leadRow.canvass_notes}</p>
               <p className="text-xs text-gray-700 mt-2">
-                Notes from initial canvass visit
+                {orgFeatures.canvassing ? 'Notes from initial canvass visit' : 'Notes from the first contact'}
               </p>
             </div>
           </div>
@@ -996,7 +1010,7 @@ export default async function OpportunityView({
         {/* Inspection Feedback Section */}
         {(opportunityForInspectionUi.inspection_outcome || (inspectionUpdates && inspectionUpdates.length > 0)) && (
           <div className="bg-white shadow rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Inspection Feedback</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">{baseInsp ? 'Inspection Feedback' : `${inspWord} Feedback`}</h2>
             
             {opportunityForInspectionUi.inspection_outcome && (
               <div className="mb-4 p-4 rounded-lg bg-gray-50 border">
@@ -1012,7 +1026,7 @@ export default async function OpportunityView({
                     {opportunityForInspectionUi.inspection_outcome === 'sale' ? '✓ Sale' :
                      opportunityForInspectionUi.inspection_outcome === 'said_no' ? 'Said No' :
                      opportunityForInspectionUi.inspection_outcome === 'not_home' ? 'Not Home' :
-                     opportunityForInspectionUi.inspection_outcome === 'needs_repair' ? 'Needs Repair' :
+                     opportunityForInspectionUi.inspection_outcome === 'needs_repair' ? outcomeLabel(orgProfile, 'needs_repair', 'Needs Repair') :
                      opportunityForInspectionUi.inspection_outcome === 'rescheduled' ? 'Rescheduled' :
                      opportunityForInspectionUi.inspection_outcome}
                   </span>
@@ -1041,7 +1055,7 @@ export default async function OpportunityView({
                         update.outcome === 'needs_repair' ? 'bg-orange-100 text-orange-700' :
                         'bg-gray-100 text-gray-700'
                       }`}>
-                        {update.outcome}
+                        {outcomeLabel(orgProfile, update.outcome, update.outcome)}
                       </span>
                       <span className="text-xs text-gray-700">
                         {new Date(update.created_at).toLocaleString()}
@@ -1069,11 +1083,12 @@ export default async function OpportunityView({
             opportunityId={params.id}
             leadId={leadRow?.id ?? null}
             inspectionAppointmentId={inspectionAppointment?.id ?? null}
-            hideWhenEmpty={hideInspectionEmptyCard}
+            hideWhenEmpty={hideInspectionEmptyCard || !isRoofing}
           />
         </div>
 
-        {/* Roof Report — customer-facing photo documentation PDF */}
+        {/* Roof Report — customer-facing photo documentation PDF (roofing / insurance only) */}
+        {showRoofReport && (
         <div id="roof-report-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xl font-bold text-gray-900">Roof Report</h2>
@@ -1129,10 +1144,12 @@ export default async function OpportunityView({
             </p>
           )}
         </div>
+        )}
 
         {/* Roof Measurements + Design — hidden for inside-sales viewers (closer/ops territory) */}
         {!isSalesDocBarredViewer && (
         <>
+        {showRoofMeasurements ? (
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Roof Measurements</h2>
@@ -1235,7 +1252,18 @@ export default async function OpportunityView({
             </div>
           )}
         </div>
+        ) : (
+          /* Lawn & landscape: the property's lawn / bed areas and its plan options sit where the roof measure was. */
+          <OpportunityYardAndPlans
+            profile={profile as never}
+            opportunityId={params.id}
+            customerId={opportunity.customer_id ?? null}
+            leadId={opportunity.lead_id ?? null}
+            embedded={embedded}
+          />
+        )}
 
+        {showDesign && (
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-4">Design</h2>
           {designPdfUrl ? (
@@ -1254,6 +1282,7 @@ export default async function OpportunityView({
           )}
           <DesignPdfUpload opportunityId={params.id} />
         </div>
+        )}
         </>
         )}
 
@@ -1261,7 +1290,7 @@ export default async function OpportunityView({
         {!isSalesDocBarredViewer && (
         <div id="proposals-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-900">Proposals</h2>
+            <h2 className="text-xl font-bold text-gray-900">{`${propWord}s`}</h2>
             <Link
               href={proposalBuilderUrl}
               className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 flex items-center gap-2"
@@ -1269,7 +1298,7 @@ export default async function OpportunityView({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              Create Proposal
+              {`Create ${propWord}`}
             </Link>
           </div>
           
@@ -1296,10 +1325,13 @@ export default async function OpportunityView({
                             {proposal.status.charAt(0).toUpperCase() + proposal.status.slice(1)}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-700 mt-1">{proposal.title || 'Untitled Proposal'}</p>
+                        <p className="text-sm text-gray-700 mt-1">{proposal.title || `Untitled ${propWord}`}</p>
                         <p className="text-xs text-gray-600 mt-1">
                           Created {new Date(proposal.created_at).toLocaleDateString()}
                         </p>
+                        {orgFeatures.quoteApproval && proposal.status !== 'accepted' && proposal.status !== 'declined' && (
+                          <p className="text-xs font-medium text-indigo-700 mt-1">Open to send for online approval →</p>
+                        )}
                       </div>
                       <div className="text-right shrink-0 ml-4">
                         <p className="text-lg font-bold text-indigo-600">
@@ -1326,12 +1358,12 @@ export default async function OpportunityView({
               <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              <p className="text-gray-700 text-sm mb-3">No proposals created yet</p>
+              <p className="text-gray-700 text-sm mb-3">{`No ${lowerProp}s created yet`}</p>
               <Link
                 href={proposalBuilderUrl}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
               >
-                Create First Proposal
+                {`Create First ${propWord}`}
               </Link>
             </div>
           )}
@@ -1360,7 +1392,7 @@ export default async function OpportunityView({
               defaultFinanceCompany={acceptedProposal?.financing_lender_name}
               totalSquares={contractTotalSquares}
               scopeOfWork={acceptedProposal?.scope_of_work || ''}
-              orgFeatures={await getOrgFeatures(profile.org_id)}
+              orgFeatures={orgFeatures}
             />
             ) : (
               <Link href="/signing" className="inline-flex min-h-[44px] items-center rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">
@@ -1398,6 +1430,7 @@ export default async function OpportunityView({
         </>
         )}
 
+        {showCloseStatus && (
         <div id="close-section" className="scroll-mt-20">
           <CloseAppointmentStatusSection
             opportunityId={params.id}
@@ -1409,6 +1442,7 @@ export default async function OpportunityView({
             scheduledAppointmentId={closeAppointmentId ? null : closeScheduledAppointmentId}
           />
         </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white shadow rounded-lg p-6">
