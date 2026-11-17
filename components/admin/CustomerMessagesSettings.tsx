@@ -211,7 +211,7 @@ export default function CustomerMessagesSettings({ initial = null }: { initial?:
               />
             </span>
           </label>
-          <p className="text-ui-base text-ink">Right after a payment from the customer is recorded (cash, check, card or online), they get an email receipt with the amount, how they paid and what is still owed. Not sent for refunds, or for payments from an insurance company or lender. Sent at once, even in quiet hours.</p>
+          <p className="text-ui-base text-ink">Right after a payment from the customer is recorded (cash, check, card or online), they get an email receipt with the amount, how they paid and what is still owed. Not sent for refunds, or for payments made by someone other than the customer (a lender, for example). Sent at once, even in quiet hours.</p>
         </CardContent>
       </Card>
 
