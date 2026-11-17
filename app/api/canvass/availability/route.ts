@@ -1,6 +1,6 @@
 import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
-import { getCalendarClient } from '@/lib/calendar/connection'
+import { calendarConnectedUserIds, getCalendarClient } from '@/lib/calendar/connection'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import { hasBufferedConflict, type BusyInterval } from '@/lib/scheduling-buffer'
 import { resolveSlotKindBufferAfter, parseSlotKindParam } from '@/lib/scheduling-slot-kind'
@@ -190,6 +190,9 @@ export async function GET(request: NextRequest) {
     
     let busySlots: BusyInterval[] = []
     let hasCalendar = false
+    // A connected calendar we could not read (token unusable, call failed) is UNKNOWN, never "free": the whole day is
+    // held as busy (same rule as team availability) and the response says so.
+    let calendarUnknown = false
 
     if (calendar) {
       hasCalendar = true
@@ -212,9 +215,17 @@ export async function GET(request: NextRequest) {
         }
       } catch (error: any) {
         console.error('Failed to get free/busy:', error?.message || error)
+        calendarUnknown = true
       }
+    } else if ((await calendarConnectedUserIds(adminClient, [closerId])).has(closerId)) {
+      console.error(`Availability: ${closerId} has a connected calendar but no usable client`)
+      hasCalendar = true
+      calendarUnknown = true
     } else {
       console.log(`Availability: No calendar token found for ${closerId}`)
+    }
+    if (calendarUnknown) {
+      busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
     }
 
     // Also check scheduled_appointments table for appointments that may not be synced to calendar
@@ -366,6 +377,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       slots,
       hasCalendar,
+      ...(calendarUnknown ? { calendarUnknown: true } : {}),
       timezone,
       workingHours: {
         start: workingHoursStart,

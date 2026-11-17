@@ -4,14 +4,21 @@
  * default 'common'), plus SECRETS_ENCRYPTION_KEY (tokens are sealed at rest). Any of the first two or the last
  * missing = the integration is off and "Connect Outlook" is hidden.
  *
- * TIME RULE: every instant we send or read is UTC (`timeZone: "UTC"`, `Prefer: outlook.timezone="UTC"`). Graph accepts
- * Windows names and (some) IANA names, and getting that mapping wrong silently shifts events an hour across DST; UTC
- * has no mapping and no DST, so an event lands on the right instant by construction. All-day events are a bare date at
- * 00:00 with `isAllDay: true` (Outlook treats them as floating dates), never built from a Date round-trip.
+ * TIME RULE: every timed instant we send or read is UTC (`timeZone: "UTC"`, `Prefer: outlook.timezone="UTC"`); UTC has
+ * no DST, so a timed event lands on the right instant by construction. ALL-DAY events are the exception: they are a
+ * calendar DATE in the org's time zone, so they are sent as `{dateTime: 'YYYY-MM-DDT00:00:00', timeZone: <org IANA tz>}`
+ * with `isAllDay: true` (Graph accepts IANA names; midnight in that zone is what Outlook requires), never built from a
+ * Date round-trip, and are read back as the org-local day (`allDayBusy`). The org zone is `CALENDAR_BUSINESS_TZ`, the
+ * same constant install scheduling and sub availability already use.
+ *
+ * GUEST MAIL: Graph always emails guests on create/update/cancel; there is no "send nobody" switch. So an explicit
+ * `sendUpdates: 'none'` means: never invite on create, and on update/delete do NOTHING when the event has guests and
+ * return `{skipped}` for the caller to surface. Omitting `sendUpdates` means no preference (Google: its default none).
  */
-import { fromZonedTime } from 'date-fns-tz'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 
 import { getAppUrl } from '@/lib/app-url'
+import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
 import {
   CalendarApiError,
   isWindowFree,
@@ -20,6 +27,8 @@ import {
   type CalendarClient,
   type CalendarEvent,
   type CalendarEventListItem,
+  type CalendarUpdateResult,
+  type CalendarWriteSkipped,
   type FreeBusyCalendarResult,
   type FreeBusySlot,
   type SendUpdates,
@@ -74,7 +83,7 @@ export function getMicrosoftAuthUrl(state: string, codeChallenge: string): strin
 
 export type MicrosoftTokens = { accessToken: string; refreshToken: string; expiresAt: Date; scope: string }
 
-async function tokenRequest(body: Record<string, string>, what: string): Promise<MicrosoftTokens> {
+async function tokenRequest(body: Record<string, string>, what: string, keepRefreshToken?: string): Promise<MicrosoftTokens> {
   const clientId = process.env.MICROSOFT_CLIENT_ID?.trim()
   const clientSecret = process.env.MICROSOFT_CLIENT_SECRET?.trim()
   if (!clientId || !clientSecret) throw new Error('Microsoft OAuth credentials not configured')
@@ -90,12 +99,14 @@ async function tokenRequest(body: Record<string, string>, what: string): Promise
     throw new MicrosoftCalendarError(`Microsoft ${what} failed (${response.status})`, response.status)
   }
   const data = (await response.json()) as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string }
-  if (!data.access_token || !data.refresh_token || typeof data.expires_in !== 'number') {
+  // A refresh response may omit a new refresh token: the old one stays valid, so keep it (a code exchange must return one).
+  const refreshToken = data.refresh_token || keepRefreshToken
+  if (!data.access_token || !refreshToken || typeof data.expires_in !== 'number') {
     throw new MicrosoftCalendarError(`Microsoft ${what} returned an incomplete token`, 502)
   }
   return {
     accessToken: data.access_token,
-    refreshToken: data.refresh_token,
+    refreshToken,
     expiresAt: new Date(Date.now() + data.expires_in * 1000),
     scope: data.scope ?? MICROSOFT_SCOPES,
   }
@@ -108,9 +119,9 @@ export function exchangeMicrosoftCode(code: string, codeVerifier: string): Promi
   )
 }
 
-/** Microsoft rotates the refresh token on every refresh: the caller MUST store the returned one. */
+/** Microsoft usually rotates the refresh token: the caller MUST store the returned one (it is the old one when none came back). */
 export function refreshMicrosoftToken(refreshToken: string): Promise<MicrosoftTokens> {
-  return tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken }, 'token refresh')
+  return tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken }, 'token refresh', refreshToken)
 }
 
 /** The connected account's address, for the "Connected as ..." line. Null on any failure (cosmetic). */
@@ -143,27 +154,32 @@ export function instantOf(dateTime: string, timeZone?: string): Date {
 
 const utcWall = (d: Date) => d.toISOString().slice(0, 19)
 
-/** One caller-side start/end → Graph's `{dateTime, timeZone: 'UTC'}`; all-day flag set from the shape. */
-export function toGraphTime(t: CalendarEvent['start']): { time: { dateTime: string; timeZone: 'UTC' }; allDay: boolean } {
+type GraphTime = { dateTime: string; timeZone: string }
+
+/**
+ * One caller-side start/end → Graph's `{dateTime, timeZone}`; all-day flag set from the shape. Timed = UTC; all-day =
+ * the bare date at 00:00 in `orgTimeZone` (never a UTC midnight, which is a different local day).
+ */
+export function toGraphTime(t: CalendarEvent['start'], orgTimeZone: string = CALENDAR_BUSINESS_TZ): { time: GraphTime; allDay: boolean } {
   if (typeof (t as { date?: unknown }).date === 'string' && (t as { date: string }).date) {
-    return { time: { dateTime: `${(t as { date: string }).date}T00:00:00`, timeZone: 'UTC' }, allDay: true }
+    return { time: { dateTime: `${(t as { date: string }).date}T00:00:00`, timeZone: orgTimeZone }, allDay: true }
   }
   const tt = t as { dateTime: string; timeZone?: string }
   return { time: { dateTime: utcWall(instantOf(tt.dateTime, tt.timeZone)), timeZone: 'UTC' }, allDay: false }
 }
 
 /** Google-shaped event (full or patch) → Graph event body. `sendUpdates:'none'` drops attendees: Graph has no switch to mail nobody. */
-export function toGraphEvent(event: Partial<CalendarEvent>, sendUpdates: SendUpdates): Record<string, unknown> {
+export function toGraphEvent(event: Partial<CalendarEvent>, sendUpdates: SendUpdates, orgTimeZone: string = CALENDAR_BUSINESS_TZ): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (event.summary !== undefined) out.subject = event.summary
   if (event.description !== undefined) out.body = { contentType: 'text', content: event.description }
   if (event.location !== undefined) out.location = { displayName: event.location }
   if (event.start) {
-    const s = toGraphTime(event.start)
+    const s = toGraphTime(event.start, orgTimeZone)
     out.start = s.time
     out.isAllDay = s.allDay
   }
-  if (event.end) out.end = toGraphTime(event.end).time
+  if (event.end) out.end = toGraphTime(event.end, orgTimeZone).time
   if (event.attendees && sendUpdates !== 'none') {
     out.attendees = event.attendees.map((a) => ({ emailAddress: { address: a.email }, type: 'required' }))
   }
@@ -220,6 +236,27 @@ export function resultFromSchedule(s: GraphSchedule | undefined): FreeBusyCalend
   return { busy }
 }
 
+/**
+ * One calendarView event → a busy block. Timed events: the UTC instants Graph returned. All-day events are the org-local
+ * DAY, not the instants Graph happens to express them in: midnight-to-midnight of its date(s) in `orgTimeZone` (so a
+ * DST-change day is 23 or 25 hours, and the day never slides to a neighbour). If Graph returns an all-day event as a
+ * floating UTC midnight, its date part is the date; if it returns the org's own midnight as a UTC instant, that instant
+ * rendered in the org zone is the date. Both land on the same org-local day.
+ */
+export function allDayBusy(startDateTime: string, endDateTime: string, orgTimeZone: string = CALENDAR_BUSINESS_TZ): FreeBusySlot {
+  const dateOf = (dt: string) => {
+    const iso = graphUtcToIso(dt)
+    return iso.slice(11, 19) === '00:00:00' ? iso.slice(0, 10) : formatInTimeZone(new Date(iso), orgTimeZone, 'yyyy-MM-dd')
+  }
+  const startDay = dateOf(startDateTime)
+  let endDay = dateOf(endDateTime)
+  if (endDay <= startDay) endDay = new Date(Date.parse(`${startDay}T00:00:00Z`) + 24 * 3600_000).toISOString().slice(0, 10)
+  return {
+    start: fromZonedTime(`${startDay}T00:00:00`, orgTimeZone).toISOString(),
+    end: fromZonedTime(`${endDay}T00:00:00`, orgTimeZone).toISOString(),
+  }
+}
+
 // ---------- the client ----------
 
 const PREFER = 'outlook.timezone="UTC", IdType="ImmutableId"'
@@ -250,6 +287,14 @@ async function failure(res: Response, what: string): Promise<MicrosoftCalendarEr
   return new MicrosoftCalendarError(`Microsoft Calendar ${what} failed (${res.status})`, res.status)
 }
 
+/** Whether the stored event has any guests (so any write to it would make Graph mail them). A 404 throws the usual missing-event error. */
+async function eventHasGuests(accessToken: string, eventUrl: string): Promise<boolean> {
+  const res = await graphFetch(accessToken, `${eventUrl}?$select=attendees`)
+  if (!res.ok) throw await failure(res, 'read')
+  const data = (await res.json()) as { attendees?: unknown[] }
+  return Array.isArray(data.attendees) && data.attendees.length > 0
+}
+
 async function pagedValues<T>(accessToken: string, firstUrl: string, what: string): Promise<T[]> {
   const items: T[] = []
   let url: string | undefined = firstUrl
@@ -263,7 +308,7 @@ async function pagedValues<T>(accessToken: string, firstUrl: string, what: strin
   return items
 }
 
-export function microsoftClient(accessToken: string): CalendarClient {
+export function microsoftClient(accessToken: string, orgTimeZone: string = CALENDAR_BUSINESS_TZ): CalendarClient {
   const client: CalendarClient = {
     provider: 'microsoft',
     accessToken,
@@ -278,11 +323,11 @@ export function microsoftClient(accessToken: string): CalendarClient {
       const busy: FreeBusySlot[] = []
       for (const cal of own.length ? own : [{ id: '' }]) {
         const base = cal.id ? `${GRAPH}/me/calendars/${encodeURIComponent(cal.id)}` : `${GRAPH}/me`
-        const url = `${base}/calendarView?startDateTime=${encodeURIComponent(timeMin.toISOString())}&endDateTime=${encodeURIComponent(timeMax.toISOString())}&$select=start,end,showAs,isCancelled&$top=250`
-        const events = await pagedValues<{ start: { dateTime: string }; end: { dateTime: string }; showAs?: string; isCancelled?: boolean }>(accessToken, url, 'free/busy')
+        const url = `${base}/calendarView?startDateTime=${encodeURIComponent(timeMin.toISOString())}&endDateTime=${encodeURIComponent(timeMax.toISOString())}&$select=start,end,showAs,isCancelled,isAllDay&$top=250`
+        const events = await pagedValues<{ start: { dateTime: string }; end: { dateTime: string }; showAs?: string; isCancelled?: boolean; isAllDay?: boolean }>(accessToken, url, 'free/busy')
         for (const e of events) {
           if (e.isCancelled || !e.showAs || !BUSY_STATUS.has(e.showAs)) continue
-          busy.push({ start: graphUtcToIso(e.start.dateTime), end: graphUtcToIso(e.end.dateTime) })
+          busy.push(e.isAllDay ? allDayBusy(e.start.dateTime, e.end.dateTime, orgTimeZone) : { start: graphUtcToIso(e.start.dateTime), end: graphUtcToIso(e.end.dateTime) })
         }
       }
       return busy
@@ -325,35 +370,50 @@ export function microsoftClient(accessToken: string): CalendarClient {
       const res = await graphFetch(accessToken, `${calendarBase(calendarId)}/events`, {
         method: 'POST',
         // Graph can't take a caller-chosen event id; `transactionId` is its way to make a retried POST create nothing new.
-        body: JSON.stringify({ ...toGraphEvent(event, sendUpdates), ...(event.id ? { transactionId: event.id } : {}) }),
+        body: JSON.stringify({ ...toGraphEvent(event, sendUpdates, orgTimeZone), ...(event.id ? { transactionId: event.id } : {}) }),
       })
       if (!res.ok) throw await failure(res, 'create')
       const data = (await res.json()) as { id: string; subject?: string }
       return { ...event, id: data.id, summary: data.subject ?? event.summary }
     },
 
-    async updateEvent(eventId, event, calendarId = 'primary', sendUpdates = 'none') {
-      const res = await graphFetch(accessToken, `${GRAPH}/me/events/${encodeURIComponent(eventId)}`, {
+    async updateEvent(eventId, event, calendarId = 'primary', sendUpdates): Promise<CalendarUpdateResult> {
+      const url = `${GRAPH}/me/events/${encodeURIComponent(eventId)}`
+      if (sendUpdates === 'none' && ((event.attendees?.length ?? 0) > 0 || (await eventHasGuests(accessToken, url)))) {
+        console.warn('Outlook update skipped: the event has guests and the caller asked that nobody be notified', eventId)
+        return { ...(event as CalendarEvent), id: eventId, summary: event.summary ?? '', skipped: 'guests_would_be_notified' }
+      }
+      const res = await graphFetch(accessToken, url, {
         method: 'PATCH',
-        body: JSON.stringify(toGraphEvent(event, sendUpdates)),
+        body: JSON.stringify(toGraphEvent(event, sendUpdates ?? 'all', orgTimeZone)),
       })
       if (!res.ok) throw await failure(res, 'update')
       const data = (await res.json()) as { id: string; subject?: string }
       return { ...(event as CalendarEvent), id: data.id, summary: data.subject ?? event.summary ?? '' }
     },
 
-    async deleteEvent(eventId, calendarId = 'primary', sendUpdates = 'none') {
+    async deleteEvent(eventId, calendarId = 'primary', sendUpdates): Promise<void | CalendarWriteSkipped> {
       const url = `${GRAPH}/me/events/${encodeURIComponent(eventId)}`
-      if (sendUpdates !== 'none') {
+      if (sendUpdates === 'none') {
+        // Deleting an event with guests makes Graph mail them a cancellation: refuse rather than tell people we said we wouldn't.
+        let guests: boolean
+        try {
+          guests = await eventHasGuests(accessToken, url)
+        } catch (e) {
+          if (e instanceof CalendarApiError && e.status === 404) return
+          throw e
+        }
+        if (guests) {
+          console.warn('Outlook delete skipped: the event has guests and the caller asked that nobody be notified', eventId)
+          return { skipped: 'guests_would_be_notified' }
+        }
+      } else if (sendUpdates) {
         // A meeting we organise is cancelled (attendees are told); a plain event can't be "cancelled", so fall through to delete.
         const c = await graphFetch(accessToken, `${url}/cancel`, { method: 'POST', body: JSON.stringify({ comment: '' }) })
         if (c.ok || c.status === 404) return
       }
       const res = await graphFetch(accessToken, url, { method: 'DELETE' })
-      if (!res.ok && res.status !== 404) {
-        const detail = await res.text().catch(() => '')
-        throw new Error(`Failed to delete event: ${res.status} ${detail.slice(0, 200)}`)
-      }
+      if (!res.ok && res.status !== 404) throw await failure(res, 'delete')
     },
 
     async listEventsInRange(calendarId, timeMinIso, timeMaxIso) {

@@ -86,6 +86,22 @@ export function isMissingEventError(error: unknown): boolean {
   return error instanceof CalendarApiError && (error.status === 404 || error.status === 410)
 }
 
+/**
+ * Missing OR malformed id. An event id minted by the other provider (the user switched Google <-> Outlook) is not
+ * "not found" but "invalid" (HTTP 400) on this one. Only call sites that act on a STORED id use this, so a stale id
+ * can never wedge a sync; the 400 case is logged by the caller. Never use it for a create.
+ */
+export function isStaleEventIdError(error: unknown): boolean {
+  return isMissingEventError(error) || (error instanceof CalendarApiError && error.status === 400)
+}
+
+/**
+ * Returned instead of writing when the write could not be done without emailing guests the caller said must not be
+ * told (`sendUpdates: 'none'`). Outlook cannot suppress guest mail; Google can, so Google never returns this.
+ */
+export type CalendarWriteSkipped = { skipped: 'guests_would_be_notified' }
+export type CalendarUpdateResult = CalendarEvent & Partial<CalendarWriteSkipped>
+
 /** A calendar bound to one user's valid access token. Event/calendar ids are the provider's own. */
 export interface CalendarClient {
   readonly provider: CalendarProviderId
@@ -103,8 +119,12 @@ export interface CalendarClient {
     workingHoursEnd?: number
   ): Promise<Date[]>
   createEvent(event: CalendarEvent, calendarId?: string, sendUpdates?: SendUpdates): Promise<CalendarEvent>
-  updateEvent(eventId: string, event: Partial<CalendarEvent>, calendarId?: string, sendUpdates?: SendUpdates): Promise<CalendarEvent>
-  deleteEvent(eventId: string, calendarId?: string, sendUpdates?: SendUpdates): Promise<void>
+  /**
+   * `sendUpdates` omitted = no preference (Google: its own default, none; Outlook: guests in the patch are applied and
+   * Graph mails them). Explicit 'none' on Outlook with guests on the event = nothing is written (see CalendarWriteSkipped).
+   */
+  updateEvent(eventId: string, event: Partial<CalendarEvent>, calendarId?: string, sendUpdates?: SendUpdates): Promise<CalendarUpdateResult>
+  deleteEvent(eventId: string, calendarId?: string, sendUpdates?: SendUpdates): Promise<void | CalendarWriteSkipped>
   listEventsInRange(calendarId: string, timeMinIso: string, timeMaxIso: string): Promise<CalendarEventListItem[]>
 }
 

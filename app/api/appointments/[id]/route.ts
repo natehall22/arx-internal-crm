@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveApiRequestAuthUser } from '@/lib/supabase-api-request-auth'
 import { deleteCalendarEventWithFallback } from '@/lib/appointment-calendar-sync'
 import { getCalendarClient } from '@/lib/calendar/connection'
+import { isStaleEventIdError } from '@/lib/calendar/provider'
 import { saleCreditLockBlock } from '@/lib/deal-sale-credit'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isContactScoped, myLeadIds } from '@/lib/contact-scope'
@@ -751,7 +752,7 @@ export async function PATCH(
             const dur = updated.duration_minutes || 60
             const endIso = new Date(new Date(startIso).getTime() + dur * 60 * 1000).toISOString()
             const typeLabel = appointmentCalendarTitleLabel(updated.appointment_type)
-            await client.updateEvent(existingEventId, {
+            const eventBody = {
               summary: `${typeLabel}: ${homeownerName}`,
               start: { dateTime: startIso },
               end: { dateTime: endIso },
@@ -759,7 +760,19 @@ export async function PATCH(
               ...(updated.notes != null && String(updated.notes).length > 0
                 ? { description: String(updated.notes) }
                 : {}),
-            })
+            }
+            try {
+              await client.updateEvent(existingEventId, eventBody)
+            } catch (updateError: unknown) {
+              // Gone, or an id from the other calendar provider (the closer switched Google <-> Outlook): make a fresh
+              // event and keep its id, so later edits stop failing on a dead one.
+              if (!isStaleEventIdError(updateError)) throw updateError
+              console.warn('Appointment update: stored event id is not usable on this calendar, recreating', existingEventId)
+              const recreated = await client.createEvent(eventBody, 'primary', 'none')
+              if (recreated?.id) {
+                await adminClient.from('scheduled_appointments').update({ google_event_id: recreated.id }).eq('id', params.id)
+              }
+            }
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e)
             console.error('Appointment update: Google update failed:', msg)

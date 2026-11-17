@@ -60,6 +60,7 @@ export default function SchedulingPage() {
         token_storage: 'Failed to save calendar connection',
         callback_failed: 'Calendar connection failed',
         invalid_state: 'Calendar connection expired. Please try again.',
+        calendar_switch_blocked: 'Your calendar is the install-scheduling account and has upcoming installs on it, so it cannot be switched yet.',
       }
       setMessage({ type: 'error', text: errorMessages[error] || 'An error occurred' })
     }

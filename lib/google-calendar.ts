@@ -2,6 +2,8 @@
 // Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI in env
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAppUrl } from '@/lib/app-url'
+import { microsoftConfigured } from '@/lib/calendar/microsoft-calendar'
+import { calendarSwitchBlockReason } from '@/lib/calendar/switch-guard'
 import {
   CalendarApiError,
   isWindowFree,
@@ -519,7 +521,7 @@ export async function deleteCalendarEvent(
 
   if (!response.ok && response.status !== 404) {
     const detail = await response.text().catch(() => '')
-    throw new Error(`Failed to delete event: ${response.status} ${detail}`)
+    throw new GoogleCalendarError(`Failed to delete event: ${response.status} ${detail}`, response.status)
   }
 }
 
@@ -547,6 +549,8 @@ export async function getAvailableSlots(
  * the legacy callback and the company-address finish step. Returns false when storing failed.
  */
 export async function saveGoogleConnection(admin: SupabaseClient, code: string, userId: string, orgId: string): Promise<boolean> {
+  // Refuse before spending the one-time code when this would orphan the install schedule (lib/calendar/switch-guard.ts).
+  if (await calendarSwitchBlockReason(admin, userId, orgId, 'google')) return false
   const tokens = await exchangeCodeForTokens(code)
   // org-scope-ok: upsert key user_id is the signed-in user (both callers: callback + finish) and orgId is that user's own profile org; a user belongs to one company, so the row cannot be re-homed
   const { error } = await admin.from('user_google_tokens').upsert(
@@ -566,8 +570,11 @@ export async function saveGoogleConnection(admin: SupabaseClient, code: string, 
     return false
   }
   // One calendar provider per user: connecting Google clears an Outlook connection.
-  // org-scope-ok: the signed-in user's own row
-  const { error: clearError } = await admin.from('user_microsoft_tokens').delete().eq('user_id', userId)
-  if (clearError) console.error('Failed to clear Outlook connection after Google connect:', clearError.message)
+  // Only when Outlook is on at all: with it off there is no such connection to clear (and no extra query).
+  if (microsoftConfigured()) {
+    // org-scope-ok: the signed-in user's own row
+    const { error: clearError } = await admin.from('user_microsoft_tokens').delete().eq('user_id', userId)
+    if (clearError) console.error('Failed to clear Outlook connection after Google connect:', clearError.message)
+  }
   return true
 }

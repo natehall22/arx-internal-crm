@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getCalendarClient } from '@/lib/calendar/connection'
-import { calendarLabel } from '@/lib/calendar/labels'
 
 /**
  * Delete an event that was created under a team member's calendar (Google or Outlook, whichever that member has).
@@ -52,7 +51,7 @@ export async function deleteAppointmentCalendarEvents(
     ])
     if (!del.ok) {
       warnings.push(
-        `${calendarLabel()}: could not remove event for appointment ${appt.id} (no OAuth token or delete failed).`
+        `Calendar: could not remove event for appointment ${appt.id} (no OAuth token or delete failed).`
       )
     }
   }

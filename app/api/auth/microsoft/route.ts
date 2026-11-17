@@ -5,6 +5,7 @@ import { MICROSOFT_CONNECT_COOKIE, MICROSOFT_CONNECT_COOKIE_PATH } from '@/lib/c
 import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
 import { COMPANY_LOOKUP_UNAVAILABLE, requestHost } from '@/lib/company-host'
 import { OAUTH_STATE_TTL_MS, issueOAuthState, pkceFor } from '@/lib/google-oauth-state'
+import { calendarSwitchBlockReason } from '@/lib/calendar/switch-guard'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -30,6 +31,8 @@ export async function GET(request: NextRequest) {
       }
       return NextResponse.redirect(new URL('/login', request.url))
     }
+    const blocked = await calendarSwitchBlockReason(createServiceClient(), auth.authUser.id, auth.profile.org_id, 'microsoft')
+    if (blocked) return NextResponse.redirect(new URL('/settings?error=calendar_switch_blocked', request.url))
     const ticket = await issueOAuthState(createServiceClient(), {
       userId: auth.authUser.id,
       orgId: auth.profile.org_id,

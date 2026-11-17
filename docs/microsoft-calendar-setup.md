@@ -19,7 +19,7 @@ The Outlook button stays hidden until all of this is set. Nothing changes for Go
   - `User.Read`
   - `Calendars.ReadWrite`
   - `Calendars.Read.Shared` (needed to read a subcontractor's shared free/busy)
-- None of these need admin consent for a normal user. Some customer companies (e.g. Precision Maintenance) block user consent: their Microsoft 365 admin must approve the app once (Entra ID, Enterprise applications, the app, Permissions, Grant admin consent), or open `https://login.microsoftonline.com/<their tenant>/adminconsent?client_id=<client id>`.
+- None of these need admin consent for a normal user. Some client companies block user consent: their Microsoft 365 admin must approve the app once (Entra ID, Enterprise applications, the app, Permissions, Grant admin consent), or open `https://login.microsoftonline.com/<their tenant>/adminconsent?client_id=<client id>`.
 - Click "Grant admin consent" on your own tenant too, so your staff are not prompted.
 
 ## 4. Vercel environment variables
@@ -31,13 +31,15 @@ The Outlook button stays hidden until all of this is set. Nothing changes for Go
 - Redeploy after saving.
 
 ## 5. Database
-- Apply `supabase/migrations/202611300010_user_microsoft_tokens.sql` before turning the variables on.
+- Apply `supabase/migrations/202611300090_user_microsoft_tokens.sql` before turning the variables on.
 
 ## How it behaves
 - Each person connects one calendar: Google or Outlook. Connecting one disconnects the other (confirmed first).
 - The install-scheduling account (`orgs.install_scheduling_user_id`) can be either; installs, free/busy and RSVPs follow that user's calendar.
 - Subcontractors: they share their Outlook calendar with the scheduling account at "Can view when I'm busy". If not shared, the board shows "not shared", never "free".
-- Invites: Graph always emails attendees when an event has them. When the org's invite setting is off ("none"), attendees are left off Outlook events instead.
+- Invites: Graph always emails attendees when an event has them and has no "send nobody" switch. When the org's invite setting is off ("none") (demo companies, support sessions): new Outlook events are created without attendees, and an existing Outlook event that has guests is NOT updated or deleted (the install board shows a sync warning / the unassign shows a calendar warning) because Graph would mail the guests.
+- Switching provider: blocked while the install-scheduling account has upcoming install events on its calendar (event ids belong to one provider). Move or unassign those installs, or nominate another account, then switch. A stored id from the other provider is treated as missing (recreated) so sync never wedges.
+- All-day installs are written as a date at midnight in the company time zone and read back as that local day.
 - Events written before someone switches provider stay on the old calendar and are not removed automatically.
 - Install calendar id: an address-style id (a Google calendar id) is ignored for Outlook and the user's own calendar is used.
 - Needs verification against a real tenant before relying on it: getSchedule permission scope and the not-shared error codes.

@@ -8,6 +8,7 @@ import {
   OAUTH_STATE_TTL_MS,
   issueOAuthState,
 } from '@/lib/google-oauth-state'
+import { calendarSwitchBlockReason } from '@/lib/calendar/switch-guard'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -38,6 +39,9 @@ export async function GET(request: NextRequest) {
       }
       return NextResponse.redirect(new URL('/login', request.url))
     }
+
+    const blocked = await calendarSwitchBlockReason(createServiceClient(), auth.authUser.id, auth.profile.org_id, 'google')
+    if (blocked) return NextResponse.redirect(new URL('/settings?error=calendar_switch_blocked', request.url))
 
     const host = requestHost(request)
     if (classifyHost(host).kind !== 'company') {

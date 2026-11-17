@@ -17,7 +17,7 @@
  * path used only by `appointment_type = 'adjuster_meeting'`.
  */
 
-import type { CalendarClient, CalendarEvent } from '@/lib/calendar/provider'
+import { isStaleEventIdError, type CalendarClient, type CalendarEvent } from '@/lib/calendar/provider'
 
 export type AdjusterMeetingAttendeeInput = {
   /** Internal user record of the field rep who will attend. */
@@ -246,8 +246,17 @@ export async function syncAdjusterMeetingToGoogle(
     })
 
     if (eventId) {
-      await deps.updateEvent(client, eventId, event)
-    } else {
+      try {
+        await deps.updateEvent(client, eventId, event)
+      } catch (updateError: unknown) {
+        // The stored event is gone, or its id came from the other calendar provider (the rep switched Google <-> Outlook:
+        // "invalid id", HTTP 400). Create it afresh below instead of wedging every later update on a dead id.
+        if (!isStaleEventIdError(updateError)) throw updateError
+        console.warn('syncAdjusterMeetingToGoogle: stored event id is not usable on this calendar, recreating', eventId)
+        eventId = null
+      }
+    }
+    if (!eventId) {
       const deterministicEventId = adjusterMeetingGoogleEventId(params.appointmentId)
       try {
         const created = await deps.createEvent(

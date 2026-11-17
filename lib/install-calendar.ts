@@ -55,7 +55,7 @@
 import { addDaysToDateOnly } from '@/lib/date-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { isMissingEventError, type CalendarClient, type CalendarEvent } from '@/lib/calendar/provider'
+import { isMissingEventError, isStaleEventIdError, type CalendarClient, type CalendarEvent } from '@/lib/calendar/provider'
 import { getAppUrl } from '@/lib/app-url'
 import { orgAppUrl } from '@/lib/company-links'
 import { getCalendarClient } from '@/lib/calendar/connection'
@@ -383,7 +383,7 @@ async function recordInstallSyncFailure(
 }
 
 /**
- * Push one trade's install to Google Calendar: creates the event when the trade
+ * Push one trade's install to the calendar (Google or Outlook): creates the event when the trade
  * has no `install_google_event_id` yet, PATCHes it in place otherwise (so
  * rescheduling never leaves a duplicate invite behind). Persists the event id /
  * calendar id onto the trade on success.
@@ -452,12 +452,24 @@ export async function syncInstallToCalendar(
         // A PATCH that switches an all-day event to a timed one (1 day → ½ day)
         // is accepted by Google as long as start and end change together, which
         // `buildInstallEvent` always sends.
-        await client.updateEvent(eventId, event, calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
+        const updated = await client.updateEvent(eventId, event, calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
+        if (updated?.skipped) {
+          // Outlook cannot update a guest's event without mailing them, and this session must not notify anyone.
+          const message = 'Outlook event not updated: it has guests and invites are turned off here. Update it with invites on.'
+          await recordInstallSyncFailure(adminClient, trade, message)
+          return { outcome: 'failed', eventId, calendarId: trade.install_calendar_id, error: message }
+        }
       } catch (e) {
-        // The event is gone — somebody deleted it out of Google directly. Without
-        // this, the stale id is retried forever and the trade's sync is wedged.
-        if (!isMissingEventError(e)) throw e
-        console.warn('syncInstallToCalendar: stored event is gone, recreating', eventId)
+        // The event is gone — somebody deleted it out of the calendar directly — or its id came from the OTHER provider
+        // (the account switched Google <-> Outlook; that id is "invalid", HTTP 400, here). Without this, the stale id is
+        // retried forever and the trade's sync is wedged.
+        if (!isStaleEventIdError(e)) throw e
+        console.warn(
+          isMissingEventError(e)
+            ? 'syncInstallToCalendar: stored event is gone, recreating'
+            : 'syncInstallToCalendar: stored event id is not valid for this calendar (provider switched?), recreating',
+          eventId
+        )
         eventId = null
       }
     }
@@ -465,7 +477,7 @@ export async function syncInstallToCalendar(
       const created = await client.createEvent(withoutClearedTimeFields(event), calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
       eventId = created?.id ?? null
       if (!eventId) {
-        const message = 'Google Calendar accepted the event but returned no id.'
+        const message = 'The calendar accepted the event but returned no id.'
         await recordInstallSyncFailure(adminClient, trade, message)
         return { outcome: 'failed', eventId: null, calendarId, error: message }
       }
@@ -498,8 +510,10 @@ export async function syncInstallToCalendar(
 
 /**
  * Remove a trade's calendar event (unassign / remove trade). Best-effort against
- * Google — a delete failure still clears the stored ids so a re-assign doesn't
- * try to PATCH an event that may no longer exist.
+ * the calendar: the unassign itself never fails, but the stored ids are cleared
+ * only when the event is really gone (deleted, missing, or an id from the other
+ * provider). A failed delete keeps them so it can be retried, and the caller gets
+ * a warning.
  */
 export async function removeInstallFromCalendar(
   adminClient: SupabaseClient,
@@ -507,13 +521,16 @@ export async function removeInstallFromCalendar(
     trade: Pick<InstallSyncTradeRow, 'id' | 'org_id' | 'install_google_event_id' | 'install_calendar_id'>
     schedulingUserId: string
   }
-): Promise<{ ok: boolean; warning?: string | null }> {
+): Promise<{ ok: boolean; warning?: string | null; /** The stored event ids were cleared (the event is gone). */ cleared: boolean }> {
   const { trade } = params
   if (!trade.install_google_event_id) {
-    return { ok: true }
+    return { ok: true, cleared: false }
   }
 
   let warning: string | null = null
+  // Stored ids are cleared only once the event is really gone from the calendar (deleted, missing, or an id this
+  // calendar never issued). Any other outcome keeps them, so the event can still be found and removed later.
+  let eventGone = false
   const { client, calendarId: defaultCalendarId } = await resolveInstallCalendarConfig(
     adminClient,
     trade.org_id,
@@ -521,24 +538,34 @@ export async function removeInstallFromCalendar(
   )
 
   if (!client) {
-    warning = 'No connected Google Calendar for this user; the existing event was not removed from Google.'
+    warning = 'No connected calendar for this user; the existing event was not removed from the calendar.'
   } else {
     try {
-      await client.deleteEvent(
+      const result = await client.deleteEvent(
         trade.install_google_event_id,
         trade.install_calendar_id || defaultCalendarId,
         // The sub is an attendee — cancelling without telling them means a crew
         // drives to a job that is no longer theirs.
         await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES)
       )
+      if (result && 'skipped' in result) {
+        warning = 'The Outlook event has guests and invites are turned off here, so it was not removed from the calendar.'
+      } else {
+        eventGone = true
+      }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e)
-      if (!isMissingEventError(e)) {
-        console.warn('removeInstallFromCalendar: delete failed (clearing stored ids anyway)', message)
-        warning = `Google Calendar delete failed: ${message}`
+      if (isStaleEventIdError(e)) {
+        if (!isMissingEventError(e)) console.warn('removeInstallFromCalendar: stored event id is not valid for this calendar (provider switched?)', trade.install_google_event_id)
+        eventGone = true
+      } else {
+        console.warn('removeInstallFromCalendar: delete failed (keeping stored ids)', message)
+        warning = `Calendar delete failed: ${message}`
       }
     }
   }
+
+  if (!eventGone) return { ok: true, warning, cleared: false }
 
   await adminClient
     .from('work_orders')
@@ -551,5 +578,5 @@ export async function removeInstallFromCalendar(
     .eq('id', trade.id)
     .eq('org_id', trade.org_id)
 
-  return { ok: true, warning }
+  return { ok: true, warning, cleared: true }
 }

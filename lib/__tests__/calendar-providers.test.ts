@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { googleClient } from '@/lib/calendar/google-provider'
 import {
+  allDayBusy,
   graphUtcToIso,
   microsoftClient,
   resultFromSchedule,
@@ -8,9 +9,9 @@ import {
   toGraphEvent,
   toGraphTime,
 } from '@/lib/calendar/microsoft-calendar'
-import { calendarConnectedUserIds, getCalendarClient, saveMicrosoftConnection } from '@/lib/calendar/connection'
+import { calendarConnectedUserIds, disconnectCalendar, getCalendarClient, saveMicrosoftConnection } from '@/lib/calendar/connection'
 import { createCalendarEvent } from '@/lib/google-calendar'
-import { isMissingEventError, CalendarApiError } from '@/lib/calendar/provider'
+import { isMissingEventError, isStaleEventIdError, CalendarApiError } from '@/lib/calendar/provider'
 import { GoogleCalendarError } from '@/lib/google-calendar'
 import { acceptOAuthCallback, issueOAuthState, pkceFor } from '@/lib/google-oauth-state'
 import { resolveSubShareStatus, busyDatesFromSlots } from '@/lib/sub-availability'
@@ -94,10 +95,32 @@ describe('Microsoft times and DST (always UTC on the wire)', () => {
     expect(toGraphTime({ dateTime, timeZone })).toEqual({ time: { dateTime: utc, timeZone: 'UTC' }, allDay: false })
   })
 
-  it('all-day events stay a bare date, never shifted', () => {
-    expect(toGraphTime({ date: '2026-11-01' })).toEqual({ time: { dateTime: '2026-11-01T00:00:00', timeZone: 'UTC' }, allDay: true })
+  it('all-day events are a bare date at midnight in the ORG time zone, never shifted', () => {
+    expect(toGraphTime({ date: '2026-11-01' })).toEqual({ time: { dateTime: '2026-11-01T00:00:00', timeZone: 'America/New_York' }, allDay: true })
+    expect(toGraphTime({ date: '2026-11-01' }, 'America/Chicago').time.timeZone).toBe('America/Chicago')
     const g = toGraphEvent({ summary: 's', start: { date: '2026-03-08' }, end: { date: '2026-03-09' } }, 'all')
-    expect(g).toMatchObject({ isAllDay: true, start: { dateTime: '2026-03-08T00:00:00' }, end: { dateTime: '2026-03-09T00:00:00' } })
+    expect(g).toMatchObject({ isAllDay: true, start: { dateTime: '2026-03-08T00:00:00', timeZone: 'America/New_York' }, end: { dateTime: '2026-03-09T00:00:00', timeZone: 'America/New_York' } })
+  })
+
+  it('all-day busy is the org-local day across both DST changes, however Graph expresses it', () => {
+    // Nov 1 2026 (fall back): midnight EDT (04:00Z) to midnight EST next day (05:00Z) = 25 hours
+    expect(allDayBusy('2026-11-01T04:00:00.0000000', '2026-11-02T05:00:00.0000000')).toEqual({ start: '2026-11-01T04:00:00.000Z', end: '2026-11-02T05:00:00.000Z' })
+    // Mar 8 2026 (spring forward): midnight EST (05:00Z) to midnight EDT (04:00Z) = 23 hours
+    expect(allDayBusy('2026-03-08T05:00:00.0000000', '2026-03-09T04:00:00.0000000')).toEqual({ start: '2026-03-08T05:00:00.000Z', end: '2026-03-09T04:00:00.000Z' })
+    // Floating UTC midnight (date only) lands on the same org-local day
+    expect(allDayBusy('2026-11-01T00:00:00.0000000', '2026-11-02T00:00:00.0000000')).toEqual({ start: '2026-11-01T04:00:00.000Z', end: '2026-11-02T05:00:00.000Z' })
+    expect(allDayBusy('2026-03-08T00:00:00.0000000', '2026-03-09T00:00:00.0000000')).toEqual({ start: '2026-03-08T05:00:00.000Z', end: '2026-03-09T04:00:00.000Z' })
+    // and maps to exactly that bare date for the install board
+    expect(busyDatesFromSlots([allDayBusy('2026-11-01T04:00:00', '2026-11-02T05:00:00')], '2026-10-30', '2026-11-03')).toEqual(['2026-11-01'])
+    expect(busyDatesFromSlots([allDayBusy('2026-03-08T05:00:00', '2026-03-09T04:00:00')], '2026-03-06', '2026-03-10')).toEqual(['2026-03-08'])
+  })
+
+  it('free/busy reads an all-day event as the org-local day', async () => {
+    mockFetch((c) =>
+      c.url.includes('/me/calendars?') ? { json: { value: [{ id: 'c1', isDefaultCalendar: true }] } } : { json: { value: [{ start: { dateTime: '2026-11-01T04:00:00.0000000' }, end: { dateTime: '2026-11-02T05:00:00.0000000' }, showAs: 'free', isAllDay: true }, { start: { dateTime: '2026-11-01T04:00:00.0000000' }, end: { dateTime: '2026-11-02T05:00:00.0000000' }, showAs: 'oof', isAllDay: true }] } }
+    )
+    const busy = await microsoftClient('tok').getFreeBusy(new Date('2026-10-31T00:00:00Z'), new Date('2026-11-03T00:00:00Z'))
+    expect(busy).toEqual([{ start: '2026-11-01T04:00:00.000Z', end: '2026-11-02T05:00:00.000Z' }])
   })
 
   it('Graph busy times map to the right business-timezone day across the November change', () => {
@@ -266,5 +289,85 @@ describe('OAuth state', () => {
     expect(pkceFor('nonce-1')).toEqual(a)
     expect(pkceFor('nonce-2')!.verifier).not.toBe(a.verifier)
     expect(a.verifier).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  })
+})
+
+
+describe('Outlook guest mail: sendUpdates none never mails guests', () => {
+  const guestsCall = (c: Call) => c.method === 'GET' && c.url.includes('$select=attendees')
+  it('update with none and guests on the event writes nothing and says so', async () => {
+    const calls = mockFetch((c) => (guestsCall(c) ? { json: { attendees: [{ emailAddress: { address: 'sub@x.co' } }] } } : { json: { id: 'e1' } }))
+    const r = await microsoftClient('t').updateEvent('e1', { summary: 'x' }, 'primary', 'none')
+    expect(r.skipped).toBe('guests_would_be_notified')
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false)
+  })
+  it('update with none and no guests goes ahead; patch guests are never sent on none', async () => {
+    const calls = mockFetch((c) => (guestsCall(c) ? { json: { attendees: [] } } : { json: { id: 'e1', subject: 'x' } }))
+    const r = await microsoftClient('t').updateEvent('e1', { summary: 'x' }, 'primary', 'none')
+    expect(r.skipped).toBeUndefined()
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1)
+    const again = mockFetch(() => ({ json: { id: 'e1' } }))
+    const r2 = await microsoftClient('t').updateEvent('e1', { attendees: [{ email: 'a@b.co' }] }, 'primary', 'none')
+    expect(r2.skipped).toBe('guests_would_be_notified')
+    expect(again.some((c) => c.method === 'PATCH')).toBe(false)
+  })
+  it('update with no preference passes the guests through (adjuster / attendee changes land)', async () => {
+    const calls = mockFetch(() => ({ json: { id: 'e1' } }))
+    await microsoftClient('t').updateEvent('e1', { attendees: [{ email: 'a@b.co' }, { email: 'c@d.co' }] })
+    expect(calls[0].body.attendees).toEqual([{ emailAddress: { address: 'a@b.co' }, type: 'required' }, { emailAddress: { address: 'c@d.co' }, type: 'required' }])
+  })
+  it('delete with none and guests is skipped; without guests it deletes; omitted = plain delete as before', async () => {
+    let guests = true
+    const calls = mockFetch((c) => (guestsCall(c) ? { json: { attendees: guests ? [{}] : [] } } : { status: 204 }))
+    expect(await microsoftClient('t').deleteEvent('e1', 'primary', 'none')).toEqual({ skipped: 'guests_would_be_notified' })
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    guests = false
+    await microsoftClient('t').deleteEvent('e1', 'primary', 'none')
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1)
+    const plain = mockFetch(() => ({ status: 204 }))
+    await microsoftClient('t').deleteEvent('e1')
+    expect(plain.map((c) => c.method)).toEqual(['DELETE'])
+  })
+  it('a 400 or 404 from either provider on a stored id is stale; other errors are not', () => {
+    expect(isStaleEventIdError(new CalendarApiError('x', 400))).toBe(true)
+    expect(isStaleEventIdError(new CalendarApiError('x', 404))).toBe(true)
+    expect(isStaleEventIdError(new CalendarApiError('x', 500))).toBe(false)
+    expect(isStaleEventIdError(new Error('x'))).toBe(false)
+  })
+})
+
+describe('Outlook refresh without a new refresh token keeps the old one', () => {
+  it('stores the old refresh token again', async () => {
+    const key = integrationSecretKey('microsoft-calendar')!
+    const { admin, tables } = fakeAdmin({
+      user_microsoft_tokens: [{ user_id: 'u1', org_id: 'o', access_token_sealed: sealWithKey(key, 'old', 'u1:access'), refresh_token_sealed: sealWithKey(key, 'ref1', 'u1:refresh'), expires_at: new Date(Date.now() + 60_000).toISOString() }],
+    })
+    mockFetch(() => ({ json: { access_token: 'new', expires_in: 3600 } }))
+    expect((await getCalendarClient(admin, 'u1'))?.accessToken).toBe('new')
+    expect(openWithKey(key, tables.user_microsoft_tokens[0].refresh_token_sealed, 'u1:refresh')).toBe('ref1')
+  })
+})
+
+describe('disconnectCalendar', () => {
+  const failing = (failTable: string) => {
+    const touched: string[] = []
+    const admin = { from: (t: string) => ({ delete: () => ({ eq: async () => (touched.push(t), { error: t === failTable ? { message: `${t} boom` } : null }) }) }) } as any
+    return { admin, touched }
+  }
+  it('a Microsoft table failure never fails a Google disconnect', async () => {
+    const { admin } = failing('user_microsoft_tokens')
+    expect(await disconnectCalendar(admin, 'u1')).toBeNull()
+    expect(await disconnectCalendar(admin, 'u1', 'google')).toBeNull()
+    expect(await disconnectCalendar(admin, 'u1', 'microsoft')).toBe('user_microsoft_tokens boom')
+  })
+  it('Outlook off: user_microsoft_tokens is never touched', async () => {
+    delete process.env.MICROSOFT_CLIENT_ID
+    const { admin, touched } = failing('user_microsoft_tokens')
+    expect(await disconnectCalendar(admin, 'u1')).toBeNull()
+    expect(touched).toEqual(['user_google_tokens'])
+  })
+  it('a Google failure is still reported', async () => {
+    const { admin } = failing('user_google_tokens')
+    expect(await disconnectCalendar(admin, 'u1', 'google')).toBe('user_google_tokens boom')
   })
 })

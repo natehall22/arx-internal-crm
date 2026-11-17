@@ -96,17 +96,18 @@ export default function SettingsPage() {
     const error = searchParams.get('error')
     
     if (success === 'calendar_connected') {
-      setCalendarMessage({ type: 'success', text: 'Google Calendar connected successfully!' })
+      setCalendarMessage({ type: 'success', text: 'Calendar connected successfully!' })
       setActiveTab('calendar')
       // Clear URL params
       router.replace('/settings')
     } else if (error) {
       const errorMessages: Record<string, string> = {
-        oauth_denied: 'Google Calendar authorization was denied.',
+        oauth_denied: 'Calendar authorization was denied.',
         missing_params: 'Missing OAuth parameters. Please try again.',
         no_profile: 'User profile not found.',
         token_storage: 'Failed to store calendar tokens.',
         callback_failed: 'Calendar connection failed. Please try again.',
+        calendar_switch_blocked: 'Your calendar is the install-scheduling account and has upcoming installs on it, so it cannot be switched yet. Move those installs, or pick another install-scheduling account, then switch.',
       }
       setCalendarMessage({ type: 'error', text: errorMessages[error] || 'An error occurred.' })
       setActiveTab('calendar')

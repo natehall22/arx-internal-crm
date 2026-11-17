@@ -13,6 +13,7 @@ import {
   refreshMicrosoftToken,
 } from '@/lib/calendar/microsoft-calendar'
 import type { CalendarClient, CalendarProviderId } from '@/lib/calendar/provider'
+import { calendarSwitchBlockReason } from '@/lib/calendar/switch-guard'
 import { refreshAccessToken } from '@/lib/google-calendar'
 import { integrationSecretKey, openWithKey, sealWithKey } from '@/lib/secret-seal'
 
@@ -144,10 +145,15 @@ export async function disconnectCalendar(admin: SupabaseClient, userId: string, 
     const { error } = await admin.from('user_google_tokens').delete().eq('user_id', userId)
     if (error) return error.message
   }
-  if (!provider || provider === 'microsoft') {
+  // Outlook's table is only touched when Outlook is on, and its failure never fails a Google disconnect (nor skips the
+  // caller's cleanup). An explicit Outlook disconnect still reports its own error.
+  if ((!provider || provider === 'microsoft') && microsoftConfigured()) {
     // org-scope-ok: the signed-in user's own row
     const { error } = await admin.from('user_microsoft_tokens').delete().eq('user_id', userId)
-    if (error) return error.message
+    if (error) {
+      if (provider === 'microsoft') return error.message
+      console.warn('Could not clear the Outlook connection while disconnecting:', error.message)
+    }
   }
   return null
 }
@@ -159,6 +165,8 @@ export async function disconnectCalendar(admin: SupabaseClient, userId: string, 
 export async function saveMicrosoftConnection(admin: SupabaseClient, code: string, codeVerifier: string, userId: string, orgId: string): Promise<boolean> {
   const key = integrationSecretKey(SEAL_LABEL)
   if (!key) return false
+  // Refuse before spending the one-time code when this would orphan the install schedule (lib/calendar/switch-guard.ts).
+  if (await calendarSwitchBlockReason(admin, userId, orgId, 'microsoft')) return false
   let tokens
   try {
     tokens = await exchangeMicrosoftCode(code, codeVerifier)
