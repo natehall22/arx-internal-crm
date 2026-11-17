@@ -23,6 +23,7 @@ import {
   recordCustomerInvoicePayment,
   recordCustomerInvoiceRefund,
 } from '@/lib/invoices'
+import { sendPaymentReceipt } from '@/lib/payment-receipt'
 import { recordJobPayment } from '@/lib/job-payment-record'
 import { ymdInZone } from '@/lib/payroll-week-schedule'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -215,6 +216,7 @@ export async function recordSucceededIntent(
       note: how.note,
       createdBy: null,
       idempotencyKey: key,
+      sendReceipt: false, // sent below, once it is on the invoice
     })
     if (!res.ok) {
       await patchRow(admin, orgId, row.id, { recording_at: null })
@@ -234,6 +236,7 @@ export async function recordSucceededIntent(
     } catch (e) {
       return review(`${(e as Error).message}. The payment counts on the job.`, jobPaymentId)
     }
+    if (!res.duplicate) await sendPaymentReceipt(admin, orgId, { paymentId: jobPaymentId, payer: 'homeowner', amountCents: amount, paidAt, method: how.method, invoiceId: invoice.id })
   } else {
     const res = await recordCustomerInvoicePayment(admin, orgId, invoice.id, {
       amountCents: amount,

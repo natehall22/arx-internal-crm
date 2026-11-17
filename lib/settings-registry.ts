@@ -58,7 +58,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     id: 'money',
     title: 'Money',
     items: [
-      { title: 'Payments & tax', description: 'Sales tax, online payments, QuickBooks and hourly billing (owners only)', href: '/admin/s/payments', access: 'superAdmin', cards: ['/admin/s/payments#sales-tax', '/admin/s/payments#online-payments', '/admin/s/payments#quickbooks', '/admin/s/payments#hourly-billing'], keywords: 'stripe tax accounting' },
+      { title: 'Payments & tax', description: 'Sales tax, payment terms, online payments, QuickBooks and hourly billing (owners only)', href: '/admin/s/payments', access: 'superAdmin', cards: ['/admin/s/payments#sales-tax', '/admin/s/payments#payment-terms', '/admin/s/payments#online-payments', '/admin/s/payments#quickbooks', '/admin/s/payments#hourly-billing'], keywords: 'stripe tax accounting' },
       { title: 'Compensation plans', description: 'Commission structures and who is on which plan', href: '/admin/comp-plans', access: 'leadership', keywords: 'commission pay plan default' },
       { title: 'Payroll & commissions', description: 'Pay periods, hourly entry, statements and exports', href: '/admin/payroll', access: 'payroll' },
       { title: 'Job profit tracker', description: 'Contract, costs, profit and owner draw by job', href: '/admin/job-profit-tracker', access: 'payroll' },
@@ -109,6 +109,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
 export const SETTINGS_CARDS: SettingsItem[] = [
       { title: 'Service plans', description: 'Recurring services like weekly or bi-weekly mowing: seasons, prices, what’s included', href: '/admin/s/jobs#plan-templates', access: 'superAdmin', feature: 'servicePlans', keywords: 'mowing recurring plan template weekly biweekly season' },
       { title: 'E-sign settings', description: 'The e-sign notice, decline, filing, reminders and signed-copy emails (owners only)', href: '/admin/s/quotes#signing', access: 'superAdmin', keywords: 'signature signing esign reminder decline signed copy notice' },
+      { title: 'Payment terms', description: 'When invoices are due: due on receipt, Net 15 or Net 30 (a customer can have their own; owners only)', href: '/admin/s/payments#payment-terms', access: 'superAdmin', keywords: 'net 30 net 15 due date overdue invoice terms' },
       { title: 'Online payments', description: 'Connect your Stripe account, pay links, bank payments and automatic payments (owners only)', href: '/admin/s/payments#online-payments', access: 'superAdmin', feature: 'onlinePayments', keywords: 'stripe card credit ach bank autopay pay link deposit' },
       { title: 'QuickBooks', description: 'Connect your QuickBooks Online company (owners only)', href: '/admin/s/payments#quickbooks', access: 'superAdmin', feature: 'quickbooks', keywords: 'quickbooks accounting bookkeeper books intuit qbo' },
       { title: 'Sales tax', description: 'Tax rates on quotes and invoices, the default, or no tax at all (owners only)', href: '/admin/s/payments#sales-tax', access: 'superAdmin', keywords: 'tax rate state county exempt taxable vat' },

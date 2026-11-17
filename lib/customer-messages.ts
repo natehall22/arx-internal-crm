@@ -55,6 +55,8 @@ export type CustomerMessageSettings = {
   invoiceReminder: boolean
   /** Days from the due date (−30…120; 0 = on the due day, 7 = a week overdue; ≤ 4 of them). */
   invoiceReminderDays: number[]
+  /** A receipt goes to the customer right after their payment is recorded (lib/payment-receipt.ts). Sent at once, never scheduled: no "how", no quiet hours. */
+  paymentReceipt: boolean
   /** No message goes out from quietStart:00 to quietEnd:00 in the company's time zone (same hour = never quiet). Texts also never go before 8 AM or from 9 PM. */
   quietStart: number
   quietEnd: number
@@ -78,6 +80,7 @@ export const DEFAULT_CUSTOMER_MESSAGE_SETTINGS: Readonly<CustomerMessageSettings
   quoteFollowUpDays: [3, 7],
   invoiceReminder: false,
   invoiceReminderDays: [0, 7, 14],
+  paymentReceipt: false,
   quietStart: 20,
   quietEnd: 8,
   visitReminderVia: 'email',
@@ -154,6 +157,7 @@ export function readCustomerMessageSettings(stored: unknown): CustomerMessageSet
     quoteFollowUpDays: cleanDays(s.quoteFollowUpDays, LIMITS.quoteDays, LIMITS.quoteSteps) ?? [...d.quoteFollowUpDays],
     invoiceReminder: bool('invoiceReminder'),
     invoiceReminderDays: cleanDays(s.invoiceReminderDays, LIMITS.invoiceDays, LIMITS.invoiceSteps) ?? [...d.invoiceReminderDays],
+    paymentReceipt: bool('paymentReceipt'),
     quietStart: hour('quietStart'),
     quietEnd: hour('quietEnd'),
     visitReminderVia: via('visitReminderVia'),
@@ -188,7 +192,7 @@ export function anyMessageOn(s: CustomerMessageSettings, channel?: MessageChanne
 }
 
 const VIA_KEYS = ['visitReminderVia', 'onTheWayVia', 'visitDoneVia', 'quoteFollowUpVia', 'invoiceReminderVia'] as const
-const BOOL_KEYS = ['visitReminder', 'onTheWay', 'visitDone', 'visitDonePhotos', 'quoteFollowUp', 'invoiceReminder'] as const
+const BOOL_KEYS = ['visitReminder', 'onTheWay', 'visitDone', 'visitDonePhotos', 'quoteFollowUp', 'invoiceReminder', 'paymentReceipt'] as const
 
 /** A save from Settings: `{ customerMessages: { … } }` → the keys to merge (flat), or a plain-words refusal. */
 export function parseCustomerMessageSettingsPatch(body: unknown): { set: Partial<CustomerMessageSettings> } | { error: string } {

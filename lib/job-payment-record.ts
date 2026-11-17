@@ -8,6 +8,7 @@ import { enqueuePaymentRecorded } from '@/lib/integrations'
 import { followPaidCommissionBase, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { notifyAdminOpsOfJobPayment } from '@/lib/job-payment-email'
 import { getJobPaymentSummary } from '@/lib/job-payments'
+import { sendPaymentReceipt } from '@/lib/payment-receipt'
 import { isMissingFunction } from '@/lib/org-settings'
 import type { JobPayment, PaymentMethod, PaymentPayer, PaymentType } from '@/lib/types/job-payments'
 
@@ -24,6 +25,8 @@ export type RecordJobPaymentInput = {
   createdBy: string | null
   /** A processor's payment / refund id: a retry with the same key returns the first row instead of a second one. */
   idempotencyKey?: string | null
+  /** False when the caller sends the customer's receipt itself (after applying the payment to an invoice, or once for a split collection). Default true. */
+  sendReceipt?: boolean
   /** QuickBooks outbox event: money in (default), or money back out by a refund / a lost dispute. */
   eventType?: 'payment.recorded' | 'payment.refunded' | 'payment.disputed' | 'payment.voided'
 }
@@ -100,8 +103,11 @@ export async function recordJobPayment(admin: SupabaseClient, p: RecordJobPaymen
   // again — this payment may be the one. No-op for a job not paid on an approved week. Never throws.
   if (!tm) await followPaidCommissionBase(admin, p.orgId, p.jobId)
 
+  // The payment summary: for the admin + operations email and for the customer's receipt (what the job still owes).
+  const summaryP = getJobPaymentSummary(admin, p.jobId)
+
   // Email admin + operations (non-blocking)
-  getJobPaymentSummary(admin, p.jobId)
+  summaryP
     .then((summary) => {
       if (!summary) return
       return notifyAdminOpsOfJobPayment(admin, {
@@ -120,6 +126,21 @@ export async function recordJobPayment(admin: SupabaseClient, p: RecordJobPaymen
       })
     })
     .catch((err) => console.error('notifyAdminOpsOfJobPayment failed:', err))
+
+  // The customer's receipt (lib/payment-receipt.ts: the one receipt, shared with recordCustomerInvoicePayment): money in only
+  // (a refund is negative), awaited so it is sent before the request ends; it never fails the payment.
+  if (p.amountCents > 0 && p.sendReceipt !== false && (p.eventType ?? 'payment.recorded') === 'payment.recorded') {
+    const summary = await summaryP.catch(() => null)
+    await sendPaymentReceipt(admin, p.orgId, {
+      paymentId: payment.id,
+      payer: String(p.payer),
+      amountCents: p.amountCents,
+      paidAt: String(p.paidAt),
+      method: String(p.method),
+      jobId: p.jobId,
+      jobRemainingCents: summary ? Math.max(0, summary.remaining_cents) : null,
+    })
+  }
 
   return { ok: true, payment, duplicate: false, commissionFollowsPayments: tm?.status === 'time_materials' }
 }
