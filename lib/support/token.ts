@@ -107,9 +107,6 @@ export const SUPPORT_NO_WRITE_PATHS: readonly string[] = ['/api/admin/support-ac
  */
 export const SUPPORT_OWN_TOKEN_ROUTES: readonly string[] = [
   '/admin/campaigns',
-  '/admin/door-drop',
-  '/admin/print-kit',
-  '/admin/print-kit/appointment-cards',
   '/api/admin/canvass-territories',
   '/api/admin/canvass-territories/[id]',
   '/api/admin/crews',

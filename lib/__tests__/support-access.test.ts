@@ -448,7 +448,7 @@ describe("screens that read the staff member's own token are refused inside a su
   test('pages: the page shows the message (view and full)', async () => {
     for (const l of ['view', 'full'] as const) {
       const c = (await sessionCookie({ l })).value
-      for (const p of ['/admin/campaigns', '/admin/print-kit', '/admin/print-kit/appointment-cards', '/canvass/stats', '/commissions/estimator']) {
+      for (const p of ['/admin/campaigns', '/canvass/stats', '/commissions/estimator']) {
         const res = await middleware(mk('GET', p, c))
         expect(res.status).toBe(403)
         expect(res.headers.get('content-type')).toMatch(/text\/html/)
