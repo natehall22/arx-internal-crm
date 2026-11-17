@@ -53,7 +53,7 @@ export default async function QuotePage({ params }: { params: { token: string } 
     approvalView = {
       typedName: approval.typed_name,
       approvedAt: approval.approved_at,
-      // The one-time total the customer sees; the approval's total_cents is the sale amount (it also holds the recurring first-season value).
+      // The one-time total the customer sees; a plan-only approval stores its recurring estimate in total_cents as a placeholder, so this reads 0 there.
       totalCents: approvalOneTimeCents(approval),
       depositCents: approval.deposit_cents,
       taxCents: approval.tax_cents,

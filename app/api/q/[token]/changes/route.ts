@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 
 import { loadOrgFeatures } from '@/lib/org-features'
-import { clientIpFromRequest, consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
+import { clientIpFromRequest } from '@/lib/public-estimate-rate-limit'
+import { takePortalAttempt } from '@/lib/portal/server'
 import { notifyCompanyOfPortalMessage } from '@/lib/portal/messages'
 import { resolvePublicQuoteLink } from '@/lib/quotes/links'
 import { loadQuoteContext } from '@/lib/quotes/load'
@@ -18,13 +19,12 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request, { params }: { params: { token: string } }) {
   try {
     const ip = clientIpFromRequest(request)
-    const limited = consumePublicEstimateRateLimit({ key: `q-changes:${ip}`, limit: 10, windowMs: 10 * 60_000 })
-    if (!limited.ok) return NextResponse.json({ error: 'Too many tries. Please wait a few minutes.' }, { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } })
     const admin = createServiceClient()
+    // The database-backed limiter (shared by every server instance), per address and below per quote link.
+    if (!(await takePortalAttempt(admin, `q-changes:${ip}`, { limit: 10, windowSeconds: 600 }))) return NextResponse.json({ error: 'Too many tries. Please wait a few minutes.' }, { status: 429, headers: { 'Retry-After': '600' } })
     const link = await resolvePublicQuoteLink(admin, params.token)
     if (!link || !(await loadOrgFeatures(admin, link.org_id)).quoteApproval) return NextResponse.json({ error: 'This link is not active' }, { status: 404 })
-    const perLink = consumePublicEstimateRateLimit({ key: `q-changes-link:${link.id}`, limit: 5, windowMs: 60 * 60_000 })
-    if (!perLink.ok) return NextResponse.json({ error: 'You have sent a few messages already. Please call us instead.' }, { status: 429, headers: { 'Retry-After': String(perLink.retryAfterSec) } })
+    if (!(await takePortalAttempt(admin, `q-changes-link:${link.proposal_id}`, { limit: 5, windowSeconds: 3600 }))) return NextResponse.json({ error: 'You have sent a few messages already. Please call us instead.' }, { status: 429, headers: { 'Retry-After': '3600' } })
     const raw = (await request.json().catch(() => ({}))) as { message?: unknown }
     const message = typeof raw.message === 'string' ? raw.message.trim() : ''
     if (!message) return NextResponse.json({ error: 'Write what you would like changed first.' }, { status: 400 })

@@ -7,8 +7,9 @@ import { loadOrgProfile, t } from '@/lib/org-profile'
 import { finalizeApproval, loadApproval } from '@/lib/quotes/approve'
 import { createQuoteLink, revokeQuoteLinks } from '@/lib/quotes/links'
 import { loadQuoteContext, priceForSelection, recurringForSelection } from '@/lib/quotes/load'
+import { NOT_PORTAL_LINK } from '@/lib/quotes/links'
 import { defaultSelectedIds } from '@/lib/quotes/pricing'
-import { approvalOneTimeCents, approvalPlanValueCents, isRecurringLine } from '@/lib/quotes/recurring'
+import { approvalOneTimeCents, approvalRecurringEstimateCents, isRecurringLine } from '@/lib/quotes/recurring'
 import { plansForQuoteLines } from '@/lib/quotes/recurring-plans'
 import { sendQuoteLinkEmail } from '@/lib/quotes/send'
 import { depositCents, effectiveDeposit, isDepositMode } from '@/lib/quotes/settings'
@@ -44,7 +45,7 @@ async function status(admin: ReturnType<typeof createServiceClient>, orgId: stri
   if (!ctx) return null
   const p = ctx.proposal
   const approval = await loadApproval(admin, orgId, proposalId)
-  const { data: links } = await orgDb(admin, orgId).from('quote_links').select('id, expires_at, revoked_at, first_opened_at, last_opened_at, sent_to, sent_at, created_at').eq('proposal_id', proposalId).order('created_at', { ascending: false }).limit(1)
+  const { data: links } = await orgDb(admin, orgId).from('quote_links').select('id, expires_at, revoked_at, first_opened_at, last_opened_at, sent_to, sent_at, created_at').eq('proposal_id', proposalId).or(NOT_PORTAL_LINK).order('created_at', { ascending: false }).limit(1)
   const link = ((links ?? []) as Array<{ expires_at: string; revoked_at: string | null; first_opened_at: string | null; last_opened_at: string | null; sent_to: string | null; sent_at: string | null }>)[0] ?? null
   const price = priceForSelection(ctx, defaultSelectedIds(ctx.lines))
   const d = effectiveDeposit(p, ctx.settings)
@@ -55,6 +56,9 @@ async function status(admin: ReturnType<typeof createServiceClient>, orgId: stri
     if (!(p.customer_name ?? '').trim() || !(p.customer_address ?? '').trim()) problems.push('Add the customer name and address.')
     const rec = recurringForSelection(ctx, defaultSelectedIds(ctx.lines))
     if (ctx.lines.length === 0 || (price.totalCents <= 0 && rec.chosen.length === 0)) problems.push('Add at least one item with a price.')
+    // A recurring start date already past would start the plan late: the sender updates it first.
+    const past = ctx.lines.filter((l) => isRecurringLine(l) && l.plan_start_date && l.plan_start_date < ctx.today)
+    if (past.length > 0) problems.push(`The start date for ${past.map((l) => l.name).join(', ')} has passed. Update it before sending.`)
     if (rec.unsupported.length > 0) problems.push('A recurring service on this quote can’t be sold (service plans are off, or its plan template was removed). Fix or remove it.')
     if (p.opportunity_id) {
       const { data: signed } = await orgDb(admin, orgId).from('order_form_contracts').select('id').eq('opportunity_id', p.opportunity_id).eq('agreement_type', 'installation').eq('status', 'completed').limit(1)
@@ -74,7 +78,7 @@ async function status(admin: ReturnType<typeof createServiceClient>, orgId: stri
     problems,
     link: link ? { active: !link.revoked_at && Date.parse(link.expires_at) > Date.now(), expiresAt: link.expires_at, revoked: !!link.revoked_at, firstOpenedAt: link.first_opened_at, lastOpenedAt: link.last_opened_at, sentTo: link.sent_to, sentAt: link.sent_at } : null,
     approval: approval
-      ? { typedName: approval.typed_name, approvedAt: approval.approved_at, ip: approval.approved_ip, totalCents: approvalOneTimeCents(approval), planValueCents: approvalPlanValueCents(approval), saleCents: approval.total_cents, depositCents: approval.deposit_cents, finalized: !!approval.finalized_at, error: approval.finalize_error, jobId: approval.job_id, chosen: [...approval.snapshot.lines.filter((l) => l.chosen).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => r.chosen).map((r) => `${r.name} (recurring)`)], declined: [...approval.snapshot.lines.filter((l) => !l.chosen).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => !r.chosen).map((r) => r.name)] }
+      ? { typedName: approval.typed_name, approvedAt: approval.approved_at, ip: approval.approved_ip, totalCents: approvalOneTimeCents(approval), recurringEstimateCents: approvalRecurringEstimateCents(approval), planOnly: approval.snapshot.planOnly === true, depositCents: approval.deposit_cents, finalized: !!approval.finalized_at, error: approval.finalize_error, jobId: approval.job_id, chosen: [...approval.snapshot.lines.filter((l) => l.chosen).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => r.chosen).map((r) => `${r.name} (recurring)`)], declined: [...approval.snapshot.lines.filter((l) => !l.chosen).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => !r.chosen).map((r) => r.name)] }
       : null,
   }
 }
@@ -130,7 +134,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (body.action === 'send' || body.action === 'link') {
     if (s.problems.length > 0) return NextResponse.json({ error: s.problems[0] }, { status: 409 })
     const since = new Date(Date.now() - 3_600_000).toISOString()
-    const { count } = await orgDb(admin, orgId).from('quote_links').select('id', { count: 'exact', head: true }).eq('proposal_id', params.id).gte('created_at', since)
+    const { count } = await orgDb(admin, orgId).from('quote_links').select('id', { count: 'exact', head: true }).eq('proposal_id', params.id).or(NOT_PORTAL_LINK).gte('created_at', since)
     if ((count ?? 0) >= LINKS_PER_HOUR) return NextResponse.json({ error: 'Too many links in the last hour' }, { status: 429 })
     const ctx = await loadQuoteContext(admin, orgId, params.id)
     if (!ctx) return NextResponse.json({ error: 'Not found' }, { status: 404 })

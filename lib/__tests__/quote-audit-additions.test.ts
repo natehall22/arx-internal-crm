@@ -8,6 +8,8 @@ const post = jest.fn()
 jest.mock('@/lib/threads/post-message', () => ({ postCustomerMessage: (...a: unknown[]) => post(...a) }))
 const notify = jest.fn()
 jest.mock('@/lib/portal/messages', () => ({ notifyCompanyOfPortalMessage: (...a: unknown[]) => notify(...a) }))
+const take = jest.fn()
+jest.mock('@/lib/portal/server', () => ({ takePortalAttempt: (...a: unknown[]) => take(...a) }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({}) }))
 
 import { visibleNav, type NavContext } from '@/lib/nav-config'
@@ -41,12 +43,20 @@ describe('Ask for changes', () => {
     loadCtx.mockResolvedValue({ customerId: 'c1', proposal: { proposal_number: 'P-7', opportunity_id: 'opp1' } })
     post.mockResolvedValue({ ok: true, id: 'm1' })
     notify.mockResolvedValue(undefined)
+    take.mockResolvedValue(true)
   })
   it('goes through the one customer-message path on the quote’s own deal and emails the company', async () => {
     const res = await POST(req({ message: 'Can you skip the mulch?' }), params)
     expect(res.status).toBe(200)
     expect(post.mock.calls[0][1]).toMatchObject({ orgId: 'o1', customerId: 'c1', opportunityId: 'opp1', body: 'Change request on quote P-7: Can you skip the mulch?' })
     expect(notify).toHaveBeenCalledTimes(1)
+  })
+  it('uses the database-backed limiter, per address and per quote, and refuses when it says no', async () => {
+    await POST(req({ message: 'one' }), params)
+    expect(take.mock.calls.map((c) => c[1])).toEqual([expect.stringMatching(/^q-changes:/), 'q-changes-link:p1'])
+    take.mockResolvedValue(false)
+    expect((await POST(req({ message: 'two' }), params)).status).toBe(429)
+    expect(post).toHaveBeenCalledTimes(1)
   })
   it('refuses an empty message, a dead link, and a quote with no customer', async () => {
     expect((await POST(req({ message: '  ' }), params)).status).toBe(400)

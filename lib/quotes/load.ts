@@ -11,7 +11,9 @@ import { loadCustomerTaxExemption, loadOrgSalesTax } from '@/lib/sales-tax-serve
 import { taxRatesByIds } from '@/lib/sales-tax'
 import { orgDb } from '@/lib/supabase/org-db'
 import { loadOrgFeatures } from '@/lib/org-features'
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { loadTemplates } from '@/lib/service-plans-db'
+import { ymdInZone } from '@/lib/service-plans'
 import { isRecurringLine, recurringFacts, recurringKey, templateOfferedOnQuote, type RecurringFacts, type RecurringTemplateFacts } from '@/lib/quotes/recurring'
 import {
   isOptionalLine,
@@ -68,6 +70,8 @@ export type QuoteContext = {
   tax: QuoteTaxMode
   settings: QuoteApprovalSettings
   customerId: string | null
+  /** Today in the company's time zone (YYYY-MM-DD): recurring estimates count visits from max(line start, today). */
+  today: string
   /** Recurring lines by line id. A recurring line with no entry here (plans switched off, template gone) cannot be approved. */
   recurring: Record<string, RecurringLineInfo>
 }
@@ -110,6 +114,7 @@ export async function loadQuoteContext(admin: SupabaseClient, orgId: string, pro
   })) as QuoteLineRow[]
 
   // Recurring lines: the template's seasons / frequency / billing, priced with the plan's own maths. Plans off = no entry.
+  const today = ymdInZone(new Date(), await loadOrgTimeZone(admin, orgId))
   const recurring: Record<string, RecurringLineInfo> = {}
   if (lines.some(isRecurringLine) && (await loadOrgFeatures(admin, orgId)).servicePlans) {
     const { templates } = await loadTemplates(admin, orgId)
@@ -118,7 +123,7 @@ export async function loadQuoteContext(admin: SupabaseClient, orgId: string, pro
       const t = ln.service_plan_template_id ? byId.get(ln.service_plan_template_id) : null
       if (!t) continue
       const template: RecurringTemplateFacts = { id: t.id, version: t.version, name: t.name, billing_basis: t.billing_basis, seasons: t.seasons, allowCustom: t.pricing.allowCustom, active: t.active }
-      recurring[ln.id] = { template, facts: recurringFacts(template, ln as { unit_price: number; plan_start_date: string | null; plan_weekday: number | null }) }
+      recurring[ln.id] = { template, facts: recurringFacts(template, ln as { unit_price: number; plan_start_date: string | null; plan_weekday: number | null }, today) }
       ln.recurring_key = recurringKey(template, ln as { unit_price: number; plan_start_date: string | null; plan_weekday: number | null })
     }
   }
@@ -150,6 +155,7 @@ export async function loadQuoteContext(admin: SupabaseClient, orgId: string, pro
     tax,
     settings: readQuoteApprovalSettings((orgRow.data as { settings?: unknown } | null)?.settings),
     customerId,
+    today,
     recurring,
   }
 }
@@ -173,6 +179,12 @@ export function priceForSelection(ctx: QuoteContext, selected: Iterable<string>)
   })
 }
 
+/** Can this recurring line be sold right now? (plans on, template offered, a price, a start date) */
+export function recurringLineSellable(ctx: Pick<QuoteContext, 'recurring'>, l: QuoteLineRow): boolean {
+  const info = ctx.recurring[l.id]
+  return !!info && templateOfferedOnQuote(info.template) && Number(l.unit_price) > 0 && !!l.plan_start_date
+}
+
 /** The recurring lines that are part of the sale for a selection (required + ticked optional), and any that cannot be sold (plans switched off, template gone or no longer offered). */
 export function recurringForSelection(ctx: QuoteContext, selected: Iterable<string>): { chosen: Array<{ line: QuoteLineRow; info: RecurringLineInfo }>; unsupported: QuoteLineRow[] } {
   const picked = new Set(selected)
@@ -180,23 +192,15 @@ export function recurringForSelection(ctx: QuoteContext, selected: Iterable<stri
   const unsupported: QuoteLineRow[] = []
   for (const l of ctx.lines) {
     if (!isRecurringLine(l)) continue
-    const info = ctx.recurring[l.id]
-    if (!info || !templateOfferedOnQuote(info.template) || !(Number(l.unit_price) > 0) || !l.plan_start_date) {
-      if (!isOptionalLine(l) || picked.has(l.id)) unsupported.push(l)
+    // Only the lines that are part of the sale are checked: a bad OPTIONAL line the customer did not tick never blocks the rest.
+    if (isOptionalLine(l) && !picked.has(l.id)) continue
+    if (!recurringLineSellable(ctx, l)) {
+      unsupported.push(l)
       continue
     }
-    if (!isOptionalLine(l) || picked.has(l.id)) chosen.push({ line: l, info })
+    chosen.push({ line: l, info: ctx.recurring[l.id] })
   }
   return { chosen, unsupported }
-}
-
-/**
- * THE sale amount of an approved quote, in cents: the one-time total (tax included, as signed) + the first-season value of each
- * recurring line chosen. It is what the signed contract carries as `project_cost`, so rpt_sales, the job's sale amount and the
- * commission base (contract minus the proposal's sales tax) all read it through their existing writers.
- */
-export function saleCentsFor(oneTimeTotalCents: number, chosen: ReadonlyArray<{ info: RecurringLineInfo }>): number {
-  return oneTimeTotalCents + chosen.reduce((n, c) => n + c.info.facts.firstSeasonCents, 0)
 }
 
 export function fingerprintOf(ctx: QuoteContext): string {
@@ -279,7 +283,8 @@ export function buildQuoteView(args: {
   for (const l of ctx.lines) {
     if (isRecurringLine(l)) {
       const info = ctx.recurring[l.id]
-      if (info) {
+      // A line that cannot be sold is hidden when optional (it can't be ticked); a required one makes the quote unavailable (below).
+      if (info && recurringLineSellable(ctx, l)) {
         recurring.push({ id: l.id, name: l.name, description: l.description ?? '', detail: info.facts.detail, optional: isOptionalLine(l), defaultOn: l.optional_default_on === true })
         if (!terms.includes(info.facts.termsLine)) terms.push(info.facts.termsLine)
       }
@@ -293,7 +298,7 @@ export function buildQuoteView(args: {
   const p = ctx.proposal
   const d = effectiveDeposit(p, ctx.settings)
   // A recurring line that cannot be sold (plans switched off, template removed) makes the quote unavailable rather than approvable.
-  const blocked = args.state === 'open' && recurringForSelection(ctx, ctx.lines.filter(isOptionalLine).map((l) => l.id)).unsupported.length > 0
+  const blocked = args.state === 'open' && recurringForSelection(ctx, []).unsupported.length > 0
   return {
     state: blocked ? 'unavailable' : args.state,
     company: args.company,

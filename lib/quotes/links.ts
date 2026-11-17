@@ -11,6 +11,7 @@ import { orgAppUrl } from '@/lib/company-links'
 import { fenceAllowsOrg } from '@/lib/company-host'
 import { getRequestHostFence } from '@/lib/company-host-server'
 import { hashLinkToken, isWellFormedLinkToken } from '@/lib/online-payments/links'
+import { openSigningToken, sealSigningToken } from '@/lib/signing-tokens'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export type QuoteLinkRow = {
@@ -73,4 +74,46 @@ export async function touchQuoteLink(admin: SupabaseClient, link: QuoteLinkRow, 
 
 export async function revokeQuoteLinks(admin: SupabaseClient, orgId: string, proposalId: string, now: Date = new Date()): Promise<void> {
   await orgDb(admin, orgId).from('quote_links').update({ revoked_at: now.toISOString() }).eq('proposal_id', proposalId).is('revoked_at', null)
+}
+
+/** Marks a link row made for the customer portal's "open quote" button (never the emailed link). */
+export const PORTAL_LINK_MARK = 'portal'
+/** Filter for staff-facing reads of the emailed link: portal rows are not "the link that was sent". */
+export const NOT_PORTAL_LINK = `sent_to.is.null,sent_to.neq.${PORTAL_LINK_MARK}`
+
+/**
+ * The portal's link to one open quote: the live portal row's own token is reused (kept sealed in `portal_token_enc`), else ONE is
+ * made. It never revokes the emailed link and never touches its "opened" history, and it ends when the emailed link does
+ * (`expiresAt` = the quote's own expiry, passed in). Null when no token can be sealed (no secret configured) — the caller says
+ * "please contact us" instead of minting a link nobody can reuse.
+ */
+export async function portalQuoteLink(
+  admin: SupabaseClient,
+  orgId: string,
+  proposalId: string,
+  expiresAt: string,
+  now: Date = new Date()
+): Promise<{ url: string } | null> {
+  const db = orgDb(admin, orgId)
+  const base = await orgAppUrl(orgId)
+  const { data: rows } = await db
+    .from('quote_links')
+    .select('portal_token_enc, expires_at')
+    .eq('proposal_id', proposalId)
+    .eq('sent_to', PORTAL_LINK_MARK)
+    .is('revoked_at', null)
+    .gt('expires_at', now.toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+  const have = ((rows ?? []) as { portal_token_enc: string | null }[])[0]
+  const reuse = openSigningToken(have?.portal_token_enc)
+  if (reuse) return { url: `${base}/q/${reuse}` }
+  const token = randomBytes(32).toString('base64url')
+  const sealed = sealSigningToken(token)
+  if (!sealed) return null
+  const { error } = await db
+    .from('quote_links')
+    .insert({ proposal_id: proposalId, token_hash: hashLinkToken(token), created_by: null, expires_at: expiresAt, sent_to: PORTAL_LINK_MARK, portal_token_enc: sealed })
+  if (error) throw new Error(`Could not make the link: ${error.message}`)
+  return { url: `${base}/q/${token}` }
 }

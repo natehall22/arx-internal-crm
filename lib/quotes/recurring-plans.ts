@@ -51,6 +51,7 @@ export async function ensureQuotePlans(
     opportunityId: string | null
     customer: { name: string; email: string | null; phone: string | null; address: string }
     userId: string | null
+    approvalId?: string | null
     now?: Date
   }
 ): Promise<QuotePlanResult[]> {
@@ -64,6 +65,8 @@ export async function ensureQuotePlans(
   }
   let customerId: string | null = null
   let propertyId: string | null = null
+  let soldBy: string | null | undefined
+  let oppCustomerId: string | null = null
   const out: QuotePlanResult[] = []
   for (const r of chosen) {
     const have = await lookup(r.lineId)
@@ -73,11 +76,14 @@ export async function ensureQuotePlans(
       continue
     }
     if (!args.userId) throw new Error('no one to own the service plan')
+    if (soldBy === undefined) {
+      const { data: o } = args.opportunityId ? await db.from('opportunities').select('customer_id, owner_user_id').eq('id', args.opportunityId).maybeSingle() : { data: null }
+      const row = o as { customer_id?: string | null; owner_user_id?: string | null } | null
+      soldBy = row?.owner_user_id ?? null
+      oppCustomerId = row?.customer_id ?? null
+    }
     if (!customerId) {
-      if (args.opportunityId) {
-        const { data: o } = await db.from('opportunities').select('customer_id').eq('id', args.opportunityId).maybeSingle()
-        customerId = (o as { customer_id?: string | null } | null)?.customer_id ?? null
-      }
+      customerId = oppCustomerId
       // The deal's customer; a deal with none goes through the one customer matching rule (phone / email / name + address).
       if (!customerId) customerId = (await upsertCustomer(admin, orgId, { name: args.customer.name, email: args.customer.email, phone: args.customer.phone, address_text: args.customer.address })).customer_id
     }
@@ -86,14 +92,16 @@ export async function ensureQuotePlans(
       if (!found.ok) throw new Error(`property: ${found.error}`)
       propertyId = found.propertyId
     }
+    // TODO(recurring commission): pay nothing yet. Owner direction (2026-11-17): a % of each PAID visit invoice for the first season,
+    // stopping if the customer cancels; rule to be set with the comp plans. `sold_by_user_id` + `quote_approval_id` on the plan are the hook.
     const made = await createServicePlan(
       admin,
       orgId,
       args.userId,
       customerId,
-      { template_id: r.templateId, property_id: propertyId, start_date: r.startDate, price: r.priceCents / 100, ...(r.weekday != null ? { preferred_weekday: r.weekday } : {}) },
+      { template_id: r.templateId, property_id: propertyId, start_date: r.startDate < today ? today : r.startDate, price: r.priceCents / 100, ...(r.weekday != null ? { preferred_weekday: r.weekday } : {}) },
       args.now,
-      { quoteLineId: r.lineId }
+      { quoteLineId: r.lineId, soldByUserId: soldBy ?? null, quoteApprovalId: args.approvalId ?? null }
     )
     if (made.ok) {
       out.push({ lineId: r.lineId, name: r.name, planId: made.plan.id, customerId, startDate: made.plan.start_date, firstVisit: firstVisitOf(made.plan, today), created: true })

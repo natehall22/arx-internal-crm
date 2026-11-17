@@ -1028,3 +1028,20 @@ export function describeVisitEffect(e: VisitEffect): string {
   ].filter(Boolean)
   return parts.length ? `${parts.join(', ')}. Done, skipped and today’s visits don’t change.` : 'No visits on the calendar change.'
 }
+
+const STREET_WORDS: Record<string, string> = {
+  street: 'st', avenue: 'ave', av: 'ave', road: 'rd', drive: 'dr', lane: 'ln', court: 'ct', boulevard: 'blvd', circle: 'cir',
+  place: 'pl', terrace: 'ter', highway: 'hwy', parkway: 'pkwy', trail: 'trl', square: 'sq', way: 'wy',
+  north: 'n', south: 's', east: 'e', west: 'w', northeast: 'ne', northwest: 'nw', southeast: 'se', southwest: 'sw',
+}
+
+/** Compare key for "is this the same property address": case, punctuation and common street-suffix / direction spellings ignored. */
+export function propertyAddressKey(text: string | null | undefined): string {
+  return (text ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => STREET_WORDS[w] ?? w)
+    .join('')
+}

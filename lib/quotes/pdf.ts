@@ -32,7 +32,7 @@ export function approvalPdfData(
     discountCents: approval.discount_cents,
     taxLines: s.taxLines,
     taxCents: approval.tax_cents,
-    // The one-time total: the approval's total_cents is the SALE amount and also holds the recurring first-season value.
+    // The one-time total: a plan-only approval keeps its recurring estimate in total_cents as a placeholder (reads 0 here).
     totalCents: approvalOneTimeCents(approval),
     deposit: { cents: approval.deposit_cents, label: s.deposit.mode === 'percent' ? `Deposit (${s.deposit.percent}%)` : 'Deposit' },
     terms: s.terms,
@@ -52,7 +52,7 @@ export async function storeApprovalPdf(
   admin: SupabaseClient,
   orgId: string,
   approval: ApprovalRow,
-  contractId: string,
+  contractId: string | null,
   customer: { name: string; address: string }
 ): Promise<string> {
   const path = `org/${orgId}/quotes/${approval.id}.pdf`
@@ -63,7 +63,10 @@ export async function storeApprovalPdf(
   const buffer = await renderApprovalPdf(data)
   const { error } = await admin.storage.from('files').upload(path, buffer, { contentType: 'application/pdf', upsert: false })
   if (error && !/already exists|duplicate|resource already/i.test(`${error.message} ${(error as { statusCode?: string }).statusCode ?? ''}`)) throw new Error(`quote pdf upload: ${error.message}`)
-  const { error: up } = await admin.from('order_form_contracts').update({ pdf_url: path, pdf_storage_path: path }).eq('id', contractId).eq('org_id', orgId)
+  // A plan-only quote has no contract: the path goes on the approval itself.
+  const { error: up } = contractId
+    ? await admin.from('order_form_contracts').update({ pdf_url: path, pdf_storage_path: path }).eq('id', contractId).eq('org_id', orgId)
+    : await admin.from('quote_approvals').update({ pdf_path: path }).eq('id', approval.id).eq('org_id', orgId)
   if (up) throw new Error(`quote pdf link: ${up.message}`)
   return path
 }

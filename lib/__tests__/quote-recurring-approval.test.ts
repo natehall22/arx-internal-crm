@@ -60,6 +60,7 @@ function makeCtx(lines: L[], withPlans = true): QuoteContext {
     tax: { kind: 'legacy', percent: 0 },
     settings: settings as never,
     customerId: 'c1',
+    today: '2027-03-20',
     recurring: rec,
   }
 }
@@ -103,30 +104,27 @@ beforeEach(() => {
   })
 })
 
-describe('recurring-only quote', () => {
-  it('counts as a sale: contract + job carry the first-season plan value, no deposit invoice, one plan', async () => {
+describe('plan-only quote', () => {
+  it('wins the deal and makes the plan, but no contract, job, signing or deposit; the estimate is stored apart', async () => {
     const db = setup([recurring('r1', 45)])
     const res = await approve(db)
     expect(res).toMatchObject({ ok: true, finalized: true })
     const value = 16 * 4500
     const a = db.tables.quote_approvals[0]
-    expect(a.total_cents).toBe(value) // the SALE amount
+    expect(a.recurring_estimate_cents).toBe(value)
     expect(a.subtotal_cents).toBe(0)
     expect(a.deposit_cents).toBe(0)
-    const c = db.tables.order_form_contracts[0]
-    expect(c.project_cost).toBe(value / 100) // what rpt_sales and the commission base read
-    expect(c.deposit_amount).toBe(0)
-    expect(c.status).toBe('completed')
-    expect(db.tables.production_jobs[0].sale_amount).toBe(value / 100)
-    expect(db.tables.proposals[0].total).toBe(0) // the proposal is the ONE-TIME part
+    expect((a.snapshot as { planOnly?: boolean }).planOnly).toBe(true)
+    expect(db.tables.order_form_contracts ?? []).toHaveLength(0)
+    expect(db.tables.production_jobs ?? []).toHaveLength(0)
+    expect(signContract).not.toHaveBeenCalled()
     expect(addInvoiceItem).not.toHaveBeenCalled()
     expect(db.tables.job_invoices ?? []).toHaveLength(0)
+    expect(db.tables.opportunities[0].status).toBe('won')
     expect(createServicePlan).toHaveBeenCalledTimes(1)
     expect(createServicePlan.mock.calls[0][4]).toMatchObject({ template_id: 't1', property_id: 'prop1', start_date: '2027-04-01', price: 45 })
-    expect(createServicePlan.mock.calls[0][6]).toEqual({ quoteLineId: 'r1' })
-    // the customer's recurring terms are in the legal snapshot
+    expect(createServicePlan.mock.calls[0][6]).toMatchObject({ quoteLineId: 'r1', soldByUserId: 'closer1', quoteApprovalId: a.id })
     expect(a.snapshot).toMatchObject({ recurring: [{ lineId: 'r1', termsLine: 'Billed after each visit. Cancel anytime.', detail: '$45 per visit · Apr 1–Oct 31 · about 16 visits', chosen: true, firstSeasonCents: value }] })
-    // the confirmation gets the plan (first visit date)
     expect(sendApprovalConfirmation.mock.calls[0][6]).toMatchObject([{ lineId: 'r1', firstVisit: '2027-04-01' }])
   })
 
@@ -141,8 +139,8 @@ describe('recurring-only quote', () => {
     expect(await finalizeApproval(db.client, ORG, String(db.tables.quote_approvals[0].id), { now: new Date('2027-03-21T15:00:00Z') })).toBe(true)
     expect(createServicePlan).toHaveBeenCalledTimes(1)
     expect(db.tables.service_plans).toHaveLength(1)
-    expect(db.tables.production_jobs).toHaveLength(1)
-    expect(db.tables.order_form_contracts).toHaveLength(1)
+    expect(db.tables.production_jobs ?? []).toHaveLength(0)
+    expect(db.tables.order_form_contracts ?? []).toHaveLength(0)
   })
 
   it('refuses when the recurring line cannot be sold (plans off / template gone)', async () => {
@@ -154,19 +152,21 @@ describe('recurring-only quote', () => {
 })
 
 describe('mixed quote (cleanup + mowing)', () => {
-  it('sale = one-time total + first-season plan value; deposit and proposal stay one-time', async () => {
+  it('contract, job, deposit and proposal are the ONE-TIME total only; the estimate is stored apart', async () => {
     const db = setup([oneTime('a', 400), recurring('r1', 45)])
     expect(await approve(db)).toMatchObject({ ok: true, finalized: true })
     const value = 16 * 4500
     const a = db.tables.quote_approvals[0]
-    expect(a.total_cents).toBe(40000 + value)
+    expect(a.total_cents).toBe(40000)
+    expect(a.recurring_estimate_cents).toBe(value)
     expect(a.deposit_cents).toBe(10000) // 25% of the ONE-TIME 400, never of the plan value
-    expect(db.tables.order_form_contracts[0].project_cost).toBe((40000 + value) / 100)
+    expect(db.tables.order_form_contracts[0].project_cost).toBe(400)
+    expect(db.tables.production_jobs[0].sale_amount).toBe(400)
     expect(db.tables.proposals[0].total).toBe(400)
     expect(addInvoiceItem).toHaveBeenCalledTimes(1)
     expect(addInvoiceItem.mock.calls[0][2]).toMatchObject({ unit_price_cents: 10000 })
     expect(createServicePlan).toHaveBeenCalledTimes(1)
-    expect(db.tables.order_form_contracts[0].scope_other).toContain('Bi-weekly mowing (recurring)')
+    expect(String(db.tables.order_form_contracts[0].scope_other)).not.toContain('mowing') // the contract scope is the one-time work only
   })
 })
 
@@ -183,6 +183,12 @@ describe('optional recurring line', () => {
     const db = setup([oneTime('a', 400), recurring('r1', 45, { is_optional: true })])
     expect(await approve(db, ['r1'])).toMatchObject({ ok: true })
     expect(createServicePlan).toHaveBeenCalledTimes(1)
+  })
+  it('a bad optional recurring line the customer did not tick never blocks the rest', async () => {
+    const db = setup([oneTime('a', 400), recurring('r1', 0, { is_optional: true })])
+    expect(await approve(db, [])).toMatchObject({ ok: true, finalized: true })
+    expect(createServicePlan).not.toHaveBeenCalled()
+    expect(db.tables.quote_approvals[0].total_cents).toBe(40000)
   })
   it('a declined optional recurring line alone cannot be approved (nothing is sold)', async () => {
     const db = setup([recurring('r1', 45, { is_optional: true })])

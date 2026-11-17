@@ -65,3 +65,21 @@ describe('quote link: sale credit', () => {
     expect(saveDealSaleCredit).toHaveBeenCalled()
   })
 })
+
+describe('quote link: recurring start date', () => {
+  it('refuses to send a quote whose recurring start date has passed, and asks to update it', async () => {
+    const c = ctx as unknown as { lines: unknown[]; today?: string; recurring?: object }
+    const saved = { lines: c.lines, today: c.today, recurring: c.recurring }
+    c.lines = [{ id: 'a', name: 'Cleanup', line_total: 100, unit_price: 100, unit: 'each' }, { id: 'r1', name: 'Mowing', line_total: 0, unit_price: 45, unit: 'visit', service_plan_template_id: 't1', plan_start_date: '2027-03-01' }]
+    c.today = '2027-03-20'
+    c.recurring = {}
+    try {
+      const res = await call({ action: 'link', saleCredit: { closerUserId: 'closer-1', setterUserId: null, isSelfGenerated: false } })
+      expect(res.status).toBe(409)
+      expect((await res.json()).error).toMatch(/start date for Mowing has passed/)
+      expect(createQuoteLink).not.toHaveBeenCalled()
+    } finally {
+      Object.assign(c, saved)
+    }
+  })
+})

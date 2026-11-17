@@ -88,10 +88,15 @@ function scheduleOf(seasons: Season[], start: string, weekday: number | null, en
   return { status: 'active', start_date: start, end_date: end, paused_until: null, seasons, preferred_weekday: weekday }
 }
 
-export function recurringFacts(t: Pick<RecurringTemplateFacts, 'billing_basis' | 'seasons'>, line: RecurringLineInput): RecurringFacts {
+/**
+ * `today` (company-local day): visits are counted from max(line start, today), so a start date already past never counts visits
+ * that cannot happen. The plan itself is started on the same day (lib/quotes/recurring-plans.ts).
+ */
+export function recurringFacts(t: Pick<RecurringTemplateFacts, 'billing_basis' | 'seasons'>, line: RecurringLineInput, today?: string): RecurringFacts {
   const priceCents = Math.round((Number(line.unit_price) || 0) * 100)
   const basis = t.billing_basis
-  const start = isYmd(line.plan_start_date) ? line.plan_start_date : null
+  const rawStart = isYmd(line.plan_start_date) ? line.plan_start_date : null
+  const start = rawStart && today && isYmd(today) && today > rawStart ? today : rawStart
   const weekday = line.plan_weekday != null && Number.isInteger(Number(line.plan_weekday)) && Number(line.plan_weekday) >= 0 && Number(line.plan_weekday) <= 6 ? Number(line.plan_weekday) : null
   const base = { priceCents, basis, basisLabel: BILLING_BASIS_LABELS[basis], termsLine: recurringTermsLine(basis) }
   const empty = (): RecurringFacts => ({ ...base, seasonLabel: '', visits: 0, months: 0, firstVisit: null, firstSeasonEnd: null, firstSeasonCents: 0, detail: `${money(priceCents)} ${BILLING_BASIS_LABELS[basis]}` })
@@ -126,12 +131,12 @@ export function recurringKey(t: Pick<RecurringTemplateFacts, 'id' | 'version'>, 
   return [t.id, t.version, line.plan_start_date ?? '', line.plan_weekday ?? ''].join(':')
 }
 
-/** What the approved recurring lines add to the sale amount (cents). 0 when there are none. `snapshot` is the approval's. */
-export function approvalPlanValueCents(a: { snapshot: { recurring?: Array<{ chosen: boolean; firstSeasonCents: number }> } }): number {
+/** The approved recurring lines' first-season estimate (cents), from the approval's snapshot. 0 when there are none. */
+export function approvalRecurringEstimateCents(a: { snapshot: { recurring?: Array<{ chosen: boolean; firstSeasonCents: number }> } }): number {
   return (a.snapshot.recurring ?? []).filter((r) => r.chosen).reduce((n, r) => n + r.firstSeasonCents, 0)
 }
 
-/** The one-time part of an approval's total (tax included): `total_cents` (the SALE amount) minus the recurring first-season value. */
-export function approvalOneTimeCents(a: { total_cents: number; snapshot: { recurring?: Array<{ chosen: boolean; firstSeasonCents: number }> } }): number {
-  return a.total_cents - approvalPlanValueCents(a)
+/** The one-time total of an approval (tax included): `total_cents`, except a plan-only approval (which stores the estimate there as a placeholder) has none. */
+export function approvalOneTimeCents(a: { total_cents: number; snapshot: { planOnly?: boolean } }): number {
+  return a.snapshot.planOnly === true ? 0 : a.total_cents
 }

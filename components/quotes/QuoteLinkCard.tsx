@@ -17,7 +17,7 @@ type Status = {
   company: { depositMode: string; depositPercent: number; depositFixedCents: number }
   problems: string[]
   link: { active: boolean; expiresAt: string; revoked: boolean; firstOpenedAt: string | null; lastOpenedAt: string | null; sentTo: string | null; sentAt: string | null } | null
-  approval: { typedName: string; approvedAt: string; ip: string | null; totalCents: number; planValueCents?: number; saleCents?: number; depositCents: number; finalized: boolean; error: string | null; jobId: string | null; chosen: string[]; declined: string[] } | null
+  approval: { typedName: string; approvedAt: string; ip: string | null; totalCents: number; recurringEstimateCents?: number; planOnly?: boolean; depositCents: number; finalized: boolean; error: string | null; jobId: string | null; chosen: string[]; declined: string[] } | null
 }
 
 const money = (c: number) => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' })
@@ -110,7 +110,7 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
           <div className="flex flex-col gap-1">
             <p className="font-semibold">Approved by {a.typedName}</p>
             <p>{when(a.approvedAt)}{a.ip ? ` · ${a.ip}` : ''}</p>
-            <p>{a.totalCents > 0 ? `Total ${money(a.totalCents)}` : 'No one-time total'}{a.planValueCents ? ` · plus recurring service, about ${money(a.planValueCents)} for the first season (counted in the sale: ${money(a.saleCents ?? a.totalCents)})` : ''}{a.depositCents > 0 ? ` · deposit ${money(a.depositCents)}` : ''}</p>
+            <p>{a.totalCents > 0 ? `Total ${money(a.totalCents)}` : 'Recurring service only (no job or deposit)'}{a.recurringEstimateCents ? ` · recurring service, about ${money(a.recurringEstimateCents)} est. first season (a separate recurring sale, not part of the job)` : ''}{a.depositCents > 0 ? ` · deposit ${money(a.depositCents)}` : ''}</p>
             {a.chosen.length ? <p>Chose: {a.chosen.join(', ')}</p> : null}
             {a.declined.length ? <p>Left out: {a.declined.join(', ')}</p> : null}
             {!a.finalized ? (

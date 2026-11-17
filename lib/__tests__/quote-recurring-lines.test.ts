@@ -5,9 +5,9 @@ const loadTemplate = jest.fn()
 const loadTemplates = jest.fn()
 jest.mock('@/lib/service-plans-db', () => ({ loadTemplate: (...a: unknown[]) => loadTemplate(...a), loadTemplates: (...a: unknown[]) => loadTemplates(...a) }))
 
-import { approvalOneTimeCents, approvalPlanValueCents, isRecurringLine, recurringFacts, recurringKey, recurringTermsLine, templateOfferedOnQuote } from '@/lib/quotes/recurring'
+import { approvalOneTimeCents, approvalRecurringEstimateCents, isRecurringLine, recurringFacts, recurringKey, recurringTermsLine, templateOfferedOnQuote } from '@/lib/quotes/recurring'
+import { propertyAddressKey } from '@/lib/service-plans'
 import { priceQuote, quoteFingerprint, type QuoteLine } from '@/lib/quotes/pricing'
-import { saleCentsFor } from '@/lib/quotes/load'
 import { builderPlanTemplates, cleanRecurringLines } from '@/lib/quotes/recurring-lines'
 
 const seasons = [{ from: '04-01', to: '10-31', frequency: 'every_2_weeks' as const }]
@@ -79,18 +79,30 @@ describe('pricing leaves recurring lines out of the one-time price', () => {
   })
 })
 
-describe('the sale amount', () => {
-  const info = (c: number) => ({ info: { facts: { firstSeasonCents: c } } }) as never
-  it('= one-time total + first-season value of each chosen recurring line', () => {
-    expect(saleCentsFor(50000, [info(72000), info(10000)])).toBe(132000)
-    expect(saleCentsFor(0, [info(72000)])).toBe(72000)
-    expect(saleCentsFor(50000, [])).toBe(50000)
+describe('recurring estimate is separate from the one-time money', () => {
+  it('recurring estimate = first-season value of each chosen line only', () => {
+    const a = { total_cents: 50000, snapshot: { recurring: [{ chosen: true, firstSeasonCents: 72000 }, { chosen: true, firstSeasonCents: 10000 }, { chosen: false, firstSeasonCents: 99999 }] } }
+    expect(approvalRecurringEstimateCents(a as never)).toBe(82000)
   })
-  it('an approval splits it back: one-time = total_cents - chosen recurring value', () => {
-    const a = { total_cents: 122000, snapshot: { recurring: [{ chosen: true, firstSeasonCents: 72000 }, { chosen: false, firstSeasonCents: 99999 }] } }
-    expect(approvalPlanValueCents(a)).toBe(72000)
-    expect(approvalOneTimeCents(a)).toBe(50000)
+  it('one-time money is total_cents as before, and 0 for a plan-only approval', () => {
     expect(approvalOneTimeCents({ total_cents: 50000, snapshot: {} })).toBe(50000)
+    expect(approvalOneTimeCents({ total_cents: 72000, snapshot: { planOnly: true } })).toBe(0)
+  })
+  it('visits count from max(line start, today): a past start never counts visits that cannot happen', () => {
+    const t = { billing_basis: 'per_visit' as const, seasons }
+    const line = { unit_price: 45, plan_start_date: '2027-04-01', plan_weekday: null }
+    const early = recurringFacts(t as never, line, '2027-01-10')
+    const late = recurringFacts(t as never, line, '2027-07-01')
+    expect(late.firstSeasonCents).toBeLessThan(early.firstSeasonCents)
+    expect(recurringFacts(t as never, line, '2026-01-01').firstSeasonCents).toBe(early.firstSeasonCents)
+  })
+})
+
+describe('property address matching', () => {
+  it('ignores street suffix, direction and punctuation spellings', () => {
+    expect(propertyAddressKey('12 North Oak Street, Apt. 4')).toBe(propertyAddressKey('12 N Oak St Apt 4'))
+    expect(propertyAddressKey('9 Maple Avenue')).toBe(propertyAddressKey('9 maple ave.'))
+    expect(propertyAddressKey('9 Maple Avenue')).not.toBe(propertyAddressKey('9 Maple Court'))
   })
 })
 

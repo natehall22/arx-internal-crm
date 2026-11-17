@@ -12,12 +12,15 @@
  *  3. the deposit (if any) becomes an ordinary deposit invoice on that job and the customer pays it on the existing pay page
  *     (`/pay/<token>`, Stripe Connect). Payment lands through `recordJobPayment` like every other job payment.
  *
- * RECURRING LINES (service plan templates on the quote): they are not part of the one-time price. The approval row's
- * `total_cents` is the SALE AMOUNT = one-time total + each approved recurring line's first-season value (`snapshot.recurring`,
- * existing plan maths); `subtotal/discount/tax_cents` stay one-time. The signed contract's `project_cost` is that sale amount, so
- * rpt_sales, the job's sale amount and the commission base (contract minus the proposal's sales tax) count it through their
- * existing writers. The proposal itself is rewritten to the ONE-TIME total (`approvalOneTimeCents`). A recurring-only quote
- * has no one-time total, so no deposit. On approval one service plan per recurring line is made (`ensureQuotePlans`).
+ * RECURRING LINES (service plan templates on the quote): not part of the one-time price and NEVER part of contract / job /
+ * commission / deposit / balance money. `total_cents` is the ONE-TIME total (tax included), as before; the recurring first-season
+ * ESTIMATE (existing plan maths, from max(line start, approval day)) is kept in `snapshot.recurring[]` and
+ * `quote_approvals.recurring_estimate_cents`, and reporting (`rpt_sales`) shows it as its own row, "Recurring, est. first season".
+ * A PLAN-ONLY quote (no one-time total) has no contract, signing, job or deposit: approving it wins the deal, makes the plan(s) and
+ * records the approval (the legal record + the sale). The `total_cents > 0` check needs a positive number there, so a plan-only
+ * approval stores the estimate in `total_cents` as a placeholder; `approvalOneTimeCents` reads 0 for it, and nothing money-related
+ * reads `total_cents` of a plan-only approval. COMMISSION on recurring sales: nothing is paid yet (owner's rule pending, see
+ * CLAUDE.md); payroll reads contracts/jobs, which a recurring estimate never touches.
  *
  * DECISION (documented): for a company using online quotes, an APPROVED QUOTE == the SIGNED SALE AGREEMENT. The legal act is the
  * approval record; the contract row exists so every sales / payroll reader (which all filter `order_form_contracts` on
@@ -35,7 +38,7 @@ import { createPaymentLink, tooManyLinks } from '@/lib/online-payments/links'
 import { orgDb } from '@/lib/supabase/org-db'
 import { flagApprovalBlocked, NEEDS_DETAIL_MESSAGE } from '@/lib/quotes/blocked'
 import { isOptionalLine } from '@/lib/quotes/pricing'
-import { fingerprintOf, loadQuoteContext, priceForSelection, quoteDeposit, quoteTerms, recurringForSelection, saleCentsFor, type QuoteContext } from '@/lib/quotes/load'
+import { fingerprintOf, loadQuoteContext, priceForSelection, quoteDeposit, quoteTerms, recurringForSelection, type QuoteContext } from '@/lib/quotes/load'
 import { approvalOneTimeCents, isRecurringLine } from '@/lib/quotes/recurring'
 import type { QuoteLinkRow } from '@/lib/quotes/links'
 import { newSigningTokenColumns, signingTokenOf } from '@/lib/signing-tokens'
@@ -83,6 +86,10 @@ export type ApprovalSnapshot = {
   taxableCents: number
   legacyTax: boolean
   deposit: { mode: string; percent: number; cents: number }
+  /** True when nothing one-time was approved: no contract, job or deposit; the approval itself is the sale record. */
+  planOnly?: boolean
+  /** Sum of the approved recurring lines' first-season estimates (cents); also stored on `quote_approvals.recurring_estimate_cents`. */
+  recurringEstimateCents?: number
   /** Recurring lines (service plans) the customer saw, with the terms shown; `chosen` = approved. Absent on a quote with none. */
   recurring?: Array<{
     lineId: string
@@ -175,7 +182,9 @@ export async function approveQuote(
   if (input.fingerprint !== fingerprintOf(ctx)) return { ok: false, status: 409, changed: true, error: 'This quote was just updated. Please look it over again.' }
 
   // One approved sale per deal: signing a second installation agreement on the same deal voids the first (existing rule).
-  const { data: signed } = await orgDb(admin, orgId)
+  // (A plan-only quote makes no installation contract, so an earlier sale on the deal does not stand in its way.)
+  const planOnlyEarly = recurringForSelection(ctx, sel.ids).chosen.length > 0 && priceForSelection(ctx, sel.ids).totalCents <= 0
+  const { data: signed } = planOnlyEarly ? { data: [] } : await orgDb(admin, orgId)
     .from('order_form_contracts')
     .select('id')
     .eq('opportunity_id', p.opportunity_id)
@@ -187,13 +196,16 @@ export async function approveQuote(
   const price = priceForSelection(ctx, sel.ids)
   const rec = recurringForSelection(ctx, sel.ids)
   if (rec.unsupported.length > 0) return { ok: false, status: 409, error: 'This quote can’t be approved online right now. Please contact us.' }
-  const saleCents = saleCentsFor(price.totalCents, rec.chosen)
-  if (saleCents <= 0 || (price.totalCents <= 0 && rec.chosen.length === 0)) return { ok: false, status: 400, error: 'The total must be more than $0' }
+  const estimateCents = rec.chosen.reduce((n, c) => n + c.info.facts.firstSeasonCents, 0)
+  const planOnly = price.totalCents <= 0 && rec.chosen.length > 0
+  if (price.totalCents <= 0 && estimateCents <= 0) return { ok: false, status: 400, error: 'The total must be more than $0' }
   // No one-time work = no deposit (the deposit is a share of the one-time total only).
   const dep = quoteDeposit(ctx, price.totalCents)
   const picked = new Set(sel.ids)
   const recurringSnap: NonNullable<ApprovalSnapshot['recurring']> = ctx.lines.filter(isRecurringLine).map((l) => {
     const info = ctx.recurring[l.id]
+    // An optional line the customer left unticked that cannot be sold (template gone / off) is recorded as not chosen; it never blocks the rest.
+    if (!info) return { lineId: l.id, name: l.name, description: (l.description ?? '').trim(), templateId: String(l.service_plan_template_id), templateName: l.name, templateVersion: 0, startDate: String(l.plan_start_date ?? ''), weekday: l.plan_weekday ?? null, priceCents: Math.round((Number(l.unit_price) || 0) * 100), billingBasis: '', detail: '', termsLine: '', optional: isOptionalLine(l), chosen: false, estimatedVisits: 0, firstSeasonCents: 0 }
     return {
       lineId: l.id,
       name: l.name,
@@ -224,7 +236,8 @@ export async function approveQuote(
     taxableCents: price.taxableCents,
     legacyTax: price.legacy,
     deposit: { mode: dep.mode, percent: dep.percent, cents: dep.cents },
-    ...(recurringSnap.length > 0 ? { recurring: recurringSnap } : {}),
+    ...(recurringSnap.length > 0 ? { recurring: recurringSnap, recurringEstimateCents: estimateCents } : {}),
+    ...(planOnly ? { planOnly: true } : {}),
   }
   const { data: row, error } = await orgDb(admin, orgId)
     .from('quote_approvals')
@@ -241,7 +254,9 @@ export async function approveQuote(
       subtotal_cents: price.subtotalCents,
       discount_cents: price.discountCents,
       tax_cents: price.taxCents,
-      total_cents: saleCents,
+      // One-time total, as always. A plan-only approval has none: the estimate stands in (the table requires > 0; see the header).
+      total_cents: planOnly ? estimateCents : price.totalCents,
+      ...(rec.chosen.length > 0 ? { recurring_estimate_cents: estimateCents } : {}),
       deposit_cents: dep.cents,
     })
     .select('id')
@@ -323,11 +338,26 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       approval.proposal_rewritten_at = now.toISOString()
     }
 
-    // 2. The signed sale — through the one signing pipeline.
+    // A PLAN-ONLY quote (nothing one-time) has no installation contract, no signing, no job and no deposit: the approval wins the
+    // deal, makes the plan(s), and is the sale record (rpt_sales reads `recurring_estimate_cents`). Contract / job money is never touched.
+    const planOnly = snap.planOnly === true
     let contractId = approval.contract_id
+    let contractToken: string | null = null
+    let jobId = approval.job_id
+    let note: string | null = null
+    if (planOnly) {
+      if (approval.opportunity_id) {
+        const { data: o } = await db.from('opportunities').select('customer_id').eq('id', approval.opportunity_id).maybeSingle()
+        const won: Record<string, unknown> = { status: 'won' }
+        const cid = (o as { customer_id?: string | null } | null)?.customer_id
+        if (cid) won.customer_id = cid
+        await db.from('opportunities').update(won).eq('id', approval.opportunity_id).neq('status', 'won')
+      }
+    } else {
+    // 2. The signed sale — through the one signing pipeline.
     if (!contractId) {
       const { columns: signingTokenColumns } = newSigningTokenColumns('contract')
-      const chosen = [...snap.lines.filter((l) => l.chosen).map((l) => l.name), ...(snap.recurring ?? []).filter((r) => r.chosen).map((r) => `${r.name} (recurring)`)]
+      const chosen = snap.lines.filter((l) => l.chosen).map((l) => l.name)
       const { data: c, error } = await db
         .from('order_form_contracts')
         .insert({
@@ -362,6 +392,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     if (!contractRow) throw new Error('contract missing')
     const contract = { ...contractRow, signing_token: signingTokenOf(contractRow) }
     if (!contract.signing_token) throw new Error('contract link unreadable')
+    contractToken = contract.signing_token
     // A COMPLETED contract is never reopened (it would drop out of sales and payroll, overwrite customer_signed_at, re-send the
     // sale email, and a lease expiry could then make a second job). The signing route marks a contract completed BEFORE it
     // makes the project and job; if it stopped in between, the contract reads completed with no job. The one recovery is the
@@ -387,8 +418,6 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     }
 
     // 3. The job it made, and the deposit invoice on it.
-    let jobId = approval.job_id
-    let note: string | null = null
     if (!jobId) {
       const { data: j } = await db.from('production_jobs').select('id, sale_amount').eq('accepted_proposal_id', proposal.id).limit(1)
       const job = ((j ?? []) as Array<{ id: string; sale_amount: number | null }>)[0]
@@ -402,6 +431,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       await setApproval(admin, orgId, approvalId, { deposit_invoice_id: invoiceId })
       approval.deposit_invoice_id = invoiceId
     }
+    }
     // 3a. Recurring lines become service plans (idempotent: one plan per quote line, ever). Before the PDF + email, which name the first visit.
     let plans: Awaited<ReturnType<typeof import('@/lib/quotes/recurring-plans').ensureQuotePlans>> = []
     if ((snap.recurring ?? []).some((r) => r.chosen)) {
@@ -411,6 +441,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
         opportunityId: approval.opportunity_id,
         customer: { name: proposal.customer_name, email: proposal.customer_email, phone: proposal.customer_phone, address: proposal.customer_address },
         userId: creator,
+        approvalId,
         now,
       })
     }
@@ -418,7 +449,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     // (and the customer still gets the page), never held against the approval.
     let pdfPath: string | null = null
     try {
-      const { data: have } = await db.from('order_form_contracts').select('pdf_url').eq('id', contractId).maybeSingle()
+      const { data: have } = contractId ? await db.from('order_form_contracts').select('pdf_url').eq('id', contractId).maybeSingle() : { data: null }
       pdfPath = (have as { pdf_url?: string | null } | null)?.pdf_url ?? null
       if (!pdfPath) {
         const { storeApprovalPdf } = await import('@/lib/quotes/pdf')
@@ -434,7 +465,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     if (!approval.confirmation_sent_at && proposal.customer_email) {
       const { sendApprovalConfirmation } = await import('@/lib/quotes/send')
       // The customer's copy goes through the signing-token download route (never a bucket URL), like a signed contract's.
-      const copyUrl = pdfPath ? customerSignedDocUrl('contract', contract.signing_token, await tryOrgAppUrl(orgId, 'quote approval copy')) : null
+      const copyUrl = pdfPath && contractToken ? customerSignedDocUrl('contract', contractToken, await tryOrgAppUrl(orgId, 'quote approval copy')) : null
       const sent = await sendApprovalConfirmation(admin, orgId, approval, proposal.customer_email, opts.pageUrl ?? null, copyUrl, plans).catch((e) => {
         console.error('quote approval confirmation failed', e)
         return false

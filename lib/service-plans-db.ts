@@ -46,6 +46,7 @@ import {
   visitNeedsRefresh,
   visitPatch,
   visitPrice,
+  propertyAddressKey,
   ymdInZone,
   type BulkShift,
   type ExistingVisit,
@@ -602,7 +603,7 @@ export async function createServicePlan(
   customerId: string,
   body: unknown,
   now = new Date(),
-  opts: { quoteLineId?: string } = {}
+  opts: { quoteLineId?: string; soldByUserId?: string | null; quoteApprovalId?: string | null } = {}
 ): Promise<PlanSave> {
   const prep = await prepareNewPlan(admin, orgId, customerId, body)
   if (!prep.ok) return prep
@@ -620,6 +621,9 @@ export async function createServicePlan(
       updated_by: userId,
       // The quote line this plan was sold on (unique): approving the same quote again can never make a second plan.
       ...(opts.quoteLineId ? { quote_line_id: opts.quoteLineId } : {}),
+      // Who sold it (the deal's closer) and the approval: the hook for a future comp rule on PAID plan invoices (see CLAUDE.md).
+      ...(opts.soldByUserId ? { sold_by_user_id: opts.soldByUserId } : {}),
+      ...(opts.quoteApprovalId ? { quote_approval_id: opts.quoteApprovalId } : {}),
     })
     .select(SERVICE_PLAN_COLUMNS)
     .single()
@@ -721,8 +725,7 @@ export async function findOrCreateProperty(
   opts: { accessNotes: boolean }
 ): Promise<{ ok: true; propertyId: string } | { ok: false; status: number; error: string }> {
   const existing = await loadCustomerProperties(admin, orgId, customerId, { accessNotes: false })
-  const key = (t: string | null | undefined) => (t ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  const match = existing.properties.find((p) => key(p.address_text) === key(addressText))?.id ?? null
+  const match = existing.properties.find((p) => propertyAddressKey(p.address_text) === propertyAddressKey(addressText))?.id ?? null
   if (match) return { ok: true, propertyId: match }
   const made = await createProperty(admin, orgId, userId, customerId, propertyBody, { accessNotes: opts.accessNotes })
   if (!made.ok) return { ok: false, status: made.status, error: made.error }

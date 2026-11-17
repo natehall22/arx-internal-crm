@@ -1,5 +1,5 @@
-import { createQuoteLink } from '@/lib/quotes/links'
-import { readQuoteApprovalSettings } from '@/lib/quotes/settings'
+import { NOT_PORTAL_LINK, portalQuoteLink } from '@/lib/quotes/links'
+import { takePortalAttempt } from '@/lib/portal/server'
 import { loadApproval } from '@/lib/quotes/approve'
 import { loadOrgFeatures } from '@/lib/org-features'
 import { portalJson, requirePortalApi } from '@/lib/portal/api'
@@ -8,8 +8,9 @@ import { orgDb } from '@/lib/supabase/org-db'
 export const dynamic = 'force-dynamic'
 
 /**
- * POST — a signed-in customer opens one of THEIR pending quotes from the portal. The quote link is stored hashed (it can't be
- * shown again), so this makes a fresh one (the older link stops working, as with any resend) and returns its address.
+ * POST — a signed-in customer opens one of THEIR pending quotes from the portal. The emailed link is stored hashed (it can't be
+ * shown again), so the portal has its OWN link row (`portalQuoteLink`): reused while live, expiring with the emailed link, never
+ * revoking it or touching its "opened" history. Rate limited per customer.
  * The quote must belong to this customer's deals, still be open (sent / viewed, not approved) and have a live link out.
  */
 export async function POST(request: Request, { params }: { params: { id: string } }) {
@@ -25,9 +26,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const { data: o } = await db.from('opportunities').select('customer_id').eq('id', proposal.opportunity_id).maybeSingle()
   if ((o as { customer_id?: string | null } | null)?.customer_id !== session.customerId) return portalJson({ error: 'Not found' }, 404)
   if (await loadApproval(admin, orgId, proposal.id)) return portalJson({ error: 'This quote is already approved.' }, 409)
-  const { data: live } = await db.from('quote_links').select('id').eq('proposal_id', proposal.id).is('revoked_at', null).gt('expires_at', new Date().toISOString()).limit(1)
-  if (((live ?? []) as unknown[]).length === 0) return portalJson({ error: 'This quote link has expired. Please contact us for a new one.' }, 409)
-  const { data: org } = await admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
-  const link = await createQuoteLink(admin, orgId, proposal.id, null, readQuoteApprovalSettings((org as { settings?: unknown } | null)?.settings).linkDays)
+  const { data: live } = await db.from('quote_links').select('expires_at').eq('proposal_id', proposal.id).or(NOT_PORTAL_LINK).is('revoked_at', null).gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: false }).limit(1)
+  const expiresAt = ((live ?? []) as { expires_at: string }[])[0]?.expires_at
+  if (!expiresAt) return portalJson({ error: 'This quote link has expired. Please contact us for a new one.' }, 409)
+  if (!(await takePortalAttempt(admin, `portal-open-quote:${orgId}:${session.customerId}`, { limit: 20, windowSeconds: 3600 }))) return portalJson({ error: 'Too many tries. Please wait a little and try again.' }, 429)
+  const link = await portalQuoteLink(admin, orgId, proposal.id, expiresAt)
+  if (!link) return portalJson({ error: 'We could not open that quote here. Please contact us.' }, 503)
   return portalJson({ url: new URL(link.url).pathname })
 }
