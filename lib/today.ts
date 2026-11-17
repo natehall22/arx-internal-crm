@@ -6,6 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
+import { isCrewFieldRole } from '@/lib/permissions'
 import { formatDateShort, formatDateWeekday, formatMoney, formatCents, formatPhone, formatTime } from '@/lib/format'
 import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
 import { maskE164 } from '@/lib/sms/phone'
@@ -21,7 +22,8 @@ import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { leadsWaitingFailedQueue, loadLeadsWaitingQueue } from '@/lib/leads-waiting'
 
-export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
+/** `crew` = a Field Tech (crew member): no sales, ops or owner queues; their own day is built separately. */
+export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer' | 'crew'
 
 /**
  * `title`/`detail` are for the signed-in app screen. `ref`/`note` are the email version (morning update): a job or
@@ -31,7 +33,8 @@ export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
 export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string; phone?: string | null }
 export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string }
 
-export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean }): TodayKind {
+export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean; customRoleName?: string | null; customRoleDisplayName?: string | null }): TodayKind {
+  if (isCrewFieldRole({ role: args.role, customRoleName: args.customRoleName, customRoleDisplayName: args.customRoleDisplayName })) return 'crew'
   if (isSetterLikeRole(args.role)) return 'setter'
   if (args.role === 'operations') return 'ops'
   if (args.isSuperuser) return 'owner'

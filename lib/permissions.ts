@@ -487,12 +487,18 @@ export function isFieldRoleLike(input: SalesDocAccessInput | null | undefined): 
 }
 
 /**
- * The one field role that is a CREW member (in-house crew doing the visits): it is in the field-role group (no money, pipeline,
- * job board or settings) but may use the time clock — signed in, and only as a member of a time-tracked crew
- * (lib/time-tracking-db.ts allowedPeople). Sales field roles (setters, canvassers, inside sales) never clock in.
+ * The one field role that is a CREW member (in-house crew doing the visits): it is in the field-role group (no money, job board,
+ * pipeline or settings) but may use the time clock — signed in, and only as a member of a time-tracked crew
+ * (lib/time-tracking-db.ts). Same input as isFieldRoleLike: the role slug `field_tech`, or a custom role NAMED Field Tech /
+ * Field Technician (not a manager role). Sales field roles (setters, canvassers, inside sales) never clock in.
  */
-export function isCrewFieldRole(role: string | null | undefined): boolean {
-  return String(role ?? '').toLowerCase().trim() === 'field_tech'
+const FIELD_TECH_NAME_RE = /(^|[^a-z])field[ _-]?tech(nician)?s?([^a-z]|$)/
+export function isCrewFieldRole(input: SalesDocAccessInput | string | null | undefined): boolean {
+  if (!input) return false
+  const i = typeof input === 'string' ? { role: input } : input
+  if (String(i.role ?? '').toLowerCase().trim() === 'field_tech') return true
+  const crname = `${i.customRoleName ?? ''} ${i.customRoleDisplayName ?? ''}`.toLowerCase()
+  return !/manager/.test(crname) && FIELD_TECH_NAME_RE.test(crname)
 }
 
 /**

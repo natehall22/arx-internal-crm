@@ -296,6 +296,22 @@ describe('Field Tech (crew member, signed in)', () => {
     expect(open(db)).toEqual([])
   })
 
+  it('a custom role named Field Technician is scoped the same way, and hours are filed under the stop\u2019s crew', async () => {
+    const db = withFieldTech(true)
+    db.tables.custom_roles = [{ id: 'cr1', org_id: 'org1', name: 'Field Technician', display_name: 'Field Technician' }]
+    Object.assign(db.tables.users.find((u) => u.id === FT)!, { role: 'custom', custom_role_id: 'cr1' })
+    db.tables.crew_members.push({ id: 'cm10', org_id: 'org1', sub_id: 's2', user_id: FT, is_lead: false }) // s2 does not track time
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: '11111111-1111-4111-8111-000000000003', userIds: [FT] }), T('07:00'))).toMatchObject({ ok: false, status: 404 })
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [FT] }), T('07:00'))).toMatchObject({ ok: true, done: 1 })
+    expect(open(db).map((e) => [e.user_id, e.sub_id])).toEqual([[FT, 's1']])
+  })
+
+  it('an inactive crew is not in scope', async () => {
+    const db = withFieldTech(true)
+    db.tables.sub_contractors[0].active = false
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [FT] }), T('07:00'))).toMatchObject({ ok: false })
+  })
+
   it('a Field Tech who is on no crew has no clock', async () => {
     const db = withFieldTech(false)
     expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [FT] }), T('07:00'))).toMatchObject({ ok: false, status: 403 })

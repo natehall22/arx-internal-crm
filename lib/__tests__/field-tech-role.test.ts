@@ -18,7 +18,8 @@ import {
   canAccessJobBoardFromPermissionNames, getPermissions, isBarredFromProjectsUi, isBarredFromRoofMeasureAccess, isBarredFromSalesDocAccess,
   isCrewFieldRole, isFieldRoleLike, getRoleDisplayName,
 } from '@/lib/permissions'
-import { FIELD_TECH_ROLE, offeredPresets, presetDescription, roleOffered, type PresetLike } from '@/lib/role-presets'
+import { todayKindFor } from '@/lib/today'
+import { FIELD_TECH_ROLE, offeredPresets, orgHasFieldCrews, presetDescription, roleOffered, type PresetLike } from '@/lib/role-presets'
 import { canReadMessage, canSeeProduction, writableAudiences, type ThreadViewer } from '@/lib/threads/visibility'
 import { DB_USER_ROLES } from '@/lib/types/database'
 
@@ -29,6 +30,9 @@ const SYSTEM: PresetLike[] = [
   { name: 'Operations', base_role: 'operations', description: 'Project management', is_system: true },
   { name: 'Administrator', base_role: 'admin', description: 'Full system access', is_system: true },
   { name: 'Field Tech', base_role: 'field_tech', description: 'stored text', is_system: true },
+  { name: 'Crew Lead', base_role: 'field_tech', description: 'stored text', is_system: true },
+  { name: 'Office', base_role: 'custom', description: 'Schedules visits', is_system: true },
+  { name: 'Bookkeeper', base_role: 'custom', description: 'Invoices', is_system: true },
 ]
 const names = (ps: PresetLike[]) => ps.map((p) => p.name)
 const featuresOf = (profile: string | null) => resolveOrgFeatures(profile ? { features: {}, profile: { id: profile } } : {})
@@ -42,14 +46,14 @@ describe('role presets follow the company', () => {
   it('a lawn company (canvassing off, service plans + time clock on): Setter / Canvasser hidden, Field Tech shown', () => {
     const f = featuresOf('lawn_landscape')
     expect(f.canvassing).toBe(false)
-    expect(names(offeredPresets(SYSTEM, f))).toEqual(['Sales Representative', 'Sales Manager', 'Operations', 'Administrator', 'Field Tech'])
+    expect(names(offeredPresets(SYSTEM, f))).toEqual(['Sales Representative', 'Sales Manager', 'Operations', 'Administrator', 'Field Tech', 'Crew Lead', 'Office', 'Bookkeeper'])
   })
 
   it.each(INDUSTRY_PROFILE_IDS)('profile %s: Setter / Canvasser appears iff door knocking is on; Field Tech iff service plans or the time clock is', (id) => {
     const f = featuresOf(id)
     const shown = names(offeredPresets(SYSTEM, f))
     expect(shown.includes('Setter / Canvasser')).toBe(f.canvassing)
-    expect(shown.includes('Field Tech')).toBe(f.servicePlans || f.timeTracking)
+    for (const n of ['Field Tech', 'Crew Lead', 'Office', 'Bookkeeper']) expect(shown.includes(n)).toBe(f.servicePlans || f.timeTracking)
     // every other preset is always offered
     for (const n of ['Sales Representative', 'Sales Manager', 'Operations', 'Administrator']) expect(shown).toContain(n)
   })
@@ -68,6 +72,7 @@ describe('role presets follow the company', () => {
     const lawn = featuresOf('lawn_landscape')
     expect(roleOffered('setter', lawn)).toBe(false)
     expect(roleOffered('canvasser', lawn)).toBe(false)
+    for (const r of ['call_center', 'regional_setter_manager', 'setter_manager']) { expect(roleOffered(r, lawn)).toBe(false); expect(roleOffered(r, featuresOf(null))).toBe(true) }
     expect(roleOffered('canvasser', lawn, 'canvasser')).toBe(true)
     expect(roleOffered('field_tech', lawn)).toBe(true)
     expect(roleOffered('operations', lawn)).toBe(true)
@@ -187,5 +192,66 @@ describe('Field Tech: sales documents, projects, threads, customer file', () => 
   })
   it('a person with no recognized sales / ops role reads no deal conversation at all (fail closed)', () => {
     expect(canReadMessage({ ...viewer, jobBoard: false, jobEdit: false, jobFinancials: false }, deal, { audience: 'team' })).toBe(false)
+  })
+})
+
+describe('custom role named Field Technician (role custom)', () => {
+  it('gets the full lockdown: no permission at all, even with reports:financials', async () => {
+    const r = await resolveEffectivePermissionNames(adminWith({ roleGrants: ['reports:financials', 'leads:view'], userGrants: ['reports:financials'], customRole: { name: 'Field Technician', display_name: 'Field Technician' } }), 'ft3', { role: 'custom', custom_role_id: 'cr' })
+    expect(Array.from(r.permissionNames)).toEqual([])
+    expect(hasFinancials(r)).toBe(false)
+  })
+  it('isCrewFieldRole takes the same input as isFieldRoleLike; a manager role is neither', () => {
+    expect(isCrewFieldRole({ role: 'custom', customRoleName: 'Field Technician' })).toBe(true)
+    expect(isCrewFieldRole({ role: 'custom', customRoleName: 'Field Tech Manager' })).toBe(false)
+    expect(isCrewFieldRole({ role: 'custom', customRoleName: 'Setter' })).toBe(false)
+  })
+  it('the Today screen routes a Field Tech (slug or custom name) to no sales queues', () => {
+    const base = { isSuperuser: false, canJobBoard: false }
+    expect(todayKindFor({ ...base, role: 'field_tech' })).toBe('crew')
+    expect(todayKindFor({ ...base, role: 'custom', customRoleName: 'Field Technician' })).toBe('crew')
+    expect(todayKindFor({ ...base, role: 'sales_rep' })).toBe('closer')
+    expect(todayKindFor({ ...base, role: 'setter' })).toBe('setter')
+  })
+})
+
+describe('shared "has crews" predicate', () => {
+  it('seed and UI agree: profile + saved switches + plan', () => {
+    expect(orgHasFieldCrews({ features: {}, profile: { id: 'lawn_landscape' } })).toBe(true)
+    expect(orgHasFieldCrews({ features: {}, profile: { id: 'roofing' } })).toBe(false)
+    expect(orgHasFieldCrews({ features: { timeTracking: true } })).toBe(true)
+    expect(orgHasFieldCrews({ features: { servicePlans: false, timeTracking: false }, profile: { id: 'lawn_landscape' } })).toBe(false)
+    // not entitled by the plan = off, whatever the company saved
+    expect(orgHasFieldCrews({ features: { timeTracking: true } }, { timeTracking: false, servicePlans: false })).toBe(false)
+  })
+  it('the work_orders policy migration adds the job-board term and removes nothing', () => {
+    const sql = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202611300030_work_orders_write_policies_job_board.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+    expect(sql.match(/can_view_job_board\(auth\.uid\(\)\)/g)?.length).toBe(4)
+    expect(sql.replace(/"[^"]*"/g, '')).not.toMatch(/\b(drop|delete)\b/i) // (the existing policy's own name says delete)
+  })
+})
+
+describe('service role presets (SQL)', () => {
+  const sql = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202611300020_field_tech_preset_and_field_role.sql'), 'utf8')
+  const block = (name: string) => sql.slice(sql.indexOf(`('${name}'`), sql.indexOf(`('${name}'`) + 900).split(/\) AS t|\n      \(/)[0]
+  it('Office and Bookkeeper never carry payroll, settings or admin; only Bookkeeper has reports:financials; neither uses the operations role', () => {
+    const office = block('Office'), book = block('Bookkeeper')
+    for (const b of [office, book]) {
+      expect(b.slice(b.indexOf('ARRAY['))).not.toMatch(/admin:|payroll|operations/)
+    }
+    expect(office).not.toContain('reports:financials')
+    expect(book).toContain('reports:financials')
+    expect(book).not.toMatch(/(leads|opportunities|proposals|contracts):(create|edit|send)/)
+    expect(office).toContain("'custom'")
+    expect(book).toContain("'custom'")
+  })
+  it('Field Tech and Crew Lead are the same lockdown role with no permissions', () => {
+    expect(block('Field Tech')).toMatch(/'field_tech', 'teal', 7, ARRAY\[\]::text\[\]/)
+    expect(block('Crew Lead')).toMatch(/'field_tech', 'green', 8, ARRAY\[\]::text\[\]/)
+  })
+  it('every permission name it grants exists in the app permission list', () => {
+    const names = Array.from(sql.matchAll(/'([a-z_]+:[a-z_:]+)'/g)).map((m) => m[1]).filter((n) => !n.startsWith('arx'))
+    const allNames = fs.readFileSync(path.resolve(__dirname, '../permissions.ts'), 'utf8')
+    for (const n of Array.from(new Set(names))) if (n !== 'field_tech') expect(allNames).toContain(`'${n}'`)
   })
 })

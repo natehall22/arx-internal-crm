@@ -340,9 +340,11 @@ export async function allowedPeople(admin: SupabaseClient, actor: ClockActor, op
   }
   // Signed in: only people on a time-tracked crew (leads also act for their crew), or a role the owner allowed to clock
   // themselves. Sales field roles (setters, canvassers, inside sales) never — a Field Tech (crew member) may; nobody clocks in by job id otherwise.
-  const { data: me } = await orgDb(admin, actor.orgId).from('users').select('id, full_name, role, active').eq('id', actor.userId).maybeSingle()
-  const meRow = me as { id: string; full_name: string | null; role: string | null; active: boolean | null } | null
-  if (!meRow || meRow.active === false || (isFieldRoleLike({ role: meRow.role }) && !isCrewFieldRole(meRow.role))) return { people, crews: [] }
+  const { data: me } = await orgDb(admin, actor.orgId).from('users').select('id, full_name, role, active, custom_role_id').eq('id', actor.userId).maybeSingle()
+  const meRow = me as { id: string; full_name: string | null; role: string | null; active: boolean | null; custom_role_id?: string | null } | null
+  if (!meRow || meRow.active === false) return { people, crews: [] }
+  const roleInput = await roleInputFor(admin, actor.orgId, meRow)
+  if (isFieldRoleLike(roleInput) && !isCrewFieldRole(roleInput)) return { people, crews: [] }
   const crews = await loadCrewsLedBy(admin, actor.orgId, actor.userId)
   for (const c of crews) for (const m of c.members) if (!people.has(m.userId)) people.set(m.userId, { name: m.name, subId: c.subId, isLead: m.isLead })
   if (!people.has(actor.userId)) {
@@ -360,10 +362,22 @@ export async function allowedPeople(admin: SupabaseClient, actor: ClockActor, op
 async function crewScopeFor(admin: SupabaseClient, actor: ClockActor): Promise<string[] | null> {
   if (actor.via !== 'signed_in') return null
   const db = orgDb(admin, actor.orgId)
-  const { data: me } = await db.from('users').select('role').eq('id', actor.userId).maybeSingle()
-  if (!isCrewFieldRole((me as { role?: string | null } | null)?.role)) return null
+  const { data: me } = await db.from('users').select('role, custom_role_id').eq('id', actor.userId).maybeSingle()
+  if (!me || !isCrewFieldRole(await roleInputFor(admin, actor.orgId, me as { role: string | null; custom_role_id?: string | null }))) return null
+  // Same rule as loadCrewMembership: only active crews that track time.
   const { data } = await db.from('crew_members').select('sub_id').eq('user_id', actor.userId)
-  return ((data ?? []) as Array<{ sub_id: string }>).map((r) => r.sub_id)
+  const subIds = ((data ?? []) as Array<{ sub_id: string }>).map((r) => r.sub_id)
+  if (subIds.length === 0) return []
+  const { data: subs } = await db.from('sub_contractors').select('id, tracks_time, active').in('id', subIds)
+  return ((subs ?? []) as Array<{ id: string; tracks_time: boolean | null; active: boolean | null }>).filter((x) => x.tracks_time === true && x.active !== false).map((x) => x.id)
+}
+
+/** The role + custom-role name of a user row: the exact input isFieldRoleLike / isCrewFieldRole take. */
+async function roleInputFor(admin: SupabaseClient, orgId: string, u: { role: string | null; custom_role_id?: string | null }) {
+  const role = String(u.role ?? '').toLowerCase().trim()
+  if (!u.custom_role_id) return { role }
+  const { data: cr } = await orgDb(admin, orgId).from('custom_roles').select('name, display_name').eq('id', u.custom_role_id).maybeSingle()
+  return { role, customRoleName: (cr?.name as string | null) ?? null, customRoleDisplayName: (cr?.display_name as string | null) ?? null }
 }
 
 /** The time-tracked, active crew this person is on (first found), or null. */
@@ -377,7 +391,7 @@ async function loadCrewMembership(admin: SupabaseClient, orgId: string, userId: 
   return live?.id ?? null
 }
 
-type Where = { workOrderId: string | null; jobId: string | null }
+type Where = { workOrderId: string | null; jobId: string | null; /** The crew of the stop (set only for a Field Tech's scoped taps): their hours are filed under it. */ subId?: string | null }
 
 /** The visit / job a tap names, checked against what this actor may clock in on. */
 async function resolveWhere(admin: SupabaseClient, actor: ClockActor, tap: Pick<ClockTap, 'workOrderId' | 'jobId'>, scopeSubIds: string[] | null = null): Promise<Where | Fail> {
@@ -393,19 +407,21 @@ async function resolveWhere(admin: SupabaseClient, actor: ClockActor, tap: Pick<
     if (scopeSubIds && (!wo.assigned_sub_id || !scopeSubIds.includes(wo.assigned_sub_id))) return notOnList
     if (wo.status === 'cancelled') return { ok: false, status: 409, error: 'That stop was cancelled' }
     if (tap.jobId && wo.job_id && tap.jobId !== wo.job_id) return { ok: false, status: 400, error: 'That stop belongs to another job' }
-    return { workOrderId: wo.id, jobId: wo.job_id }
+    return { workOrderId: wo.id, jobId: wo.job_id, subId: scopeSubIds ? wo.assigned_sub_id : null }
   }
   if (tap.jobId) {
     if (actor.via === 'crew_link') return { ok: false, status: 400, error: 'Pick a stop' }
+    let jobSubId: string | null = null
     if (scopeSubIds) {
-      const { data: mine } = await db.from('work_orders').select('id').eq('job_id', tap.jobId).in('assigned_sub_id', scopeSubIds).limit(1)
+      const { data: mine } = await db.from('work_orders').select('id, assigned_sub_id').eq('job_id', tap.jobId).in('assigned_sub_id', scopeSubIds).limit(1)
       if (!mine || (mine as unknown[]).length === 0) return { ok: false, status: 404, error: 'Job not found' }
+      jobSubId = (mine as Array<{ assigned_sub_id: string | null }>)[0].assigned_sub_id
     }
     const { data } = await db.from('production_jobs').select('id, status').eq('id', tap.jobId).maybeSingle()
     const job = data as { id: string; status: string | null } | null
     if (!job) return { ok: false, status: 404, error: 'Job not found' }
     if (job.status === 'cancelled') return { ok: false, status: 409, error: 'That job was cancelled' }
-    return { workOrderId: null, jobId: job.id }
+    return { workOrderId: null, jobId: job.id, subId: jobSubId }
   }
   return { ok: false, status: 400, error: 'Which stop or job?' }
 }
@@ -566,7 +582,7 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
           if (w) await closeEntry(ctx, w)
           let inserted: 'inserted' | 'exists'
           try {
-            inserted = await insertEntry(ctx, { user_id: userId, sub_id: people.get(userId)?.subId ?? null, work_order_id: where.workOrderId, production_job_id: where.jobId, kind: 'work' }, tap.tapId)
+            inserted = await insertEntry(ctx, { user_id: userId, sub_id: (scopeSubIds && where.subId) || (people.get(userId)?.subId ?? null), work_order_id: where.workOrderId, production_job_id: where.jobId, kind: 'work' }, tap.tapId)
           } catch (e) {
             if (w) await reopenIfLeft(ctx, w)
             throw e

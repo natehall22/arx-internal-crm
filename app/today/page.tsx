@@ -42,13 +42,17 @@ const TITLE: Record<TodayKind, string> = {
   ops: 'Today',
   owner: 'Today',
   setter: 'Today',
+  crew: 'Today',
 }
 
 export default async function TodayPage() {
   const { authUser, profile } = await requireAuth()
   const admin = createServiceClient()
   const perms = await resolveEffectivePermissionNames(admin, authUser.id, profile)
-  const kind = todayKindFor({ role: profile.role, isSuperuser: isOrgSuperuserRoleSlug(profile.role), canJobBoard: canAccessJobBoardFromPermissionNames(perms) })
+  const customRole = (profile as { custom_role_id?: string | null }).custom_role_id
+    ? (await admin.from('custom_roles').select('name, display_name').eq('id', (profile as { custom_role_id: string }).custom_role_id).eq('org_id', profile.org_id).maybeSingle()).data
+    : null
+  const kind = todayKindFor({ role: profile.role, customRoleName: (customRole?.name as string | null) ?? null, customRoleDisplayName: (customRole?.display_name as string | null) ?? null, isSuperuser: isOrgSuperuserRoleSlug(profile.role), canJobBoard: canAccessJobBoardFromPermissionNames(perms) })
 
   // The company's industry profile (lib/org-profile.ts): feature switches + which Today cards, in what order, with what titles.
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
@@ -60,7 +64,8 @@ export default async function TodayPage() {
   // Started here and awaited with the rest of the page, so it runs in parallel with Today's own load.
   const finishSetupPromise = isSuperAdmin(profile) ? loadFinishSetup(admin, profile.org_id, { servicePlansOn: orgProfile.features.servicePlans }).catch((e) => { console.error('today: finish setup failed', e); return null }) : Promise.resolve(null)
   const { start, end } = getDateRangeForTimeFrame('week', 'America/New_York')
-  const rows = await fetchPeriodMetricRows(admin, { orgId: profile.org_id, startIso: start.toISOString(), endIso: end.toISOString() })
+  // A crew member (Field Tech) has no sales numbers: nothing is read for them.
+  const rows = kind === 'crew' ? ({ doors: [], sets: [], sits: [], sales: [], calendar: [] } as unknown as Awaited<ReturnType<typeof fetchPeriodMetricRows>>) : await fetchPeriodMetricRows(admin, { orgId: profile.org_id, startIso: start.toISOString(), endIso: end.toISOString() })
   const opts = { setterLane: kind === 'setter', contactDispositionIdSet: getContactDispositionIdSet(undefined) }
   const mine = summarizePeriodRows(rows, kind === 'owner' || kind === 'ops' ? null : new Set([profile.id]), opts)
 
@@ -122,6 +127,8 @@ export default async function TodayPage() {
       ? [{ label: 'Doors this week', value: mine.doors }, { label: 'Inspections set', value: mine.inspectionsSet }]
       : kind === 'ops'
         ? [{ label: 'Sales this week', value: mine.sales }]
+        : kind === 'crew'
+        ? []
         : [
             { label: 'Sits this week', value: mine.sits },
             { label: 'Sales this week', value: mine.sales },
@@ -154,10 +161,12 @@ export default async function TodayPage() {
             <QueueCard key={q.id} queue={q} />
           ))}
         </div>
-        <section aria-label="This week" className="flex flex-col gap-2">
-          <h2 className="text-ui-lg font-semibold text-ink">This week</h2>
-          <KpiTiles tiles={tiles} />
-        </section>
+        {tiles.length > 0 ? (
+          <section aria-label="This week" className="flex flex-col gap-2">
+            <h2 className="text-ui-lg font-semibold text-ink">This week</h2>
+            <KpiTiles tiles={tiles} />
+          </section>
+        ) : null}
       </main>
     </div>
   )
