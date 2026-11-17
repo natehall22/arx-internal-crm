@@ -11,7 +11,8 @@ void PORTAL_NO_STORE
 
 /** POST form { t } — the one tap on "Open my account": uses the emailed link (once) and starts a session. */
 export async function POST(request: Request) {
-  if (crossSiteWrite(request)) return portalJson({ error: 'Forbidden' }, 403)
+  // A form posted from another site (or a saved file: Origin "null") changes nothing and shows a readable page, never raw JSON.
+  if (crossSiteWrite(request)) return seeOther('/portal?problem=open')
   const orgId = await portalOrgForRequest()
   if (!orgId || !(await isOrgFeatureOn(orgId, 'customerPortal'))) return portalJson({ error: 'Not found' }, 404)
   const admin = createServiceClient()

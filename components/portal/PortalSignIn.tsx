@@ -5,7 +5,7 @@ import { useState } from 'react'
 import PortalShell, { Panel, type PortalCompany } from '@/components/portal/PortalShell'
 
 /** Sign-in: type your email or phone, we email a link. The answer is always the same words. */
-export default function PortalSignIn({ company, problem }: { company: PortalCompany; problem?: 'link' | 'wait' | null }) {
+export default function PortalSignIn({ company, problem }: { company: PortalCompany; problem?: 'link' | 'wait' | 'open' | null }) {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
@@ -35,7 +35,8 @@ export default function PortalSignIn({ company, problem }: { company: PortalComp
           <form onSubmit={submit}>
             <h1 className="text-2xl font-bold">Your account</h1>
             <p className="mt-1 text-lg">See your visits, invoices and papers, pay, and message us.</p>
-            {problem === 'link' ? <p role="alert" className="mt-3 rounded-lg bg-[#fef3c7] p-3 text-base font-semibold">That link has been used or has expired. Get a new one below.</p> : null}
+            {problem === 'link' ? <p role="alert" className="mt-3 rounded-lg bg-[#fef3c7] p-3 text-base font-semibold">This sign-in link has expired or was already used. Get a new one below, or ask {company.name} for one.</p> : null}
+            {problem === 'open' ? <p role="alert" className="mt-3 rounded-lg bg-[#fef3c7] p-3 text-base font-semibold">That did not open from here. Open the link from your email in your phone or computer browser, then tap the button. Or get a new link below.</p> : null}
             {problem === 'wait' ? <p role="alert" className="mt-3 rounded-lg bg-[#fef3c7] p-3 text-base font-semibold">Too many tries. Please wait a few minutes.</p> : null}
             <label htmlFor="portal-id" className="mt-4 block text-lg font-semibold">
               Your email or phone number

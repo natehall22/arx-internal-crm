@@ -19,6 +19,7 @@ import { assertDemoOrg } from '@/lib/demo-org'
 import { buildDemoDataset, type DemoQuote, DEMO_CREWS, DEMO_CUSTOM_FIELDS, DEMO_DEFAULTS, DEMO_FEATURES, DEMO_PEOPLE, DEMO_MAIL_DOMAIN, type DemoDataset } from '@/lib/demo-company-data'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { orgDb } from '@/lib/supabase/org-db'
+import { parseAppUrl } from '@/lib/app-url'
 import { companyAppUrl } from '@/lib/company-host'
 import { upsertCustomer } from '@/lib/customers'
 import { createProperty } from '@/lib/properties-db'
@@ -49,7 +50,9 @@ export type DemoApplyReport = {
   skipped: string[]
   /** Printed once by the script; never stored. */
   logins: Array<{ role: string; email: string; password: string }>
+  /** Absolute sign-in link, or null when the app address is not configured (then `portalPath` is all there is). */
   portalLink: string | null
+  portalPath: string | null
 }
 
 type Ctx = {
@@ -674,8 +677,10 @@ async function portalStep(ctx: Ctx) {
   const token = newPortalToken()
   const expires = new Date(ctx.now.getTime() + 7 * 24 * 3600 * 1000)
   unwrap(await orgDb(admin, orgId).from('portal_login_tokens').insert({ customer_id: cust.id, token_hash: hashPortalToken(token), sent_to: row.email, expires_at: expires.toISOString() }), 'portal link')
-  const base = companyAppUrl(DEMO_DEFAULTS.subdomain)
-  ctx.report.portalLink = `${base ?? ''}/portal/enter?t=${token}`
+  // Never a relative link: it would open as file:///portal/enter in a terminal-pasted tab and its form post would be refused.
+  const base = companyAppUrl(DEMO_DEFAULTS.subdomain) ?? parseAppUrl(process.env.NEXT_PUBLIC_APP_URL)
+  ctx.report.portalPath = `/portal/enter?t=${token}`
+  ctx.report.portalLink = base ? `${base}${ctx.report.portalPath}` : null
   return 'portal customer + a 7-day sign-in link (single use)'
 }
 
@@ -703,7 +708,7 @@ export async function applyDemoCompany(
   // The one gate for everything below: only a demo org, checked against the database (never cached).
   await assertDemoOrg(admin, orgId)
   void readPayWeekSchedule
-  const report: DemoApplyReport = { lines: [], skipped: [], logins: [], portalLink: null }
+  const report: DemoApplyReport = { lines: [], skipped: [], logins: [], portalLink: null, portalPath: null }
   const ctx: Ctx = {
     admin,
     orgId,
