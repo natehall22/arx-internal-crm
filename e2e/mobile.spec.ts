@@ -410,6 +410,12 @@ const SCREENS: Screen[] = [
       { name: 'details-editing', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.waitForSelector('text=Payment terms *') } },
       { name: 'turned-off', run: async (p) => { await p.getByRole('button', { name: /Show turned-off properties/ }).click(); await p.waitForSelector('text=5 Old Shell Rd, Medart, FL 32327') } },
     ] },
+  { name: 'customer-page-no-deal', path: '/dev-harness/customer-page-no-deal', ready: 'text=No deals yet.',
+    states: [{ name: 'edit-sheet', run: async (p) => { await p.getByRole('button', { name: 'Edit', exact: true }).first().click(); await p.waitForSelector('[role=dialog] >> text=Edit customer') } }] },
+  { name: 'customer-page-with-deal', path: '/dev-harness/customer-page-with-deal', ready: 'text=ashley@example.com',
+    states: [
+      { name: 'header-edit-sheet', run: async (p) => { await p.getByRole('button', { name: 'Edit', exact: true }).first().click(); await p.waitForSelector('[role=dialog] >> text=Edit customer') } },
+    ] },
   { name: 'customer-records-plain', path: '/dev-harness/customer-records-plain', ready: 'text=+ Add another property' },
   { name: 'service-plans', path: '/dev-harness/service-plans', ready: 'text=Weekly mowing & edging', mock: async (p) => {
     await p.route('**/api/customers/*/service-plans', (route) => route.fulfill(json(HARNESS_SERVICE_PLANS)))
@@ -720,6 +726,7 @@ const SCREENS: Screen[] = [
     states: [{ name: 'done-view', run: async (p) => { await expect(async () => { await p.getByLabel('Saved views').selectOption({ label: 'Done' }); await expect(p.getByText('WO-0012', { exact: true }).locator('visible=true').first()).toBeVisible({ timeout: 2_000 }) }).toPass({ timeout: 30_000 }) } }] },
   { name: 'list-customers', path: '/dev-harness/customers', ready: 'text=Ashley Gaines >> visible=true',
     states: [{ name: 'prospects', run: async (p) => { await p.getByLabel('Saved views').selectOption({ label: 'Prospects (not sold yet)' }); await p.waitForSelector('text=Dana Whitfield >> visible=true') } }] },
+  { name: 'list-customers-empty-lawn', path: '/dev-harness/customers-empty-lawn', ready: 'text=Add your first customer' },
   { name: 'list-customers-recurring', path: '/dev-harness/customers-recurring', ready: 'text=Ashley Gaines >> visible=true',
     states: [{ name: 'recurring', run: async (p) => { await expect(async () => { await p.getByLabel('Saved views').selectOption({ label: 'Recurring (active plan)' }); await expect(p.getByText('Bill Cox').locator('visible=true')).toHaveCount(0, { timeout: 2_000 }) }).toPass({ timeout: 30_000 }); await p.waitForSelector('text=Ashley Gaines >> visible=true') } }, { name: 'one-time', run: async (p) => { await p.getByLabel('Saved views').selectOption({ label: 'One-time (no plan)' }); await p.waitForSelector('text=Bill Cox >> visible=true') } }] },
   { name: 'list-proposals', path: '/dev-harness/proposals', ready: 'text=P-00121 >> visible=true' },

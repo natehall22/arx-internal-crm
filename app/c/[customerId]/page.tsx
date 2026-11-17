@@ -1,12 +1,14 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
 import { CustomerDocuments, CustomerRecords } from '@/components/customer-file/CustomerRecords'
 import JobberHistoryCard from '@/components/jobber-import/JobberHistoryCard'
 import { loadJobberHistory } from '@/lib/jobber-import/db'
-import PhoneLink from '@/components/PhoneLink'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
+import CustomerCards, { loadCategoryState } from '@/components/customer-file/CustomerCards'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { loadOrgProfile } from '@/lib/org-profile'
 import { requireAuth } from '@/lib/auth'
 import { loadCustomerExtras } from '@/lib/customer-file/customer-extras'
 import { pickDefaultDeal } from '@/lib/customer-file/load'
@@ -48,33 +50,28 @@ export default async function CustomerFileIndex({ params }: { params: { customer
   const c = customer as { id: string; name: string | null; phone: string | null; email: string | null; address_text: string | null }
   // Jobber history carries prices: the same people as the customer account link below (never field roles).
   const seesHistory = (viewer.ownerLike || viewer.managerLike || viewer.jobBoard) && !viewer.pricingBarred && !viewer.setterLike
+  const [canViewJobBilling, orgProfile, perms] = await Promise.all([
+    callerCanAccessJobBilling(admin, profile),
+    loadOrgProfile(admin, viewer.orgId),
+    resolveEffectivePermissionNames(admin, profile.id, profile),
+  ])
+  const canEditRecords = canEditCustomerRecordsFromPermissionNames(perms)
   const jobberHistory = seesHistory ? await loadJobberHistory(admin, viewer.orgId, c.id) : []
   return (
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4 sm:px-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="break-words">{c.name || 'Customer'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid grid-cols-[6rem_1fr] gap-y-2 text-ui-base text-ink">
-              <dt className="font-semibold">Phone</dt>
-              <dd><PhoneLink value={c.phone} /></dd>
-              <dt className="font-semibold">Email</dt>
-              <dd className="break-all">{c.email || '—'}</dd>
-              <dt className="font-semibold">Address</dt>
-              <dd className="break-words">{c.address_text || '—'}</dd>
-            </dl>
-            <p className="mt-3 text-ui-base text-ink">No deals yet.</p>
-            {/* Same people the deal Overview offers the customer account to. */}
-            {viewer.ownerLike || viewer.managerLike || viewer.jobBoard ? (
-              <Link href={`/customers/${c.id}?tab=opportunities`} className="mt-2 inline-flex min-h-tap items-center text-ui-sm font-semibold text-brand-800 underline">
-                Customer account (start a deal) ▸
-              </Link>
-            ) : null}
-          </CardContent>
-        </Card>
+        {/* Same customer-level cards a deal's Overview shows (contact + actions, portal, emails, texting, tax, account…). */}
+        <CustomerCards
+          viewer={viewer}
+          customer={c}
+          access={extras.access}
+          canViewJobBilling={canViewJobBilling}
+          proposalWord={orgProfile.terms.proposal}
+          role={profile.role}
+          category={await loadCategoryState(viewer.orgId, c.id, extras.access.edit && canEditRecords && !isRepLikeCustomerRecordRole(profile.role))}
+        />
+        <p className="px-1 text-ui-base text-ink">No deals yet.</p>
         <CustomerRecords customerId={c.id} extras={extras} />
         <CustomerDocuments customerId={c.id} orgId={viewer.orgId} extras={extras} />
         <JobberHistoryCard entries={jobberHistory} />

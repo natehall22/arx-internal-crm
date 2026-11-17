@@ -104,6 +104,8 @@ import type { CustomFieldDefinition } from '@/lib/custom-fields'
 import type { Property } from '@/lib/properties'
 import { visibleSettingsGroups } from '@/lib/settings-registry'
 import { QueueCard, KpiTiles } from '@/components/today/QueueCard'
+import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
+import ContactActions from '@/components/customer/ContactActions'
 import FileHeader from '@/components/customer-file/FileHeader'
 import FileTabs from '@/components/customer-file/FileTabs'
 import ThreadPanel from '@/components/customer-file/ThreadPanel'
@@ -652,6 +654,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <WorkOrdersClient initialWorkOrders={HARNESS_WORK_ORDERS as never} />
     case 'customers':
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS} query="" /></div>
+    case 'customers-empty-lawn':
+      return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={[]} query="" customerFile showLinkTools={false} /></div>
     case 'customers-recurring':
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS.map((c) => ({ ...c, recurring: c.id === 'c1' }))} query="" showRecurring /></div>
     case 'proposals':
@@ -862,6 +866,25 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-lg p-4"><CrewTimeSetup subId="s1" /></div>
     case 'plan-templates':
       return <div className="mx-auto max-w-2xl p-4"><ServicePlanTemplatesCard /></div>
+    case 'customer-page-no-deal':
+      // /c/<id> for a customer with no deal (most customers at a lawn company): the same contact card, with Call / Text / Email on it.
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <CustomerInfoCard customer={{ id: 'cust-1', name: 'Dana Whitfield', phone: '7045550101', email: 'dana@example.com', address_text: '412 Oak Ridge Rd, Concord, NC 28025' }} canEdit actions={<ContactActions dealId={null} phone="7045550101" email="dana@example.com" surface="overview" />} />
+          <p className="px-1 text-ui-base text-ink">No deals yet.</p>
+          <PropertiesCard customerId="cust-1" initial={HARNESS_PROPERTIES as Property[]} ready canEdit accessNotes propertyFields={[]} />
+        </div>
+      )
+    case 'customer-page-with-deal':
+      // /c/<id>/d/<deal>/overview: the deal header (actions live there) over the same contact card.
+      return (
+        <div className="min-h-screen bg-surface-subtle">
+          <FileHeader ctx={HARNESS_FILE_CTX as never} canEditCustomer />
+          <main className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+            <CustomerInfoCard customer={{ id: 'c1', name: 'Ashley Gaines', phone: '7045550102', email: 'ashley@example.com', address_text: '9 Elm St, Concord, NC' }} canEdit={false} />
+          </main>
+        </div>
+      )
     case 'customer-records-plain':
       // A one-home customer at a company that doesn't use properties: only the small add links.
       return (

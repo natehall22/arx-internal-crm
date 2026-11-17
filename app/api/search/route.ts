@@ -6,6 +6,8 @@ import { cleanQuery, hrefForHit, runSearch } from '@/lib/global-search'
 import { searchGroupsForCaller } from '@/lib/global-search-server'
 import { searchMessages } from '@/lib/threads/search'
 import { createServiceClient } from '@/lib/supabase/service'
+import { customerFileDefaultFor } from '@/lib/customer-file/redirects'
+import { loadOrgProfile } from '@/lib/org-profile'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,8 +46,9 @@ export async function GET(request: NextRequest) {
   if (groups.length === 0) return NextResponse.json({ results: await messageHits() })
 
   try {
-    const [hits, msgs] = await Promise.all([runSearch(admin, profile.org_id, q, groups), messageHits()])
-    return NextResponse.json({ results: [...hits.map((h) => ({ ...h, href: hrefForHit(h) })), ...msgs] })
+    const [hits, msgs, orgProfile] = await Promise.all([runSearch(admin, profile.org_id, q, groups), messageHits(), loadOrgProfile(admin, profile.org_id)])
+    const fileDefault = customerFileDefaultFor(profile.role, orgProfile.id)
+    return NextResponse.json({ results: [...hits.map((h) => ({ ...h, href: hrefForHit(h, fileDefault) })), ...msgs] })
   } catch (e) {
     console.error('global search failed', e)
     return NextResponse.json({ error: 'Search failed' }, { status: 500 })
