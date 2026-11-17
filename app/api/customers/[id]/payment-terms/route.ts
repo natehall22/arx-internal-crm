@@ -17,7 +17,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (body.terms !== null && body.terms !== '' && !terms) return NextResponse.json({ error: 'Pick Due on receipt, Net 15 or Net 30' }, { status: 400 })
   const { data, error } = await orgDb(ctx.admin, ctx.orgId).from('customers').update({ payment_terms: terms }).eq('id', params.id).select('id').maybeSingle()
   if (error) {
-    if (isMissingColumn(error, 'payment_terms')) return NextResponse.json({ error: 'Payment terms need a database update first (migration 202611300050).' }, { status: 409 })
+    if (isMissingColumn(error, 'payment_terms')) return NextResponse.json({ error: 'Payment terms need a database update first (migration 202611300130).' }, { status: 409 })
     return NextResponse.json({ error: 'Could not save' }, { status: 500 })
   }
   if (!data) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })

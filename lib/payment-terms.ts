@@ -1,7 +1,7 @@
 /**
  * Payment terms: ONE answer to "when is this invoice due". The company's default lives in `orgs.settings.paymentTerms`
  * (Settings → Payments & tax, owners, path ['paymentTerms']); a customer may override it (`customers.payment_terms`,
- * migration 202611300050). The due day is worked out ONCE, when the invoice is issued (`finalizeAndSendInvoice`), as
+ * migration 202611300130). The due day is worked out ONCE, when the invoice is issued (`finalizeAndSendInvoice`), as
  * the issue day in the company's own time zone + the terms' days, and stored in `job_invoices.due_at`. "Overdue" is
  * simply a balance owed past that day (`invoiceDaysOverdue`), the same reading the Unpaid list, reminders and the
  * rpt_invoices view already use. Pure helpers here; the loader is server only (it takes the admin client).
@@ -76,7 +76,7 @@ export function dueLabel(issued: string | null | undefined, due: string | null |
   return `Due ${dateText(d)}${match ? ` · ${PAYMENT_TERMS_LABELS[match]}` : ''}`
 }
 
-/** The company default and the customer's own override (null = none). A missing customer, or a database without migration 202611300050, has no override. */
+/** The company default and the customer's own override (null = none). A missing customer, or a database without migration 202611300130, has no override. */
 export async function loadTermsChoice(admin: SupabaseClient, orgId: string, customerId: string | null): Promise<{ orgDefault: PaymentTerms; override: PaymentTerms | null }> {
   const { data: org } = await admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
   const orgDefault = readOrgPaymentTerms((org as { settings?: unknown } | null)?.settings)

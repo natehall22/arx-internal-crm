@@ -25,9 +25,9 @@ export type RecordJobPaymentInput = {
   createdBy: string | null
   /** A processor's payment / refund id: a retry with the same key returns the first row instead of a second one. */
   idempotencyKey?: string | null
-  /** QuickBooks outbox event: money in (default), or money back out by a refund / a lost dispute. */
   /** False when the caller sends the customer's receipt itself (after applying the payment to an invoice, or once for a split collection). Default true. */
   sendReceipt?: boolean
+  /** QuickBooks outbox event: money in (default), or money back out by a refund / a lost dispute. */
   eventType?: 'payment.recorded' | 'payment.refunded' | 'payment.disputed' | 'payment.voided'
 }
 

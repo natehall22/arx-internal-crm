@@ -2,11 +2,13 @@
  * The customer's receipt: ONE function, `sendPaymentReceipt`, called by the two payment writers — `recordJobPayment`
  * (lib/job-payment-record.ts: the office's "Add payment", online payments on a job's invoice) and `recordCustomerInvoicePayment`
  * (lib/invoices.ts: "Mark paid", cash / check at the door once the office confirms, online payments on a service invoice) — so
- * every way money comes in sends the same receipt. Built on the company's layout (renderCustomerEmail: its name / logo /
+ * every way money comes in sends the same receipt. Callers that apply a payment to an invoice or split one door collection
+ * (job-invoice-payment, online-payments/record, visit-collections-db) pass `sendReceipt:false` to the writer and call this once,
+ * after applying. Built on the company's layout (renderCustomerEmail: its name / logo /
  * contact, never the product's) and sent through the invoice email's sender rules (resolveInvoiceSender: company From, the
  * opt-out / bounce list, "customer turned messages off", the demo-company guard in getMailTransport).
  *
- * Only for companies that have Automatic customer emails ON (Settings → Features; off by default, so a roofing company's
+ * Only for companies that have Automatic customer emails ON AND the separate payment-receipt switch ON (Settings → Features; off by default, so a roofing company's
  * customers never get one). Money coming in only: refunds, voids and repeats send nothing. A receipt can never fail a
  * payment: every error is logged and swallowed.
  */
