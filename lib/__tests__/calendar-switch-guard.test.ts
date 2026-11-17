@@ -39,12 +39,20 @@ describe('calendarSwitchBlockReason', () => {
   })
   it('the install account with future installs cannot switch, in either direction', async () => {
     expect(await calendarSwitchBlockReason(admin({ google: true, nominated: 'u1', future: 2 }), 'u1', 'o', 'microsoft')).toMatch(/2 upcoming installs/)
-    expect(await calendarSwitchBlockReason(admin({ microsoft: true, nominated: 'u1', future: 1 }), 'u1', 'o', 'google')).toMatch(/1 upcoming install is/)
+    expect(await calendarSwitchBlockReason(admin({ microsoft: true, nominated: 'u1', future: 1 }), 'u1', 'o', 'google')).toMatch(/1 upcoming install\./)
   })
   it('the install account with no future installs may switch', async () => {
     expect(await calendarSwitchBlockReason(admin({ google: true, nominated: 'u1', future: 0 }), 'u1', 'o', 'microsoft')).toBeNull()
   })
-  it('a failed check blocks rather than risk orphaning events', async () => {
-    expect(await calendarSwitchBlockReason(admin({ google: true, nominated: 'u1', countError: true }), 'u1', 'o', 'microsoft')).toMatch(/Could not check/)
+  it('a failed lookup never blocks; only a confirmed count does', async () => {
+    expect(await calendarSwitchBlockReason(admin({ google: true, nominated: 'u1', countError: true }), 'u1', 'o', 'microsoft')).toBeNull()
+  })
+  it('with no install account set, the acting user is guarded', async () => {
+    expect(await calendarSwitchBlockReason(admin({ google: true, nominated: null, future: 2 }), 'u1', 'o', 'microsoft')).toMatch(/2 upcoming installs/)
+  })
+  it('the message does not suggest another install account', async () => {
+    const msg = await calendarSwitchBlockReason(admin({ google: true, nominated: 'u1', future: 1 }), 'u1', 'o', 'microsoft')
+    expect(msg).toMatch(/Move or unschedule upcoming installs first, or keep using Google Calendar/)
+    expect(msg).not.toMatch(/another/)
   })
 })

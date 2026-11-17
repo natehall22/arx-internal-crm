@@ -8,6 +8,7 @@ import {
   rsvpOf,
   toGraphEvent,
   toGraphTime,
+  fetchMicrosoftAccountEmail,
 } from '@/lib/calendar/microsoft-calendar'
 import { calendarConnectedUserIds, disconnectCalendar, getCalendarClient, saveMicrosoftConnection } from '@/lib/calendar/connection'
 import { createCalendarEvent } from '@/lib/google-calendar'
@@ -328,11 +329,28 @@ describe('Outlook guest mail: sendUpdates none never mails guests', () => {
     await microsoftClient('t').deleteEvent('e1')
     expect(plain.map((c) => c.method)).toEqual(['DELETE'])
   })
-  it('a 400 or 404 from either provider on a stored id is stale; other errors are not', () => {
-    expect(isStaleEventIdError(new CalendarApiError('x', 400))).toBe(true)
-    expect(isStaleEventIdError(new CalendarApiError('x', 404))).toBe(true)
-    expect(isStaleEventIdError(new CalendarApiError('x', 500))).toBe(false)
-    expect(isStaleEventIdError(new Error('x'))).toBe(false)
+  it('stale = 404/410, or a 400 on an id shaped like the other provider\'s; any other 400 is a real failure', () => {
+    const GRAPH = 'AAMkAGI2TGuLAAA=' + 'x'.repeat(100) + '-_='
+    const GOOGLE = 'abcdefghijklmnop12345'
+    expect(isStaleEventIdError(new CalendarApiError('x', 404), GOOGLE, 'google')).toBe(true)
+    expect(isStaleEventIdError(new CalendarApiError('x', 410), GRAPH, 'microsoft')).toBe(true)
+    expect(isStaleEventIdError(new CalendarApiError('x', 400), GRAPH, 'google')).toBe(true)
+    expect(isStaleEventIdError(new CalendarApiError('x', 400), GOOGLE, 'microsoft')).toBe(true)
+    expect(isStaleEventIdError(new CalendarApiError('x', 400), GOOGLE, 'google')).toBe(false)
+    expect(isStaleEventIdError(new CalendarApiError('x', 400), GRAPH, 'microsoft')).toBe(false)
+    expect(isStaleEventIdError(new CalendarApiError('x', 500), GOOGLE, 'google')).toBe(false)
+    expect(isStaleEventIdError(new Error('x'), GOOGLE, 'google')).toBe(false)
+  })
+})
+
+describe('Outlook account email', () => {
+  it('prefers mail, then a real UPN, never a guest #EXT# UPN', async () => {
+    mockFetch(() => ({ json: { mail: 'm@co.com', userPrincipalName: 'u@co.com' } }))
+    expect(await fetchMicrosoftAccountEmail('t')).toBe('m@co.com')
+    mockFetch(() => ({ json: { mail: null, userPrincipalName: 'u@co.com' } }))
+    expect(await fetchMicrosoftAccountEmail('t')).toBe('u@co.com')
+    mockFetch(() => ({ json: { mail: null, userPrincipalName: 'a_b.com#EXT#@tenant.onmicrosoft.com' } }))
+    expect(await fetchMicrosoftAccountEmail('t')).toBeNull()
   })
 })
 

@@ -8,7 +8,7 @@
  * no DST, so a timed event lands on the right instant by construction. ALL-DAY events are the exception: they are a
  * calendar DATE in the org's time zone, so they are sent as `{dateTime: 'YYYY-MM-DDT00:00:00', timeZone: <org IANA tz>}`
  * with `isAllDay: true` (Graph accepts IANA names; midnight in that zone is what Outlook requires), never built from a
- * Date round-trip, and are read back as the org-local day (`allDayBusy`). The org zone is `CALENDAR_BUSINESS_TZ`, the
+ * Date round-trip, and are read back as the org-local day (`allDayBusy`). The org zone is `DEFAULT_TIMEZONE`, the
  * same constant install scheduling and sub availability already use.
  *
  * GUEST MAIL: Graph always emails guests on create/update/cancel; there is no "send nobody" switch. So an explicit
@@ -18,7 +18,7 @@
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 
 import { getAppUrl } from '@/lib/app-url'
-import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import {
   CalendarApiError,
   isWindowFree,
@@ -130,7 +130,10 @@ export async function fetchMicrosoftAccountEmail(accessToken: string): Promise<s
     const r = await fetch(`${GRAPH}/me?$select=mail,userPrincipalName`, { headers: { Authorization: `Bearer ${accessToken}` } })
     if (!r.ok) return null
     const d = (await r.json()) as { mail?: string | null; userPrincipalName?: string | null }
-    return d.mail || d.userPrincipalName || null
+    if (d.mail) return d.mail
+    // A guest account's UPN is a mangled "name_domain#EXT#@tenant" string nobody can share a calendar with.
+    const upn = d.userPrincipalName
+    return upn && !upn.toUpperCase().includes('#EXT#') ? upn : null
   } catch {
     return null
   }
@@ -160,7 +163,7 @@ type GraphTime = { dateTime: string; timeZone: string }
  * One caller-side start/end → Graph's `{dateTime, timeZone}`; all-day flag set from the shape. Timed = UTC; all-day =
  * the bare date at 00:00 in `orgTimeZone` (never a UTC midnight, which is a different local day).
  */
-export function toGraphTime(t: CalendarEvent['start'], orgTimeZone: string = CALENDAR_BUSINESS_TZ): { time: GraphTime; allDay: boolean } {
+export function toGraphTime(t: CalendarEvent['start'], orgTimeZone: string = DEFAULT_TIMEZONE): { time: GraphTime; allDay: boolean } {
   if (typeof (t as { date?: unknown }).date === 'string' && (t as { date: string }).date) {
     return { time: { dateTime: `${(t as { date: string }).date}T00:00:00`, timeZone: orgTimeZone }, allDay: true }
   }
@@ -169,7 +172,7 @@ export function toGraphTime(t: CalendarEvent['start'], orgTimeZone: string = CAL
 }
 
 /** Google-shaped event (full or patch) → Graph event body. `sendUpdates:'none'` drops attendees: Graph has no switch to mail nobody. */
-export function toGraphEvent(event: Partial<CalendarEvent>, sendUpdates: SendUpdates, orgTimeZone: string = CALENDAR_BUSINESS_TZ): Record<string, unknown> {
+export function toGraphEvent(event: Partial<CalendarEvent>, sendUpdates: SendUpdates, orgTimeZone: string = DEFAULT_TIMEZONE): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (event.summary !== undefined) out.subject = event.summary
   if (event.description !== undefined) out.body = { contentType: 'text', content: event.description }
@@ -243,7 +246,7 @@ export function resultFromSchedule(s: GraphSchedule | undefined): FreeBusyCalend
  * floating UTC midnight, its date part is the date; if it returns the org's own midnight as a UTC instant, that instant
  * rendered in the org zone is the date. Both land on the same org-local day.
  */
-export function allDayBusy(startDateTime: string, endDateTime: string, orgTimeZone: string = CALENDAR_BUSINESS_TZ): FreeBusySlot {
+export function allDayBusy(startDateTime: string, endDateTime: string, orgTimeZone: string = DEFAULT_TIMEZONE): FreeBusySlot {
   const dateOf = (dt: string) => {
     const iso = graphUtcToIso(dt)
     return iso.slice(11, 19) === '00:00:00' ? iso.slice(0, 10) : formatInTimeZone(new Date(iso), orgTimeZone, 'yyyy-MM-dd')
@@ -308,7 +311,7 @@ async function pagedValues<T>(accessToken: string, firstUrl: string, what: strin
   return items
 }
 
-export function microsoftClient(accessToken: string, orgTimeZone: string = CALENDAR_BUSINESS_TZ): CalendarClient {
+export function microsoftClient(accessToken: string, orgTimeZone: string = DEFAULT_TIMEZONE): CalendarClient {
   const client: CalendarClient = {
     provider: 'microsoft',
     accessToken,

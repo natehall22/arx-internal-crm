@@ -100,7 +100,7 @@ export async function GET() {
         // own address, from Graph /me at connect time), which can differ from the CRM login email.
         const connection = await getCalendarConnectionStatus(supabase, org.install_scheduling_user_id)
         installSchedulingProvider = connection?.provider ?? null
-        if (connection?.provider === 'microsoft' && connection.account_email) installSchedulingEmail = connection.account_email
+        if (connection?.provider === 'microsoft') installSchedulingEmail = connection.account_email || null // never the CRM login: it may not be the Outlook account
       }
     } catch (e) {
       console.error('Subs API: could not resolve install scheduling account', e)

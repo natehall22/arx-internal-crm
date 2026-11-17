@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
 import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost, requestHost } from '@/lib/company-host'
 import { saveGoogleConnection } from '@/lib/google-calendar'
+import { connectFailureCode } from '@/lib/calendar/switch-guard'
 import {
   GOOGLE_CONNECT_COOKIE,
   GOOGLE_CONNECT_COOKIE_PATH,
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
       return done(result.reason === 'unavailable' ? 'error=callback_failed' : 'error=invalid_state')
     }
     const saved = await saveGoogleConnection(admin, result.code, auth.authUser.id, auth.profile.org_id)
-    return done(saved ? 'success=calendar_connected' : 'error=token_storage')
+    return done(saved ? 'success=calendar_connected' : `error=${await connectFailureCode(admin, auth.authUser.id, auth.profile.org_id, 'google')}`)
   } catch (e) {
     console.error('Google connect finish error:', e)
     await discardOAuthTicket(createServiceClient(), nonce)

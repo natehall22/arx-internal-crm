@@ -86,13 +86,25 @@ export function isMissingEventError(error: unknown): boolean {
   return error instanceof CalendarApiError && (error.status === 404 || error.status === 410)
 }
 
+/** Google event ids are base32hex: lowercase a-v and 0-9, 5-1024 chars. Graph ids are long base64 (`AAMk...`, with - _ =). */
+const GOOGLE_ID_FORMAT = /^[a-v0-9]{5,1024}$/
+const GRAPH_ID_FORMAT = /^[A-Za-z0-9_\-=]{20,}$/
+
+/** True when `eventId` can only have been minted by the OTHER provider (decided locally, from the id's shape). */
+export function eventIdBelongsToOtherProvider(eventId: string, provider: CalendarProviderId): boolean {
+  if (provider === 'google') return !GOOGLE_ID_FORMAT.test(eventId)
+  // Outlook: a Google-shaped id (short, lowercase base32hex) is foreign. Graph ids are far longer and mixed-case.
+  return GOOGLE_ID_FORMAT.test(eventId) && !(GRAPH_ID_FORMAT.test(eventId) && eventId.length >= 64)
+}
+
 /**
- * Missing OR malformed id. An event id minted by the other provider (the user switched Google <-> Outlook) is not
- * "not found" but "invalid" (HTTP 400) on this one. Only call sites that act on a STORED id use this, so a stale id
- * can never wedge a sync; the 400 case is logged by the caller. Never use it for a create.
+ * A stored id is stale when the provider says it is gone (404/410), or when it is an id of the OTHER provider (the user
+ * switched Google <-> Outlook; it comes back "invalid", HTTP 400). Any other 400 on a correctly-shaped id is a real
+ * failure: never recreate or clear ids on it. Only call sites that act on a STORED id use this. Never use it for a create.
  */
-export function isStaleEventIdError(error: unknown): boolean {
-  return isMissingEventError(error) || (error instanceof CalendarApiError && error.status === 400)
+export function isStaleEventIdError(error: unknown, eventId: string, provider: CalendarProviderId): boolean {
+  if (isMissingEventError(error)) return true
+  return error instanceof CalendarApiError && error.status === 400 && eventIdBelongsToOtherProvider(eventId, provider)
 }
 
 /**

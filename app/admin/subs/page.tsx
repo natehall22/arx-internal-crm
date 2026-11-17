@@ -72,7 +72,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // separate env var, would let the address crews are told drift away from the
 // calendar anyone actually looks at.
 function buildCalendarShareInstructions(shareEmail: string | null, company: string, provider: 'google' | 'microsoft' | null = null): string {
-  const address = shareEmail || '[set an install scheduling account in Ops settings]'
+  const address = shareEmail || (provider === 'microsoft' ? '[add the email crews should share with]' : '[set an install scheduling account in Ops settings]')
   if (provider === 'microsoft') {
     return `Share your calendar with ${company} (optional)
 

@@ -766,11 +766,11 @@ export async function PATCH(
             } catch (updateError: unknown) {
               // Gone, or an id from the other calendar provider (the closer switched Google <-> Outlook): make a fresh
               // event and keep its id, so later edits stop failing on a dead one.
-              if (!isStaleEventIdError(updateError)) throw updateError
+              if (!isStaleEventIdError(updateError, existingEventId, client.provider)) throw updateError
               console.warn('Appointment update: stored event id is not usable on this calendar, recreating', existingEventId)
               const recreated = await client.createEvent(eventBody, 'primary', 'none')
               if (recreated?.id) {
-                await adminClient.from('scheduled_appointments').update({ google_event_id: recreated.id }).eq('id', params.id)
+                await adminClient.from('scheduled_appointments').update({ google_event_id: recreated.id }).eq('id', params.id).eq('org_id', profile.org_id)
               }
             }
           } catch (e: unknown) {

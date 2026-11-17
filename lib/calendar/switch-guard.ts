@@ -14,7 +14,11 @@ import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 const NAME: Record<CalendarProviderId, string> = { google: 'Google Calendar', microsoft: 'Outlook Calendar' }
 
-/** A plain-words reason the user may not connect `target` now, or null when switching (or first connecting) is fine. */
+/**
+ * A plain-words reason the user may not connect `target` now, or null when switching (or first connecting) is fine.
+ * It blocks ONLY on a confirmed non-empty count of future install events; a failed lookup never blocks (a first-time
+ * connect must always get through, and the save path re-checks).
+ */
 export async function calendarSwitchBlockReason(
   admin: SupabaseClient,
   userId: string,
@@ -30,8 +34,11 @@ export async function calendarSwitchBlockReason(
     const current: CalendarProviderId | null = m.data ? 'microsoft' : g.data ? 'google' : null
     if (!current || current === target) return null
 
+    // An unset install account means installs act as whoever is signed in (resolveInstallGoogleToken), so the acting
+    // user is guarded too.
     const { data: org } = await admin.from('orgs').select('install_scheduling_user_id').eq('id', orgId).maybeSingle()
-    if (!org || org.install_scheduling_user_id !== userId) return null
+    if (!org) return null
+    if (org.install_scheduling_user_id && org.install_scheduling_user_id !== userId) return null
 
     const today = formatInTimeZone(new Date(), DEFAULT_TIMEZONE, 'yyyy-MM-dd')
     const { count, error } = await admin
@@ -40,13 +47,26 @@ export async function calendarSwitchBlockReason(
       .eq('org_id', orgId)
       .not('install_google_event_id', 'is', null)
       .gte('scheduled_date', today)
-    if (error) return `Could not check the install schedule, so ${NAME[target]} was not connected. Try again.`
+    if (error) {
+      console.error('calendarSwitchBlockReason: install count failed', error.message)
+      return null
+    }
     if ((count ?? 0) > 0) {
-      return `Your ${NAME[current]} is the install-scheduling account and ${count} upcoming install${count === 1 ? ' is' : 's are'} on it. Switching to ${NAME[target]} would orphan those crew invites. Move the installs first, or pick another install-scheduling account, then switch.`
+      return `Your ${NAME[current]} holds ${count} upcoming install${count === 1 ? '' : 's'}. Move or unschedule upcoming installs first, or keep using ${NAME[current]}.`
     }
     return null
   } catch (e) {
     console.error('calendarSwitchBlockReason failed', e)
-    return `Could not check the install schedule, so ${NAME[target]} was not connected. Try again.`
+    return null
   }
+}
+
+/** The settings-page error code after a connect's save returned false: the switch guard (a race) or a plain storage failure. */
+export async function connectFailureCode(
+  admin: SupabaseClient,
+  userId: string,
+  orgId: string,
+  target: CalendarProviderId
+): Promise<'calendar_switch_blocked' | 'token_storage'> {
+  return (await calendarSwitchBlockReason(admin, userId, orgId, target)) ? 'calendar_switch_blocked' : 'token_storage'
 }

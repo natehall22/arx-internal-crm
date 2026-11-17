@@ -193,6 +193,9 @@ export async function GET(request: NextRequest) {
     // A connected calendar we could not read (token unusable, call failed) is UNKNOWN, never "free": the whole day is
     // held as busy (same rule as team availability) and the response says so.
     let calendarUnknown = false
+    // A token row exists but no usable client (refresh failed / revoked): booking must keep working, so slots are shown
+    // as before and the response flags that the closer's calendar needs reconnecting.
+    let calendarNeedsReconnect = false
 
     if (calendar) {
       hasCalendar = true
@@ -219,8 +222,7 @@ export async function GET(request: NextRequest) {
       }
     } else if ((await calendarConnectedUserIds(adminClient, [closerId])).has(closerId)) {
       console.error(`Availability: ${closerId} has a connected calendar but no usable client`)
-      hasCalendar = true
-      calendarUnknown = true
+      calendarNeedsReconnect = true
     } else {
       console.log(`Availability: No calendar token found for ${closerId}`)
     }
@@ -378,6 +380,7 @@ export async function GET(request: NextRequest) {
       slots,
       hasCalendar,
       ...(calendarUnknown ? { calendarUnknown: true } : {}),
+      ...(calendarNeedsReconnect ? { calendarNeedsReconnect: true } : {}),
       timezone,
       workingHours: {
         start: workingHoursStart,

@@ -463,7 +463,7 @@ export async function syncInstallToCalendar(
         // The event is gone — somebody deleted it out of the calendar directly — or its id came from the OTHER provider
         // (the account switched Google <-> Outlook; that id is "invalid", HTTP 400, here). Without this, the stale id is
         // retried forever and the trade's sync is wedged.
-        if (!isStaleEventIdError(e)) throw e
+        if (!isStaleEventIdError(e, eventId, client.provider)) throw e
         console.warn(
           isMissingEventError(e)
             ? 'syncInstallToCalendar: stored event is gone, recreating'
@@ -555,7 +555,7 @@ export async function removeInstallFromCalendar(
       }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e)
-      if (isStaleEventIdError(e)) {
+      if (isStaleEventIdError(e, trade.install_google_event_id, client.provider)) {
         if (!isMissingEventError(e)) console.warn('removeInstallFromCalendar: stored event id is not valid for this calendar (provider switched?)', trade.install_google_event_id)
         eventGone = true
       } else {

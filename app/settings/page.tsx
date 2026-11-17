@@ -107,7 +107,7 @@ export default function SettingsPage() {
         no_profile: 'User profile not found.',
         token_storage: 'Failed to store calendar tokens.',
         callback_failed: 'Calendar connection failed. Please try again.',
-        calendar_switch_blocked: 'Your calendar is the install-scheduling account and has upcoming installs on it, so it cannot be switched yet. Move those installs, or pick another install-scheduling account, then switch.',
+        calendar_switch_blocked: 'Your calendar is the install-scheduling account and has upcoming installs on it, so it cannot be switched yet. Move or unschedule upcoming installs first, or keep using your current calendar.',
       }
       setCalendarMessage({ type: 'error', text: errorMessages[error] || 'An error occurred.' })
       setActiveTab('calendar')

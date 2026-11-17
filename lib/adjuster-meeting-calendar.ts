@@ -251,7 +251,7 @@ export async function syncAdjusterMeetingToGoogle(
       } catch (updateError: unknown) {
         // The stored event is gone, or its id came from the other calendar provider (the rep switched Google <-> Outlook:
         // "invalid id", HTTP 400). Create it afresh below instead of wedging every later update on a dead id.
-        if (!isStaleEventIdError(updateError)) throw updateError
+        if (!isStaleEventIdError(updateError, eventId, client.provider)) throw updateError
         console.warn('syncAdjusterMeetingToGoogle: stored event id is not usable on this calendar, recreating', eventId)
         eventId = null
       }

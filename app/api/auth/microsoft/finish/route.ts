@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { saveMicrosoftConnection } from '@/lib/calendar/connection'
+import { connectFailureCode } from '@/lib/calendar/switch-guard'
 import { MICROSOFT_CONNECT_COOKIE, MICROSOFT_CONNECT_COOKIE_PATH } from '@/lib/calendar/microsoft-connect'
 import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
 import { COMPANY_LOOKUP_UNAVAILABLE } from '@/lib/company-host'
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     const pkce = pkceFor(nonce as string)
     if (!pkce) return done('error=callback_failed')
     const saved = await saveMicrosoftConnection(admin, result.code, pkce.verifier, auth.authUser.id, auth.profile.org_id)
-    return done(saved ? 'success=calendar_connected' : 'error=token_storage')
+    return done(saved ? 'success=calendar_connected' : `error=${await connectFailureCode(admin, auth.authUser.id, auth.profile.org_id, 'microsoft')}`)
   } catch (e) {
     console.error('Microsoft connect finish error:', e instanceof Error ? e.message : e)
     await discardOAuthTicket(admin, nonce)

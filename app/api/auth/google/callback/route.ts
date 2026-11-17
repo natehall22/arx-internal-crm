@@ -4,6 +4,7 @@ export const revalidate = 0
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { saveGoogleConnection } from '@/lib/google-calendar'
+import { connectFailureCode } from '@/lib/calendar/switch-guard'
 import { acceptOAuthCallback, isSignedOAuthState } from '@/lib/google-oauth-state'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -117,7 +118,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!(await saveGoogleConnection(adminClient, code, user.id, profile.org_id))) {
-      return NextResponse.redirect(new URL('/settings?error=token_storage', request.url))
+      return NextResponse.redirect(new URL(`/settings?error=${await connectFailureCode(adminClient, user.id, profile.org_id, 'google')}`, request.url))
     }
 
     // Success - redirect back to settings page
