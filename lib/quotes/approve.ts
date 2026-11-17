@@ -531,8 +531,9 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     // (and the customer still gets the page), never held against the approval.
     let pdfPath: string | null = null
     try {
-      const { data: have } = contractId ? await db.from('order_form_contracts').select('pdf_url').eq('id', contractId).maybeSingle() : { data: null }
-      pdfPath = (have as { pdf_url?: string | null } | null)?.pdf_url ?? null
+      // Already stored (a contract's pdf, or a plan-only approval's own `pdf_path`): reuse it, never render again on a rerun.
+      const { approvalPdfPath } = await import('@/lib/quotes/approval-pdf-path')
+      pdfPath = await approvalPdfPath(admin, orgId, { id: approvalId, contract_id: contractId })
       if (!pdfPath) {
         const { storeApprovalPdf } = await import('@/lib/quotes/pdf')
         pdfPath = await storeApprovalPdf(admin, orgId, approval, contractId, { name: proposal.customer_name, address: proposal.customer_address })
@@ -541,7 +542,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       console.error('quote approval PDF failed', approvalId, e)
       note = `${note ? `${note} ` : ''}The approval PDF could not be made — the approval record itself is saved.`
     }
-    await setApproval(admin, orgId, approvalId, announced ? { finalized_at: now.toISOString(), finalize_error: note } : { finalize_error: note, finalize_claimed_at: null })
+    await setApproval(admin, orgId, approvalId, announced ? { finalized_at: now.toISOString(), finalize_error: note } : { finalize_error: note }) // unfinished: the lease stays, so a rerun backs off FINALIZE_LEASE_MS
 
     // 4. One confirmation to the customer (the sale email to the owners is the signing pipeline's).
     if (!approval.confirmation_sent_at && proposal.customer_email) {

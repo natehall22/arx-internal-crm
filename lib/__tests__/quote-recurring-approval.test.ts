@@ -13,7 +13,8 @@ jest.mock('@/lib/threads/post-message', () => ({ postMessage: (...a: unknown[]) 
 const addInvoiceItem = jest.fn()
 const finalizeAndSendInvoice = jest.fn()
 jest.mock('@/lib/invoices', () => ({ addInvoiceItem: (...a: unknown[]) => addInvoiceItem(...a), finalizeAndSendInvoice: (...a: unknown[]) => finalizeAndSendInvoice(...a), computeInvoiceBalance: jest.fn() }))
-jest.mock('@/lib/quotes/pdf', () => ({ storeApprovalPdf: jest.fn().mockResolvedValue('org/org-1/quotes/a.pdf') }))
+const storeApprovalPdf = jest.fn().mockResolvedValue('org/org-1/quotes/a.pdf')
+jest.mock('@/lib/quotes/pdf', () => ({ storeApprovalPdf: (...a: unknown[]) => storeApprovalPdf(...a) }))
 const sendApprovalConfirmation = jest.fn()
 jest.mock('@/lib/quotes/send', () => ({ sendApprovalConfirmation: (...a: unknown[]) => sendApprovalConfirmation(...a) }))
 jest.mock('@/lib/company-links', () => ({ orgAppUrl: async () => 'https://crm.example.test', tryOrgAppUrl: async () => 'https://crm.example.test' }))
@@ -158,6 +159,15 @@ describe('plan-only quote', () => {
     expect(db.tables.activities.filter((x) => x.type === 'status_change')).toHaveLength(0)
   })
 
+  it('a rerun does not render the plan-only PDF again when one is already stored', async () => {
+    const db = setup([recurring('r1', 45)])
+    await approve(db)
+    expect(storeApprovalPdf).toHaveBeenCalledTimes(1)
+    Object.assign(db.tables.quote_approvals[0], { pdf_path: 'org/org-1/quotes/a.pdf', finalized_at: null, finalize_claimed_at: null })
+    await finalizeApproval(db.client, ORG, String(db.tables.quote_approvals[0].id), { now: new Date('2027-03-21T15:00:00Z') })
+    expect(storeApprovalPdf).toHaveBeenCalledTimes(1)
+  })
+
   it('a deal already won (by hand) still gets the note and the owner email, once; a later run sends neither again', async () => {
     const db = setup([recurring('r1', 45)])
     db.tables.opportunities[0].status = 'won'
@@ -184,15 +194,17 @@ describe('plan-only quote', () => {
     expect(db.tables.quote_approvals[0].sale_notified_at).toBeTruthy()
   })
 
-  it('an owner-email failure leaves the approval unfinished and unlocked, so the next plain run retries and then finishes', async () => {
+  it('an owner-email failure leaves the approval unfinished; the lease stays so reruns back off 2 minutes, then the next run retries and finishes', async () => {
     const db = setup([recurring('r1', 45)])
     notifySale.mockRejectedValueOnce(new Error('smtp'))
     await approve(db)
     const a = db.tables.quote_approvals[0]
     expect(a.finalized_at ?? null).toBeNull()
-    expect(a.finalize_claimed_at ?? null).toBeNull()
+    expect(a.finalize_claimed_at ?? null).not.toBeNull()
     expect(String(a.finalize_error)).toContain('sale notice')
-    expect(await finalizeApproval(db.client, ORG, String(a.id), { now: new Date('2027-03-20T15:00:30Z') })).toBe(true) // no manual reset
+    expect(await finalizeApproval(db.client, ORG, String(a.id), { now: new Date('2027-03-20T15:00:30Z') })).toBe(false) // inside the lease: no rerun
+    expect(notifySale).toHaveBeenCalledTimes(1)
+    expect(await finalizeApproval(db.client, ORG, String(a.id), { now: new Date('2027-03-20T15:03:00Z') })).toBe(true)
     expect(notifySale).toHaveBeenCalledTimes(2)
     expect(a.sale_notified_at).toBeTruthy()
     expect(a.finalized_at).toBeTruthy()
