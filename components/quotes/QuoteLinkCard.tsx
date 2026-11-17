@@ -13,6 +13,7 @@ type Status = {
   optionalCount: number
   totalCents: number
   recurringCount?: number
+  pdfHref?: string | null
   deposit: { mode: string; percent: number; fixedCents: number; overridden: boolean; cents: number }
   company: { depositMode: string; depositPercent: number; depositFixedCents: number }
   problems: string[]
@@ -111,11 +112,12 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
             <p className="font-semibold">Approved by {a.typedName}</p>
             <p>{when(a.approvedAt)}{a.ip ? ` · ${a.ip}` : ''}</p>
             <p>{a.totalCents > 0 ? `Total ${money(a.totalCents)}` : 'Recurring service only (no job or deposit)'}{a.recurringEstimateCents ? ` · recurring service, about ${money(a.recurringEstimateCents)} est. first season (a separate recurring sale, not part of the job)` : ''}{a.depositCents > 0 ? ` · deposit ${money(a.depositCents)}` : ''}</p>
+            {s.pdfHref ? <p><a href={s.pdfHref} className="inline-flex min-h-tap items-center font-semibold underline">Approved copy (PDF)</a></p> : null}
             {a.chosen.length ? <p>Chose: {a.chosen.join(', ')}</p> : null}
             {a.declined.length ? <p>Left out: {a.declined.join(', ')}</p> : null}
             {!a.finalized ? (
               <div className="flex flex-col gap-2">
-                <p className="font-semibold">{a.error ? `Setup stopped: ${a.error}` : 'Setting up the job…'}</p>
+                <p className="font-semibold">{a.error ? `Setup stopped: ${a.error}` : a.planOnly ? 'Setting up the service plan…' : 'Setting up the job…'}</p>
                 <Button className="min-h-tap self-start" loading={busy} onClick={() => void act({ action: 'finish' }, 'Finished')}>Finish setup</Button>
               </div>
             ) : null}

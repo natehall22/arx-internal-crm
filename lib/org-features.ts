@@ -292,6 +292,7 @@ export function insuranceFieldsSetInPatch(body: unknown): string[] {
 export const FEATURE_REPORT_DATASETS: Readonly<Partial<Record<OrgFeature, readonly string[]>>> = {
   canvassing: ['canvass_doors'],
   roofMeasure: ['instant_estimate_accuracy'],
+  quoteApproval: ['recurring_sales'],
 }
 
 /** Pure: is this report dataset hidden because the company switched its feature off? */

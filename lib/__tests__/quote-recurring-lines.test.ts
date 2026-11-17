@@ -147,3 +147,26 @@ describe('builder gating (servicePlans + quoteApproval)', () => {
     expect(ok.ok && ok.lines[0]).toMatchObject({ name: 'Mowing', unit: 'visit', quantity: 1, line_total: 0, unit_price: 45.46, plan_weekday: 3, taxable: null, is_adder: false })
   })
 })
+
+describe('recurring sales reporting is separate from signed sales', () => {
+  const fs = require('fs') as typeof import('fs')
+  const sql = fs.readFileSync('supabase/migrations/202611300020_quote_recurring_estimate.sql', 'utf8')
+  it('rpt_sales is not redefined; rpt_recurring_sales counts only finalized approvals with a plan that has not ended', () => {
+    expect(sql).not.toMatch(/CREATE OR REPLACE VIEW\s+(public\.)?rpt_sales\b/i)
+    expect(sql).toMatch(/CREATE OR REPLACE VIEW public\.rpt_recurring_sales WITH \(security_invoker = true\)/)
+    expect(sql).toMatch(/a\.finalized_at IS NOT NULL/)
+    expect(sql).toMatch(/sp\.quote_approval_id = a\.id[^;]*sp\.status <> 'ended'/)
+    expect(sql).toMatch(/REVOKE ALL ON public\.rpt_recurring_sales FROM anon, authenticated/)
+    expect(sql).not.toMatch(/\b(drop|delete)\b/i)
+  })
+  it('the catalog offers it as its own dataset, and no Sales template or sales reader reads it', () => {
+    const { DATASETS } = require('@/lib/reporting/catalog') as typeof import('@/lib/reporting/catalog')
+    const { REPORT_TEMPLATES } = require('@/lib/reporting/templates') as typeof import('@/lib/reporting/templates')
+    expect(DATASETS.recurring_sales.view).toBe('rpt_recurring_sales')
+    expect(DATASETS.sales.view).toBe('rpt_sales')
+    expect(REPORT_TEMPLATES.filter((t) => t.spec.dataset === 'recurring_sales').map((t) => t.title)).toEqual(['Recurring sales (est.) by closer'])
+    expect(REPORT_TEMPLATES.filter((t) => t.spec.dataset === 'sales').every((t) => !/recurring/i.test(t.title))).toBe(true)
+    const { reportDatasetHidden } = jest.requireActual('@/lib/org-features') as typeof import('@/lib/org-features')
+    expect(reportDatasetHidden('recurring_sales', { quoteApproval: false } as never)).toBe(true)
+  })
+})

@@ -1,11 +1,13 @@
 /** @jest-environment node */
 /**
- * Approving a quote with recurring (service plan) lines: the plan is made once, the sale amount is the one-time total + the
- * first-season plan value (through the one signed contract), a recurring-only quote still counts as a sale, and a company
- * without recurring lines (roofing) is exactly as before.
+ * Approving a quote with recurring (service plan) lines: the plan is made once, contract / job / deposit money is the one-time
+ * total only, the first-season estimate is stored apart, a plan-only quote has no contract or job but wins the deal, and a
+ * company without recurring lines (roofing) is exactly as before.
  */
 const signContract = jest.fn()
 jest.mock('@/app/api/contracts/sign/route', () => ({ POST: (...a: unknown[]) => signContract(...a) }))
+const notifySale = jest.fn()
+jest.mock('@/lib/admin-sale-email', () => ({ buildOrderFormContractSaleDescription: (c: { scope_other?: string }) => c.scope_other ?? 'sold', notifyOrgAdminsOfSale: (...a: unknown[]) => notifySale(...a) }))
 const addInvoiceItem = jest.fn()
 const finalizeAndSendInvoice = jest.fn()
 jest.mock('@/lib/invoices', () => ({ addInvoiceItem: (...a: unknown[]) => addInvoiceItem(...a), finalizeAndSendInvoice: (...a: unknown[]) => finalizeAndSendInvoice(...a), computeInvoiceBalance: jest.fn() }))
@@ -72,7 +74,9 @@ function setup(lines: L[], withPlans = true) {
     {
       proposals: [{ id: 'p1', org_id: ORG, status: 'sent', opportunity_id: 'o1', proposal_number: 'P-1', customer_name: 'Pat Doe', customer_email: 'pat@x.test', customer_phone: null, customer_address: '12 Maple Ct', discount_percent: 0, created_by: 'u1' }],
       proposal_line_items: lines.map((l) => ({ ...l, org_id: ORG, proposal_id: 'p1' })),
-      opportunities: [{ id: 'o1', org_id: ORG, owner_user_id: 'closer1', customer_id: 'c1' }],
+      opportunities: [{ id: 'o1', org_id: ORG, owner_user_id: 'closer1', setter_user_id: null, customer_id: 'c1', status: 'open' }],
+      users: [{ id: 'closer1', org_id: ORG, full_name: 'Casey Closer' }],
+      activities: [],
       quote_links: [{ id: 'ql1', org_id: ORG, created_by: 'u1' }],
     },
     { relations, unique: { service_plans: [['quote_line_id']] } }
@@ -121,6 +125,10 @@ describe('plan-only quote', () => {
     expect(addInvoiceItem).not.toHaveBeenCalled()
     expect(db.tables.job_invoices ?? []).toHaveLength(0)
     expect(db.tables.opportunities[0].status).toBe('won')
+    expect(db.tables.proposals[0].status).toBe('accepted')
+    expect(db.tables.activities.filter((x) => x.type === 'status_change')).toHaveLength(1)
+    expect(notifySale).toHaveBeenCalledTimes(1)
+    expect(notifySale.mock.calls[0][1]).toMatchObject({ orgId: ORG, customerName: 'Pat Doe', totalAmount: value / 100, closerName: 'Casey Closer' })
     expect(createServicePlan).toHaveBeenCalledTimes(1)
     expect(createServicePlan.mock.calls[0][4]).toMatchObject({ template_id: 't1', property_id: 'prop1', start_date: '2027-04-01', price: 45 })
     expect(createServicePlan.mock.calls[0][6]).toMatchObject({ quoteLineId: 'r1', soldByUserId: 'closer1', quoteApprovalId: a.id })
@@ -141,6 +149,8 @@ describe('plan-only quote', () => {
     expect(db.tables.service_plans).toHaveLength(1)
     expect(db.tables.production_jobs ?? []).toHaveLength(0)
     expect(db.tables.order_form_contracts ?? []).toHaveLength(0)
+    expect(notifySale).toHaveBeenCalledTimes(1) // the owner notice is sent once, not again on the retry
+    expect(db.tables.activities.filter((x) => x.type === 'status_change')).toHaveLength(1)
   })
 
   it('refuses when the recurring line cannot be sold (plans off / template gone)', async () => {

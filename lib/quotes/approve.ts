@@ -31,7 +31,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { POST as signContract } from '@/app/api/contracts/sign/route'
 import { orgAppUrl, tryOrgAppUrl } from '@/lib/company-links'
+import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
 import { customerSignedDocUrl } from '@/lib/files/files-object'
+import { applyContractSignedStatuses } from '@/lib/job-status-events'
 import { addInvoiceItem, computeInvoiceBalance, finalizeAndSendInvoice } from '@/lib/invoices'
 import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { createPaymentLink, tooManyLinks } from '@/lib/online-payments/links'
@@ -39,7 +41,7 @@ import { orgDb } from '@/lib/supabase/org-db'
 import { flagApprovalBlocked, NEEDS_DETAIL_MESSAGE } from '@/lib/quotes/blocked'
 import { isOptionalLine } from '@/lib/quotes/pricing'
 import { fingerprintOf, loadQuoteContext, priceForSelection, quoteDeposit, quoteTerms, recurringForSelection, type QuoteContext } from '@/lib/quotes/load'
-import { approvalOneTimeCents, isRecurringLine } from '@/lib/quotes/recurring'
+import { approvalOneTimeCents, approvalRecurringEstimateCents, isRecurringLine } from '@/lib/quotes/recurring'
 import type { QuoteLinkRow } from '@/lib/quotes/links'
 import { newSigningTokenColumns, signingTokenOf } from '@/lib/signing-tokens'
 
@@ -109,7 +111,7 @@ export type ApprovalSnapshot = {
     optional: boolean
     chosen: boolean
     estimatedVisits: number
-    /** What this line adds to the sale amount (`total_cents`). */
+    /** The first-season estimate of this line (summed into `recurring_estimate_cents`; never part of the one-time money). */
     firstSeasonCents: number
   }>
 }
@@ -324,7 +326,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       const patch: Record<string, unknown> = {
         subtotal: approval.subtotal_cents / 100,
         tax_amount: approval.tax_cents / 100,
-        // The proposal is what was sold ONE TIME: the sale amount (total_cents) also holds the recurring first-season value.
+        // The proposal is what was sold ONE TIME (a plan-only approval keeps its recurring estimate in total_cents as a placeholder).
         total: approvalOneTimeCents(approval) / 100,
       }
       if (Number(proposal.discount_percent) > 0 || approval.discount_cents > 0) patch.discount_amount = approval.discount_cents / 100
@@ -339,19 +341,50 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     }
 
     // A PLAN-ONLY quote (nothing one-time) has no installation contract, no signing, no job and no deposit: the approval wins the
-    // deal, makes the plan(s), and is the sale record (rpt_sales reads `recurring_estimate_cents`). Contract / job money is never touched.
+    // deal, makes the plan(s), and is the sale record (rpt_recurring_sales reads `recurring_estimate_cents`). Contract / job money is never touched.
     const planOnly = snap.planOnly === true
     let contractId = approval.contract_id
     let contractToken: string | null = null
     let jobId = approval.job_id
     let note: string | null = null
     if (planOnly) {
+      let wonNow = false
       if (approval.opportunity_id) {
         const { data: o } = await db.from('opportunities').select('customer_id').eq('id', approval.opportunity_id).maybeSingle()
         const won: Record<string, unknown> = { status: 'won' }
         const cid = (o as { customer_id?: string | null } | null)?.customer_id
         if (cid) won.customer_id = cid
-        await db.from('opportunities').update(won).eq('id', approval.opportunity_id).neq('status', 'won')
+        const { data: flipped } = await db.from('opportunities').update(won).eq('id', approval.opportunity_id).neq('status', 'won').select('id')
+        wonNow = ((flipped ?? []) as unknown[]).length > 0
+      }
+      // The same status writer the signing pipeline uses: proposal -> accepted, the deal's past inspections closed out.
+      await applyContractSignedStatuses(admin, { orgId, proposalId: proposal.id, opportunityId: approval.opportunity_id, projectId: null, signedAtIso: approval.approved_at })
+      // Once per approval (only the run that actually flipped the deal): the status-change note and the owner "sale" notice.
+      if (wonNow && approval.opportunity_id) {
+        await db.from('activities').insert({
+          opportunity_id: approval.opportunity_id,
+          user_id: creator,
+          type: 'status_change',
+          body: `Won: recurring service approved online${proposal.proposal_number ? ` (quote ${proposal.proposal_number})` : ''} by ${approval.typed_name}, about ${(approvalRecurringEstimateCents(approval) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })} est. first season. No job or contract.`,
+        })
+        try {
+          const { data: opp } = await db.from('opportunities').select('owner_user_id, setter_user_id').eq('id', approval.opportunity_id).maybeSingle()
+          const ids = [(opp as { owner_user_id?: string | null } | null)?.owner_user_id, (opp as { setter_user_id?: string | null } | null)?.setter_user_id].filter(Boolean) as string[]
+          const { data: people } = ids.length > 0 ? await db.from('users').select('id, full_name').in('id', ids) : { data: [] }
+          const nameOf = (id?: string | null) => ((people ?? []) as { id: string; full_name: string }[]).find((u) => u.id === id)?.full_name ?? null
+          const appUrl = await tryOrgAppUrl(orgId, 'quote plan-only sale notice')
+          await notifyOrgAdminsOfSale(admin, {
+            orgId,
+            customerName: proposal.customer_name || 'Customer',
+            soldDescription: `${buildOrderFormContractSaleDescription({ scope_other: snap.recurring?.filter((r) => r.chosen).map((r) => `${r.name} (recurring)`).join(', ') })} — recurring service, no job`,
+            totalAmount: approvalRecurringEstimateCents(approval) / 100,
+            setterName: nameOf((opp as { setter_user_id?: string | null } | null)?.setter_user_id),
+            closerName: nameOf((opp as { owner_user_id?: string | null } | null)?.owner_user_id),
+            recordUrl: appUrl ? `${appUrl}/opportunities/${approval.opportunity_id}` : undefined,
+          })
+        } catch (e) {
+          console.error('plan-only sale notice failed', approvalId, e)
+        }
       }
     } else {
     // 2. The signed sale — through the one signing pipeline.

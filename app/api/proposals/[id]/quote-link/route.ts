@@ -7,6 +7,8 @@ import { loadOrgProfile, t } from '@/lib/org-profile'
 import { finalizeApproval, loadApproval } from '@/lib/quotes/approve'
 import { createQuoteLink, revokeQuoteLinks } from '@/lib/quotes/links'
 import { loadQuoteContext, priceForSelection, recurringForSelection } from '@/lib/quotes/load'
+import { filesObjectHref } from '@/lib/files/files-object'
+import { approvalPdfPath } from '@/lib/quotes/approval-pdf-path'
 import { NOT_PORTAL_LINK } from '@/lib/quotes/links'
 import { defaultSelectedIds } from '@/lib/quotes/pricing'
 import { approvalOneTimeCents, approvalRecurringEstimateCents, isRecurringLine } from '@/lib/quotes/recurring'
@@ -77,6 +79,7 @@ async function status(admin: ReturnType<typeof createServiceClient>, orgId: stri
     company: { depositMode: ctx.settings.depositMode, depositPercent: ctx.settings.depositPercent, depositFixedCents: ctx.settings.depositFixedCents },
     problems,
     link: link ? { active: !link.revoked_at && Date.parse(link.expires_at) > Date.now(), expiresAt: link.expires_at, revoked: !!link.revoked_at, firstOpenedAt: link.first_opened_at, lastOpenedAt: link.last_opened_at, sentTo: link.sent_to, sentAt: link.sent_at } : null,
+    pdfHref: approval ? filesObjectHref(await approvalPdfPath(admin, orgId, approval)) : null,
     approval: approval
       ? { typedName: approval.typed_name, approvedAt: approval.approved_at, ip: approval.approved_ip, totalCents: approvalOneTimeCents(approval), recurringEstimateCents: approvalRecurringEstimateCents(approval), planOnly: approval.snapshot.planOnly === true, depositCents: approval.deposit_cents, finalized: !!approval.finalized_at, error: approval.finalize_error, jobId: approval.job_id, chosen: [...approval.snapshot.lines.filter((l) => l.chosen).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => r.chosen).map((r) => `${r.name} (recurring)`)], declined: [...approval.snapshot.lines.filter((l) => !l.chosen).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => !r.chosen).map((r) => r.name)] }
       : null,

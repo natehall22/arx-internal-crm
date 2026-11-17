@@ -7,6 +7,7 @@ import { loadOrgFeatures } from '@/lib/org-features'
 import { depositStateFor, finalizeApproval, loadApproval } from '@/lib/quotes/approve'
 import { resolvePublicQuoteLink, touchQuoteLink } from '@/lib/quotes/links'
 import { approvalOneTimeCents } from '@/lib/quotes/recurring'
+import { approvalPdfPath } from '@/lib/quotes/approval-pdf-path'
 import { buildQuoteView, companyForQuote, loadQuoteContext, type QuoteView } from '@/lib/quotes/load'
 import { orgDb } from '@/lib/supabase/org-db'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -48,6 +49,9 @@ export default async function QuotePage({ params }: { params: { token: string } 
       const row = c as { signing_token?: string | null; signing_token_enc?: string | null; pdf_url?: string | null } | null
       const copyToken = signingTokenOf(row)
       if (copyToken && row?.pdf_url) copyHref = customerSignedDocPath('contract', copyToken)
+    } else if (approval.finalized_at && (await approvalPdfPath(admin, orgId, approval))) {
+      // A plan-only approval has no contract: the copy comes through the quote link itself.
+      copyHref = `/api/q/${params.token}/pdf`
     }
     const dep = approval.finalized_at ? await depositStateFor(admin, orgId, approval) : null
     approvalView = {
