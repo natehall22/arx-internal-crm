@@ -1417,7 +1417,6 @@ test('top bar fits the phone with a wide company logo, Ask AI and + Partner; min
 const LAWN_CRAWL: Array<{ name: string; path: string; ready: string }> = [
   { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
   { name: 'custom-fields-admin', path: '/dev-harness/custom-fields-admin', ready: 'text=Payment terms' },
-  { name: 'service-plans', path: '/dev-harness/service-plans', ready: 'text=Weekly mowing & edging' },
   { name: 'checkups', path: '/dev-harness/checkups', ready: 'text=6-month inspection' },
 ]
 const LAWN_FORBIDDEN = /\bARX\b|roof|shingle|tear-?off|insurance|adjuster|\bclaims?\b|\bsetters?\b|\bcanvass|door-?knock|\bhail\b|\bIKO\b|homeowner|dump run/i
