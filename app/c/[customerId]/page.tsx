@@ -68,7 +68,6 @@ export default async function CustomerFileIndex({ params }: { params: { customer
           access={extras.access}
           canViewJobBilling={canViewJobBilling}
           proposalWord={orgProfile.terms.proposal}
-          role={profile.role}
           category={await loadCategoryState(viewer.orgId, c.id, extras.access.edit && canEditRecords && !isRepLikeCustomerRecordRole(profile.role))}
         />
         <p className="px-1 text-ui-base text-ink">No deals yet.</p>

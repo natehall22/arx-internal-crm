@@ -11,7 +11,12 @@ const loadPriceLists = jest.fn()
 const loadPortal = jest.fn()
 const leadsRows = jest.fn()
 const orgDbFrom = jest.fn()
+const perms = jest.fn()
+const visible = jest.fn()
 
+jest.mock('@/lib/auth', () => ({ requireAuth: async () => ({ profile: { id: 'u', org_id: 'o', role: 'admin', custom_role_id: null } }) }))
+jest.mock('@/lib/effective-permissions', () => ({ resolveEffectivePermissionNames: (...a: unknown[]) => perms(...a) }))
+jest.mock('@/lib/threads/legacy-feed', () => ({ visibleActivities: (...a: unknown[]) => visible(...a) }))
 jest.mock('@/lib/org-features-server', () => ({ getOrgFeatures: (...a: unknown[]) => getOrgFeatures(...a) }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({}) }))
 jest.mock('@/lib/supabase/org-db', () => ({ orgDb: () => ({ from: (t: string) => orgDbFrom(t) }) }))
@@ -63,6 +68,8 @@ const names = (tree: unknown) => walk(tree).map((n) => n.name)
 
 beforeEach(() => {
   jest.clearAllMocks()
+  perms.mockResolvedValue({ fullAccess: true, permissionNames: new Set<string>() })
+  visible.mockImplementation(async (_a: unknown, _p: unknown, rows: unknown[]) => rows)
   getOrgFeatures.mockResolvedValue({ customerPortal: true, customerMessages: true, texting: true })
   loadMessages.mockResolvedValue({ off: false })
   loadTexting.mockResolvedValue({ status: 'ready' })
@@ -70,9 +77,13 @@ beforeEach(() => {
   loadPriceLists.mockResolvedValue([{ id: 'a' }, { id: 'b' }])
   loadPortal.mockResolvedValue({ inviteOnly: false, invitedAt: null })
   orgDbFrom.mockImplementation((t: string) => {
-    const rows = t === 'leads' ? [{ id: 'l1', homeowner_name: 'Dana', address_text: '1 Main', status: 'new' }] : []
+    const rows = t === 'leads' ? [{ id: 'l1', homeowner_name: 'Dana', address_text: '1 Main', status: 'new' }]
+      : t === 'opportunities' ? [{ id: 'o1', lead_id: 'l2' }]
+      : t === 'projects' ? [{ id: 'p1', project_type: 'roofing', address_text: '1 Main', lead_id: 'l1' }]
+      : t === 'activities' ? [{ id: 'a1', type: 'note', body: 'Called', created_at: '2026-11-01T12:00:00Z', opportunity_id: 'o1', users: { full_name: 'Riley' } }]
+      : []
     const q: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'is', 'order', 'limit']) q[m] = () => q
+    for (const m of ['select', 'eq', 'is', 'in', 'or', 'order', 'limit']) q[m] = () => q
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: rows, error: null }).then(res)
     return q
   })
@@ -81,9 +92,9 @@ beforeEach(() => {
 describe('one customer page: a customer with no deal', () => {
   it('shows contact (edit + call/text/email), portal, emails opt-out, texting, price list, tax exempt and the account', async () => {
     const access = customerAccessFor(owner, false)
-    const tree = await CustomerCards({ viewer: owner, customer, access: { customerId: 'c1', ...access }, canViewJobBilling: true, proposalWord: 'Proposal', role: 'admin', dealId: null })
+    const tree = await CustomerCards({ viewer: owner, customer, access: { customerId: 'c1', ...access }, canViewJobBilling: true, proposalWord: 'Proposal', dealId: null })
     const n = names(tree)
-    for (const want of ['CustomerInfoCard', 'ContactActions', 'PortalAccessCard', 'CustomerMessagesCard', 'TextingCard', 'PriceListCard', 'TaxExemptionCard', 'CreateAddOnOpportunityButton', 'LinkProjectToCustomerButton', 'ReferralsSection']) expect(n).toContain(want)
+    for (const want of ['CustomerInfoCard', 'ContactActions', 'PortalAccessCard', 'CustomerMessagesCard', 'TextingCard', 'PriceListCard', 'TaxExemptionCard', 'AccountCard', 'ReferralsSection']) expect(n).toContain(want)
     const info = walk(tree).find((x) => x.name === 'CustomerInfoCard')!
     expect(info.props.canEdit).toBe(true)
     // No deal: nowhere to log, so the buttons only open the phone / text / mail apps.
@@ -91,7 +102,7 @@ describe('one customer page: a customer with no deal', () => {
   })
 
   it('on a deal Overview the header already carries the actions, so the card does not repeat them', async () => {
-    const tree = await CustomerCards({ viewer: owner, customer, access: { customerId: 'c1', ...customerAccessFor(owner, true) }, canViewJobBilling: true, proposalWord: 'Proposal', role: 'admin', dealId: 'd1' })
+    const tree = await CustomerCards({ viewer: owner, customer, access: { customerId: 'c1', ...customerAccessFor(owner, true) }, canViewJobBilling: true, proposalWord: 'Proposal', dealId: 'd1' })
     expect(names(tree)).toContain('CustomerInfoCard')
     expect(names(tree)).not.toContain('ContactActions')
     // ...and so does Edit (FileHeader → EditCustomerButton), so the card doesn't offer a second one.
@@ -103,10 +114,10 @@ describe('one customer page: permissions are unchanged', () => {
   it('a field role (setter) can read but not edit; no money, portal, texting, account or referrals', async () => {
     const access = { customerId: 'c1', ...customerAccessFor(setter, true) }
     expect(access.edit).toBe(false)
-    const tree = await CustomerCards({ viewer: setter, customer, access, canViewJobBilling: false, proposalWord: 'Proposal', role: 'setter', dealId: 'd1' })
+    const tree = await CustomerCards({ viewer: setter, customer, access, canViewJobBilling: false, proposalWord: 'Proposal', dealId: 'd1' })
     const n = names(tree)
     expect(walk(tree).find((x) => x.name === 'CustomerInfoCard')!.props.canEdit).toBe(false)
-    for (const no of ['PortalAccessCard', 'TextingCard', 'PriceListCard', 'TaxExemptionCard', 'CreateAddOnOpportunityButton', 'ReferralsSection']) expect(n).not.toContain(no)
+    for (const no of ['PortalAccessCard', 'TextingCard', 'PriceListCard', 'TaxExemptionCard', 'AccountCard', 'ReferralsSection']) expect(n).not.toContain(no)
     // Money loaders never even run for someone without billing access.
     expect(loadSalesTax).not.toHaveBeenCalled()
     expect(loadPriceLists).not.toHaveBeenCalled()
@@ -114,15 +125,66 @@ describe('one customer page: permissions are unchanged', () => {
   })
 
   it('money cards need billing access even for a company-wide viewer', async () => {
-    const tree = await CustomerCards({ viewer: { ...base, jobBoard: true }, customer, access: { customerId: 'c1', ...customerAccessFor({ ...base, jobBoard: true }, false) }, canViewJobBilling: false, proposalWord: 'Proposal', role: 'operations', dealId: null })
+    const tree = await CustomerCards({ viewer: { ...base, jobBoard: true }, customer, access: { customerId: 'c1', ...customerAccessFor({ ...base, jobBoard: true }, false) }, canViewJobBilling: false, proposalWord: 'Proposal', dealId: null })
     expect(names(tree)).not.toContain('TaxExemptionCard')
     expect(names(tree)).not.toContain('PriceListCard')
   })
 
   it('the account lists are read org-scoped (orgDb), customer-keyed', async () => {
-    await CustomerCards({ viewer: owner, customer, access: { customerId: 'c1', ...customerAccessFor(owner, false) }, canViewJobBilling: true, proposalWord: 'Proposal', role: 'admin', dealId: null })
+    await CustomerCards({ viewer: owner, customer, access: { customerId: 'c1', ...customerAccessFor(owner, false) }, canViewJobBilling: true, proposalWord: 'Proposal', dealId: null })
     expect(orgDbFrom).toHaveBeenCalledWith('leads')
     expect(orgDbFrom).toHaveBeenCalledWith('projects')
+  })
+})
+
+describe('one customer page: review fixes', () => {
+  const ownerAccess = { customerId: 'c1', ...customerAccessFor(owner, false) }
+  const props = { viewer: owner, customer, access: ownerAccess, canViewJobBilling: true, proposalWord: 'Proposal' }
+
+  it('referrals need customer-records access, like the referrals API (a rep without it gets no broken card)', async () => {
+    perms.mockResolvedValue({ fullAccess: false, permissionNames: new Set<string>() })
+    expect(names(await CustomerCards({ ...props, dealId: null }))).not.toContain('ReferralsSection')
+    perms.mockResolvedValue({ fullAccess: false, permissionNames: new Set(['customers:view']) })
+    expect(names(await CustomerCards({ ...props, dealId: null }))).toContain('ReferralsSection')
+  })
+
+  it('the no-deal Edit needs customers:edit, same as the header', async () => {
+    perms.mockResolvedValue({ fullAccess: false, permissionNames: new Set(['customers:view']) })
+    expect(walk(await CustomerCards({ ...props, dealId: null })).find((x) => x.name === 'CustomerInfoCard')!.props.canEdit).toBe(false)
+    perms.mockResolvedValue({ fullAccess: false, permissionNames: new Set(['customers:edit']) })
+    expect(walk(await CustomerCards({ ...props, dealId: null })).find((x) => x.name === 'CustomerInfoCard')!.props.canEdit).toBe(true)
+  })
+
+  it('Leads include those reached through deals and projects, deduped; activity runs through visibleActivities', async () => {
+    const tree = await CustomerCards({ ...props, dealId: null })
+    const card = walk(tree).find((x) => x.name === 'AccountCard')!
+    const leads = card.props.leads as Array<{ id: string }>
+    // own: l1 (customers.lead rows mock returns l1 for every leads query); linked l2 via the deal; l1 via the project is not repeated.
+    expect(leads.filter((l) => l.id === 'l1')).toHaveLength(1)
+    expect(orgDbFrom).toHaveBeenCalledWith('activities')
+    expect(visible).toHaveBeenCalledTimes(1)
+    expect((card.props.activities as unknown[]).length).toBe(1)
+  })
+
+  it('visibleActivities decides what shows: a hidden row never reaches the card', async () => {
+    visible.mockResolvedValue([])
+    const card = walk(await CustomerCards({ ...props, dealId: null })).find((x) => x.name === 'AccountCard')!
+    expect(card.props.activities).toEqual([])
+  })
+
+  it('?tab=referrals on the old URL lands on the Overview Referrals card', () => {
+    const r = readFileSync(path.join(process.cwd(), 'lib/customer-file/redirects.ts'), 'utf8')
+    expect(r).toContain("/overview#referrals")
+    expect(readFileSync(path.join(process.cwd(), 'components/customer-file/CustomerCards.tsx'), 'utf8')).toContain('id="referrals"')
+  })
+
+  it('the edit sheet offers the deal address, writes through the deal PATCH, and the customer PATCH only moves a lead that still holds the old value', () => {
+    const sheet = readFileSync(path.join(process.cwd(), 'components/customers/EditCustomerSheet.tsx'), 'utf8')
+    expect(sheet).toContain('Also update this deal’s address')
+    expect(sheet).toContain('/api/opportunities/${deal.id}')
+    const route = readFileSync(path.join(process.cwd(), 'app/api/customers/[id]/route.ts'), 'utf8')
+    expect(route).toContain(".eq('address_text', alsoLead.old_address)")
+    expect(route).toContain(".eq('customer_id', params.id)")
   })
 })
 

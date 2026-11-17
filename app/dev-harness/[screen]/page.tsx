@@ -106,6 +106,8 @@ import { visibleSettingsGroups } from '@/lib/settings-registry'
 import { QueueCard, KpiTiles } from '@/components/today/QueueCard'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 import ContactActions from '@/components/customer/ContactActions'
+import AccountCard from '@/components/customer-file/AccountCard'
+import ReferralsSection from '@/components/ReferralsSection'
 import FileHeader from '@/components/customer-file/FileHeader'
 import FileTabs from '@/components/customer-file/FileTabs'
 import ThreadPanel from '@/components/customer-file/ThreadPanel'
@@ -873,6 +875,20 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <CustomerInfoCard customer={{ id: 'cust-1', name: 'Dana Whitfield', phone: '7045550101', email: 'dana@example.com', address_text: '412 Oak Ridge Rd, Concord, NC 28025' }} canEdit actions={<ContactActions dealId={null} phone="7045550101" email="dana@example.com" surface="overview" />} />
           <p className="px-1 text-ui-base text-ink">No deals yet.</p>
           <PropertiesCard customerId="cust-1" initial={HARNESS_PROPERTIES as Property[]} ready canEdit accessNotes propertyFields={[]} />
+        </div>
+      )
+    case 'customer-account':
+      // The Account card and Referrals card of the Customer File (company-wide viewer).
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <AccountCard
+            customerId="c1"
+            customerName="Ashley Gaines"
+            leads={[{ id: 'l1', homeowner_name: 'Ashley Gaines', address_text: '9 Elm St, Concord, NC', status: 'new' }]}
+            projects={[{ id: 'p1', project_type: 'roofing', address_text: '9 Elm St, Concord, NC' }]}
+            activities={[{ id: 'a1', type: 'call', body: 'Left a voicemail about the estimate.', created_at: '2026-11-03T15:00:00Z', users: { full_name: 'Riley Ops' } }]}
+          />
+          <div id="referrals"><ReferralsSection customerId="c1" customerName="Ashley Gaines" orgId="org-1" canManage /></div>
         </div>
       )
     case 'customer-page-with-deal':

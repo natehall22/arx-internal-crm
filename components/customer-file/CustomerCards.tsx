@@ -1,17 +1,18 @@
-import Link from 'next/link'
-
 import ReferralsSection from '@/components/ReferralsSection'
 import CategoryField from '@/components/categories/CategoryField'
-import CreateAddOnOpportunityButton from '@/components/customers/CreateAddOnOpportunityButton'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
-import LinkProjectToCustomerButton from '@/components/customers/LinkProjectToCustomerButton'
+import AccountCard, { type AccountActivity, type AccountLead, type AccountProject } from '@/components/customer-file/AccountCard'
 import ContactActions from '@/components/customer/ContactActions'
 import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
 import PriceListCard from '@/components/customer/PriceListCard'
 import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
 import TextingCard from '@/components/customer/TextingCard'
 import PortalAccessCard from '@/components/customer-file/PortalAccessCard'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
+import { Card, CardContent } from '@/components/ui'
+import { requireAuth } from '@/lib/auth'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { canAccessCustomerRecordsFromPermissionNames, canEditCustomerRecordsFromPermissionNames } from '@/lib/permissions'
+import { visibleActivities } from '@/lib/threads/legacy-feed'
 import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
 import type { Category } from '@/lib/categories'
 import { loadCustomerMessageState } from '@/lib/customer-messages-db'
@@ -80,7 +81,6 @@ export default async function CustomerCards({
   access,
   canViewJobBilling,
   proposalWord,
-  role,
   dealId = null,
   category,
 }: {
@@ -89,13 +89,17 @@ export default async function CustomerCards({
   access: CustomerAccess
   canViewJobBilling: boolean
   proposalWord: string
-  role: string
   /** The deal the viewer is on. null = no deal: the contact card carries Call / Text / Email (there is no deal header, and nowhere to log). */
   dealId?: string | null
   /** Work category field, shown when the company uses categories or this customer has one. */
   category?: { value: string | null; list: Category[]; canEdit: boolean }
 }) {
   const admin = createServiceClient()
+  const { profile } = await requireAuth()
+  const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
+  // The same two gates the customer APIs use: referrals need records access (as /api/referrals does), editing needs customers:edit (as PATCH /api/customers/[id]).
+  const canAccessRecords = canAccessCustomerRecordsFromPermissionNames(perms)
+  const canEditRecords = canEditCustomerRecordsFromPermissionNames(perms)
   const companyWide = viewer.ownerLike || viewer.managerLike || viewer.jobBoard
   const features = await getOrgFeatures(viewer.orgId)
   const [taxExemption, priceList, messages, texting, portalState] = await Promise.all([
@@ -107,15 +111,15 @@ export default async function CustomerCards({
     companyWide && features.customerPortal ? loadPortalAccessState(admin, viewer.orgId, customer.id).catch(() => null) : Promise.resolve(null),
   ])
   const showPortal = !!portalState
-  const account = companyWide ? await loadAccount(viewer.orgId, customer.id) : null
-  const showReferrals = access.edit
+  const account = companyWide ? await loadAccount(admin, profile, viewer.orgId, customer.id).catch((e) => { console.error('account card failed', e); return null }) : null
+  const showReferrals = access.edit && canAccessRecords
 
   return (
     <>
       <CustomerInfoCard
         customer={customer}
         // With a deal the file header carries Edit (every tab); with none there is no header, so the card does.
-        canEdit={access.edit && !dealId}
+        canEdit={access.edit && canEditRecords && !dealId}
         actions={dealId ? null : <ContactActions dealId={null} phone={customer.phone} email={customer.email} surface="overview" />}
       />
 
@@ -137,65 +141,47 @@ export default async function CustomerCards({
 
       {taxExemption && <TaxExemptionCard proposalWord={proposalWord} customerId={customer.id} initial={taxExemption.initial} documents={taxExemption.documents} />}
 
-      {account && (
-        <Card>
-          <CardHeader><CardTitle>Account</CardTitle></CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-center gap-2">
-              <CreateAddOnOpportunityButton customerId={customer.id} />
-              <LinkProjectToCustomerButton customerId={customer.id} customerName={customer.name} />
-              <Link href={`/work-orders/new?customer=${customer.id}`} className="inline-flex min-h-tap items-center rounded-ui border border-surface-line px-4 text-ui-sm font-semibold text-ink">New work order</Link>
-            </div>
-            {account.leads.length > 0 && (
-              <div className="mt-4">
-                <h3 className="text-ui-sm font-semibold text-ink">Leads</h3>
-                <ul className="divide-y divide-surface-line">
-                  {account.leads.map((l) => (
-                    <li key={l.id}>
-                      <Link href={`/leads/${l.id}`} className="flex min-h-tap flex-wrap items-center justify-between gap-2 py-2 text-ui-base text-brand-800 underline">
-                        <span>{l.homeowner_name || 'Lead'}{l.address_text ? ` · ${l.address_text}` : ''}</span>
-                        <span className="text-ui-sm capitalize text-ink">{String(l.status ?? '').replace(/_/g, ' ')}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {account.projects.length > 0 && (
-              <div className="mt-4">
-                <h3 className="text-ui-sm font-semibold text-ink">Projects</h3>
-                <ul className="divide-y divide-surface-line">
-                  {account.projects.map((p) => (
-                    <li key={p.id}>
-                      <Link href={`/projects/${p.id}`} className="flex min-h-tap items-center py-2 text-ui-base text-brand-800 underline">
-                        {p.project_type || 'Project'}{p.address_text ? ` · ${p.address_text}` : ''}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {account && <AccountCard customerId={customer.id} customerName={customer.name} leads={account.leads} projects={account.projects} activities={account.activities} />}
 
-      {showReferrals && <ReferralsSection customerId={customer.id} customerName={customer.name || undefined} orgId={viewer.orgId} canManage={isReferralManagerRole(role)} />}
+      {showReferrals && <div id="referrals"><ReferralsSection customerId={customer.id} customerName={customer.name || undefined} orgId={viewer.orgId} canManage={isReferralManagerRole(profile.role)} /></div>}
     </>
   )
 }
 
-/** Leads and projects of the customer (what the old account page's Leads / Projects tabs listed), org-scoped. Company-wide viewers only. */
-async function loadAccount(orgId: string, customerId: string) {
-  const admin = createServiceClient()
+/**
+ * What the old account page's Leads / Projects / Activity tabs listed, org-scoped, company-wide viewers only. Leads are the
+ * customer's own plus those reached through their deals and projects (opportunities.lead_id / projects.lead_id), deduped.
+ * Activity spans the customer, those leads, projects and deals and goes through visibleActivities (the thread audience rules).
+ */
+async function loadAccount(admin: ReturnType<typeof createServiceClient>, profile: Parameters<typeof visibleActivities>[1], orgId: string, customerId: string) {
   const db = orgDb(admin, orgId)
-  const [leads, projects] = await Promise.all([
+  const [ownLeads, projects, deals] = await Promise.all([
     db.from('leads').select('id, homeowner_name, address_text, status').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(50),
-    db.from('projects').select('id, project_type, address_text').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(50),
+    db.from('projects').select('id, project_type, address_text, lead_id').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(50),
+    db.from('opportunities').select('id, lead_id').eq('customer_id', customerId).limit(100),
   ])
-  return {
-    leads: (leads.data ?? []) as Array<{ id: string; homeowner_name: string | null; address_text: string | null; status: string | null }>,
-    projects: (projects.data ?? []) as Array<{ id: string; project_type: string | null; address_text: string | null }>,
-  }
+  const projectRows = (projects.data ?? []) as Array<AccountProject & { lead_id: string | null }>
+  const dealRows = (deals.data ?? []) as Array<{ id: string; lead_id: string | null }>
+  const own = (ownLeads.data ?? []) as AccountLead[]
+  const have = new Set(own.map((l) => l.id))
+  const linkedIds = Array.from(new Set([...projectRows, ...dealRows].map((r) => r.lead_id).filter((x): x is string => !!x && !have.has(x))))
+  const linked = linkedIds.length ? (((await db.from('leads').select('id, homeowner_name, address_text, status').in('id', linkedIds).limit(50)).data ?? []) as AccountLead[]) : []
+  const leads = Array.from(new Map([...own, ...linked].map((l): [string, AccountLead] => [l.id, l])).values())
+
+  const parts = [`customer_id.eq.${customerId}`]
+  const addIn = (col: string, ids: string[]) => { if (ids.length) parts.push(`${col}.in.(${ids.join(',')})`) }
+  addIn('lead_id', leads.map((l) => l.id))
+  addIn('project_id', projectRows.map((p) => p.id))
+  addIn('opportunity_id', dealRows.map((d) => d.id))
+  const { data: acts } = await db
+    .from('activities')
+    .select('id, type, body, created_at, opportunity_id, audience, restricted_pricing, deleted_at, users(full_name)')
+    .is('deleted_at', null)
+    .or(parts.join(','))
+    .order('created_at', { ascending: false })
+    .limit(100)
+  const activities = (await visibleActivities(admin, profile, (acts ?? []) as unknown as Array<AccountActivity & { opportunity_id: string | null; audience: never; restricted_pricing: boolean | null; deleted_at: string | null }>)).slice(0, 50)
+  return { leads, projects: projectRows.map(({ id, project_type, address_text }) => ({ id, project_type, address_text })), activities: activities as AccountActivity[] }
 }
 
 /** Work-category state for the customer-level card. Rep-like roles may only change it on their own deals, so with no deal they may not. */

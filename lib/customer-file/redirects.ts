@@ -108,7 +108,7 @@ export async function redirectJobToFile(id: string) {
 }
 
 /** /customers/[id] → the Customer File, where it is the default and the viewer can open it (else the old page stays). */
-export async function redirectCustomerToFile(id: string) {
+export async function redirectCustomerToFile(id: string, tab?: string) {
   const { profile } = await requireAuth()
   const admin = createServiceClient()
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
@@ -117,5 +117,11 @@ export async function redirectCustomerToFile(id: string) {
   const access = await resolveCustomerAccess(admin, viewer, id)
   if (!access?.read) return
   console.info('[customer-file] redirect', JSON.stringify({ route: '/customers/[id]', role: profile.role }))
+  // ?tab=referrals (older links) lands on the Referrals card of the file's Overview.
+  if (tab === 'referrals') {
+    const { pickDefaultDeal } = await import('@/lib/customer-file/load')
+    const dealId = await pickDefaultDeal(id)
+    redirect(dealId ? `/c/${id}/d/${dealId}/overview#referrals` : `/c/${id}#referrals`)
+  }
   redirect(`/c/${id}`)
 }

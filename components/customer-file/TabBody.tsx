@@ -72,7 +72,13 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
         <CardHeader><CardTitle>This deal</CardTitle><StatusPill domain="opportunity" value={deal.status} /></CardHeader>
         <CardContent>
           <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-ui-base text-ink">
-            <dt className="text-ink-muted">Address</dt><dd>{deal.address_text || customer.address_text || '—'}</dd>
+            <dt className="text-ink-muted">Address</dt>
+            <dd>
+              {deal.address_text || customer.address_text || '—'}
+              {deal.address_text && customer.address_text && deal.address_text.trim().replace(/\s+/g, ' ').toLowerCase() !== customer.address_text.trim().replace(/\s+/g, ' ').toLowerCase() && (
+                <span className="mt-1 block text-ui-sm text-ink-muted">Deal address differs from the customer’s ({customer.address_text}).</span>
+              )}
+            </dd>
             <dt className="text-ink-muted">Proposals</dt><dd>{ctx.proposalCount}</dd>
             <dt className="text-ink-muted">Contract</dt><dd>{ctx.signedContract ? 'Signed' : 'Not signed'}</dd>
           </dl>
@@ -103,7 +109,6 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
           access={access}
           canViewJobBilling={ctx.canViewJobBilling}
           proposalWord={ctx.proposalWord}
-          role={ctx.profile.role}
           dealId={dealId}
           category={{ value: ctx.category, list: ctx.categories, canEdit: ctx.canEditCategory }}
         />

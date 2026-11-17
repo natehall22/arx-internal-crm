@@ -26,7 +26,7 @@ export default function FileHeader({ ctx, canSendForSignature = false, canEditCu
           </div>
           <div className="flex flex-wrap gap-2">
             <ContactActions dealId={deal.id} phone={customer.phone} email={customer.email} surface={job ? 'job' : 'overview'} />
-            {canEditCustomer && <EditCustomerButton customer={customer} />}
+            {canEditCustomer && <EditCustomerButton customer={customer} deal={{ id: deal.id, address_text: deal.address_text, lead_id: deal.lead_id }} />}
             {canSendForSignature && (
               <Link href={signHref} className="inline-flex min-h-tap items-center rounded-ui border border-surface-line px-4 text-ui-sm font-semibold text-ink">Send for signature</Link>
             )}

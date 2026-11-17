@@ -67,7 +67,7 @@ export default async function CustomerDetailPage({
   // Where the Customer File is the company's customer page (lib/customer-file/redirects.ts), this page is only a stub that
   // forwards there. Its Leads / Opportunities / Projects / Referrals / Work Orders functions live in the Customer File's
   // Account card (components/customer-file/CustomerCards.tsx). Elsewhere it renders as before.
-  await redirectCustomerToFile(params.id)
+  await redirectCustomerToFile(params.id, searchParams?.tab)
   const activeTab = searchParams?.tab ?? 'overview'
 
   const { data: customer } = await supabase
