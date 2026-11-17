@@ -25,6 +25,8 @@ import TimeClockSettingsCard from '@/components/time/TimeClockSettingsCard'
 import CrewTimeSetup from '@/components/time/CrewTimeSetup'
 import type { ClockState } from '@/components/time/useClock'
 import type { TimeWeek } from '@/lib/time-tracking-db'
+import SettingsBackLink from '@/components/admin/SettingsBackLink'
+import { PageHeader } from '@/components/ui/page-header'
 import WhatsNewView from '@/components/WhatsNewView'
 import { ROLE_GROUPS } from '@/lib/announcements'
 import { WHATS_NEW_SHOTS } from '@/lib/whats-new-shots'
@@ -351,6 +353,17 @@ export default function Harness({ params }: { params: { screen: string } }) {
         </div>
       )
     }
+    case 'settings-section':
+      // The shell of /admin/s/<page> (app/admin/s/[section]/page.tsx) around one of its cards.
+      return (
+        <main className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
+          <SettingsBackLink />
+          <PageHeader title="Quotes & signing" subtitle="Quote links and deposits." />
+          <div className="flex flex-col gap-4">
+            <div id="quotes" className="flex scroll-mt-4 flex-col gap-4"><QuoteApprovalCard /></div>
+          </div>
+        </main>
+      )
     case 'suppliers-admin':
       return <SuppliersClient />
     case 'email-blasts':

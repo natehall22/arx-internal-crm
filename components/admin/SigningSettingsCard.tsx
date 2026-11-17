@@ -94,7 +94,7 @@ export default function SigningSettingsCard() {
   }
 
   return (
-    <Card id="signing" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Signing</CardTitle>
       </CardHeader>

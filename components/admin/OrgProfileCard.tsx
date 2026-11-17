@@ -68,7 +68,7 @@ export default function OrgProfileCard({ current, profiles }: OrgProfileCardProp
   const onOff = (on: boolean) => (on ? 'On' : 'Off')
 
   return (
-    <Card id="industry-profile" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Industry profile</CardTitle>
       </CardHeader>

@@ -32,7 +32,7 @@ export default function JobCatchUpSettingsCard({ initial }: { initial: Settings 
   const daysValid = Number.isInteger(parsed) && parsed >= MIN_STUCK_DAYS && parsed <= MAX_STUCK_DAYS
 
   return (
-    <Card id="job-catch-up" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Job catch-up</CardTitle>
       </CardHeader>

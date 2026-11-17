@@ -156,7 +156,8 @@ describe('roofing / ARX copy is unchanged', () => {
   it('Settings: roofing sees every entry with the registry’s own text, nothing hidden or reworded', () => {
     const all = SETTINGS_GROUPS.flatMap((g) => g.items)
     const seen = settingsFor(roof).flatMap((g) => g.items)
-    for (const i of seen) expect(i.description).toBe(all.find((a) => a.href === i.href)?.description)
+    // topic pages (cards) list what this viewer can open, so their text is computed, not the registry's
+    for (const i of seen.filter((s) => !s.cards)) expect(i.description).toBe(all.find((a) => a.href === i.href)?.description)
     const hrefs = seen.map((i) => i.href)
     for (const h of ['/admin/print-kit', '/admin/door-drop', '/admin/financing-programs', '/admin/sisu/incentives', '/admin/inspection-feedback', '/admin/pricing', '/admin/proposals', '/admin/teams']) expect(hrefs).toContain(h)
     expect(seen.find((i) => i.href === '/admin/pricing')?.description).toBe('Price per square, dump costs, overhead and pricebook items')

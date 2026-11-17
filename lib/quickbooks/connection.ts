@@ -316,7 +316,7 @@ export async function loadQuickBooksNeedsYouQueue(admin: SupabaseClient, orgId: 
       title: 'QuickBooks needs you',
       count: 1,
       empty: 'QuickBooks is connected.',
-      items: [{ id: 'reconnect', title: 'Reconnect QuickBooks', detail: row.needs_reconnect_reason ?? 'QuickBooks stopped accepting this connection.', href: '/admin#quickbooks', ref: 'QuickBooks', note: 'Reconnect QuickBooks' }],
+      items: [{ id: 'reconnect', title: 'Reconnect QuickBooks', detail: row.needs_reconnect_reason ?? 'QuickBooks stopped accepting this connection.', href: '/admin/s/payments#quickbooks', ref: 'QuickBooks', note: 'Reconnect QuickBooks' }],
     }
   }
   if (expiresWithinDays(row.refresh_expires_at, WARN_BEFORE_EXPIRY_DAYS, now)) {
@@ -325,7 +325,7 @@ export async function loadQuickBooksNeedsYouQueue(admin: SupabaseClient, orgId: 
       title: 'QuickBooks needs you',
       count: 1,
       empty: 'QuickBooks is connected.',
-      items: [{ id: 'reconnect-soon', title: 'Reconnect QuickBooks soon', detail: 'Intuit ends this connection within 30 days. Reconnecting takes a minute.', href: '/admin#quickbooks', ref: 'QuickBooks', note: 'Reconnect QuickBooks soon' }],
+      items: [{ id: 'reconnect-soon', title: 'Reconnect QuickBooks soon', detail: 'Intuit ends this connection within 30 days. Reconnecting takes a minute.', href: '/admin/s/payments#quickbooks', ref: 'QuickBooks', note: 'Reconnect QuickBooks soon' }],
     }
   }
   return null

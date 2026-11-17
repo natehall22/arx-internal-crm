@@ -27,6 +27,7 @@ async function mockApi(page: Page) {
     if (p === '/api/reports/saved') return route.fulfill(json({ reports: [{ id: 's1', name: 'Inspections Scheduled', spec: REPORT_TEMPLATES[0].spec, schedule: 'daily', created_by: 'u1' }], me: 'u1' }))
     if (p === '/api/announcements/active') return route.fulfill(json(BANNER))
     if (p === '/api/admin/announcements') return route.fulfill(json(ANNOUNCEMENTS))
+    if (p === '/api/admin/quote-approval') return route.fulfill(json({ settings: { depositMode: 'percent', depositPercent: 10, depositFixedCents: 0, linkDays: 30, terms: 'Quotes are good for 30 days.' } }))
     if (p === '/api/admin/suppliers') return route.fulfill(json(SUPPLIERS))
     if (p === '/api/admin/payroll/pay-week') return route.fulfill(json(PAY_WEEK))
     if (p === '/api/admin/payroll/pay-week/job-split') return route.fulfill(json(JOB_SPLIT))
@@ -149,6 +150,14 @@ const SCREENS: Screen[] = [
     ] },
   { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
   { name: 'pay-banners', path: '/dev-harness/pay-banners', ready: 'text=Mark' },
+  { name: 'settings-section', path: '/dev-harness/settings-section', ready: 'text=Quotes & signing',
+    states: [{ name: 'back-link-and-card', run: async (p) => {
+      // a Settings topic page: "← Settings" 44px tall above the title, card loads inside the same column
+      const back = await p.getByTestId('settings-back-link').boundingBox()
+      const title = await p.getByRole('heading', { level: 1 }).boundingBox()
+      if (!back || back.height < 44) throw new Error(`settings back link under 44px: ${back?.height}`)
+      if (!title || back.y + back.height > title.y + 1) throw new Error('settings back link is not above the title')
+    } }] },
   { name: 'suppliers-admin', path: '/dev-harness/suppliers-admin', ready: 'text=Suppliers',
     states: [
       { name: 'back-link', run: async (p) => {

@@ -1190,7 +1190,7 @@ export default function AdminSettingsPage() {
                   {/* On/off is the "Roof measuring" feature switch (one switch: lib/org-features.ts), owners only.
                       canEditBrand = isSuperAdmin from GET /api/admin/settings — the same people who see Settings → Features. */}
                   {canEditBrand ? (
-                    <a href="/admin#features" className="inline-flex min-h-[44px] items-center text-sm font-semibold text-indigo-700 hover:underline">
+                    <a href="/admin/s/company#features" className="inline-flex min-h-[44px] items-center text-sm font-semibold text-indigo-700 hover:underline">
                       Turn on/off in Settings → Features
                     </a>
                   ) : (

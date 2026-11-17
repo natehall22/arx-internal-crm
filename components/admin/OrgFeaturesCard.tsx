@@ -30,7 +30,7 @@ export default function OrgFeaturesCard({ initial }: { initial: OrgFeatures }) {
   }
 
   return (
-    <Card id="features" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Features</CardTitle>
       </CardHeader>

@@ -101,7 +101,7 @@ export default function AiConnectorClient() {
           <Button variant={data.writesEnabled ? 'secondary' : 'primary'} className="mt-3 min-h-tap" disabled={!data.enabled} loading={busy === 'writes'} aria-pressed={data.writesEnabled} onClick={() => void toggleWrites()}>
             {data.writesEnabled ? 'Turn off changes' : 'Turn on changes'}
           </Button>
-          <Link href="/admin#features" className="ml-4 mt-3 inline-flex min-h-tap items-center text-ui-sm text-ink underline">
+          <Link href="/admin/s/company#features" className="ml-4 mt-3 inline-flex min-h-tap items-center text-ui-sm text-ink underline">
             All feature switches
           </Link>
         </CardContent>

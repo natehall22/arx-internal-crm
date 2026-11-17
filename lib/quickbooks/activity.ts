@@ -141,6 +141,6 @@ export async function loadQuickBooksStuckQueue(admin: SupabaseClient, orgId: str
     title: 'Not in QuickBooks yet',
     count: rows.length,
     empty: 'Everything has reached QuickBooks.',
-    items: rows.slice(0, 5).map((r) => ({ id: r.id, title: VERB[r.event_type] ?? 'QuickBooks', detail: r.last_error ?? 'Needs a look', href: '/admin#quickbooks', ref: 'QuickBooks', note: 'Open QuickBooks activity' })),
+    items: rows.slice(0, 5).map((r) => ({ id: r.id, title: VERB[r.event_type] ?? 'QuickBooks', detail: r.last_error ?? 'Needs a look', href: '/admin/s/payments#quickbooks', ref: 'QuickBooks', note: 'Open QuickBooks activity' })),
   }
 }

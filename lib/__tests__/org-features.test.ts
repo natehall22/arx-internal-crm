@@ -10,7 +10,7 @@ import {
   resolveOrgFeatures,
 } from '@/lib/org-features'
 import { visibleNav, type NavContext } from '@/lib/nav-config'
-import { visibleSettingsGroups } from '@/lib/settings-registry'
+import { reachableSettingsHrefs, visibleSettingsGroups } from '@/lib/settings-registry'
 import { featuresFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { insideSalesFeatureTabs } from '@/lib/inside-sales-follow-up'
 
@@ -130,12 +130,12 @@ describe('entry points hide when a feature is off', () => {
   })
   it('settings hub: Work areas / Roof measure tool links hide (Sisu program stays — it holds the setter-ramp pay tool); Features is super admins only', () => {
     const all = { canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true, canOwner: true, canSuperAdmin: true }
-    const hrefs = (g: ReturnType<typeof visibleSettingsGroups>) => g.flatMap((x) => x.items.map((i) => i.href))
+    const hrefs = reachableSettingsHrefs
     const on = hrefs(visibleSettingsGroups(all))
-    expect(on).toEqual(expect.arrayContaining(['/canvass?areas=1', '/tools/roof-measure', '/admin/sisu/incentives', '/admin#features']))
+    expect(on).toEqual(expect.arrayContaining(['/canvass?areas=1', '/tools/roof-measure', '/admin/sisu/incentives', '/admin/s/company#features']))
     const off = hrefs(visibleSettingsGroups({ ...all, features: { canvassing: false, roofMeasure: false, incentives: false } }))
     expect(off).toEqual(on.filter((h) => !['/canvass?areas=1', '/tools/roof-measure'].includes(h)))
-    expect(hrefs(visibleSettingsGroups({ ...all, canSuperAdmin: false }))).not.toContain('/admin#features')
+    expect(hrefs(visibleSettingsGroups({ ...all, canSuperAdmin: false }))).not.toContain('/admin/s/company#features')
   })
 })
 

@@ -81,7 +81,7 @@ export default function ProposalContentCard({ proposalWord = 'Proposal' }: { pro
 
   const co = data?.companyName || 'Your company'
   return (
-    <Card id="proposal-content" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>{proposalWord} content</CardTitle>
       </CardHeader>

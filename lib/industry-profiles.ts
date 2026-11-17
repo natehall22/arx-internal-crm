@@ -266,7 +266,7 @@ const LAWN_SETTINGS_HIDDEN = [
   '/admin/inspection-feedback',
   '/admin/financing-programs',
   '/admin/sisu/incentives',
-  '/admin#checkups',
+  '/admin/s/jobs#checkups',
 ]
 
 const lawnLandscape: IndustryProfile = {

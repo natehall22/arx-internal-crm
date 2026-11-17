@@ -12,7 +12,8 @@ const NOT_SETTINGS_SUBPAGES = new Set(['/canvass?areas=1', '/tools/roof-measure'
 const hrefs = SETTINGS_GROUPS.flatMap((g) => g.items.map((i) => i.href)).filter((h) => !h.includes('#') && !NOT_SETTINGS_SUBPAGES.has(h))
 
 function filesFor(href: string): string[] {
-  const dir = join(root, 'app', href)
+  // /admin/s/<page> are all served by the one dynamic route app/admin/s/[section]
+  const dir = join(root, 'app', href.replace(/^\/admin\/s\/[a-z]+$/, '/admin/s/[section]'))
   const names = ['page.tsx', 'layout.tsx']
   const out = names.map((n) => join(dir, n)).filter(existsSync)
   // client components imported from the page folder
