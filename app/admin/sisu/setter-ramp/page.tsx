@@ -1,5 +1,7 @@
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { notFound } from 'next/navigation'
+import { getOrgFeatures } from '@/lib/org-features-server'
 import SetterRampClient from './SetterRampClient'
 
 export const dynamic = 'force-dynamic'
@@ -7,6 +9,9 @@ export const revalidate = 0
 
 export default async function SetterRampPage() {
   const { profile } = await requireAuth()
+  // Setter ramp is pay for door-knocking setters: it exists with the Sisu program or with canvassing, never for a company with neither.
+  const features = await getOrgFeatures(profile.org_id)
+  if (!features.incentives && !features.canvassing) notFound()
   const supabase = createClient()
 
   const { data: orgRow } = await supabase
