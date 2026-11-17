@@ -1,3 +1,4 @@
+import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { readFileSync, existsSync } from 'fs'
 import { PRODUCT_NAME } from '@/lib/product'
 import { join } from 'path'
@@ -292,7 +293,7 @@ export async function generateCompletionCertificateDocument(
     jobNumber: (job as any).job_number,
     customerName: customer?.name || 'Customer',
     propertyAddress: (job as any).address_text || '',
-    jobType: (job as any).job_type,
+    jobType: (job as any).job_type ? tradeLabel((job as any).job_type, await loadOrgTrades(supabase, args.orgId)) : null,
     workDescription: (job as any).completion_certificate_work_description,
     completionDate: (job as any).completed_at || generatedDate,
     generatedDate,
