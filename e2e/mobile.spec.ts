@@ -142,6 +142,7 @@ const SCREENS: Screen[] = [
       }
       await p.waitForSelector('text=Sale credit')
     } }] },
+  { name: 'finish-setup', path: '/dev-harness/finish-setup', ready: 'text=Finish setup' },
   { name: 'needs-you', path: '/dev-harness/needs-you', ready: 'text=Needs you' },
   { name: 'checkups', path: '/dev-harness/checkups', ready: 'text=6-month inspection',
     states: [

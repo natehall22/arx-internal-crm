@@ -7,6 +7,7 @@ import AuthShell, {
   authLabelClass,
   authNoticeClass,
 } from '@/components/AuthShell'
+import ForgotPasswordForm from './ForgotPasswordForm'
 import { authShellCompanyFor, loadLoginCompany } from '@/lib/company-login'
 
 export const dynamic = 'force-dynamic'
@@ -52,7 +53,7 @@ export default async function LoginPage({
       company={company}
       footer={
         <>
-          <p>Forgot your password? Ask your administrator for a reset link.</p>
+          <ForgotPasswordForm />
           {login.state === 'legacy' ? (
             <Link href="/" className="mt-3 inline-block text-[#E2BF73] hover:text-[#EBCD8B]">
               ← Back to home

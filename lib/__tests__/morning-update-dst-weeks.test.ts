@@ -7,14 +7,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { orgTimeZone } from '@/lib/cron-orgs'
 import { getBlastSendDate } from '@/lib/email-blast-ledger'
-import { isMorningUpdateSendWindow } from '@/lib/morning-update-schedule'
+import { isMorningUpdateDailyWindow, isMorningUpdateSendWindow } from '@/lib/morning-update-schedule'
 
 const cron = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf8')).crons.find(
   (c: { path: string }) => c.path === '/api/cron/morning-update'
 ).schedule as string
 const [minute, hours, , , dows] = cron.split(' ')
+// The cron fires every day: the daily jobs run on Sunday too; only the email skips it (isMorningUpdateSendWindow).
 const FIRE_HOURS = hours.split(',').map(Number)
-const [dowFrom, dowTo] = dows.split('-').map(Number)
+const [dowFrom, dowTo] = dows === '*' ? [0, 6] : dows.split('-').map(Number)
 
 /** Every UTC instant the cron fires between two dates (inclusive). */
 function fires(fromYmd: string, toYmd: string): Date[] {
@@ -40,6 +41,10 @@ const PERIODS = [
   ['spring forward (Mar 8 2026)', '2026-03-08', '2026-03-21'],
   ['fall back (Nov 1 2026)', '2026-11-01', '2026-11-14'],
 ] as const
+
+test('the cron runs every day of the week', () => {
+  expect(dows).toBe('*')
+})
 
 test('the schedule includes the 13:00 UTC fire (Pacific winter 5:30am)', () => {
   expect(FIRE_HOURS).toEqual([9, 10, 11, 12, 13])
@@ -79,4 +84,18 @@ test('ARX (Eastern): every in-window fire of a day claims the same date, so retr
     }
     for (const dates of Array.from(byUtcDay.values())) expect(dates.size).toBe(1)
   }
+})
+
+describe.each(PERIODS)('%s: daily jobs', (_label, from, to) => {
+  it.each(ZONES)('%s: every local day, Sunday included, has a 5:30am in-window fire', (_name, raw) => {
+    const tz = orgTimeZone(raw)
+    const days = new Set<string>()
+    for (const fire of fires(from, to)) {
+      if (isMorningUpdateDailyWindow(fire, tz)) days.add(getBlastSendDate(fire, tz))
+    }
+    for (let d = new Date(`${from}T12:00:00Z`); d <= new Date(`${to}T12:00:00Z`); d = new Date(d.getTime() + 86400000)) {
+      const ymd = d.toISOString().slice(0, 10)
+      expect([ymd, days.has(ymd)]).toEqual([ymd, true])
+    }
+  })
 })

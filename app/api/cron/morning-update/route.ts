@@ -11,7 +11,7 @@ import { autoCloseForgotten } from '@/lib/time-tracking-db'
 import { getBlastSendDate, runClaimedBlast, type BlastResult } from '@/lib/email-blast-ledger'
 import { sendMorningUpdateEmail } from '@/lib/morning-update-email'
 import { sendSetterFieldUpdateEmail } from '@/lib/setter-field-update-email'
-import { isMorningUpdateSendWindow } from '@/lib/morning-update-schedule'
+import { isMorningUpdateDailyWindow, isMorningUpdateSendWindow } from '@/lib/morning-update-schedule'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifyCronSecret } from '@/lib/cron-auth'
 import { loadCronOrgs, type CronOrg } from '@/lib/cron-orgs'
@@ -68,15 +68,20 @@ export async function GET(request: NextRequest) {
     const orgId = org.id
     // Each company's morning is its own: 5:30am in `orgs.timezone`, and the once-a-day claim is keyed to
     // that company's calendar date (the manual resend uses the same date, see resend-today).
-    if (!isMorningUpdateSendWindow(now, org.timezone)) {
+    // The daily jobs below run EVERY day (Sunday included); only the emails (scheduled reports, pay-week notice, the blasts)
+    // keep the Mon-Sat window (`isMorningUpdateSendWindow`).
+    if (!isMorningUpdateDailyWindow(now, org.timezone)) {
       results.push({ org_id: orgId, sent: 0, skipped: true, reason: 'outside_send_window' })
       continue
     }
+    const emailDay = isMorningUpdateSendWindow(now, org.timezone)
     const sendDate = getBlastSendDate(now, org.timezone)
     // Saved reports on a schedule go out with the morning update; independent of the blast switches.
-    await sendScheduledReports(admin, orgId).catch((error) => {
-      console.error(`[cron/morning-update] scheduled reports failed for org ${orgId}:`, error)
-    })
+    if (emailDay) {
+      await sendScheduledReports(admin, orgId).catch((error) => {
+        console.error(`[cron/morning-update] scheduled reports failed for org ${orgId}:`, error)
+      })
+    }
     // Customer checkups coming due are created here, every morning, whether or not any email goes out
     // (idempotent; the assignee is told once about new ones). Off unless the org turned checkups on.
     await ensureCheckups(admin, orgId).catch((error) => {
@@ -96,9 +101,11 @@ export async function GET(request: NextRequest) {
     })
     // A pay week that is ready (ended, nothing needs anyone) is offered to each owner as a one-tap Approve (new payroll path only;
     // nothing happens while PAYROLL_PAY_WEEK_ENABLED is off).
-    await notifyPayWeekReady(admin, orgId, now).catch((error) => {
-      console.error(`[cron/morning-update] pay week ready notice failed for org ${orgId}:`, error)
-    })
+    if (emailDay) {
+      await notifyPayWeekReady(admin, orgId, now).catch((error) => {
+        console.error(`[cron/morning-update] pay week ready notice failed for org ${orgId}:`, error)
+      })
+    }
     // Clocks left running overnight are stopped at the last tap and flagged before anyone's morning (time clock companies).
     if (await timeTrackingOn(orgId)) {
       await autoCloseForgotten(admin, orgId, { now }).catch((error) => {
@@ -116,6 +123,10 @@ export async function GET(request: NextRequest) {
       await runAutopayRetries(admin, orgId, now).catch((error) => {
         console.error(`[cron/morning-update] autopay retries failed for org ${orgId}:`, error)
       })
+    }
+    if (!emailDay) {
+      results.push({ org_id: orgId, sent: 0, skipped: true, reason: 'no_email_on_sunday' })
+      continue
     }
     const settings = getOrgEmailBlastSettings(org.settings)
     if (!settings.morning_update?.enabled && !settings.setter_field_update?.enabled) {

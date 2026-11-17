@@ -14,6 +14,8 @@ import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import NeedsYouList from '@/components/ops/NeedsYouList'
+import FinishSetupCard from '@/components/today/FinishSetupCard'
+import { buildFinishSetupItems } from '@/lib/finish-setup'
 import CheckupList from '@/components/checkups/CheckupList'
 import MoveFromJobber from '@/components/jobber-import/MoveFromJobber'
 import MoveSignedDocuments from '@/components/signed-import/MoveSignedDocuments'
@@ -331,6 +333,12 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return (
         <div className="p-3">
           <CheckupList today="2026-11-09" sections={[{ id: 'overdue', title: 'Due now', empty: 'Nothing due right now.', rows: HARNESS_CHECKUPS as never }, { id: 'soon', title: 'Coming up', empty: 'Nothing coming up.', rows: [] }]} />
+        </div>
+      )
+    case 'finish-setup':
+      return (
+        <div className="p-3">
+          <FinishSetupCard items={buildFinishSetupItems({ hasLogo: true, pricebookItems: 0, crews: 0, planTemplates: 0, hasPhone: false, hasEmail: true, servicePlansOn: true })} />
         </div>
       )
     case 'needs-you':
