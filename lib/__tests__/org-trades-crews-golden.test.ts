@@ -19,21 +19,24 @@ jest.mock('@/lib/ops-access', () => {
   return { ...actual, resolveOpsAccess: jest.fn(async () => ({ canJobBoard: true, canEditJobs: true, canViewJobFinancials: false })) }
 })
 jest.mock('@/lib/supplier-orders', () => ({ refreshMaterialsOrderedFromSuppliers: jest.fn(async () => undefined) }))
-jest.mock('@/lib/appointment-calendar-sync', () => ({ getValidAccessToken: jest.fn(async () => 'tok') }))
 const events: Array<{ summary: string; description: string }> = []
-jest.mock('@/lib/google-calendar', () => {
-  const actual = jest.requireActual('@/lib/google-calendar')
+jest.mock('@/lib/calendar/connection', () => {
+  const actual = jest.requireActual('@/lib/calendar/connection')
   return {
     ...actual,
-    createCalendarEvent: jest.fn(async (_t: string, ev: { summary: string; description: string }) => {
-      events.push(ev)
-      return { id: `ev-${events.length}` }
-    }),
-    updateCalendarEvent: jest.fn(async (_t: string, _id: string, ev: { summary: string; description: string }) => {
-      events.push(ev)
-      return {}
-    }),
-    deleteCalendarEvent: jest.fn(async () => undefined),
+    getCalendarClient: jest.fn(async () => ({
+      provider: 'google',
+      accessToken: 'tok',
+      createEvent: async (ev: { summary: string; description: string }) => {
+        events.push(ev)
+        return { id: `ev-${events.length}` }
+      },
+      updateEvent: async (_id: string, ev: { summary: string; description: string }) => {
+        events.push(ev)
+        return {}
+      },
+      deleteEvent: async () => undefined,
+    })),
   }
 })
 

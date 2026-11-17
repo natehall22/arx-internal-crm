@@ -55,16 +55,10 @@
 import { addDaysToDateOnly } from '@/lib/date-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import {
-  createCalendarEvent,
-  deleteCalendarEvent,
-  isMissingEventError,
-  updateCalendarEvent,
-  type CalendarEvent,
-} from '@/lib/google-calendar'
+import { isMissingEventError, type CalendarClient, type CalendarEvent } from '@/lib/calendar/provider'
 import { getAppUrl } from '@/lib/app-url'
 import { orgAppUrl } from '@/lib/company-links'
-import { getValidAccessToken } from '@/lib/appointment-calendar-sync'
+import { getCalendarClient } from '@/lib/calendar/connection'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
 import {
   HALF_DAY_HOURS,
@@ -115,7 +109,8 @@ export function installJobPageUrl(jobId: string, appUrl?: string | null): string
  * then that account's `primary`.
  */
 export type InstallCalendarConfig = {
-  token: string | null
+  /** A client for the nominated (else acting) user's connected calendar — Google or Outlook; null when none. */
+  client: CalendarClient | null
   calendarId: string
 }
 
@@ -139,25 +134,25 @@ export async function resolveInstallCalendarConfig(
     console.warn('resolveInstallCalendarConfig: org lookup failed, falling back', e)
   }
 
-  let token: string | null = null
+  let client: CalendarClient | null = null
   if (nominatedUserId) {
     try {
-      token = await getValidAccessToken(adminClient, nominatedUserId)
+      client = await getCalendarClient(adminClient, nominatedUserId, { useExpiredOnRefreshFailure: true })
     } catch (e) {
       console.warn('resolveInstallCalendarConfig: nominated account token failed', e)
     }
   }
-  if (!token) {
+  if (!client) {
     try {
-      token = await getValidAccessToken(adminClient, fallbackUserId)
+      client = await getCalendarClient(adminClient, fallbackUserId, { useExpiredOnRefreshFailure: true })
     } catch (e) {
       console.warn('resolveInstallCalendarConfig: fallback token failed', e)
-      token = null
+      client = null
     }
   }
 
   return {
-    token,
+    client,
     calendarId: nominatedCalendarId?.trim() || resolveInstallCalendarId(),
   }
 }
@@ -409,13 +404,13 @@ export async function syncInstallToCalendar(
     return { outcome: 'failed', eventId: trade.install_google_event_id, calendarId: trade.install_calendar_id, error: message }
   }
 
-  const { token, calendarId: defaultCalendarId } = await resolveInstallCalendarConfig(
+  const { client, calendarId: defaultCalendarId } = await resolveInstallCalendarConfig(
     adminClient,
     trade.org_id,
     params.schedulingUserId
   )
 
-  if (!token) {
+  if (!client) {
     // Not an error — the assignment is fully valid without a calendar event.
     return {
       outcome: 'no_token',
@@ -457,7 +452,7 @@ export async function syncInstallToCalendar(
         // A PATCH that switches an all-day event to a timed one (1 day → ½ day)
         // is accepted by Google as long as start and end change together, which
         // `buildInstallEvent` always sends.
-        await updateCalendarEvent(token, eventId, event, calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
+        await client.updateEvent(eventId, event, calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
       } catch (e) {
         // The event is gone — somebody deleted it out of Google directly. Without
         // this, the stale id is retried forever and the trade's sync is wedged.
@@ -467,7 +462,7 @@ export async function syncInstallToCalendar(
       }
     }
     if (!eventId) {
-      const created = await createCalendarEvent(token, withoutClearedTimeFields(event), calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
+      const created = await client.createEvent(withoutClearedTimeFields(event), calendarId, await calendarSendUpdates(adminClient, trade.org_id, INSTALL_SEND_UPDATES))
       eventId = created?.id ?? null
       if (!eventId) {
         const message = 'Google Calendar accepted the event but returned no id.'
@@ -519,18 +514,17 @@ export async function removeInstallFromCalendar(
   }
 
   let warning: string | null = null
-  const { token, calendarId: defaultCalendarId } = await resolveInstallCalendarConfig(
+  const { client, calendarId: defaultCalendarId } = await resolveInstallCalendarConfig(
     adminClient,
     trade.org_id,
     params.schedulingUserId
   )
 
-  if (!token) {
+  if (!client) {
     warning = 'No connected Google Calendar for this user; the existing event was not removed from Google.'
   } else {
     try {
-      await deleteCalendarEvent(
-        token,
+      await client.deleteEvent(
         trade.install_google_event_id,
         trade.install_calendar_id || defaultCalendarId,
         // The sub is an attendee — cancelling without telling them means a crew

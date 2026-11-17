@@ -1,5 +1,6 @@
 'use client'
 
+import OutlookConnectCard from '@/components/OutlookConnectCard'
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
@@ -31,6 +32,7 @@ export default function SchedulingPage() {
   const error = searchParams.get('error')
 
   const [currentUser, setCurrentUser] = useState<UserWithCalendar | null>(null)
+  const [calendarProvider, setCalendarProvider] = useState<'google' | 'microsoft' | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
   const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,7 +51,7 @@ export default function SchedulingPage() {
 
   useEffect(() => {
     if (success === 'calendar_connected') {
-      setMessage({ type: 'success', text: 'Google Calendar connected successfully!' })
+      setMessage({ type: 'success', text: 'Calendar connected successfully!' })
     } else if (error) {
       const errorMessages: Record<string, string> = {
         oauth_denied: 'Calendar access was denied',
@@ -57,6 +59,7 @@ export default function SchedulingPage() {
         no_profile: 'User profile not found',
         token_storage: 'Failed to save calendar connection',
         callback_failed: 'Calendar connection failed',
+        invalid_state: 'Calendar connection expired. Please try again.',
       }
       setMessage({ type: 'error', text: errorMessages[error] || 'An error occurred' })
     }
@@ -83,6 +86,7 @@ export default function SchedulingPage() {
       }
 
       setCurrentUser(schedulingData.profile)
+      setCalendarProvider(schedulingData.calendarConnection?.provider ?? null)
       setTeams(schedulingData.teams || [])
       setAppointmentTypes(typesData.appointmentTypes || [])
     } catch (error) {
@@ -194,6 +198,7 @@ export default function SchedulingPage() {
     }
   }
 
+  const outlookConnected = calendarProvider === 'microsoft'
   const isCalendarConnected = currentUser?.google_token != null
   const isTokenExpired = currentUser?.google_token 
     ? new Date(currentUser.google_token.expires_at) < new Date()
@@ -274,6 +279,13 @@ export default function SchedulingPage() {
                   </ul>
                   
                   <Link
+                    onClick={async (e) => {
+                      if (outlookConnected) {
+                        e.preventDefault()
+                        const href = e.currentTarget.href
+                        if (await confirmDialog({ title: 'Connect Google Calendar? This disconnects your Outlook Calendar. Only one calendar can be connected at a time.', destructive: true })) window.location.href = href
+                      }
+                    }}
                     href="/api/auth/google"
                     className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium"
                   >
@@ -288,6 +300,8 @@ export default function SchedulingPage() {
                 </div>
               )}
             </div>
+
+            <OutlookConnectCard />
 
             {/* Appointment Types */}
             <div className="bg-white rounded-xl shadow-sm border p-6">

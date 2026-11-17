@@ -1,6 +1,6 @@
 import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
-import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
+import { calendarConnectedUserIds, getCalendarClient } from '@/lib/calendar/connection'
 import {
   getOrgDefaultSchedulingGapMinutes,
   resolveSchedulingBuffers,
@@ -13,42 +13,6 @@ import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
-// Helper to get valid access token (refresh if needed)
-async function getValidAccessToken(adminClient: any, userId: string, tokenData: any): Promise<string | null> {
-  if (!tokenData) return null
-
-  const expiresAt = new Date(tokenData.expires_at)
-  const now = new Date()
-
-  // If token expires in less than 5 minutes, try to refresh it
-  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-    console.log(`Token for user ${userId} expires soon (${expiresAt.toISOString()}), attempting refresh...`)
-    try {
-      const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      
-      await adminClient
-        .from('user_google_tokens')
-        .update({
-          access_token: refreshed.access_token,
-          expires_at: refreshed.expires_at.toISOString(),
-        })
-        .eq('user_id', userId)
-
-      console.log(`Token refreshed successfully for user ${userId}`)
-      return refreshed.access_token
-    } catch (error) {
-      console.error(`Failed to refresh token for user ${userId}:`, error)
-      // If refresh fails but token hasn't actually expired yet, try using it anyway
-      if (expiresAt > now) {
-        console.log(`Token refresh failed but token not yet expired, trying existing token`)
-        return tokenData.access_token
-      }
-      return null
-    }
-  }
-
-  return tokenData.access_token
-}
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
@@ -141,17 +105,14 @@ export async function GET(request: NextRequest) {
 
     // Get Google tokens for all closers in queue
     const closerUserIds = queueClosers.map((c: any) => c.user_id)
-    const { data: tokens } = await adminClient
-      .from('user_google_tokens')
-      .select('*')
-      .in('user_id', closerUserIds)
+    const connectedIds = await calendarConnectedUserIds(adminClient, closerUserIds)
 
-    console.log(`Team availability: Found ${tokens?.length || 0} Google tokens for ${closerUserIds.length} closers`)
-    console.log(`Team availability: Token user IDs:`, tokens?.map(t => t.user_id))
+    console.log(`Team availability: Found ${connectedIds.size} connected calendars for ${closerUserIds.length} closers`)
+    console.log(`Team availability: Connected user IDs:`, Array.from(connectedIds))
 
     // Filter to only closers with calendars
     const closersWithCalendars = queueClosers.filter((c: any) => 
-      tokens?.some(t => t.user_id === c.user_id)
+      connectedIds.has(c.user_id)
     )
 
     if (closersWithCalendars.length === 0) {
@@ -245,16 +206,15 @@ export async function GET(request: NextRequest) {
 
     for (const closer of closersWithCalendars) {
       const closerStart = Date.now()
-      const tokenData = tokens?.find(t => t.user_id === closer.user_id)
-      const accessToken = await getValidAccessToken(adminClient, closer.user_id, tokenData)
+      const calendar = await getCalendarClient(adminClient, closer.user_id)
       
       let busySlots: BusyInterval[] = []
 
-      if (accessToken) {
+      if (calendar) {
         try {
           // Use UTC times for Google Calendar API
           const calStart = Date.now()
-          busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
+          busySlots = await calendar.getFreeBusy(dayStartUTC, dayEndUTC)
           console.log(`Team availability: ${closer.user?.full_name} calendar check took ${Date.now() - calStart}ms, found ${busySlots.length} busy slots`)
           if (busySlots.length > 0) {
             console.log(`Team availability: ${closer.user?.full_name} busy times:`, busySlots.map(s => `${s.start} to ${s.end}`))

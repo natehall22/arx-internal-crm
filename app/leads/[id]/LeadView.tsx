@@ -13,12 +13,8 @@ import CreateOpportunityFromLeadButton from '@/components/leads/CreateOpportunit
 import LocationMap from '@/components/LocationMap'
 import LeadYardMeasure from '@/components/area-measure/LeadYardMeasure'
 import CategoryField from '@/components/categories/CategoryField'
-import { 
-  createCalendarEvent, 
-  deleteCalendarEvent, 
-  refreshAccessToken,
-  CalendarEvent 
-} from '@/lib/google-calendar'
+import { getCalendarClient } from '@/lib/calendar/connection'
+import type { CalendarEvent } from '@/lib/calendar/provider'
 import { easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime'
 import { leadOwnerLabel } from '@/lib/lead-owner-display'
 import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
@@ -504,38 +500,14 @@ export default async function LeadView({
       const targetCloserId = effectiveCloserId || prevCloserId
 
       if (targetCloserId) {
-        // Get closer's Google token
-        const { data: tokenData } = await supabase
-          .from('user_google_tokens')
-          .select('*')
-          .eq('user_id', targetCloserId)
-          .single()
+        // Closer's connected calendar (Google or Outlook)
+        const calendar = await getCalendarClient(supabase, targetCloserId, { useExpiredOnRefreshFailure: true })
         
-        if (tokenData) {
-          let accessToken = tokenData.access_token
-          const expiresAt = new Date(tokenData.expires_at)
-          
-          // Refresh token if needed
-          if (expiresAt.getTime() - Date.now() < 5 * 60 * 1000) {
-            try {
-              const refreshed = await refreshAccessToken(tokenData.refresh_token)
-              accessToken = refreshed.access_token
-              await supabase
-                .from('user_google_tokens')
-                .update({
-                  access_token: refreshed.access_token,
-                  expires_at: refreshed.expires_at.toISOString(),
-                })
-                .eq('user_id', targetCloserId)
-            } catch (e) {
-              console.error('Failed to refresh token:', e)
-            }
-          }
-          
+        if (calendar) {
           // Delete old calendar event if exists
           if (existingAppointment?.google_event_id) {
             try {
-              await deleteCalendarEvent(accessToken, existingAppointment.google_event_id)
+              await calendar.deleteEvent(existingAppointment.google_event_id)
             } catch (e) {
               console.error('Failed to delete old calendar event:', e)
             }
@@ -597,7 +569,7 @@ export default async function LeadView({
           }
           
           try {
-            const createdEvent = await createCalendarEvent(accessToken, event)
+            const createdEvent = await calendar.createEvent(event)
             
             // Update or create appointment record
             if (existingAppointment) {

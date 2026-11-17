@@ -8,12 +8,8 @@ import {
   getInspectionBufferAfterFromTable,
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
-import {
-  createCalendarEvent,
-  refreshAccessToken,
-  getFreeBusy,
-  CalendarEvent,
-} from '@/lib/google-calendar'
+import { getCalendarClient } from '@/lib/calendar/connection'
+import type { CalendarEvent } from '@/lib/calendar/provider'
 import { hasBufferedConflict, existingBuffersForAppointment } from '@/lib/scheduling-buffer'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
@@ -79,64 +75,6 @@ function formatScheduledAppointmentInsertError(dbMessage: string): string {
 }
 
 
-// Helper to get valid access token (refresh if needed)
-async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
-  console.log(`getValidAccessToken: Looking up token for user ${userId}`)
-  
-  const { data: tokenData, error: tokenError } = await adminClient
-    .from('user_google_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (tokenError) {
-    console.log(`getValidAccessToken: Error fetching token:`, tokenError.message)
-  }
-  
-  if (!tokenData) {
-    console.log(`getValidAccessToken: No token found for user ${userId}`)
-    return null
-  }
-  
-  console.log(`getValidAccessToken: Token found, expires_at: ${tokenData.expires_at}`)
-
-  const expiresAt = new Date(tokenData.expires_at)
-  const now = new Date()
-
-  // If token expires in less than 5 minutes, try to refresh it
-  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-    console.log(`getValidAccessToken: Token expires soon, attempting refresh...`)
-    try {
-      const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      
-      // Update token in database
-      await adminClient
-        .from('user_google_tokens')
-        .update({
-          access_token: refreshed.access_token,
-          expires_at: refreshed.expires_at.toISOString(),
-        })
-        .eq('user_id', userId)
-
-      console.log(`getValidAccessToken: Token refreshed successfully`)
-      return refreshed.access_token
-    } catch (error) {
-      console.error('Failed to refresh token:', error)
-      // If refresh fails but token hasn't actually expired yet, try using it anyway
-      if (expiresAt > now) {
-        console.log(`getValidAccessToken: Refresh failed but token not yet expired, using existing token`)
-        return tokenData.access_token
-      }
-      return null
-    }
-  }
-
-  console.log(`getValidAccessToken: Token is valid, returning`)
-  return tokenData.access_token
-}
-
 // Helper to get timezone for a user based on their team
 async function getTimezoneForUser(adminClient: any, userId: string): Promise<string> {
   try {
@@ -186,11 +124,11 @@ async function syncToGoogleCalendar(
   console.log('durationMinutes:', durationMinutes)
   
   try {
-    const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
+    const calendar = await getCalendarClient(adminClient, closerUserId)
     
-    if (!googleAccessToken) {
+    if (!calendar) {
       console.log('syncToGoogleCalendar: No access token available')
-      return { synced: false, error: 'Closer does not have Google Calendar connected' }
+      return { synced: false, error: 'Closer does not have a calendar connected' }
     }
     
     console.log('syncToGoogleCalendar: Got access token, proceeding with event creation')
@@ -249,8 +187,7 @@ async function syncToGoogleCalendar(
       scheduledForInput: scheduledFor,
     })
 
-    const createdEvent = await createCalendarEvent(
-      googleAccessToken,
+    const createdEvent = await calendar.createEvent(
       event,
       'primary',
       setterEmail ? 'all' : 'none'
@@ -337,16 +274,16 @@ async function checkCloserAvailability(
       return { available: false, hasCalendar: true, error: 'Closer already has an appointment at this time' }
     }
 
-    const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
+    const calendar = await getCalendarClient(adminClient, closerUserId)
 
-    if (!googleAccessToken) {
+    if (!calendar) {
       // No calendar connected - DB check above is still authoritative.
       return { available: true, hasCalendar: false }
     }
 
     const windowStart = new Date(startTime.getTime() - 12 * 60 * 60 * 1000)
     const windowEnd = new Date(endTime.getTime() + 12 * 60 * 60 * 1000)
-    const busySlots = await getFreeBusy(googleAccessToken, windowStart, windowEnd)
+    const busySlots = await calendar.getFreeBusy(windowStart, windowEnd)
     const hasGoogleConflict = busySlots.some((busy: { start: string; end: string }) => {
       const busyStart = new Date(busy.start)
       const busyEnd = new Date(busy.end)
@@ -477,12 +414,12 @@ export async function POST(request: Request) {
         )
       }
 
-      const googleAccessToken = await getValidAccessToken(supabase, closerUserId)
-      if (!googleAccessToken) {
+      const closerCalendar = await getCalendarClient(supabase, closerUserId)
+      if (!closerCalendar) {
         return NextResponse.json(
           {
             error:
-              'That closer does not have Google Calendar connected. Choose another closer or connect their calendar before scheduling.',
+              'That closer does not have a calendar connected. Choose another closer or connect their calendar before scheduling.',
             code: 'CALENDAR_NOT_CONNECTED',
           },
           { status: 409 }

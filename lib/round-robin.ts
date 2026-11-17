@@ -1,10 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import {
-  refreshAccessToken,
-  getFreeBusy,
-  createCalendarEvent,
-  deleteCalendarEvent,
-} from './google-calendar'
+import { getCalendarClient } from '@/lib/calendar/connection'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { hasBufferedConflict, existingBuffersForAppointment } from '@/lib/scheduling-buffer'
 import { resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
@@ -204,59 +199,13 @@ export async function assignNextAvailableCloser(
     for (const closer of orderedClosers) {
       console.log(`Round-robin: Processing closer ${closer.user?.full_name} (${closer.user_id})`)
       
-      // Get their Google token
-      const { data: token, error: tokenError } = await supabase
-        .from('user_google_tokens')
-        .select('*')
-        .eq('user_id', closer.user_id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+      // Their connected calendar (Google or Outlook)
+      const calendar = await getCalendarClient(supabase, closer.user_id, { useExpiredOnRefreshFailure: true })
 
-      if (tokenError) {
-        console.log(`Round-robin: Token lookup error for ${closer.user?.full_name}:`, tokenError.message)
-      }
-
-      if (!token) {
+      if (!calendar) {
         // Closer has no calendar connected - skip entirely
-        console.log(`Round-robin: Skipping ${closer.user?.full_name} - no Google Calendar connected`)
+        console.log(`Round-robin: Skipping ${closer.user?.full_name} - no calendar connected`)
         continue
-      }
-
-      console.log(`Round-robin: Token found for ${closer.user?.full_name}, expires_at: ${token.expires_at}`)
-
-      // Check if token needs refresh
-      let accessToken = token.access_token
-      const expiresAt = new Date(token.expires_at)
-      const now = new Date()
-      
-      if (expiresAt < now) {
-        console.log(`Round-robin: Token expired for ${closer.user?.full_name}, attempting refresh...`)
-        try {
-          const refreshed = await refreshAccessToken(token.refresh_token)
-          accessToken = refreshed.access_token
-          
-          // Update token in database
-          await supabase
-            .from('user_google_tokens')
-            .update({
-              access_token: refreshed.access_token,
-              expires_at: refreshed.expires_at.toISOString(),
-            })
-            .eq('id', token.id)
-          console.log(`Round-robin: Token refreshed successfully for ${closer.user?.full_name}`)
-        } catch (refreshError: any) {
-          console.error(`Round-robin: Failed to refresh token for ${closer.user?.full_name}:`, refreshError?.message || refreshError)
-          // If refresh fails but token was recently valid, try using it anyway
-          // (Google tokens sometimes work slightly past expiry)
-          if (now.getTime() - expiresAt.getTime() < 5 * 60 * 1000) {
-            console.log(`Round-robin: Token recently expired, attempting to use anyway`)
-          } else {
-            continue // Try next closer
-          }
-        }
-      } else {
-        console.log(`Round-robin: Token still valid for ${closer.user?.full_name}`)
       }
 
       // Check calendar availability
@@ -280,7 +229,7 @@ export async function assignNextAvailableCloser(
         // Same asymmetric buffer rules as canvass availability APIs (not symmetric isSlotAvailable).
         const windowStart = new Date(scheduledFor.getTime() - 12 * 60 * 60 * 1000)
         const windowEnd = new Date(endTime.getTime() + 12 * 60 * 60 * 1000)
-        const busySlots = await getFreeBusy(accessToken, windowStart, windowEnd)
+        const busySlots = await calendar.getFreeBusy(windowStart, windowEnd)
         const hasGoogleConflict = busySlots.some((busy) => {
           const busyStart = new Date(busy.start)
           const busyEnd = new Date(busy.end)
@@ -368,8 +317,7 @@ export async function assignNextAvailableCloser(
               start: { dateTime: startLocalTime, timeZone: teamTimezone },
               end: { dateTime: endLocalTime, timeZone: teamTimezone },
             })
-            const event = await createCalendarEvent(
-              accessToken,
+            const event = await calendar.createEvent(
               {
                 summary: `${titlePrefix}: ${customerName}`,
                 description: descriptionLines,
@@ -426,7 +374,7 @@ export async function assignNextAvailableCloser(
           // closers/setters don't see a ghost invite when the API returns NO_CLOSER_ASSIGNED.
           if (googleEventId) {
             try {
-              await deleteCalendarEvent(accessToken, googleEventId)
+              await calendar.deleteEvent(googleEventId)
               console.log(
                 `Round-robin: Deleted orphan calendar event ${googleEventId} after failed appointment row`
               )

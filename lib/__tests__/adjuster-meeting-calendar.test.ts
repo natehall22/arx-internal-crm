@@ -120,7 +120,7 @@ describe('calendar persistence failures', () => {
     const saveFailure = jest.fn().mockResolvedValue(undefined)
     const result = await syncAdjusterMeetingToGoogle(
       {
-        getAccessToken: jest.fn().mockResolvedValue('token'),
+        getClient: jest.fn().mockResolvedValue('token'),
         getTimezone: jest.fn().mockResolvedValue('America/New_York'),
         formatLocal: (date) => date.toISOString().slice(0, 19),
         createEvent: jest.fn().mockResolvedValue({ id: 'google-event-1' }),
@@ -153,7 +153,7 @@ describe('calendar persistence failures', () => {
     const saveSuccess = jest.fn().mockResolvedValue(undefined)
     const result = await syncAdjusterMeetingToGoogle(
       {
-        getAccessToken: jest.fn().mockResolvedValue('token'),
+        getClient: jest.fn().mockResolvedValue('token'),
         getTimezone: jest.fn().mockResolvedValue('America/New_York'),
         formatLocal: (date) => date.toISOString().slice(0, 19),
         createEvent: jest.fn().mockRejectedValue(new Error('Google Calendar create failed (409)')),

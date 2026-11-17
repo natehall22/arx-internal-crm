@@ -42,12 +42,8 @@ import {
   getInspectionBufferAfterFromTable,
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
-import {
-  createCalendarEvent,
-  refreshAccessToken,
-  updateCalendarEvent,
-  type CalendarEvent,
-} from '@/lib/google-calendar'
+import { getCalendarClient } from '@/lib/calendar/connection'
+import type { CalendarEvent } from '@/lib/calendar/provider'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -201,37 +197,6 @@ function parseFollowUpInput(value: unknown, timezone: string): string | null {
   return fromZonedTime(`${localDateTimeStr}:00`, timezone).toISOString()
 }
 
-async function getValidAccessToken(adminClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
-  const { data: tokenData } = await adminClient
-    .from('user_google_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  if (!tokenData) return null
-
-  const expiresAt = new Date(tokenData.expires_at)
-  const now = new Date()
-
-  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-    try {
-      const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      await adminClient
-        .from('user_google_tokens')
-        .update({
-          access_token: refreshed.access_token,
-          expires_at: refreshed.expires_at.toISOString(),
-        })
-        .eq('user_id', userId)
-      return refreshed.access_token
-    } catch {
-      return null
-    }
-  }
-
-  return tokenData.access_token
-}
-
 async function getTimezoneForUser(adminClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string> {
   try {
     const { data: userProfile } = await adminClient
@@ -286,8 +251,8 @@ async function createInspectionEventOnCloserCalendar(
     note?: string | null
   }
 ): Promise<string | null> {
-  const accessToken = await getValidAccessToken(adminClient, params.closerUserId)
-  if (!accessToken) return null
+  const calendar = await getCalendarClient(adminClient, params.closerUserId)
+  if (!calendar) return null
 
   const timezone = await getTimezoneForUser(adminClient, params.closerUserId)
   const startDate = new Date(params.scheduledForISO)
@@ -304,7 +269,7 @@ async function createInspectionEventOnCloserCalendar(
     },
   }
 
-  const createdEvent = await createCalendarEvent(accessToken, event, 'primary', 'none')
+  const createdEvent = await calendar.createEvent(event, 'primary', 'none')
   if (!createdEvent?.id) return null
 
   await adminClient
@@ -348,12 +313,12 @@ async function pushAdjusterMeetingToGoogle(
 
   return syncAdjusterMeetingToGoogle(
     {
-      getAccessToken: (userId) => getValidAccessToken(adminClient, userId),
+      getClient: (userId) => getCalendarClient(adminClient, userId),
       getTimezone: (userId) => getTimezoneForUser(adminClient, userId),
       formatLocal: formatCalendarLocal,
-      createEvent: async (token, event, calendarId, sendUpdates) =>
-        createCalendarEvent(token, event, calendarId, await calendarSendUpdates(adminClient, orgId, sendUpdates)),
-      updateEvent: (token, eventId, event) => updateCalendarEvent(token, eventId, event),
+      createEvent: async (client, event, calendarId, sendUpdates) =>
+        client.createEvent(event, calendarId, await calendarSendUpdates(adminClient, orgId, sendUpdates)),
+      updateEvent: (client, eventId, event) => client.updateEvent(eventId, event),
       getUserEmail: async (userId) => {
         const { data } = await adminClient
           .from('users')

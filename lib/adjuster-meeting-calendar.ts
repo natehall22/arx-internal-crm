@@ -17,7 +17,7 @@
  * path used only by `appointment_type = 'adjuster_meeting'`.
  */
 
-import type { CalendarEvent } from '@/lib/google-calendar'
+import type { CalendarClient, CalendarEvent } from '@/lib/calendar/provider'
 
 export type AdjusterMeetingAttendeeInput = {
   /** Internal user record of the field rep who will attend. */
@@ -139,16 +139,17 @@ export function buildAdjusterMeetingEvent(input: {
 }
 
 export type AdjusterMeetingSyncDeps = {
-  getAccessToken: (userId: string) => Promise<string | null>
+  /** The attendee's connected calendar (Google or Outlook), or null when they have none. */
+  getClient: (userId: string) => Promise<CalendarClient | null>
   getTimezone: (userId: string) => Promise<string>
   formatLocal: (date: Date, timezone: string) => string
   createEvent: (
-    token: string,
+    client: CalendarClient,
     event: CalendarEvent,
     calendarId: string,
     sendUpdates: 'all' | 'externalOnly' | 'none'
   ) => Promise<CalendarEvent>
-  updateEvent: (token: string, eventId: string, event: Partial<CalendarEvent>) => Promise<unknown>
+  updateEvent: (client: CalendarClient, eventId: string, event: Partial<CalendarEvent>) => Promise<unknown>
   getUserEmail: (userId: string) => Promise<string | null>
   /** Persist the successful link. */
   saveSuccess: (appointmentId: string, eventId: string) => Promise<void>
@@ -219,8 +220,8 @@ export async function syncAdjusterMeetingToGoogle(
   }
 
   try {
-    const token = await deps.getAccessToken(params.attendeeUserId)
-    if (!token) return await fail(ADJUSTER_MEETING_NO_GOOGLE_MESSAGE)
+    const client = await deps.getClient(params.attendeeUserId)
+    if (!client) return await fail(ADJUSTER_MEETING_NO_GOOGLE_MESSAGE)
 
     const [attendeeEmail, bookerEmail] = await Promise.all([
       deps.getUserEmail(params.attendeeUserId),
@@ -245,12 +246,12 @@ export async function syncAdjusterMeetingToGoogle(
     })
 
     if (eventId) {
-      await deps.updateEvent(token, eventId, event)
+      await deps.updateEvent(client, eventId, event)
     } else {
       const deterministicEventId = adjusterMeetingGoogleEventId(params.appointmentId)
       try {
         const created = await deps.createEvent(
-          token,
+          client,
           { ...event, id: deterministicEventId },
           'primary',
           ADJUSTER_MEETING_SEND_UPDATES
@@ -265,7 +266,7 @@ export async function syncAdjusterMeetingToGoogle(
           throw createError
         }
         eventId = deterministicEventId
-        await deps.updateEvent(token, eventId, event)
+        await deps.updateEvent(client, eventId, event)
       }
     }
 

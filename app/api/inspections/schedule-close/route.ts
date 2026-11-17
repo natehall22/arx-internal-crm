@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
+import { getCalendarClient } from '@/lib/calendar/connection'
+import type { CalendarEvent } from '@/lib/calendar/provider'
 import { sendSetterEmail } from '@/lib/setter-email'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import {
@@ -58,37 +59,6 @@ function buildCloseCalendarDescription(params: {
   return lines.join('\n')
 }
 
-async function getValidAccessTokenForUser(admin: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
-  const { data: tokenData } = await admin
-    .from('user_google_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  if (!tokenData) return null
-
-  const expiresAt = new Date(tokenData.expires_at)
-  const now = new Date()
-
-  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-    try {
-      const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      await admin
-        .from('user_google_tokens')
-        .update({
-          access_token: refreshed.access_token,
-          expires_at: refreshed.expires_at.toISOString(),
-        })
-        .eq('user_id', userId)
-      return refreshed.access_token
-    } catch {
-      return null
-    }
-  }
-
-  return tokenData.access_token
-}
-
 /** The closer's team zone when set, else the company's (`orgs.timezone`). */
 async function getTimezoneForCloser(admin: ReturnType<typeof createServiceClient>, userId: string, companyZone: string): Promise<string> {
   try {
@@ -120,10 +90,10 @@ async function upsertCloseEventOnCloserCalendar(
     companyZone: string
   }
 ): Promise<string | null> {
-  const accessToken = await getValidAccessTokenForUser(admin, params.closerUserId)
-  if (!accessToken) {
+  const calendar = await getCalendarClient(admin, params.closerUserId)
+  if (!calendar) {
     console.error(
-      'upsertCloseEventOnCloserCalendar: no Google token for closer — calendar will not sync',
+      'upsertCloseEventOnCloserCalendar: no calendar connected for closer — calendar will not sync',
       params.closerUserId
     )
     return null
@@ -159,8 +129,7 @@ async function upsertCloseEventOnCloserCalendar(
   }
 
   try {
-    const createdEv = await createCalendarEvent(
-      accessToken,
+    const createdEv = await calendar.createEvent(
       event,
       'primary',
       setterEmail ? 'all' : 'none'

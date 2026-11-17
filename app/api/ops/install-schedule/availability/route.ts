@@ -7,11 +7,7 @@ import { resolveOpsAccess } from '@/lib/ops-access'
 import { parseScheduleWindow } from '@/lib/schedule-window'
 import { resolveInstallCalendarConfig } from '@/lib/install-calendar'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
-import {
-  getFreeBusyForCalendars,
-  listCalendarEventsInRange,
-  type FreeBusyCalendarResult,
-} from '@/lib/google-calendar'
+import type { FreeBusyCalendarResult } from '@/lib/calendar/provider'
 import {
   busyDatesFromSlots,
   resolveSubCalendarId,
@@ -79,7 +75,7 @@ export async function GET(request: Request) {
   // Same account installs are written from — see `resolveInstallGoogleToken`.
   // Reads and writes MUST act as one account: crews share their free/busy with a
   // single address, and RSVP is read off events that account owns.
-  const { token, calendarId: installCalendarId } = await resolveInstallCalendarConfig(
+  const { client, calendarId: installCalendarId } = await resolveInstallCalendarConfig(
     adminClient,
     orgId,
     authUser.id
@@ -87,7 +83,7 @@ export async function GET(request: Request) {
 
   // No connected Google account anywhere degrades gracefully — not an error,
   // just nothing to report, same as install scheduling itself.
-  if (!token) {
+  if (!client) {
     return NextResponse.json({ source: 'no_token', subs: [], rsvp: {} })
   }
 
@@ -121,8 +117,7 @@ export async function GET(request: Request) {
   let freeBusyBySubCalendar: Record<string, FreeBusyCalendarResult> = {}
   if (calendarIdsToQuery.length > 0) {
     try {
-      freeBusyBySubCalendar = await getFreeBusyForCalendars(
-        token,
+      freeBusyBySubCalendar = await client.getFreeBusyForCalendars(
         windowStartInstant,
         windowEndInstant,
         calendarIdsToQuery
@@ -193,8 +188,7 @@ export async function GET(request: Request) {
         assigned_sub_id: string | null
       }[]
       if (trades.length > 0) {
-        const events = await listCalendarEventsInRange(
-          token,
+        const events = await client.listEventsInRange(
           installCalendarId,
           windowStartInstant.toISOString(),
           windowEndInstant.toISOString()

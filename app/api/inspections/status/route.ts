@@ -4,7 +4,8 @@ import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-e
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
-import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
+import { getCalendarClient } from '@/lib/calendar/connection'
+import type { CalendarEvent } from '@/lib/calendar/provider'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { getMailTransport, sendSetterEmail } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
@@ -73,37 +74,6 @@ function sanitizeHandoffContext(raw: unknown): Record<string, string> | null {
     out.adjuster_meeting_at = new Date(adjusterAt).toISOString()
   }
   return Object.keys(out).length > 0 ? out : null
-}
-
-async function getValidAccessToken(adminClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
-  const { data: tokenData } = await adminClient
-    .from('user_google_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  if (!tokenData) return null
-
-  const expiresAt = new Date(tokenData.expires_at)
-  const now = new Date()
-
-  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-    try {
-      const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      await adminClient
-        .from('user_google_tokens')
-        .update({
-          access_token: refreshed.access_token,
-          expires_at: refreshed.expires_at.toISOString(),
-        })
-        .eq('user_id', userId)
-      return refreshed.access_token
-    } catch {
-      return null
-    }
-  }
-
-  return tokenData.access_token
 }
 
 async function getTimezoneForUser(adminClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string> {
@@ -1128,8 +1098,8 @@ export async function POST(request: NextRequest) {
 
         // Push follow-up to the submitting closer's Google Calendar (same closer as closer_user_id).
         const closerCalendarId = user.id
-        const accessToken = await getValidAccessToken(supabase, closerCalendarId)
-        if (accessToken) {
+        const calendar = await getCalendarClient(supabase, closerCalendarId)
+        if (calendar) {
           const localDateTimeStr = localDateTimeFromFollowUpInput(follow_up_date)
           if (localDateTimeStr) {
             try {
@@ -1179,8 +1149,7 @@ export async function POST(request: NextRequest) {
                 attendees: setterInviteEmail ? [{ email: setterInviteEmail }] : undefined,
               }
 
-              const createdEvent = await createCalendarEvent(
-                accessToken,
+              const createdEvent = await calendar.createEvent(
                 event,
                 'primary',
                 setterInviteEmail ? 'all' : 'none'

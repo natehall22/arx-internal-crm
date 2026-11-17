@@ -1,5 +1,6 @@
 'use client'
 
+import OutlookConnectCard from '@/components/OutlookConnectCard'
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -69,6 +70,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
   const [googleToken, setGoogleToken] = useState<any>(null)
+  const [outlookConnected, setOutlookConnected] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [aiConnector, setAiConnector] = useState<AiConnectorInfo>(null)
   const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'connect' | 'reports' | 'suppliers' | 'announcements' | 'display'>('notifications')
@@ -153,6 +155,8 @@ export default function SettingsPage() {
         setAiEnabled(data.userSettings.ai_enabled ?? defaultSettings.ai_enabled)
       }
 
+      setOutlookConnected(data.calendarConnection?.provider === 'microsoft')
+
       if (data.googleToken) {
         setGoogleToken(data.googleToken)
         setSettings(prev => ({ ...prev, google_calendar_connected: true }))
@@ -192,7 +196,8 @@ export default function SettingsPage() {
     setSaving(false)
   }
 
-  const connectGoogleCalendar = () => {
+  const connectGoogleCalendar = async () => {
+    if (outlookConnected && !(await confirmDialog({ title: 'Connect Google Calendar? This disconnects your Outlook Calendar. Only one calendar can be connected at a time.', destructive: true }))) return
     window.location.href = '/api/auth/google'
   }
 
@@ -447,6 +452,8 @@ export default function SettingsPage() {
                   )}
                 </div>
               </div>
+
+              <OutlookConnectCard />
 
               <h3 className="font-medium text-gray-900 mb-3">Scheduling Preferences</h3>
               
