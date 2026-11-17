@@ -489,9 +489,9 @@ describe('ARX sees no setting, and the key has one writer', () => {
   const hrefs = (profileId?: 'roofing' | 'lawn_landscape') =>
     visibleSettingsGroups({ canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true, canOwner: true, canSuperAdmin: true, profileId }).flatMap((g) => g.items.map((i) => i.href))
   it('the Settings entry exists only for lawn_landscape', () => {
-    expect(hrefs('roofing')).not.toContain('/admin#crew-incentives')
-    expect(hrefs(undefined)).not.toContain('/admin#crew-incentives')
-    expect(hrefs('lawn_landscape')).toContain('/admin#crew-incentives')
+    expect(hrefs('roofing')).not.toContain('/admin/s/jobs#crew-incentives')
+    expect(hrefs(undefined)).not.toContain('/admin/s/jobs#crew-incentives')
+    expect(hrefs('lawn_landscape')).toContain('/admin/s/jobs#crew-incentives')
   })
   it('a top-level settings write of crewIncentives is refused (only path [crewIncentives] writes it)', async () => {
     const db = createFakeDb({ orgs: [org(ORG, 'lawn_landscape')] })

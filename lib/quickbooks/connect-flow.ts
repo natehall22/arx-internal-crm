@@ -1,8 +1,8 @@
 /** Names shared by the three QuickBooks connect routes (start in Settings, callback at Intuit's one redirect, finish). */
 export const QB_CONNECT_COOKIE = 'qb_connect_nonce'
 export const QB_CONNECT_COOKIE_PATH = '/api/integrations/quickbooks'
-/** Back to the Settings card with a plain-words outcome (`?quickbooks=<code>`). */
-export const QB_RETURN_PATH = '/admin'
+/** Back to the QuickBooks settings page with a plain-words outcome (`?quickbooks=<code>`). */
+export const QB_RETURN_PATH = '/admin/s/payments'
 export type QbOutcome = 'connected' | 'denied' | 'invalid_state' | 'owner_only' | 'intuit_refused' | 'different_company' | 'realm_in_use' | 'use_company_address' | 'failed' | 'off'
 
 export function qbReturn(outcome: QbOutcome): string {

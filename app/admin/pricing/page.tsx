@@ -472,7 +472,7 @@ export default function AdminPricingPage() {
 
           {/* The old "Default Tax Rate" box was never read by the proposal builder; sales tax lives in one place now. */}
           <p className="mt-6 pt-6 border-t text-sm text-[#2c2c2a]">
-            Sales tax rates are set by an owner in <a href="/admin#sales-tax" className="font-semibold text-indigo-700 hover:underline">Settings → Sales tax</a>.
+            Sales tax rates are set by an owner in <a href="/admin/s/payments#sales-tax" className="font-semibold text-indigo-700 hover:underline">Settings → Sales tax</a>.
           </p>
 
           <div className="mt-6 flex justify-end">

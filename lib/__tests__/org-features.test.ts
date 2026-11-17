@@ -132,10 +132,10 @@ describe('entry points hide when a feature is off', () => {
     const all = { canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true, canOwner: true, canSuperAdmin: true }
     const hrefs = (g: ReturnType<typeof visibleSettingsGroups>) => g.flatMap((x) => x.items.map((i) => i.href))
     const on = hrefs(visibleSettingsGroups(all))
-    expect(on).toEqual(expect.arrayContaining(['/canvass?areas=1', '/tools/roof-measure', '/admin/sisu/incentives', '/admin#features']))
+    expect(on).toEqual(expect.arrayContaining(['/canvass?areas=1', '/tools/roof-measure', '/admin/sisu/incentives', '/admin/s/company#features']))
     const off = hrefs(visibleSettingsGroups({ ...all, features: { canvassing: false, roofMeasure: false, incentives: false } }))
     expect(off).toEqual(on.filter((h) => !['/canvass?areas=1', '/tools/roof-measure'].includes(h)))
-    expect(hrefs(visibleSettingsGroups({ ...all, canSuperAdmin: false }))).not.toContain('/admin#features')
+    expect(hrefs(visibleSettingsGroups({ ...all, canSuperAdmin: false }))).not.toContain('/admin/s/company#features')
   })
 })
 

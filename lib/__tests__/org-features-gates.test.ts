@@ -99,7 +99,7 @@ describe('6. every roof/exterior measure API and page is gated', () => {
 describe('1, 4, 7. UI guards', () => {
   it('1. the Settings → Features link on Measurement shows only to super admins (canEditBrand = isSuperAdmin)', () => {
     const s = src('app/admin/settings/page.tsx')
-    expect(s).toMatch(/\{canEditBrand \? \(\s*<a href="\/admin#features"/)
+    expect(s).toMatch(/\{canEditBrand \? \(\s*<a href="\/admin\/s\/company#features"/)
     expect(src('app/api/admin/settings/route.ts')).toContain('canEditBrand: isSuperAdmin(profile)')
   })
   it('4. opportunities inside-sales view: Storm filter and Storm count card follow the Storm alerts switch', () => {

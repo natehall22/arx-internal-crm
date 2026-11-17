@@ -1,4 +1,5 @@
-import { SETTINGS_GROUPS, canOpenSettingsHub, filterSettingsGroups, visibleSettingsGroups } from '@/lib/settings-registry'
+import { SECTION_PAGES } from '../../app/admin/s/[section]/sections'
+import { LEGACY_ANCHOR_HREFS, SETTINGS_SECTION_PREFIX, SETTINGS_GROUPS, canOpenSettingsHub, filterSettingsGroups, visibleSettingsGroups } from '@/lib/settings-registry'
 
 const all = { canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true }
 const none = { canCost: false, canPayroll: false, canSuperuser: false, canWorkAreas: false }
@@ -33,13 +34,26 @@ describe('settings registry', () => {
   })
   it('Service plans and E-sign settings are findable (cards that live on /admin)', () => {
     const g = visibleSettingsGroups({ ...all, canSuperAdmin: true, features: { servicePlans: true } })
-    expect(hrefs(filterSettingsGroups(g, 'mowing biweekly'))).toEqual(['/admin#plan-templates'])
-    expect(hrefs(filterSettingsGroups(g, 'esign'))).toContain('/admin#signing')
-    expect(hrefs(visibleSettingsGroups({ ...all, canSuperAdmin: true, features: { servicePlans: false } }))).not.toContain('/admin#plan-templates')
-    expect(hrefs(visibleSettingsGroups(all))).not.toContain('/admin#plan-templates')
+    expect(hrefs(filterSettingsGroups(g, 'mowing biweekly'))).toEqual(['/admin/s/jobs#plan-templates'])
+    expect(hrefs(filterSettingsGroups(g, 'esign'))).toContain('/admin/s/quotes#signing')
+    expect(hrefs(visibleSettingsGroups({ ...all, canSuperAdmin: true, features: { servicePlans: false } }))).not.toContain('/admin/s/jobs#plan-templates')
+    expect(hrefs(visibleSettingsGroups(all))).not.toContain('/admin/s/jobs#plan-templates')
   })
   it('only leadership roles open the hub', () => {
     expect(canOpenSettingsHub('owner')).toBe(true)
     expect(canOpenSettingsHub('sales_rep')).toBe(false)
+  })
+  it('every card on a topic page has exactly one hub entry, and every hub card entry has a card', () => {
+    const items = SETTINGS_GROUPS.flatMap((g) => g.items.map((i) => i.href))
+    const fromPages = Object.entries(SECTION_PAGES).flatMap(([slug, p]) => p.cards.map((c) => `${SETTINGS_SECTION_PREFIX}${slug}#${c.anchor}`))
+    expect(fromPages.sort()).toEqual(items.filter((h) => h.includes('#') && h.startsWith(SETTINGS_SECTION_PREFIX)).sort())
+    for (const slug of Object.keys(SECTION_PAGES)) expect(items).toContain(`${SETTINGS_SECTION_PREFIX}${slug}`)
+  })
+  it('a topic page shows only when one of its cards does; old /admin#anchor ids map to the new place', () => {
+    const top = (f: Parameters<typeof visibleSettingsGroups>[0]) => hrefs(visibleSettingsGroups(f)).filter((h) => /^\/admin\/s\/[a-z]+$/.test(h))
+    expect(top({ ...all, canSuperAdmin: false })).toEqual(['/admin/s/jobs'])
+    expect(top({ ...all, canSuperAdmin: true, profileId: 'roofing', features: {} }).sort()).toEqual(['/admin/s/company', '/admin/s/jobs', '/admin/s/payments', '/admin/s/quotes'])
+    expect(LEGACY_ANCHOR_HREFS['sales-tax']).toBe('/admin/s/payments#sales-tax')
+    expect(LEGACY_ANCHOR_HREFS['quickbooks']).toBe('/admin/s/payments#quickbooks')
   })
 })

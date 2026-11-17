@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     const base = await orgAppUrl(orgId)
     try {
       const { url } = await startOnboarding(a.admin, orgId, a.profile.id, {
-        returnUrl: `${base}/admin?payments=return#online-payments`,
+        returnUrl: `${base}/admin/s/payments?payments=return#online-payments`,
         refreshUrl: `${base}/api/admin/online-payments/onboarding`,
       })
       return NextResponse.json({ url })

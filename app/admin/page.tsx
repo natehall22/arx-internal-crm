@@ -5,107 +5,30 @@ import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { PageHeader } from '@/components/ui/page-header'
 import { requireAuth } from '@/lib/auth'
-import { canManageCanvassTerritories } from '@/lib/canvass-territory-manager-roles'
-import { canOpenSettingsHub, visibleSettingsGroups } from '@/lib/settings-registry'
-
-import SettingsHub from './SettingsHub'
-import { isOwnerProfile, isSuperAdmin } from '@/lib/super-admin'
-import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
-import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
-import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
-import OrgProfileCard from '@/components/admin/OrgProfileCard'
-import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { loadOrgProfile } from '@/lib/org-profile'
-import SalesTaxCard from '@/components/admin/SalesTaxCard'
-import ProposalContentCard from '@/components/admin/ProposalContentCard'
-import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
-import SigningSettingsCard from '@/components/admin/SigningSettingsCard'
-import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
-import QuickBooksSetup from '@/components/admin/QuickBooksSetup'
-import QuickBooksActivityCard from '@/components/admin/QuickBooksActivityCard'
-import { loadOrgSalesTax } from '@/lib/sales-tax-server'
-import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
-import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
-import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSettingsCard'
-import { loadCheckupSettings } from '@/lib/checkups'
-import { canEditCheckupSettings } from '@/lib/checkups-settings'
-import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
-import { canEditJobCatchUpSettings } from '@/lib/job-catch-up-settings'
-import { orgTimeZone } from '@/lib/timezone'
+import { settingsFlagsFor } from '@/lib/settings-flags'
+import { canOpenSettingsHub, visibleSettingsGroups } from '@/lib/settings-registry'
 import { createServiceClient } from '@/lib/supabase/service'
 
-/** Settings: every admin page in one grouped, searchable list (lib/settings-registry.ts). */
+import LegacyAnchorRedirect from './LegacyAnchorRedirect'
+import SettingsHub from './SettingsHub'
+
+/** Settings: the menu and nothing else. Every setting opens its own page (lib/settings-registry.ts; cards at /admin/s/<slug>). */
 export default async function SettingsPage() {
   const { profile } = await requireAuth()
   if (!canOpenSettingsHub(profile.role)) redirect('/today')
 
-  const admin = createServiceClient()
   // Industry profile (lib/org-profile.ts): its feature map is the same profile-aware one every gate reads.
-  const orgProfile = await loadOrgProfile(admin, profile.org_id)
-  const features = orgProfile.features
-  const canEditFeatures = isSuperAdmin(profile)
-  const groups = visibleSettingsGroups({
-    features,
-    terms: orgProfile.terms,
-    profileId: orgProfile.id,
-    hiddenHrefs: [...orgProfile.nav.hidden, ...orgProfile.settingsHidden],
-    text: orgProfile.settingsText,
-    canCost: ['admin', 'operations'].includes(profile.role),
-    canPayroll: ['admin', 'owner', 'operations'].includes(profile.role),
-    canSuperuser: ['admin', 'owner'].includes(profile.role),
-    canWorkAreas: canManageCanvassTerritories(profile.role),
-    canOwner: isOwnerProfile(profile),
-    canSuperAdmin: isSuperAdmin(profile),
-  })
-  // Small org switches live as cards right here (the hub's "Job catch-up" entry links to #job-catch-up).
-  const [catchUp, checkups, { data: activeUsers }, salesTax, { data: orgRow }] = await Promise.all([
-    loadJobCatchUpSettings(admin, profile.org_id),
-    loadCheckupSettings(admin, profile.org_id),
-    admin.from('users').select('id, full_name').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
-    canEditFeatures ? loadOrgSalesTax(admin, profile.org_id) : Promise.resolve(null),
-    admin.from('orgs').select('timezone').eq('id', profile.org_id).maybeSingle(),
-  ])
-  const userOptions = ((activeUsers ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => ({ id: u.id, name: u.full_name || 'Unnamed user' }))
+  const orgProfile = await loadOrgProfile(createServiceClient(), profile.org_id)
+  const groups = visibleSettingsGroups(settingsFlagsFor(profile, orgProfile))
 
   return (
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
+        <LegacyAnchorRedirect />
         <PageHeader title="Settings" subtitle="Everything you can set up, in one place." />
         <SettingsHub groups={groups} />
-        <div className="mt-4 flex max-w-2xl flex-col gap-4">
-          {/* Owners only: turn whole parts of the app on/off for this company (lib/org-features.ts). */}
-          {canEditFeatures && (
-            <OrgProfileCard
-              current={{ id: orgProfile.id, label: orgProfile.label, description: INDUSTRY_PROFILES[orgProfile.id].description, unknownStoredId: orgProfile.unknownStoredId }}
-              profiles={INDUSTRY_PROFILE_IDS.map((id) => ({ id, label: INDUSTRY_PROFILES[id].label, description: INDUSTRY_PROFILES[id].description }))}
-            />
-          )}
-          {canEditFeatures && <OrgFeaturesCard initial={features} />}
-          {/* Owners only: sales tax rates, default stack, on/off (lib/sales-tax.ts). */}
-          {canEditFeatures && <SalesTaxCard initial={salesTax} proposalWord={orgProfile.terms.proposal} />}
-          {/* Owners, when the company uses online payments: connect its own Stripe account (lib/online-payments). */}
-          {canEditFeatures && features.onlinePayments ? <OnlinePaymentsCard /> : null}
-          {/* Owners, when the company uses QuickBooks: connect its own QuickBooks company (lib/quickbooks). */}
-          {canEditFeatures && features.quickbooks ? <QuickBooksSetup /> : null}
-          {canEditFeatures && features.quickbooks ? <QuickBooksActivityCard /> : null}
-          <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
-          {!orgProfile.settingsHidden.includes('/admin#checkups') && (
-            <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} timeZone={orgTimeZone(orgRow?.timezone)} terms={{ job: orgProfile.terms.job, jobs: orgProfile.terms.jobs }} />
-          )}
-          {/* Owners, when the company uses service plans: what it sells (plan templates). */}
-          {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
-          {/* Owners of a lawn_landscape company: automatic crew bonus rules (lib/crew-incentives.ts). Nobody else sees it. */}
-          {orgProfile.id === 'lawn_landscape' && canEditFeatures ? <CrewIncentivesSettingsCard /> : null}
-          {/* Owners, when the company bills by the hour: rounding, minimums, drive time (lib/hourly-billing.ts). */}
-          {features.hourlyBilling && canEditFeatures ? <HourlyBillingSettingsCard /> : null}
-          {/* Owners: the words on the proposal PDF's cover, process and why-us pages (lib/proposal-content.ts). */}
-          {canEditFeatures && <ProposalContentCard proposalWord={orgProfile.terms.proposal} />}
-          {/* Owners, when the company sends quote links: default deposit, link life, terms (lib/quotes/settings.ts). */}
-          {features.quoteApproval && canEditFeatures ? <QuoteApprovalCard /> : null}
-          {/* Owners: the e-sign notice, decline, filing, reminders, signed-copy emails (lib/signing/settings.ts). */}
-          {canEditFeatures ? <SigningSettingsCard /> : null}
-        </div>
       </main>
     </div>
   )

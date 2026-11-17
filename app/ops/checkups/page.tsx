@@ -60,12 +60,12 @@ export default async function CheckupsPage() {
         <PageHeader title="Checkups" subtitle="Inspections and check-in calls for customers after their install." />
         {!settings.enabled && (
           <p className="mb-4 rounded-ui border border-surface-line bg-surface p-4 text-ui-base text-ink">
-            Checkups are off. <Link href="/admin#checkups" className="font-semibold underline">Turn them on in Settings</Link>.
+            Checkups are off. <Link href="/admin/s/jobs#checkups" className="font-semibold underline">Turn them on in Settings</Link>.
           </p>
         )}
         {settings.enabled && !settings.assigneeUserId && (
           <p className="mb-4 rounded-ui border border-amber-600 bg-amber-50 p-4 text-ui-base text-ink">
-            Nobody is assigned to checkups yet. <Link href="/admin#checkups" className="font-semibold underline">Pick a person in Settings</Link>.
+            Nobody is assigned to checkups yet. <Link href="/admin/s/jobs#checkups" className="font-semibold underline">Pick a person in Settings</Link>.
           </p>
         )}
         {loadError && <p className="mb-4 rounded-ui border border-red-700 bg-red-50 p-4 text-ui-base text-ink">Checkups couldn’t fully load. Refresh to try again.</p>}

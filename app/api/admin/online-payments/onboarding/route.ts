@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   const a = await requireOnlinePaymentsCaller('owner')
   const origin = new URL(request.url).origin
-  if (a.error) return NextResponse.redirect(`${origin}/login?next=${encodeURIComponent('/admin#online-payments')}`, 303)
+  if (a.error) return NextResponse.redirect(`${origin}/login?next=${encodeURIComponent('/admin/s/payments#online-payments')}`, 303)
   const base = await orgAppUrl(a.profile.org_id)
-  return NextResponse.redirect(`${base}/admin?payments=resume#online-payments`, 303)
+  return NextResponse.redirect(`${base}/admin/s/payments?payments=resume#online-payments`, 303)
 }

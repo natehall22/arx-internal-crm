@@ -43,7 +43,7 @@ happened on a job, so it can say where each one stands without anyone typing a s
   the latest note.
 
 ## Settings
-A card on the Settings page (`/admin#job-catch-up`; the hub's "Job catch-up" entry links to it): on/off
+A card on the Settings page (`/admin/s/jobs#job-catch-up`; the hub's "Job catch-up" entry links to it): on/off
 (`orgs.settings.job_catch_up_enabled`, default off) and N working days (`job_catch_up_stuck_days`, default 7, 1–60).
 Everyone who opens Settings sees it; admins/owners edit — `PATCH /api/admin/settings` `type: 'job_catch_up'`, written
 with `mergeOrgSettings` (SQL `merge_org_settings`, migration `202611060010`, falls back to read-merge-write until
