@@ -427,7 +427,7 @@ const SCREENS: Screen[] = [
   { name: 'service-plans-one-time', path: '/dev-harness/service-plans', ready: 'text=One-time customer', mock: async (p) => {
     await p.route('**/api/customers/*/service-plans', (route) => route.fulfill(json({ ...HARNESS_SERVICE_PLANS, plans: [] })))
   },
-    states: [{ name: 'put-on-plan', run: async (p) => { await p.getByRole('button', { name: 'Put on a plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Plan type') } }] },
+    states: [{ name: 'put-on-plan', run: async (p) => { await p.getByRole('button', { name: 'Put on a plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Plan template') } }] },
   { name: 'visits-board', path: '/dev-harness/visits-board', ready: 'text=Gate code 4421. Dog in back yard. >> nth=0', mock: async (p) => {
     await p.route(/\/api\/ops\/visits(\?.*)?$/, (route) => route.fulfill(json(HARNESS_VISITS)))
     await p.route('**/api/ops/visits/*/photos', (route) => route.fulfill(json({ photos: [{ id: 'ph1', filename: 'front.jpg', created_at: '2026-11-10T15:00:00Z' }] })))
