@@ -647,10 +647,10 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
         const tapDay = localYmd(time.at.getTime(), config.timeZone)
         const forgotten = Array.from(openShift.values()).filter((sh) => localYmd(Date.parse(sh.startedAt), config.timeZone) < tapDay)
         if (forgotten.length) {
-          await closeAsForgotten(admin, actor.orgId, forgotten, time.at)
+          await closeAsForgotten(admin, actor.orgId, forgotten, time.at, config.timeZone)
           for (const sh of forgotten) if (sh.userId) openShift.delete(sh.userId)
         }
-        // Filed under the crew of today's first stop, else the person's first crew (a tech on two crews has one day).
+        // Filed under the crew link's own crew; signed in: the crew of today's first stop, else the person's first crew (a tech on two crews has one day).
         const todaysStops = await orgDb(admin, actor.orgId)
           .from('time_entries')
           .select('user_id, sub_id, started_at')
@@ -668,7 +668,7 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
           if (openShift.has(userId)) continue // already started
           const b = openBreak.get(userId)
           if (b) await closeEntry(ctx, b)
-          const r = await insertEntry(ctx, { user_id: userId, sub_id: firstStopCrew.get(userId) ?? people.get(userId)?.subId ?? null, kind: 'shift' }, tap.tapId)
+          const r = await insertEntry(ctx, { user_id: userId, sub_id: actor.via === 'crew_link' ? actor.subId : firstStopCrew.get(userId) ?? people.get(userId)?.subId ?? null, kind: 'shift' }, tap.tapId)
           if (r === 'inserted') done++
         }
         break
@@ -794,7 +794,7 @@ export async function autoCloseForgotten(admin: SupabaseClient, orgId: string, o
     stale.push(...((data ?? []) as Array<Record<string, unknown>>).map(entryFromRow))
   }
   if (stale.length === 0) return 0
-  return closeAsForgotten(admin, orgId, stale, now)
+  return closeAsForgotten(admin, orgId, stale, now, config.timeZone)
 }
 
 /**
@@ -802,13 +802,18 @@ export async function autoCloseForgotten(admin: SupabaseClient, orgId: string, o
  * crew lead's next-morning question, then refresh the feeds. The one close path for the limit sweep and for a Start day that
  * finds yesterday's day clock still open. Returns entries closed.
  */
-async function closeAsForgotten(admin: SupabaseClient, orgId: string, stale: TimeEntry[], now: Date): Promise<number> {
+async function closeAsForgotten(admin: SupabaseClient, orgId: string, stale: TimeEntry[], now: Date, timeZone: string): Promise<number> {
   const db = orgDb(admin, orgId)
   const touched = { users: new Set<string>(), instants: new Set<string>(), jobs: new Set<string>() }
   let closed = 0
   for (const e of stale) {
-    // Never past the moment being judged (a queued tap's time), never before the start.
-    const lastTap = new Date(Math.max(Date.parse(e.startedAt), Math.min(Date.parse(await lastTapFor(admin, orgId, e)), now.getTime()))).toISOString()
+    // Never past the moment being judged (a queued tap's time), never past the end of the company-time day the entry started
+    // (a stop tapped the next morning is not proof they worked that night), never before the start.
+    const startMs = Date.parse(e.startedAt)
+    const startDay = localYmd(startMs, timeZone)
+    const nextDay = new Date(Date.parse(`${startDay}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+    const dayEndMs = (localTimeToInstant(nextDay, '00:00', timeZone) ?? new Date(startMs + 24 * 3_600_000)).getTime()
+    const lastTap = new Date(Math.max(startMs, Math.min(Date.parse(await lastTapFor(admin, orgId, e, new Date(Math.min(now.getTime(), dayEndMs)))), now.getTime(), dayEndMs))).toISOString()
     const zero = lastTap === new Date(e.startedAt).toISOString()
     const { data: upd, error: updErr } = await db
       .from('time_entries')
@@ -831,16 +836,17 @@ async function closeAsForgotten(admin: SupabaseClient, orgId: string, stale: Tim
 }
 
 /** The latest moment we KNOW this person (or, for a machine, its crew) was still working: start, or a later tap. */
-async function lastTapFor(admin: SupabaseClient, orgId: string, e: TimeEntry): Promise<string> {
+async function lastTapFor(admin: SupabaseClient, orgId: string, e: TimeEntry, before: Date): Promise<string> {
   let latest = Date.parse(e.startedAt)
   const db = orgDb(admin, orgId)
-  let q = db.from('time_entries').select('started_at, ended_at').is('removed_at', null).gte('started_at', e.startedAt).neq('id', e.id)
+  // Only taps made before the moment being judged (the tap being processed is never evidence for the day it closes).
+  let q = db.from('time_entries').select('started_at, ended_at').is('removed_at', null).gte('started_at', e.startedAt).lt('started_at', before.toISOString()).neq('id', e.id)
   if (e.userId) q = q.eq('user_id', e.userId)
   else if (e.subId) q = q.eq('sub_id', e.subId)
   else return e.startedAt
   const { data } = await q
   for (const r of (data ?? []) as Array<{ started_at: string; ended_at: string | null }>) {
-    latest = Math.max(latest, Date.parse(r.started_at), r.ended_at ? Date.parse(r.ended_at) : 0)
+    latest = Math.max(latest, Date.parse(r.started_at), r.ended_at ? Math.min(Date.parse(r.ended_at), before.getTime()) : 0)
   }
   return new Date(latest).toISOString()
 }
@@ -892,10 +898,8 @@ async function answerFinishTime(
   }
   if (!end || end.getTime() <= startMs) return { ok: false, status: 400, error: 'That’s before they started' }
   if (end.getTime() - startMs > 24 * 3_600_000 || end.getTime() > input.now.getTime()) return { ok: false, status: 400, error: 'That time doesn’t fit — ask the office to fix it' }
-  const pw = input.config.payWeek
-  const period = await findWeekNear(admin, orgId, await clockWeekCutoff(admin, orgId, end, pw), pw)
-  const periodStart = await findWeekNear(admin, orgId, await clockWeekCutoff(admin, orgId, new Date(startMs), pw), pw)
-  if (!periodIsEditable(period) || !periodIsEditable(periodStart)) return { ok: false, status: 409, error: 'That week is already approved — ask the office' }
+  // A week already approved does not refuse the answer: the end is recorded now (ended_recorded_at), so the feed carries the
+  // unpaid time into the next open week as a late-recorded end. Only the office's own edits are refused there.
   const endedAt = end.toISOString()
   const overlap = await overlapRefusal(admin, orgId, { userId: e.userId, kind: e.kind, startedAt: e.startedAt, endedAt, excludeId: e.id, timeZone: input.config.timeZone })
   if (overlap) return { ok: false, status: 409, error: `${overlap} Ask the office.` }
@@ -1436,15 +1440,18 @@ export async function syncTimeFeeds(
     const c = await clockWeekCutoff(admin, orgId, new Date(t), config.payWeek)
     cutoffs.set(c.toISOString(), c)
   }
-  // A touched week that is already approved can't change: its late time is carried into the week after (below).
+  // A touched week that is already approved can't change: its late time is carried into the first OPEN week after it
+  // (past any further approved weeks; the carry below walks back over every approved week in a row).
   const weeks = Array.from(cutoffs.values())
   for (const c of [...weeks]) {
-    const p = await findWeekNear(admin, orgId, c, config.payWeek)
-    if (!periodIsEditable(p)) {
-      const next = nextWeekCutoff(c, config.payWeek)
-      if (!cutoffs.has(next.toISOString())) {
-        cutoffs.set(next.toISOString(), next)
-        weeks.push(next)
+    let at = c
+    for (let i = 0; i < 12; i++) {
+      const p = await findWeekNear(admin, orgId, at, config.payWeek)
+      if (periodIsEditable(p)) break
+      at = nextWeekCutoff(at, config.payWeek)
+      if (!cutoffs.has(at.toISOString())) {
+        cutoffs.set(at.toISOString(), at)
+        weeks.push(at)
       }
     }
   }
@@ -1466,27 +1473,35 @@ export async function syncTimeFeeds(
 
     // ---- payroll hours
     if (period && weekOpen) {
-      // The week before, if it was approved: time recorded after its approval began was never paid there.
-      const prev = await findWeekNear(admin, orgId, prevCutoff, config.payWeek)
-      const prevApprovedAt = prev && !periodIsEditable(prev) ? Date.parse((prev.lock_claimed_at ?? prev.locked_at ?? '') as string) : NaN
-      const prevFrom = (await clockWeekPrevCutoff(admin, orgId, prevCutoff, config.payWeek)).getTime() + 1
+      // The approved weeks right before this one (one or several in a row): time recorded after an approval began was never paid there.
+      const approvedBefore: Array<{ from: number; to: number; at: number }> = []
+      for (let at = cutoff, i = 0; i < 12; i++) {
+        const pc = await clockWeekPrevCutoff(admin, orgId, at, config.payWeek)
+        const pp = await findWeekNear(admin, orgId, pc, config.payWeek)
+        if (!pp || periodIsEditable(pp)) break
+        const claimedAt = await approvalClaimTime(admin, pp)
+        if (!Number.isFinite(claimedAt)) break
+        approvedBefore.push({ from: (await clockWeekPrevCutoff(admin, orgId, pc, config.payWeek)).getTime() + 1, to: pc.getTime() + 1, at: claimedAt })
+        at = pc
+      }
+      const earliestFrom = approvedBefore.length ? approvedBefore[approvedBefore.length - 1].from : from
       for (const userId of input.userIds) {
         // One recompute per person at a time: two taps landing together can't write an older total over a newer one.
         const res = await withFeedLock(admin, orgId, userId, async () => {
-          const entries = await loadPersonEntries(admin, orgId, userId, prevFrom - 86_400_000, to + 86_400_000)
+          const entries = await loadPersonEntries(admin, orgId, userId, earliestFrom - 86_400_000, to + 86_400_000)
           const t = paidTime(entries, { timeZone: config.timeZone })
           let paid = totalSeconds(clipIntervals(t.paid, from, to))
           let carried = 0
-          if (Number.isFinite(prevApprovedAt)) {
+          for (const w of approvedBefore) {
             // Split at the cutoff: what the approved week should have paid (union over ALL its entries) minus what it did pay
-            // (the entries finished and recorded by approval; a day still open then paid nothing for itself). A day clock that
-            // ends after approval therefore carries only the time no stop already paid, never the whole day twice.
-            const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > prevApprovedAt))
-            const owed = clipIntervals(paidTime(entries, { timeZone: config.timeZone }).paid, prevFrom, from)
-            const paidThen = clipIntervals(paidTime(knownThen, { timeZone: config.timeZone }).paid, prevFrom, from)
-            carried = totalSeconds(subtractIntervals(owed, paidThen))
-            paid += carried
+            // (the entries finished and recorded by the approval claim; a day still open then paid nothing for itself). A day
+            // clock that ends after approval therefore carries only the time no stop already paid, never the whole day twice.
+            const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > w.at))
+            const owed = clipIntervals(t.paid, w.from, w.to)
+            const paidThen = clipIntervals(paidTime(knownThen, { timeZone: config.timeZone }).paid, w.from, w.to)
+            carried += totalSeconds(subtractIntervals(owed, paidThen))
           }
+          paid += carried
           const split = splitOvertime(paid, config.settings.overtimeAfterHours)
           return saveHoursEntries(admin, {
             orgId,
@@ -1536,7 +1551,16 @@ export async function syncTimeFeeds(
       for (const jobId of Array.from((await allocationFor(userId)).keys())) weekJobIds.add(jobId)
       // ...and so does REMOVING or editing one: every job this person has stop time on this week is re-costed, including a
       // job whose share just went to zero (its old allocated line must drop, not stay).
-      for (const e of await personEntries(userId)) if (e.kind === 'work' && e.jobId && Date.parse(e.startedAt) >= from && Date.parse(e.startedAt) <= to) weekJobIds.add(e.jobId)
+      // A stop counts when it overlaps the week OR sits inside a day-clock shift that does (a shift across the cutoff re-costs
+      // the stops on both sides of it).
+      const mine = await personEntries(userId)
+      const overlaps = (e: TimeEntry) => Date.parse(e.startedAt) <= to && (e.endedAt ? Date.parse(e.endedAt) : Date.parse(e.startedAt)) >= from
+      const shifts = mine.filter((e) => e.kind === 'shift' && overlaps(e))
+      for (const e of mine) {
+        if (e.kind !== 'work' || !e.jobId) continue
+        const st = Date.parse(e.startedAt)
+        if (overlaps(e) || shifts.some((sh) => st >= Date.parse(sh.startedAt) && st <= (sh.endedAt ? Date.parse(sh.endedAt) : Number.MAX_SAFE_INTEGER))) weekJobIds.add(e.jobId)
+      }
     }
     for (const jobId of Array.from(weekJobIds)) {
       const { data: rows, error } = await orgDb(admin, orgId)
@@ -1584,6 +1608,19 @@ export async function syncTimeFeeds(
     }
   }
   return out
+}
+
+/**
+ * When an approved week's approval began: the stored claim time (`approval_claimed_at`, kept by a trigger because the claim
+ * columns are cleared at commit; migration 202611300140), else the claim columns, else the lock time. NaN when none.
+ */
+async function approvalClaimTime(admin: SupabaseClient, p: { id?: string; lock_claimed_at?: string | null; locked_at?: string | null }): Promise<number> {
+  if (p.id) {
+    const { data, error } = await admin.from('payroll_periods').select('approval_claimed_at').eq('id', p.id).maybeSingle()
+    const v = !error ? (data as { approval_claimed_at?: string | null } | null)?.approval_claimed_at : null // column missing (not applied): fall through
+    if (v && Number.isFinite(Date.parse(v))) return Date.parse(v)
+  }
+  return Date.parse((p.lock_claimed_at ?? p.locked_at ?? '') as string)
 }
 
 /**
