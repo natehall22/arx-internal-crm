@@ -16,6 +16,7 @@ import { fetchPeriodMetricRows, summarizePeriodRows } from '@/lib/reporting/peri
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
 import { isOrgSuperuserRoleSlug, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
+import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 
@@ -393,6 +394,7 @@ export default async function DashboardPage() {
       <Nav />
       <DashboardClient
         orgFeatures={await getOrgFeatures(profile.org_id)}
+        orgProfile={clientOrgProfile(await loadOrgProfile(createServiceClient(), profile.org_id))}
         profile={profile}
         stats={stats}
         progress={progress}

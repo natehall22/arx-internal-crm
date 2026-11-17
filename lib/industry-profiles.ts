@@ -152,6 +152,13 @@ export type IndustryProfile = {
    * Settings entries (lib/settings-registry.ts, by href) with their own description for this profile — roofing-shaped
    * words ("Price per square", "Ventilation, gutters, skylights") replaced. Left out = the registry's own text (roofing).
    */
+  /**
+   * Inspection/estimate-visit outcome wording by outcome id (lib/inspection-outcomes.ts). Ids and behavior never change; only
+   * the label/description a person reads. Applies when the company has not saved its own list. Left out = the built-in words.
+   */
+  outcomeText?: Readonly<Record<string, { label?: string; description?: string }>>
+  /** Canvass disposition labels by disposition id (door-knocking companies only). Left out = the built-in words. */
+  dispositionText?: Readonly<Record<string, string>>
   /** Settings hub entries (by href) this profile never shows. Left out = none (roofing). */
   settingsHidden?: readonly string[]
   settingsText?: Readonly<Record<string, string>>
@@ -284,9 +291,13 @@ const lawnLandscape: IndustryProfile = {
     install: 'Work',
     installed: 'Done',
   },
-  // Referral partners are roofing-shaped (agents, builders): no menu entry, no "+ Partner" shortcut, no dashboard card.
-  nav: { order: SERVICE_NAV_ORDER, hidden: [...SERVICE_NAV_HIDDEN, '/referral-partners'] },
+  nav: { order: SERVICE_NAV_ORDER, hidden: SERVICE_NAV_HIDDEN },
   settingsHidden: LAWN_SETTINGS_HIDDEN,
+  outcomeText: {
+    no_problems_found: { label: 'Nothing needed', description: 'The property looked fine; no work needed' },
+    needs_repair: { label: 'Small job', description: 'A small fix, not a full project' },
+  },
+  dispositionText: { bad_roof: 'Not a fit (no contact)' },
   settingsText: {
     '/admin/pricing': 'Service prices, overhead and price book items',
     '/admin/proposals': 'Price book add-ons, price visibility and quote templates',
@@ -357,6 +368,11 @@ const exteriorCleaning: IndustryProfile = {
   ],
   terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done', leadName: 'Customer / company name' },
   nav: { order: SERVICE_NAV_ORDER, hidden: SERVICE_NAV_HIDDEN },
+  outcomeText: {
+    no_problems_found: { label: 'Nothing needed', description: 'The property looked fine; no work needed' },
+    needs_repair: { label: 'Small job', description: 'A small fix, not a full job' },
+  },
+  dispositionText: { bad_roof: 'Not a fit (no contact)' },
   today: {
     order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment', 'door-collections', 'unpaid-invoices'],
     hidden: [],

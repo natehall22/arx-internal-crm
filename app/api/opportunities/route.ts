@@ -7,6 +7,8 @@ import {
 } from '@/lib/effective-inspection-state'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgProfile } from '@/lib/org-profile'
+import { activeTrades, loadOrgTrades, orderedTrades } from '@/lib/org-trades'
 
 export const dynamic = 'force-dynamic'
 
@@ -241,7 +243,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ opportunities: enrichedOpportunities })
+    // Project Type filter choices: the company's own trades (lawn: Lawn care, Landscaping…). Roofing keeps its fixed list (null).
+    const orgProfile = await loadOrgProfile(adminClient, profile.org_id)
+    const projectTypes =
+      orgProfile.id === 'roofing'
+        ? null
+        : orderedTrades(activeTrades(await loadOrgTrades(adminClient, profile.org_id))).map((t) => ({ value: t.slug, label: t.label }))
+    return NextResponse.json({ opportunities: enrichedOpportunities, projectTypes })
   } catch (error) {
     console.error('Opportunities API error:', error)
     return NextResponse.json({ 

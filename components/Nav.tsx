@@ -21,7 +21,7 @@ import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { DEFAULT_ORG_FEATURES, type OrgFeatures } from '@/lib/org-features'
 import { featuresFromEffectivePermissions, fetchEffectivePermissions, navBrandingFromEffectivePermissions, profileFromEffectivePermissions, type NavBranding } from '@/hooks/useOrgFeatures'
-import { coerceClientOrgProfile, pageHidden, type ClientOrgProfile } from '@/lib/org-profile'
+import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
 import { useAIAssistantLauncher } from '@/components/AIAssistantProvider'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import GlobalSearch from '@/components/search/GlobalSearch'
@@ -216,7 +216,7 @@ export default function Nav() {
   const activeId = activeSectionId(pathname, nav)
   const activeSection = nav.sections.find((s) => s.id === activeId) ?? null
   const [moreOpen, setMoreOpen] = useState(false)
-  const canAddPartner = (hasFullNavAccess || effectivePermissionNames.has('referral_partners:view')) && !pageHidden(orgProfile, '/referral-partners')
+  const canAddPartner = hasFullNavAccess || effectivePermissionNames.has('referral_partners:view')
 
   // The shell is fixed (sidebar / bottom bar), so pages — which each render <Nav /> themselves — get room via body classes.
   useEffect(() => {

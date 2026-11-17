@@ -19,7 +19,8 @@ import {
 } from '@/lib/opportunity-list-filters'
 import { type OpportunityListRow as Opportunity } from '@/components/opportunities/opportunity-list-shared'
 import { formatPhone } from '@/lib/format'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { t } from '@/lib/org-profile'
 import { insideSalesFeatureTabs } from '@/lib/inside-sales-follow-up'
 
 type InsideSalesActivity = {
@@ -59,7 +60,12 @@ type InsideSalesItem = {
 
 export default function OpportunitiesPage() {
   /** Storm alerts switched off (Settings → Features): no Storm filter or count card (same rule as /inside-sales). */
-  const featureTabs = insideSalesFeatureTabs(useOrgFeatures())
+  const orgFeaturesNow = useOrgFeatures()
+  const featureTabs = insideSalesFeatureTabs(orgFeaturesNow)
+  const orgWords = useOrgProfile()
+  const inspectionWord = t(orgWords, 'inspection')
+  // Project Type choices: the company's trades from the API; null (roofing) = the fixed list below.
+  const [projectTypes, setProjectTypes] = useState<Array<{ value: string; label: string }> | null>(null)
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -117,8 +123,9 @@ export default function OpportunitiesPage() {
         return
       }
 
-      const { opportunities: opps } = await response.json()
+      const { opportunities: opps, projectTypes: types } = await response.json()
       setOpportunities(opps || [])
+      setProjectTypes(Array.isArray(types) ? types : null)
     } catch (err) {
       console.error('Error loading opportunities:', err)
       setError('Failed to load opportunities')
@@ -406,7 +413,7 @@ export default function OpportunitiesPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                {activeView === 'inside_sales' ? 'Queue Type' : 'Inspection Result'}
+                {activeView === 'inside_sales' ? 'Queue Type' : `${inspectionWord} Result`}
               </label>
               <select
                 value={filters.inspection_outcome}
@@ -419,14 +426,14 @@ export default function OpportunitiesPage() {
                     <option value="callable">Ready for me (past wait)</option>
                     <option value="waiting_rep">Still with rep</option>
                     <option value="didnt_sit">Didn&apos;t sit only</option>
-                    <option value="handoff">Inspection handoff only</option>
-                    <option value="knockback">Knockback only</option>
+                    <option value="handoff">{inspectionWord} handoff only</option>
+                    {orgFeaturesNow.canvassing && <option value="knockback">Knockback only</option>}
                     {featureTabs.showStorm && <option value="storm">Storm only (est.)</option>}
                   </>
                 ) : (
                   <>
                     <option value="">All Results</option>
-                    <option value="none">No Inspection Yet</option>
+                    <option value="none">No {inspectionWord} Yet</option>
                     {filters.inspection_outcome &&
                       filters.inspection_outcome !== 'none' &&
                       !inspectionOutcomeRows.some((o) => o.id === filters.inspection_outcome) && (
@@ -452,10 +459,20 @@ export default function OpportunitiesPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="">All Types</option>
-                <option value="roofing">Roofing</option>
-                <option value="siding">Siding</option>
-                <option value="windows">Windows</option>
-                <option value="mixed">Mixed</option>
+                {projectTypes ? (
+                  projectTypes.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="roofing">Roofing</option>
+                    <option value="siding">Siding</option>
+                    <option value="windows">Windows</option>
+                    <option value="mixed">Mixed</option>
+                  </>
+                )}
               </select>
             </div>
             <div className="flex items-end">

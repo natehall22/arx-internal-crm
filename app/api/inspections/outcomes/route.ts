@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
+  DEFAULT_INSPECTION_OUTCOMES,
   mergeOrgInspectionOutcomesWithDefaults,
   sortInspectionOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgProfile, profileOutcomeRows } from '@/lib/org-profile'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,7 +86,9 @@ export async function GET(request: NextRequest) {
 
     const includeInactive = request.nextUrl.searchParams.get('include_inactive') === '1'
     const raw = org?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
-    const merged = mergeOrgInspectionOutcomesWithDefaults(raw)
+    // The company's industry profile words the built-ins (lawn: no roof wording, no insurance follow-up); its own saved list wins.
+    const orgProfile = await loadOrgProfile(admin, profile.org_id)
+    const merged = mergeOrgInspectionOutcomesWithDefaults(raw, profileOutcomeRows(orgProfile, null, DEFAULT_INSPECTION_OUTCOMES))
     const outcomes = sortInspectionOutcomes(merged, { includeInactive })
 
     return NextResponse.json({ outcomes })

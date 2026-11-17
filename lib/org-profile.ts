@@ -50,6 +50,8 @@ export type ResolvedOrgProfile = {
   starterReports: readonly string[] | null
   reportsOverview: ReportsOverviewProfile | null
   hiddenLeadSources: readonly string[]
+  outcomeText: NonNullable<IndustryProfile['outcomeText']>
+  dispositionText: Readonly<Record<string, string>>
   settingsHidden: readonly string[]
   settingsText: Readonly<Record<string, string>>
 }
@@ -81,14 +83,49 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
     starterReports: p.starterReports,
     reportsOverview: p.reportsOverview ?? null,
     hiddenLeadSources: p.hiddenLeadSources ?? [],
+    outcomeText: p.outcomeText ?? {},
+    dispositionText: p.dispositionText ?? {},
     settingsHidden: p.settingsHidden ?? [],
     settingsText: p.settingsText ?? {},
   }
 }
 
-/** The company's profile hides this page / Settings entry (menu, hub, header shortcut). Roofing hides none. */
-export function pageHidden(profile: Pick<ResolvedOrgProfile, 'nav'> | Pick<ClientOrgProfile, 'nav'> | null | undefined, href: string): boolean {
-  return profile?.nav.hidden.includes(href) ?? false
+/** The company's word for an outcome (profile wording, else the one given). Roofing has none: unchanged. */
+export function outcomeLabel(profile: Pick<ResolvedOrgProfile, 'outcomeText'> | null | undefined, id: string | null | undefined, fallback: string): string {
+  return (id && profile?.outcomeText[id]?.label) || fallback
+}
+
+/** Dashboard "Inspections Set" in the company's word (roofing: unchanged). */
+export function inspectionsSetLabel(profile: Pick<ResolvedOrgProfile, 'terms'> | null | undefined): string {
+  const w = t(profile, 'inspection')
+  return w === BASE_TERMS.inspection ? 'Inspections Set' : `${w}s set`
+}
+
+/** Dashboard "Sits" (a sit = the customer sat through the inspection): roofing unchanged, others "Visits done". */
+export function sitsLabel(profile: Pick<ResolvedOrgProfile, 'terms'> | null | undefined): string {
+  return t(profile, 'inspection') === BASE_TERMS.inspection ? 'Sits' : 'Visits done'
+}
+
+/** The company's word for a canvass disposition (profile wording, else the one given). */
+export function dispositionLabel(profile: Pick<ResolvedOrgProfile, 'dispositionText'> | null | undefined, id: string, fallback: string): string {
+  return profile?.dispositionText[id] ?? fallback
+}
+
+/**
+ * Outcome rows for a company: its own saved list wins untouched; with none saved, the built-ins in the profile's words,
+ * and "Insurance follow up" is not offered when insurance is off (kept as a row so old records still read, but inactive).
+ */
+export function profileOutcomeRows<R extends { id: string; label: string; description: string; active: boolean }>(
+  profile: Pick<ResolvedOrgProfile, 'outcomeText' | 'features'>,
+  saved: readonly R[] | null | undefined,
+  defaults: readonly R[]
+): R[] {
+  if (Array.isArray(saved) && saved.length > 0) return [...saved]
+  return defaults.map((row) => {
+    const own = profile.outcomeText[row.id]
+    const off = row.id === 'insurance_follow_up' && !profile.features.insurance
+    return own || off ? { ...row, ...(own?.label ? { label: own.label } : {}), ...(own?.description ? { description: own.description } : {}), ...(off ? { active: false } : {}) } : row
+  })
 }
 
 /** Roofing with nothing stored — what a failed read or a missing org gets (today's app). */
