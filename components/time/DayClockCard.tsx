@@ -25,32 +25,55 @@ export function runningTime(startedAt: string, now: number): string {
   return `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`
 }
 
+/** Paid hours today so far for these people, as the server counted them (paid time rule; breaks out). Undefined servers count 0. */
+export function paidDayHours(people: Array<{ paidTodaySeconds?: number }>): number {
+  return Math.round((people.reduce((a, p) => a + (p.paidTodaySeconds ?? 0), 0) / 3600) * 100) / 100
+}
+
+function hoursLabel(hours: number): string {
+  const mins = Math.round(hours * 60)
+  return `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`
+}
+
 /**
  * The day clock: ONE huge round button — green “Start day”, then red “End day” with the running time — and a smaller
  * Break toggle. Pay is the whole day (driving, loading, fuel, dump runs), so no stop has to be tapped. A crew lead starts
  * the day for the crew (everyone ticked; untick whoever isn’t working) and ends it for all or one person; a signed-in
  * crew member starts and ends their own. Same taps, offline queue and rules as the stop clock (one clock system).
- * Shown on the crew phone page and on Today / My day.
+ * ONE home for the day clock: the crew phone page and Today / My day both render this. `viewerUserId` narrows the card to
+ * that one person (an embedded "My day"); `onPaidHours` reports their paid hours today (union of day, stops and travel,
+ * breaks out) whenever it changes, and the same number shows under the button.
  */
 export function DayClockCard({
   clock,
   selected,
   setSelected,
   title = 'Day clock',
+  viewerUserId = null,
+  onPaidHours,
 }: {
   clock: Clock
   selected: string[]
   setSelected: (ids: string[]) => void
   title?: string
+  /** Show only this person (their own day). Omit for the whole roster the clock returned (a crew lead's crew). */
+  viewerUserId?: string | null
+  /** Paid hours today so far for the people shown (2 decimals). */
+  onPaidHours?: (hours: number) => void
 }) {
   const { state, tap, latestOnClock } = clock
   const now = useNow()
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [perPerson, setPerPerson] = useState(false)
-  if (!state || state.people.length === 0) return null
+  const shown = state ? (viewerUserId ? state.people.filter((p) => p.userId === viewerUserId) : state.people) : []
+  const paidHours = paidDayHours(shown)
+  useEffect(() => {
+    if (onPaidHours && state) onPaidHours(paidHours)
+  }, [onPaidHours, state, paidHours])
+  if (!state || shown.length === 0) return null
   if (!state.ready) return <p className="rounded-lg border-2 border-[#2c2c2a] bg-white p-3 text-base">The time clock isn’t ready yet — ask the office.</p>
   const tz = state.timeZone
-  const people = state.people
+  const people = shown
   const multi = people.length > 1
   const onShift = people.filter((p) => !!p.shift)
   const idle = people.filter((p) => !p.shift)
@@ -66,7 +89,7 @@ export function DayClockCard({
     setConfirmEnd(false)
     setPerPerson(false)
     // Fresh list of who is on the clock: a stale screen must not leave anyone's day running.
-    const fresh = ids ?? (await latestOnClock())
+    const fresh = ids ?? (viewerUserId ? (await latestOnClock()).filter((id) => id === viewerUserId) : await latestOnClock())
     if (fresh.length) void tap('day_end', { userIds: fresh })
   }
 
@@ -87,7 +110,7 @@ export function DayClockCard({
           : multi
             ? 'Day not started. Who’s working today?'
             : 'Day not started.'}
-        {started && earliest && earliest !== 'pending' ? ` · since ${clockTime(earliest, tz)}` : ''}
+        {started && earliest ? ` · since ${clockTime(earliest, tz)}` : ''}
       </p>
 
       <div className="flex justify-center">
@@ -133,11 +156,13 @@ export function DayClockCard({
         </button>
       ) : null}
 
-      {multi && idle.length > 0 ? (
+      {paidHours > 0 ? <p className="text-center text-base font-semibold">{`Paid today so far: ${hoursLabel(paidHours)}`}</p> : null}
+
+      {multi && (started || idle.length > 0) ? (
         <div className="flex flex-col gap-2">
-          {started ? <p className="text-base font-semibold">Not on the clock yet</p> : null}
+          {started ? <p className="text-base font-semibold">{idle.length > 0 ? 'Tick who’s at the next stop · tick the rest to start their day' : 'Tick who’s at the next stop'}</p> : null}
           <div className="flex flex-wrap gap-2">
-            {idle.map((p) => {
+            {(started ? people : idle).map((p) => {
               const on = selected.includes(p.userId)
               return (
                 <button
@@ -153,7 +178,7 @@ export function DayClockCard({
               )
             })}
           </div>
-          {started ? (
+          {started && idle.length > 0 ? (
             <button type="button" className={primary} disabled={startIds.length === 0} onClick={() => void tap('day_start', { userIds: startIds })}>
               {startIds.length ? `Start day for ${startIds.length} more` : 'Tick who’s starting'}
             </button>

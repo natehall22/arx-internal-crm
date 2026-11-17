@@ -13,7 +13,7 @@ jest.mock('@/lib/payroll-hours', () => ({
   loadPlanForWeek: async () => ({ hourly_rate_override: 20, comp_plans: null }),
 }))
 
-import { addTimeEntry, applyClockTap, autoCloseForgotten, editTimeEntry, loadClockState, loadOpenShiftsQueue, loadWorkSecondsByStop, type ClockActor } from '@/lib/time-tracking-db'
+import { addTimeEntry, applyClockTap, autoCloseForgotten, editTimeEntry, loadClockState, loadOpenShiftsQueue, loadWorkSecondsByStop, removeTimeEntry, syncTimeFeeds, type ClockActor } from '@/lib/time-tracking-db'
 import {
   allocateShiftTime,
   localTimeToInstant,
@@ -434,5 +434,135 @@ describe('office edits and who may use it', () => {
     expect(open(db3, 'shift').map((e) => e.user_id).sort()).toEqual([U1, U2])
     const setter: ClockActor = { via: 'signed_in', orgId: 'org1', userId: U9 }
     expect(await applyClockTap(db3.client, setter, tap('day_start', T('06:00'), { userIds: [U9] }), T('06:00'))).toMatchObject({ ok: false, status: 403 })
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Review fixes
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe('approved-week carry-over pays only what the approved week did not', () => {
+  // A day 7–17 with stops 8–16; the week is approved while the day clock is still open; End day is recorded the next Monday.
+  async function run(dayYmd: string, endYmd: string, shiftFrom: string, shiftTo: string, stopFrom: string, stopTo: string, laterYmd: string) {
+    const db = seed()
+    const sh = T(shiftFrom, dayYmd)
+    const cutoff = weekCutoffContaining(sh, { ...LEGACY_PAY_WEEK, timeZone: TZ })
+    const approvedAt = new Date(cutoff.getTime() + 60_000).toISOString()
+    db.tables.payroll_periods.push({ id: 'p1', org_id: 'org1', cutoff_at: cutoff.toISOString(), status: 'locked', locked_at: approvedAt, lock_claimed_at: approvedAt })
+    const base = { org_id: 'org1', user_id: U1, sub_id: 's1', source: 'lead_tap', end_source: 'lead_tap', needs_review: false }
+    db.tables.time_entries.push(
+      { ...base, id: 'stop1', kind: 'work', work_order_id: WO1, production_job_id: JOB1, started_at: T(stopFrom, dayYmd).toISOString(), ended_at: T(stopTo, endYmd).toISOString(), ended_recorded_at: T(stopTo, endYmd).toISOString() },
+      { ...base, id: 'day1', kind: 'shift', started_at: sh.toISOString(), ended_at: T(shiftTo, endYmd).toISOString(), ended_recorded_at: T('09:00', laterYmd).toISOString() }
+    )
+    await syncTimeFeeds(db.client, 'org1', { userIds: [U1], instants: [T('09:00', laterYmd).toISOString()], jobIds: [], actorUserId: U1 })
+    return lastFor(U1)
+  }
+  it('day 7:00–17:00 with stops 8:00–16:00, End day after approval → carries 2 h, not 10 h', async () => {
+    const r = await run('2026-06-09', '2026-06-09', '07:00', '17:00', '08:00', '16:00', '2026-06-15')
+    expect(r.regular_hours + r.overtime_hours).toBe(2)
+    expect(r.reason).toMatch(/2 h from the approved week/)
+  })
+  it('across the March clock change (a night day over spring-forward): 22:00–06:00 is 7 h, stop 23:00–05:00 is 5 h → carries 2 h', async () => {
+    // Sat 2026-03-07 22:00 EST → Sun 2026-03-08 06:00 EDT
+    const r = await run('2026-03-07', '2026-03-08', '22:00', '06:00', '23:00', '05:00', '2026-03-16')
+    expect(r.regular_hours + r.overtime_hours).toBe(2)
+  })
+  it('across the November clock change (fall-back): 22:00–06:00 is 9 h, stop 23:00–05:00 is 7 h → carries 2 h', async () => {
+    // Sat 2026-10-31 22:00 EDT → Sun 2026-11-01 06:00 EST
+    const r = await run('2026-10-31', '2026-11-01', '22:00', '06:00', '23:00', '05:00', '2026-11-09')
+    expect(r.regular_hours + r.overtime_hours).toBe(2)
+  })
+})
+
+describe('removing or editing a day recosts every job on that person’s stops', () => {
+  async function day(db: Db) {
+    await applyClockTap(db.client, crew, tap('day_start', T('06:00'), { userIds: [U1] }), T('06:00'))
+    await applyClockTap(db.client, crew, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [U1] }), T('07:00'))
+    await applyClockTap(db.client, crew, tap('clock_out', T('09:00'), { userIds: [U1] }), T('09:00'))
+    await applyClockTap(db.client, crew, tap('clock_in', T('13:00'), { workOrderId: WO2, userIds: [U1] }), T('13:00'))
+    await applyClockTap(db.client, crew, tap('clock_out', T('15:00'), { userIds: [U1] }), T('15:00'))
+    await applyClockTap(db.client, crew, tap('day_end', T('16:00'), { userIds: [U1] }), T('16:00'))
+  }
+  it('remove the whole-day entry: both jobs fall back to their measured 2 h', async () => {
+    const db = seed()
+    await day(db)
+    expect(db.tables.job_cost_lines.map((l) => l.amount).sort()).toEqual([100, 100])
+    const shift = db.tables.time_entries.find((e) => e.kind === 'shift')!
+    expect(await removeTimeEntry(db.client, 'org1', U2, String(shift.id), 'Entered by mistake')).toEqual({ ok: true })
+    expect(db.tables.job_cost_lines.filter((l) => !l.deleted_at).map((l) => l.amount).sort()).toEqual([40, 40])
+  })
+  it('shorten it: both jobs follow', async () => {
+    const db = seed()
+    await day(db)
+    const shift = db.tables.time_entries.find((e) => e.kind === 'shift')!
+    // 06:00–16:00 → 06:00–15:00: 9 h day, 4 h on stops → 5 h shared = 2.5 each → 4.5 h × $20
+    expect(await editTimeEntry(db.client, 'org1', U2, String(shift.id), { endedAt: T('15:00').toISOString() }, 'Left early')).toEqual({ ok: true })
+    expect(db.tables.job_cost_lines.filter((l) => !l.deleted_at).map((l) => l.amount).sort()).toEqual([90, 90])
+  })
+})
+
+describe('Field Tech on the day clock', () => {
+  it('a Field Tech on no crew can’t clock; on a crew they start their own day', async () => {
+    const F = 'aaaaaaaa-0000-4000-8000-0000000000f1'
+    const db = seed({ users: [{ id: F, org_id: 'org1', full_name: 'Tech Tim', role: 'field_tech', active: true }, { id: U1, org_id: 'org1', full_name: 'Lead Larry', active: true }] })
+    const tim: ClockActor = { via: 'signed_in', orgId: 'org1', userId: F }
+    expect(await applyClockTap(db.client, tim, tap('day_start', T('06:00'), { userIds: [F] }), T('06:00'))).toMatchObject({ ok: false, status: 403 })
+    db.tables.crew_members.push({ id: 'cm9', org_id: 'org1', sub_id: 's1', user_id: F, is_lead: false })
+    expect(await applyClockTap(db.client, tim, tap('day_start', T('06:00'), { userIds: [F] }), T('06:00'))).toEqual({ ok: true, done: 1 })
+    expect(open(db, 'shift')[0]).toMatchObject({ user_id: F, sub_id: 's1' })
+  })
+})
+
+describe('Start day with yesterday’s day still open', () => {
+  it('an open day from an earlier date is stopped first, flagged forgotten; today’s day then starts', async () => {
+    const db = seed()
+    await applyClockTap(db.client, crew, tap('day_start', T('20:00', '2026-06-09'), { userIds: [U1] }), T('20:00', '2026-06-09'))
+    expect(await applyClockTap(db.client, crew, tap('day_start', T('06:00'), { userIds: [U1] }), T('06:00'))).toEqual({ ok: true, done: 1 })
+    const shifts = db.tables.time_entries.filter((e) => e.kind === 'shift')
+    expect(shifts).toHaveLength(2)
+    expect(shifts[0]).toMatchObject({ end_source: 'auto_closed', needs_review: true })
+    expect(shifts[1].ended_at ?? null).toBeNull()
+  })
+  it('the same date is not forgotten: a second Start day changes nothing', async () => {
+    const db = seed()
+    await applyClockTap(db.client, crew, tap('day_start', T('06:00'), { userIds: [U1] }), T('06:00'))
+    expect(await applyClockTap(db.client, crew, tap('day_start', T('13:00'), { userIds: [U1] }), T('13:00'))).toEqual({ ok: true, done: 0 })
+    expect(db.tables.time_entries.filter((e) => e.kind === 'shift')).toHaveLength(1)
+  })
+})
+
+describe('a tech on two crews has one day, filed under one crew', () => {
+  const twoCrews = () =>
+    seed({
+      sub_contractors: [
+        { id: 's1', org_id: 'org1', company_name: 'Green Team', tracks_time: true, active: true },
+        { id: 's2', org_id: 'org1', company_name: 'Mulch Team', tracks_time: true, active: true },
+      ],
+      crew_members: [
+        { id: 'cm1', org_id: 'org1', sub_id: 's1', user_id: U1, is_lead: true },
+        { id: 'cm2', org_id: 'org1', sub_id: 's1', user_id: U2, is_lead: false },
+        { id: 'cm3', org_id: 'org1', sub_id: 's2', user_id: U2, is_lead: false },
+      ],
+    })
+  const carla: ClockActor = { via: 'signed_in', orgId: 'org1', userId: U2 }
+  it('filed under the crew of today’s first stop', async () => {
+    const db = twoCrews()
+    db.tables.time_entries.push({ id: 'st', org_id: 'org1', user_id: U2, sub_id: 's2', kind: 'work', work_order_id: WO2, production_job_id: JOB2, started_at: T('05:30').toISOString(), ended_at: T('05:50').toISOString(), source: 'self_tap', end_source: 'self_tap' })
+    await applyClockTap(db.client, carla, tap('day_start', T('06:00'), { userIds: [U2] }), T('06:00'))
+    expect(open(db, 'shift')[0].sub_id).toBe('s2')
+  })
+  it('no stop yet → their first crew', async () => {
+    const db = twoCrews()
+    await applyClockTap(db.client, carla, tap('day_start', T('06:00'), { userIds: [U2] }), T('06:00'))
+    expect(open(db, 'shift')[0].sub_id).toBe('s1')
+  })
+})
+
+describe('paid today shown with the day clock', () => {
+  it('the clock state carries each person’s paid seconds today (day ∪ stops, breaks out)', async () => {
+    const db = seed()
+    await applyClockTap(db.client, crew, tap('day_start', T('06:00'), { userIds: [U1] }), T('06:00'))
+    const p = (await loadClockState(db.client, crew, T('12:00'))).people.find((x) => x.userId === U1)!
+    expect(p.paidTodaySeconds).toBe(6 * 3600)
   })
 })

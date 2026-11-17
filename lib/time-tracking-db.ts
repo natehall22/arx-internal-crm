@@ -357,8 +357,8 @@ export async function allowedPeople(admin: SupabaseClient, actor: ClockActor, op
   if (!people.has(actor.userId)) {
     const memberOf = await loadCrewMembership(admin, actor.orgId, actor.userId)
     const roleSlug = String(meRow.role ?? '').toLowerCase()
-    // 'field_tech' (lawn crew member) clocks themselves without being listed in settings (role added by the field-tech branch).
-    const allowedRole = roleSlug === 'field_tech' || (opts.settings?.selfClockRoles ?? []).includes(roleSlug)
+    // A Field Tech (isCrewFieldRole, incl. a custom role of that name) clocks only as a member of a time-tracked crew: on no crew, no clock.
+    const allowedRole = !isCrewFieldRole(roleInput) && (opts.settings?.selfClockRoles ?? []).includes(roleSlug)
     if (memberOf || allowedRole) people.set(actor.userId, { name: meRow.full_name || 'Me', subId: memberOf, isLead: false })
   }
   return { people, crews }
@@ -643,11 +643,32 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
         // The day clock: no stop needed. One open shift per person (a second tap, a second phone or a replayed queue
         // changes nothing); a break left open is closed first.
         const [openShift, openBreak] = await Promise.all([loadOpen(admin, actor.orgId, picked, 'shift'), loadOpen(admin, actor.orgId, picked, 'break')])
+        // A day left open from an earlier date (org time zone) was forgotten: stop it first, flagged like any forgotten clock.
+        const tapDay = localYmd(time.at.getTime(), config.timeZone)
+        const forgotten = Array.from(openShift.values()).filter((sh) => localYmd(Date.parse(sh.startedAt), config.timeZone) < tapDay)
+        if (forgotten.length) {
+          await closeAsForgotten(admin, actor.orgId, forgotten, time.at)
+          for (const sh of forgotten) if (sh.userId) openShift.delete(sh.userId)
+        }
+        // Filed under the crew of today's first stop, else the person's first crew (a tech on two crews has one day).
+        const todaysStops = await orgDb(admin, actor.orgId)
+          .from('time_entries')
+          .select('user_id, sub_id, started_at')
+          .in('user_id', picked)
+          .eq('kind', 'work')
+          .is('removed_at', null)
+          .not('sub_id', 'is', null)
+          .gte('started_at', new Date(time.at.getTime() - 36 * 3_600_000).toISOString())
+          .order('started_at', { ascending: true })
+        const firstStopCrew = new Map<string, string>()
+        for (const r of (todaysStops.data ?? []) as Array<{ user_id: string; sub_id: string; started_at: string }>) {
+          if (localYmd(Date.parse(r.started_at), config.timeZone) === tapDay && !firstStopCrew.has(r.user_id)) firstStopCrew.set(r.user_id, r.sub_id)
+        }
         for (const userId of picked) {
           if (openShift.has(userId)) continue // already started
           const b = openBreak.get(userId)
           if (b) await closeEntry(ctx, b)
-          const r = await insertEntry(ctx, { user_id: userId, sub_id: people.get(userId)?.subId ?? null, kind: 'shift' }, tap.tapId)
+          const r = await insertEntry(ctx, { user_id: userId, sub_id: firstStopCrew.get(userId) ?? people.get(userId)?.subId ?? null, kind: 'shift' }, tap.tapId)
           if (r === 'inserted') done++
         }
         break
@@ -773,6 +794,16 @@ export async function autoCloseForgotten(admin: SupabaseClient, orgId: string, o
     stale.push(...((data ?? []) as Array<Record<string, unknown>>).map(entryFromRow))
   }
   if (stale.length === 0) return 0
+  return closeAsForgotten(admin, orgId, stale, now)
+}
+
+/**
+ * Stop these open entries as forgotten: at the person's last tap (never past `now`, never before the start), flagged for the
+ * crew lead's next-morning question, then refresh the feeds. The one close path for the limit sweep and for a Start day that
+ * finds yesterday's day clock still open. Returns entries closed.
+ */
+async function closeAsForgotten(admin: SupabaseClient, orgId: string, stale: TimeEntry[], now: Date): Promise<number> {
+  const db = orgDb(admin, orgId)
   const touched = { users: new Set<string>(), instants: new Set<string>(), jobs: new Set<string>() }
   let closed = 0
   for (const e of stale) {
@@ -909,6 +940,8 @@ export type ClockPerson = {
   shift: { entryId: string; startedAt: string } | null
   /** The day clock has run long enough that the phone asks "still working?" (shortly before the system stops it). */
   shiftLate: boolean
+  /** Paid seconds today so far (company time zone): day clock ∪ stops ∪ travel, minus breaks, an open clock counted to now. Optional: older servers omit it. */
+  paidTodaySeconds?: number
 }
 
 export type ClockState = {
@@ -952,6 +985,21 @@ export async function loadClockState(admin: SupabaseClient, actor: ClockActor, n
       if (!prev || r.ended_at > prev.at) lastEnd.set(r.user_id, { at: r.ended_at, travel: r.closed_for_travel === true })
     }
     const itemName = new Map(items.map((i) => [i.id, i.name]))
+    // Paid so far today: the same paidTime rule payroll uses, clipped to the local day (DST-safe: the day start is a zoned instant).
+    const dayStartMs = (localTimeToInstant(today, '00:00', config.timeZone) ?? new Date(now.getTime() - 24 * 3_600_000)).getTime()
+    const { data: todayRows } = await orgDb(admin, actor.orgId)
+      .from('time_entries')
+      .select(TIME_ENTRY_COLUMNS)
+      .in('user_id', ids)
+      .in('kind', ['work', 'shift', 'break'])
+      .is('removed_at', null)
+      .gte('started_at', new Date(now.getTime() - 36 * 3_600_000).toISOString())
+    const byUser = new Map<string, TimeEntry[]>()
+    for (const r of (todayRows ?? []) as Array<Record<string, unknown>>) {
+      const e = entryFromRow(r)
+      if (e.userId) byUser.set(e.userId, [...(byUser.get(e.userId) ?? []), e])
+    }
+    const paidToday = (userId: string) => Math.round(totalSeconds(clipIntervals(paidTime(byUser.get(userId) ?? [], { timeZone: config.timeZone, now: now.getTime() }).paid, dayStartMs, now.getTime())))
     return {
       ...empty,
       people: ids.map((userId) => {
@@ -967,6 +1015,7 @@ export async function loadClockState(admin: SupabaseClient, actor: ClockActor, n
           onBreak: openBreak.has(userId),
           travelling: !w && !!last && last.travel && localYmd(Date.parse(last.at), config.timeZone) === today,
           shift: sh ? { entryId: sh.id, startedAt: sh.startedAt } : null,
+          paidTodaySeconds: paidToday(userId),
           shiftLate: !!sh && now.getTime() - Date.parse(sh.startedAt) >= shiftReminderAfterHours(config.settings) * 3_600_000,
         }
       }),
@@ -1429,9 +1478,13 @@ export async function syncTimeFeeds(
           let paid = totalSeconds(clipIntervals(t.paid, from, to))
           let carried = 0
           if (Number.isFinite(prevApprovedAt)) {
-            // Split at the cutoff: the part of a shift that sat in the approved week but was recorded after approval.
-            const late = entries.filter((e) => e.endedRecordedAt && Date.parse(e.endedRecordedAt) > prevApprovedAt)
-            carried = totalSeconds(clipIntervals(paidTime(late, { timeZone: config.timeZone }).paid, prevFrom, from))
+            // Split at the cutoff: what the approved week should have paid (union over ALL its entries) minus what it did pay
+            // (the entries finished and recorded by approval; a day still open then paid nothing for itself). A day clock that
+            // ends after approval therefore carries only the time no stop already paid, never the whole day twice.
+            const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > prevApprovedAt))
+            const owed = clipIntervals(paidTime(entries, { timeZone: config.timeZone }).paid, prevFrom, from)
+            const paidThen = clipIntervals(paidTime(knownThen, { timeZone: config.timeZone }).paid, prevFrom, from)
+            carried = totalSeconds(subtractIntervals(owed, paidThen))
             paid += carried
           }
           const split = splitOvertime(paid, config.settings.overtimeAfterHours)
@@ -1479,7 +1532,12 @@ export async function syncTimeFeeds(
     }
     // A shift ended (or edited) touches the jobs of the stops inside it, even when no stop was tapped just now.
     const weekJobIds = new Set(input.jobIds)
-    for (const userId of input.userIds) for (const jobId of Array.from((await allocationFor(userId)).keys())) weekJobIds.add(jobId)
+    for (const userId of input.userIds) {
+      for (const jobId of Array.from((await allocationFor(userId)).keys())) weekJobIds.add(jobId)
+      // ...and so does REMOVING or editing one: every job this person has stop time on this week is re-costed, including a
+      // job whose share just went to zero (its old allocated line must drop, not stay).
+      for (const e of await personEntries(userId)) if (e.kind === 'work' && e.jobId && Date.parse(e.startedAt) >= from && Date.parse(e.startedAt) <= to) weekJobIds.add(e.jobId)
+    }
     for (const jobId of Array.from(weekJobIds)) {
       const { data: rows, error } = await orgDb(admin, orgId)
         .from('time_entries')
