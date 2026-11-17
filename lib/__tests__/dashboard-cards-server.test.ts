@@ -9,9 +9,17 @@ jest.mock('@/lib/effective-permissions', () => ({
 }))
 const resolveOpsAccess = jest.fn(async () => ({ canJobBoard: false }))
 jest.mock('@/lib/ops-access', () => ({ resolveOpsAccess: (...a: unknown[]) => (resolveOpsAccess as jest.Mock)(...a) }))
-const loadCrewIdsLedBy = jest.fn(async (..._a: unknown[]): Promise<string[]> => [])
+const loadCrewSubIds = jest.fn(async (..._a: unknown[]): Promise<{ all: string[]; led: string[] }> => ({ all: [], led: [] }))
 const loadWorkSecondsByStop = jest.fn(async (..._a: unknown[]): Promise<Map<string, number> | null> => new Map())
-jest.mock('@/lib/time-tracking-db', () => ({ loadCrewIdsLedBy: (...a: unknown[]) => loadCrewIdsLedBy(...a), loadWorkSecondsByStop: (...a: unknown[]) => loadWorkSecondsByStop(...a) }))
+const loadWorkSecondsByJob = jest.fn(async (..._a: unknown[]): Promise<Map<string, number> | null> => new Map())
+jest.mock('@/lib/time-tracking-db', () => ({
+  loadCrewSubIds: (...a: unknown[]) => loadCrewSubIds(...a),
+  loadWorkSecondsByStop: (...a: unknown[]) => loadWorkSecondsByStop(...a),
+  loadWorkSecondsByJob: (...a: unknown[]) => loadWorkSecondsByJob(...a),
+}))
+const callerCanAccessJobBilling = jest.fn(async (..._a: unknown[]) => false)
+jest.mock('@/lib/finance-access', () => ({ callerCanAccessJobBilling: (...a: unknown[]) => callerCanAccessJobBilling(...a) }))
+const loadVisitsPage = jest.fn(async (..._a: unknown[]): Promise<unknown> => ({ visits: [], hasMore: false }))
 const userNames = jest.fn((): Array<{ id: string; full_name: string | null }> => [])
 jest.mock('@/lib/supabase/org-db', () => ({ orgDb: () => ({ from: () => ({ select: () => ({ in: async () => ({ data: userNames() }) }) }) }) }))
 const runReport = jest.fn()
@@ -22,7 +30,12 @@ jest.mock('@/lib/reporting/run', () => {
 })
 const loadVisits = jest.fn(async (..._a: unknown[]): Promise<unknown[]> => [])
 const loadServicePlans = jest.fn(async (..._a: unknown[]): Promise<unknown> => ({ ready: true, plans: [] }))
-jest.mock('@/lib/service-plans-db', () => ({ loadVisits: (...a: unknown[]) => loadVisits(...a), loadServicePlans: (...a: unknown[]) => loadServicePlans(...a) }))
+jest.mock('@/lib/service-plans-db', () => ({
+  ...jest.requireActual('@/lib/service-plans-db'),
+  loadVisits: (...a: unknown[]) => loadVisits(...a),
+  loadServicePlans: (...a: unknown[]) => loadServicePlans(...a),
+  loadVisitsPage: (...a: unknown[]) => loadVisitsPage(...a),
+}))
 const loadUnpaidInvoices = jest.fn(async (..._a: unknown[]): Promise<unknown> => ({ rows: [], capped: false }))
 jest.mock('@/lib/service-billing-db', () => ({ loadUnpaidInvoices: (...a: unknown[]) => loadUnpaidInvoices(...a) }))
 jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'UTC' }))
@@ -43,7 +56,9 @@ beforeEach(() => {
   resolveIsFieldRole.mockResolvedValue(false)
   resolveEffectivePermissionNames.mockResolvedValue({ fullAccess: false, permissionNames: new Set(), denied: new Set() })
   resolveOpsAccess.mockResolvedValue({ canJobBoard: false })
-  loadCrewIdsLedBy.mockResolvedValue([])
+  loadCrewSubIds.mockResolvedValue({ all: [], led: [] })
+  callerCanAccessJobBilling.mockResolvedValue(false)
+  loadVisitsPage.mockResolvedValue({ visits: [], hasMore: false })
   loadWorkSecondsByStop.mockResolvedValue(new Map())
   userNames.mockReturnValue([])
   buildReportContext.mockResolvedValue({ orgId: 'o1', userId: 'u1', scope: 'all', finance: true, canExport: true, scopedUserIds: null })
@@ -62,7 +77,7 @@ describe('saveDashboardCards: the one writer', () => {
     expect(mergeOrgSettings).toHaveBeenCalledWith(admin, 'o1', { cards: [{ key: 'win-rate', goal: null }, { key: 'billed-week', goal: 5000 }] }, { path: ['dashboardCards'] })
   })
   it('writes nothing for a key outside the catalog, a card with no source or a feature that is off', async () => {
-    for (const cards of [[{ key: 'doors-knocked' }], [{ key: 'mrr' }], [{ key: 'classic-quick-stats' }, { key: 'win-rate' }]]) {
+    for (const cards of [[{ key: 'doors-knocked' }], [{ key: 'visit-hours-vs-plan' }], [{ key: 'classic-quick-stats' }, { key: 'win-rate' }]]) {
       const r = await saveDashboardCards(admin, 'o1', { cards }, lawn.features, OWNER)
       expect(r).toMatchObject({ ok: false, status: 400 })
     }
@@ -129,27 +144,49 @@ describe('who is looking', () => {
     const v = await resolveDashboardViewer(admin, profile('admin'))
     expect(Array.from(v.audiences)).toEqual(['owner'])
   })
-  it('a salesperson is sales; office staff on the job board are crew', async () => {
+  it('a salesperson is sales; office staff on the job board are office (not crew)', async () => {
     expect(Array.from((await resolveDashboardViewer(admin, profile('sales_rep'))).audiences)).toEqual(['sales'])
     resolveOpsAccess.mockResolvedValue({ canJobBoard: true })
-    expect(Array.from((await resolveDashboardViewer(admin, profile('operations'))).audiences)).toEqual(['crew'])
+    expect(Array.from((await resolveDashboardViewer(admin, profile('operations'))).audiences)).toEqual(['office'])
+  })
+  it('a super admin is the owner even in the operations role', async () => {
+    resolveOpsAccess.mockResolvedValue({ canJobBoard: true })
+    const v = await resolveDashboardViewer(admin, { ...profile('operations'), is_super_admin: true })
+    expect(Array.from(v.audiences)).toEqual(['owner'])
+  })
+  it('billing comes from the money:record / billing gate, never from the role name', async () => {
+    callerCanAccessJobBilling.mockResolvedValue(true)
+    const v = await resolveDashboardViewer(admin, profile('bookkeeper'))
+    expect([Array.from(v.audiences).includes('billing'), v.books, v.financials]).toEqual([true, true, false])
+  })
+  it('a field tech is crew only with no money, whatever it was granted, narrowed to every crew it is on', async () => {
+    resolveEffectivePermissionNames.mockResolvedValue({ fullAccess: true, permissionNames: new Set(['reports:financials']), denied: new Set() })
+    loadCrewSubIds.mockResolvedValue({ all: ['crew-a', 'crew-b'], led: [] })
+    const v = await resolveDashboardViewer(admin, profile('field_tech'))
+    expect([Array.from(v.audiences), v.financials, v.books, v.ledSubIds]).toEqual([['crew'], false, false, ['crew-a', 'crew-b']])
+  })
+  it('a field tech whose crew lookup fails gets nothing', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    loadCrewSubIds.mockRejectedValue(new Error('db down'))
+    expect((await resolveDashboardViewer(admin, profile('field_tech'))).audiences.size).toBe(0)
   })
   it('a crew lead in a custom role is crew only, narrowed to the crews they lead', async () => {
-    loadCrewIdsLedBy.mockResolvedValue(['crew-a'])
+    loadCrewSubIds.mockResolvedValue({ all: ['crew-a'], led: ['crew-a'] })
     const v = await resolveDashboardViewer(admin, profile('crew_lead'))
     expect([Array.from(v.audiences), v.ledSubIds]).toEqual([['crew'], ['crew-a']])
   })
   it('crews are found whether or not they track time (the lookup has no time-tracking filter)', async () => {
     await resolveDashboardViewer(admin, profile('crew_lead'))
-    expect(loadCrewIdsLedBy).toHaveBeenCalledWith(admin, 'o1', 'u1')
+    expect(loadCrewSubIds).toHaveBeenCalledWith(admin, 'o1', 'u1')
   })
   it('a failed crew lookup fails closed: no crew access, never the office view', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    loadCrewIdsLedBy.mockRejectedValue(new Error('db down'))
+    loadCrewSubIds.mockRejectedValue(new Error('db down'))
     resolveOpsAccess.mockResolvedValue({ canJobBoard: true })
     const ops = await resolveDashboardViewer(admin, profile('operations'))
-    expect([ops.audiences.size, ops.ledSubIds]).toEqual([0, null])
-    expect(cardsFor(ops)).toEqual([])
+    // office staff see every crew, so the lookup is not what lets them in — but it never turns them into crew
+    expect([Array.from(ops.audiences), ops.ledSubIds]).toEqual([['office'], null])
+    resolveOpsAccess.mockResolvedValue({ canJobBoard: false })
     const lead = await resolveDashboardViewer(admin, profile('crew_lead'))
     expect(lead.audiences.size).toBe(0)
     // a salesperson keeps what is not about crews
@@ -250,7 +287,7 @@ describe('the numbers come from the existing sources', () => {
     const lead: DashboardViewerInfo = { userId: 'u9', audiences: new Set<DashboardAudience>(['crew']), financials: false, ledSubIds: ['a'] }
     loadVisits.mockResolvedValue([visit('1', 'completed', 'a'), visit('2', 'skipped', 'a', { skipReason: 'rain' }), visit('3', 'completed', 'b')])
     const out = await loadDashboardCardData(admin, { profile: profile('crew_lead'), viewer: lead, cards: cardsFor(lead), features: lawn.features, now: NOW })
-    expect(out.map((c) => c.key)).toEqual(['visits-done-week', 'visits-skipped-week', 'visits-moved-week', 'crews'])
+    expect(out.map((c) => c.key)).toEqual(['visits-done-week', 'visits-skipped-week', 'visits-moved-week', 'crews', 'my-day', 'my-visits-left', 'my-hours-today'])
     const crews = byKey(out, 'crews') as LeaderboardData
     expect(crews.rows.map((r) => r.name)).toEqual(['A'])
     expect(crews.columns.map((c) => c.format)).not.toContain('money')
@@ -289,7 +326,9 @@ describe('the numbers come from the existing sources', () => {
     })
     const out = await loadDashboardCardData(admin, { profile: profile('sales_rep'), viewer: rep, cards: cardsFor(rep), features: lawn.features, now: NOW })
     for (const [, ctx] of runReport.mock.calls) expect([ctx.scope, ctx.scopedUserIds]).toEqual(['own', ['u7']])
-    expect(out.map((c) => c.key)).toEqual(['quotes-won-week', 'win-rate', 'dollars-sold-week'])
+    // the runner refused the salespeople table: it is not drawn; every other sales card is, from the same own-deals scope
+    expect(out.map((c) => c.key)).not.toContain('salespeople')
+    expect(out.map((c) => c.key)).toEqual(expect.arrayContaining(['quotes-won-week', 'win-rate', 'dollars-sold-week']))
   })
 
   it('every drawn card of the starting set is one of the catalog’s', () => {

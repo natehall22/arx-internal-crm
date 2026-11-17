@@ -14,9 +14,11 @@ import {
   isClassicCard,
   dashboardCardByKey,
   parseCardsInput,
+  cardsForViewer,
   type DashboardMode,
   type CardData,
   type DashboardAudience,
+  OFF_SEASON_MAX_VISITS,
   type DashboardCard,
   type CardSource,
   type DashboardViewer,
@@ -26,7 +28,9 @@ import {
 } from '@/lib/dashboard-cards'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { resolveEffectivePermissionNames, resolveIsFieldRole } from '@/lib/effective-permissions'
-import { hasFinancials } from '@/lib/financials-access'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { loadRoleCard, type RoleCtx } from '@/lib/dashboard-role-loaders'
+import { hasFinancials, hasMoneyRecord } from '@/lib/financials-access'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import type { OrgFeatures } from '@/lib/org-features'
 import { mergeOrgSettings } from '@/lib/org-settings'
@@ -35,10 +39,10 @@ import { DATASETS } from '@/lib/reporting/catalog'
 import type { ReportSpec } from '@/lib/reporting/report-spec'
 import { ReportAccessError, buildReportContext, runReport, type ReportContext, type ReportResult } from '@/lib/reporting/run'
 import { SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
-import { loadServicePlans, loadVisits, type VisitView } from '@/lib/service-plans-db'
+import { loadServicePlans, loadVisits, loadVisitsPage, type VisitView } from '@/lib/service-plans-db'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { isSuperAdmin } from '@/lib/super-admin'
-import { loadCrewIdsLedBy, loadWorkSecondsByStop } from '@/lib/time-tracking-db'
+import { loadCrewSubIds, loadWorkSecondsByStop } from '@/lib/time-tracking-db'
 import { orgDb } from '@/lib/supabase/org-db'
 import { todayKindFor } from '@/lib/today'
 
@@ -46,34 +50,69 @@ type Profile = { id: string; org_id: string; role: string; custom_role_id?: stri
 
 export type DashboardViewerInfo = DashboardViewer & {
   userId: string
-  /** The crews this person leads (null = not narrowed to crews: owners and office staff see every crew). */
+  /** The crews this person works on — leads and techs alike (null = not narrowed to crews: owners and office staff see every crew). */
   ledSubIds: string[] | null
 }
 
 const SALES_ROLES = ['sales_rep', 'closer', 'sales_manager', 'regional_manager']
+/** The field technician's role slug (a string on purpose: its definition lives in the field-tech change). */
+const FIELD_TECH_ROLE = 'field_tech'
 
-/** Who is looking at the dashboard. Field roles get no audience (and never money), whatever they were granted. */
+/**
+ * Who is looking at the dashboard, and which role cards that means: owner (health), office (job board), sales, crew (a lead or
+ * a member of a crew: "My day", never money), billing (money:record). A person can hold several. Field roles get no audience and
+ * never money — except a field tech, whose only audience is crew (the money fence is the role's own: nothing is resolved for them).
+ */
 export async function resolveDashboardViewer(admin: SupabaseClient, profile: Profile): Promise<DashboardViewerInfo> {
-  const none: DashboardViewerInfo = { userId: profile.id, audiences: new Set<DashboardAudience>(), financials: false, ledSubIds: null }
-  if (await resolveIsFieldRole(admin, profile)) return none
+  const none: DashboardViewerInfo = { userId: profile.id, audiences: new Set<DashboardAudience>(), financials: false, books: false, ledSubIds: null }
+  const tech = profile.role === FIELD_TECH_ROLE
+  if (!tech && (await resolveIsFieldRole(admin, profile))) return none
+  if (tech) {
+    // Crew only, no money, whatever was granted. A failed crew lookup is "no crew" (fail closed).
+    try { return { ...none, audiences: new Set<DashboardAudience>(['crew']), ledSubIds: (await loadCrewSubIds(admin, profile.org_id, profile.id)).all } } catch (e) { console.error('dashboard: crew lookup failed', e); return none }
+  }
   const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
   const financials = hasFinancials(perms)
-  if (isOrgSuperuserRoleSlug(profile.role) || isSuperAdmin(profile)) return { userId: profile.id, audiences: new Set<DashboardAudience>(['owner']), financials, ledSubIds: null }
+  if (isOrgSuperuserRoleSlug(profile.role) || isSuperAdmin(profile)) return { userId: profile.id, audiences: new Set<DashboardAudience>(['owner']), financials, books: financials || hasMoneyRecord(perms), ledSubIds: null }
   const canJobBoard = (await resolveOpsAccess(admin, profile.id, profile)).canJobBoard
   const kind = todayKindFor({ role: profile.role, isSuperuser: false, canJobBoard })
-  // Crews this person leads, tracked or not. A failed lookup is "no crew access" (fail closed): the crew view is never the fallback.
-  let led: string[] | null = null
-  try { led = await loadCrewIdsLedBy(admin, profile.org_id, profile.id) } catch (e) { console.error('dashboard: crew lookup failed', e) }
+  // Crews this person is on, tracked or not. A failed lookup is "no crew access" (fail closed): the crew view is never the fallback.
+  let crews: { all: string[]; led: string[] } | null = null
+  try { crews = await loadCrewSubIds(admin, profile.org_id, profile.id) } catch (e) { console.error('dashboard: crew lookup failed', e) }
   const audiences = new Set<DashboardAudience>()
-  if (SALES_ROLES.includes(profile.role) && kind !== 'ops') audiences.add('sales')
-  if (led !== null) {
-    if (kind === 'ops') audiences.add('crew')
-    else if (!SALES_ROLES.includes(profile.role) && led.length === 0) audiences.add('sales') // an unknown role keeps what it had: the closer view
-    if (led.length > 0) audiences.add('crew')
+  const salesRole = SALES_ROLES.includes(profile.role)
+  if (salesRole && kind !== 'ops') audiences.add('sales')
+  if (kind === 'ops') audiences.add('office')
+  if (crews !== null) {
+    if (crews.all.length > 0) audiences.add('crew')
+    // an unknown role that is on no crew and is not office keeps what it had: the closer view
+    else if (!salesRole && kind !== 'ops') audiences.add('sales')
   }
-  const ledSubIds = led !== null && audiences.has('crew') && led.length > 0 ? led : null
+  const billing = await callerCanAccessJobBilling(admin, profile).catch(() => false)
+  if (billing) audiences.add('billing')
+  const ledSubIds = crews !== null && audiences.has('crew') && crews.all.length > 0 ? crews.all : null
   // A lookup that failed leaves a crew-only viewer with ledSubIds null AND no 'crew' audience: no crew card, no crew data.
-  return { userId: profile.id, audiences, financials, ledSubIds }
+  return { userId: profile.id, audiences, financials, books: billing, ledSubIds }
+}
+
+/**
+ * Is the company's weekly work quiet? At most OFF_SEASON_MAX_VISITS visits on the calendar in the next 14 days AND at least one
+ * plan ever sold (a brand-new company is "new", not "off-season"). Only owners and office staff are shown the off-season set, so
+ * nobody else pays for the read. A failed read is "not off-season": the usual cards stay.
+ */
+export async function detectOffSeason(admin: SupabaseClient, orgId: string, viewer: DashboardViewer, features: Pick<OrgFeatures, 'servicePlans'> | null, now = new Date()): Promise<boolean> {
+  if (features?.servicePlans !== true) return false
+  if (!viewer.audiences.has('owner') && !viewer.audiences.has('office')) return false
+  try {
+    const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
+    const { count, error } = await orgDb(admin, orgId).from('service_plans').select('id', { count: 'exact', head: true })
+    if (error || !count) return false
+    const page = await loadVisitsPage(admin, orgId, { from: today, to: addDaysYmd(today, 13), accessNotes: false, offset: 0, limit: OFF_SEASON_MAX_VISITS + 1 })
+    return page.visits.filter((v) => v.status === 'scheduled').length <= OFF_SEASON_MAX_VISITS && !page.hasMore
+  } catch (e) {
+    console.error('dashboard: off-season check failed', e)
+    return false
+  }
 }
 
 /** Who is saving, and where the company's dashboard stands now (the route reads both; the writer enforces the rules). */
@@ -125,10 +164,13 @@ export async function saveDashboardCards(
  * ------------------------------------------------------------------------ */
 
 const TOP_REASONS = 3
+const ROLE_LOADERS = new Set<string>(['revenuePerCrewHour', 'contractedRecurring', 'cancellations', 'jobHours', 'projects', 'office', 'sales', 'crewDay', 'billing', 'renewals'])
 
-type Window = {
+export type DashboardWindow = {
   /** First and last DAY of the week (Sunday..Saturday) and today, in the company's zone. */
   from: string; today: string; weekEnd: string; monthStart: string; timeZone: string
+  /** The month and today as exact instants in the company's zone ([start, next start) and [today 00:00, today's last millisecond]). */
+  monthStartIso: string; nextMonthStartIso: string; todayFromIso: string; todayToIso: string
   /** The same week as exact instants: the company's Sunday 00:00 through the last millisecond of its Saturday. */
   fromIso: string; toIso: string
 }
@@ -136,14 +178,20 @@ type Window = {
 /** Midnight at the start of a calendar day in a zone, as an instant (the time zone database: right on both clock-change days). */
 const dayStartIso = (ymd: string, timeZone: string): string => fromZonedTime(`${ymd}T00:00:00`, timeZone).toISOString()
 
-export function dashboardWindow(now: Date, timeZone: string): Window {
+export function dashboardWindow(now: Date, timeZone: string): DashboardWindow {
   // The week starts on Sunday, like the classic dashboard's "week" (lib/date-ranges.ts), counted from the company's own today.
   const today = ymdInZone(now, timeZone)
   const weekday = new Date(`${today}T00:00:00Z`).getUTCDay()
   const from = addDaysYmd(today, -weekday)
   const fromIso = dayStartIso(from, timeZone)
   const toIso = new Date(Date.parse(dayStartIso(addDaysYmd(from, 7), timeZone)) - 1).toISOString()
-  return { from, today, weekEnd: addDaysYmd(from, 6), monthStart: `${today.slice(0, 7)}-01`, timeZone, fromIso, toIso }
+  const monthStart = `${today.slice(0, 7)}-01`
+  const nextMonthStart = addDaysYmd(`${today.slice(0, 7)}-28`, 4).slice(0, 7) + '-01'
+  return {
+    from, today, weekEnd: addDaysYmd(from, 6), monthStart, timeZone, fromIso, toIso,
+    monthStartIso: dayStartIso(monthStart, timeZone), nextMonthStartIso: dayStartIso(nextMonthStart, timeZone),
+    todayFromIso: dayStartIso(today, timeZone), todayToIso: new Date(Date.parse(dayStartIso(addDaysYmd(today, 1), timeZone)) - 1).toISOString(),
+  }
 }
 
 /** The report runner for one viewer: a salesperson (not an owner) only ever reads their own deals — narrowing, never widening. */
@@ -169,7 +217,7 @@ export async function loadDashboardCardData(
   // Visits this week, narrowed to the crews a crew lead leads (office staff and owners see every crew).
   const visits = once(async (): Promise<VisitView[]> => {
     const all = (await loadVisits(admin, orgId, { from: win.from, to: win.weekEnd, accessNotes: false })).filter((v) => v.status !== 'cancelled')
-    return viewer.ledSubIds && !viewer.audiences.has('owner') ? all.filter((v) => !!v.subId && viewer.ledSubIds!.includes(v.subId)) : all
+    return viewer.ledSubIds && !viewer.audiences.has('owner') && !viewer.audiences.has('office') ? all.filter((v) => !!v.subId && viewer.ledSubIds!.includes(v.subId)) : all
   })
   // One scan per (dataset, week, grouping, filters) for cards that sum different columns of it (billed + collected share rpt_revenue):
   // the first card's run also sums its siblings' columns (the runner's `alsoSum`).
@@ -203,12 +251,28 @@ export async function loadDashboardCardData(
   }
   const plans = once(() => loadServicePlans(admin, orgId))
   const unpaid = once(() => loadUnpaidInvoices(admin, orgId))
+  // Role cards (lib/dashboard-role-loaders.ts) share the same memoised readers, so no source is read twice for one page.
+  const weekBounds = (spec: ReportSpec) => ({ bounds: DATASETS[spec.dataset].dateColumnIsDay ? { start: win.from, end: win.weekEnd } : { start: win.fromIso, end: win.toIso } })
+  const roleCtx: RoleCtx = {
+    admin, orgId, profile, viewer, features, win, now,
+    visitsToday: once(async () => (await visits()).filter((v) => v.scheduledDate === win.today)),
+    plans, unpaid, reportCtx,
+    runWeek: async (spec) => runReport(admin, await reportCtx(), spec, weekBounds(spec)),
+    runSpec: async (spec) => runReport(admin, await reportCtx(), spec),
+  }
+  // The books cards (collected this week): money:record is enough, so the report runs with the money fence open for THIS card
+  // only (it reads one collected total, never cost, profit or pay) and over the company, not the viewer's own deals.
+  const booksCtx = once(async () => ({ ...(await reportCtx()), finance: true, scope: 'all' as const, scopedUserIds: null }))
 
-  async function one({ card, goal }: { card: DashboardCard; goal: number | null }): Promise<CardData | null> {
+  async function one(item: { card: DashboardCard; goal: number | null }): Promise<CardData | null> {
+    const r = await oneInner(item)
+    return r ? { ...r, group: item.card.group } : r
+  }
+  async function oneInner({ card, goal }: { card: DashboardCard; goal: number | null }): Promise<CardData | null> {
     const src = card.source
     try {
       if (src.kind === 'report') {
-        const ctx = await reportCtx()
+        const ctx = card.money === 'books' && !viewer.financials && viewer.books ? await booksCtx() : await reportCtx()
         const r = await runCard(ctx, src)
         if (src.read === 'groups') {
           // One row per salesperson, grouped by user id (two people with the same name stay two rows); the name is only the label.
@@ -235,6 +299,7 @@ export async function loadDashboardCardData(
         return tile(card, goal, value)
       }
       if (src.kind !== 'loader') return null
+      if (ROLE_LOADERS.has(src.loader)) return await loadRoleCard(roleCtx, card, goal)
 
       if (src.loader === 'unpaidInvoices') {
         const loaded = await unpaid()
@@ -299,12 +364,28 @@ export async function loadDashboardCardData(
       // Not allowed for this viewer (money fence in the runner): the card is simply not theirs. Anything else: said as a dash.
       if (e instanceof ReportAccessError) return null
       console.error('dashboard card failed', card.key, e)
+      if (card.display === 'list') return { kind: 'list', key: card.key, label: card.label, count: 0, rows: [], empty: '', failed: true }
       return card.display === 'leaderboard'
         ? { kind: 'leaderboard', key: card.key, label: card.label, columns: [], rows: [], empty: '', failed: true }
         : tile(card, goal, null)
     }
   }
 
-  const out = await Promise.all(args.cards.map(one))
+  // Defense in depth: whatever list the caller passes, a card this viewer may not see (audience, money, season, feature) is never
+  // loaded — the same rule as the page's own filter (cardsForViewer), so a hidden card's loader does not run.
+  const allowed = args.cards.filter(({ card }) => cardsForViewer([{ key: card.key, goal: null }], viewer, features).length > 0)
+  const out = await Promise.all(allowed.map(one))
   return out.filter((c): c is CardData => c !== null)
+}
+
+/**
+ * The "My day" cards for /today: a crew lead's or a field tech's stops, stops left and hours today, from the SAME loaders as the
+ * dashboard (one implementation). Empty unless the viewer is on a crew; never carries money.
+ */
+export async function loadMyDayCards(admin: SupabaseClient, profile: Profile, features: OrgFeatures): Promise<CardData[]> {
+  const viewer = await resolveDashboardViewer(admin, profile)
+  if (!viewer.audiences.has('crew') || !viewer.ledSubIds?.length) return []
+  const keys = ['my-day', 'my-visits-left', 'my-hours-today']
+  const cards = keys.map((k) => dashboardCardByKey(k)).filter((c): c is DashboardCard => !!c && !(c.requires && features[c.requires] === false)).map((card) => ({ card, goal: null }))
+  return loadDashboardCardData(admin, { profile, viewer: { ...viewer, financials: false, books: false }, cards, features })
 }

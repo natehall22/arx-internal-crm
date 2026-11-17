@@ -99,6 +99,8 @@ export type TodayProfile = {
    * roofing tiles (Sits / Sales / Inspections set / Appointments), exactly as before.
    */
   ownerTiles?: readonly TodayTileKey[]
+  /** The owner's "All clear" sentence. Left out = the roofing wording on the Today page. */
+  allClear?: string
 }
 
 /** Owner tiles a profile can ask for on Today; each is filled from an existing loader (lib/today.ts, the reporting layer). */
@@ -260,15 +262,32 @@ const SERVICE_REPORTS_OVERVIEW: ReportsOverviewProfile = {
 const SERVICE_OWNER_TILES: readonly TodayTileKey[] = ['visits-left-today', 'unpaid-invoices', 'billed-week']
 
 /**
- * Service companies' starting dashboard cards (owner-approved, 2026-11-16): money, recurring, work, sales, then the two
- * leaderboards. No doors, contacts, inspections, sits or closer wording.
+ * Service companies' starting dashboard cards. ONE list; each person sees the cards of their role (lib/dashboard-cards.ts
+ * `audience`): owner (money, recurring, work, sales, leaderboards), office (today's problems), sales (my quotes and goal),
+ * crew (my day), billing (unpaid by age, unbilled, QuickBooks), and the off-season set, which replaces the weekly work cards
+ * while the calendar is quiet. No doors, contacts, inspections, sits or closer wording.
  */
 const SERVICE_DASHBOARD_CARDS: readonly string[] = [
   'billed-week', 'collected-week', 'unpaid-overdue', 'revenue-per-crew-hour',
-  'active-plans', 'new-plans-month', 'cancellations-month', 'mrr',
+  'mrr', 'active-plans', 'new-plans-month', 'cancellations-month',
   'visits-done-week', 'visits-skipped-week', 'visits-moved-week',
-  'quotes-sent-week', 'quotes-won-week', 'win-rate', 'dollars-sold-week',
+  'quotes-sent-week', 'quotes-won-week', 'win-rate', 'won-vs-lost', 'dollars-sold-week', 'my-quotes-out',
   'salespeople', 'crews',
+  'office-crews-today', 'office-carried-over', 'office-skipped', 'office-unassigned', 'office-callbacks',
+  'my-followups', 'my-sales-goal',
+  'my-day', 'my-visits-left', 'my-hours-today',
+  'ar-aging', 'unbilled-visits', 'qb-problems',
+  'renewals-open', 'next-season-plans', 'offseason-unpaid',
+]
+
+/** Project-work companies (grading, site work, building): the same roles, with the Projects section for the owner. */
+const PROJECT_DASHBOARD_CARDS: readonly string[] = [
+  'billed-week', 'collected-week', 'unpaid-overdue',
+  'projects-backlog', 'projects-active', 'projects-cost-vs-estimate', 'job-hours', 'change-orders-month', 'cancellations-month',
+  'quotes-sent-week', 'quotes-won-week', 'win-rate', 'won-vs-lost', 'dollars-sold-week', 'my-quotes-out', 'salespeople',
+  'office-unassigned', 'office-callbacks',
+  'my-followups', 'my-sales-goal',
+  'ar-aging', 'qb-problems',
 ]
 
 /** Service companies: Leads (Pipeline) → Customers → Jobs → Money (Billing = Ready to bill / request payment). */
@@ -349,6 +368,7 @@ const lawnLandscape: IndustryProfile = {
     },
     planned: [],
     ownerTiles: SERVICE_OWNER_TILES,
+    allClear: 'No exceptions: every visit has an outcome, every plan has a next visit, nothing is stuck.',
   },
   pricebook: {
     serviceTypeUnits: [],
@@ -409,6 +429,7 @@ const exteriorCleaning: IndustryProfile = {
     },
     planned: [],
     ownerTiles: SERVICE_OWNER_TILES,
+    allClear: 'No exceptions: every visit has an outcome, every plan has a next visit, nothing is stuck.',
   },
   pricebook: {
     serviceTypeUnits: [],
@@ -487,6 +508,7 @@ const homeBuilder: IndustryProfile = {
   ],
   terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners', leadName: 'Client / company name' },
   nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
+  dashboard: { cards: PROJECT_DASHBOARD_CARDS },
   today: {
     order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],
@@ -501,6 +523,7 @@ const homeBuilder: IndustryProfile = {
       'Installs past their date and not started': 'Projects past their start date',
     },
     planned: [],
+    allClear: 'No exceptions: every signed project has a start date, every bid has an answer, nothing is stuck.',
   },
   pricebook: {
     serviceTypeUnits: [],

@@ -186,6 +186,34 @@ export const HARNESS_CARD_DASHBOARD: import('../lib/dashboard-cards').CardData[]
   { kind: 'leaderboard', key: 'crews', label: 'Crews', failed: false, empty: '', columns: [{ key: 'done', label: 'Visits done', format: 'count' }, { key: 'hours', label: 'Hours', format: 'hours' }, { key: 'skips', label: 'Skips', format: 'count' }], rows: [{ id: 'c1', name: 'Mow Crew North', values: [31, 112.5, 2] }, { id: 'c2', name: 'Mow Crew South', values: [26, 98, 4] }, { id: 'c3', name: 'Landscape Crew', values: [7, 41.5, 1] }] },
 ]
 
+/** Office "Today's problems" (list cards with one-tap rows), as the server hands them over — no money. */
+export const HARNESS_OFFICE_DASHBOARD: import('../lib/dashboard-cards').CardData[] = [
+  { kind: 'tile', key: 'office-skipped', label: 'Skipped visits', display: 'count', value: 3, goal: null, group: 'Problems', sub: 'Rain 2 · Gate locked 1' },
+  { kind: 'list', key: 'office-carried-over', label: 'Visits carried over', group: 'Problems', count: 2, failed: false, empty: 'Nothing carried over.', rows: [
+    { id: 'v1', title: 'Mow — Rivera, 14 Oak Lane', detail: 'Scheduled Mon Nov 9, still not done', href: '/visits/v1', tone: 'warn' },
+    { id: 'v2', title: 'Edge — Morgan, 3 Birch Court', detail: 'Scheduled Tue Nov 10, still not done', href: '/visits/v2', tone: 'warn' },
+  ] },
+  { kind: 'list', key: 'office-unassigned', label: 'Visits with no crew', group: 'Problems', count: 1, failed: false, empty: 'Every visit has a crew.', rows: [{ id: 'v3', title: 'Mow — Lee, 9 Pine Road', detail: 'Thu Nov 12', href: '/visits/v3' }] },
+  { kind: 'list', key: 'office-callbacks', label: 'Waiting on a call back', group: 'Problems', count: 0, failed: false, empty: 'Nobody is waiting on a call.', rows: [] },
+]
+
+/** A crew lead's "My day": ordered stops with the gate code, one done, the clock on. */
+export const HARNESS_MY_DAY: import('../lib/dashboard-cards').CardData[] = [
+  { kind: 'list', key: 'my-day', label: 'My day', group: 'My day', count: 3, sub: '1 done · 2 left', clock: true, failed: false, empty: 'No stops today.', rows: [
+    { id: 'wo1', clockStopId: 'wo1', title: '1. 14 Oak Lane — Mow', detail: 'Gate code 4471. Dog in the back yard.', done: true },
+    { id: 'wo2', clockStopId: 'wo2', title: '2. 3 Birch Court — Edge and blow', detail: 'Side gate sticks, lift to open.' },
+    { id: 'wo3', clockStopId: 'wo3', title: '3. 9 Pine Road — Mow', detail: '' },
+  ] },
+  { kind: 'tile', key: 'my-visits-left', label: 'Visits left today', display: 'count', value: 2, goal: null, group: 'My day' },
+  { kind: 'tile', key: 'my-hours-today', label: 'Hours today', display: 'count', value: 3.5, goal: null, group: 'My day', sub: 'of 8 budgeted' },
+]
+
+/** A brand-new company: every number a real zero. */
+export const HARNESS_EMPTY_DASHBOARD: import('../lib/dashboard-cards').CardData[] = [
+  { kind: 'tile', key: 'billed-week', label: 'Billed this week', display: 'money', value: 0, goal: null },
+  { kind: 'tile', key: 'visits-done-week', label: 'Visits done', display: 'count', value: 0, goal: null },
+]
+
 /** GET /api/admin/dashboard-cards for the lawn company (an owner editing). */
 export const HARNESS_DASHBOARD_CARDS_API = {
   mode: 'cards', editingMode: 'cards', custom: false, canBuildCards: false, canEdit: true,
@@ -198,7 +226,7 @@ export const HARNESS_DASHBOARD_CARDS_API = {
     { key: 'quotes-won-week', label: 'Quotes won', description: 'Quotes approved and signed since Sunday.', group: 'Sales', goal: true, goalUnit: 'count' },
     { key: 'salespeople', label: 'Salespeople', description: 'Quotes won and dollars sold since Sunday, per salesperson.', group: 'Leaderboards', goal: false, goalUnit: 'count' },
   ],
-  unavailable: [{ key: 'mrr', label: 'Monthly recurring revenue', reason: 'Turning per-visit, per-month and per-year plan prices into one monthly number is new money math; no report or loader does it.' }],
+  unavailable: [{ key: 'visit-hours-vs-plan', label: 'Visit hours vs plan', reason: 'Service-plan visits have no planned duration, so there is nothing to compare clocked hours against.' }],
 }
 
 export const BANNER = {

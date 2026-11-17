@@ -6,6 +6,7 @@ import { brandDocument, getOrgBrand, usesOriginalCompanyAssets } from '@/lib/org
 import { clientBrandNames } from '@/lib/org-brand-client'
 import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
+import { isSuperAdmin } from '@/lib/super-admin'
 import { createServiceClient } from '@/lib/supabase/service'
 import { orgLogoHref } from '@/lib/files/files-object'
 
@@ -51,6 +52,7 @@ export async function GET() {
 
     return NextResponse.json({
       role: profile.role,
+      superAdmin: isSuperAdmin(profile),
       fullAccess,
       permissions: Array.from(permissionNames).sort(),
       // Server-side feature flags the client needs (the new payroll screens ship OFF; company feature switches,

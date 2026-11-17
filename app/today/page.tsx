@@ -27,6 +27,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { listWaiting } from '@/lib/threads/waiting'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
+import CardGrid from '@/components/dashboard/CardGrid'
+import { loadMyDayCards } from '@/lib/dashboard-cards-server'
 import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
 import { loadCustomerMessagesBlockedQueue } from '@/lib/customer-messages-db'
 import { loadQuickBooksStuckQueue } from '@/lib/quickbooks/activity'
@@ -48,7 +50,7 @@ export default async function TodayPage() {
   const { authUser, profile } = await requireAuth()
   const admin = createServiceClient()
   const perms = await resolveEffectivePermissionNames(admin, authUser.id, profile)
-  const kind = todayKindFor({ role: profile.role, isSuperuser: isOrgSuperuserRoleSlug(profile.role), canJobBoard: canAccessJobBoardFromPermissionNames(perms) })
+  const kind = todayKindFor({ role: profile.role, isSuperuser: isOrgSuperuserRoleSlug(profile.role) || isSuperAdmin(profile), canJobBoard: canAccessJobBoardFromPermissionNames(perms) })
 
   // The company's industry profile (lib/org-profile.ts): feature switches + which Today cards, in what order, with what titles.
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
@@ -65,7 +67,9 @@ export default async function TodayPage() {
   const mine = summarizePeriodRows(rows, kind === 'owner' || kind === 'ops' ? null : new Set([profile.id]), opts)
 
   // Service-plan visits (only companies with the servicePlans switch on): ops and owners see today's crews + skips first.
-  const visitsOn = (kind === 'ops' || kind === 'owner') && orgProfile.features.servicePlans
+  // Every kind but setter loads the visit queue on a service company (the "Visits left today" tile); only ops / owners get the queue cards.
+  const visitsOn = kind !== 'setter' && orgProfile.features.servicePlans
+  const visitCardsOn = kind === 'ops' || kind === 'owner'
   // Crew time clock: shifts the system stopped with no finish time (may be paying 0 h) — payroll admins (ops / owners).
   const clockOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.timeTracking
   // Hourly billing: commission changes waiting to be paid (owners only — it is pay).
@@ -101,7 +105,7 @@ export default async function TodayPage() {
 
   // Service companies (industry profile `today.ownerTiles`): this week in their own terms, each number from an existing
   // loader — today's visit queue, the unpaid-invoices card, and the revenue report (money only for people who see financials).
-  const profileTiles = kind === 'owner' ? orgProfile.today.ownerTiles : undefined
+  const profileTiles = kind !== 'setter' ? orgProfile.today.ownerTiles : undefined
   const billedWeek = profileTiles?.includes('billed-week') && hasFinancials(perms)
     ? await buildReportContext(admin, profile)
         .then((ctx) => runReport(admin, ctx, { dataset: 'revenue', mode: 'summary', groupBy: null, metric: { kind: 'sum', column: 'billed' }, date: { preset: '7d' }, filters: [], sortDesc: true }))
@@ -129,10 +133,12 @@ export default async function TodayPage() {
             { label: 'Appointments', value: mine.calendar },
           ]
   const finishSetup = await finishSetupPromise
+  // A crew lead's or field tech's "My day" (stops + the time clock), from the same loaders as the dashboard card; nothing for anyone else.
+  const myDay = await loadMyDayCards(admin, profile, orgProfile.features).catch((e) => { console.error('today: my day failed', e); return [] })
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
   // AI changes waiting for THIS person's Approve (the switch must be on; a failed read just hides the card).
   const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
-  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...(doorCollections && doorCollections.count > 0 ? [doorCollections] : []), ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...(myLeadsWaiting && (myLeadsWaiting.count > 0 || myLeadsWaiting.empty.includes('couldn’t load')) ? [myLeadsWaiting] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
+  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...(visitCardsOn ? visitQueues : []), ...(doorCollections && doorCollections.count > 0 ? [doorCollections] : []), ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...(myLeadsWaiting && (myLeadsWaiting.count > 0 || myLeadsWaiting.empty.includes('couldn’t load')) ? [myLeadsWaiting] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
 
   return (
     <div className="min-h-screen bg-surface-subtle">
@@ -144,10 +150,11 @@ export default async function TodayPage() {
           actions={canvassOn ? <Button asChild><Link href="/canvass">Open Canvass</Link></Button> : undefined}
         />
         {finishSetup ? <FinishSetupCard items={finishSetup} /> : null}
+        {myDay.length > 0 ? <CardGrid cards={myDay} /> : null}
         <WaitingOnYou items={waiting} />
         {needsYou && needsYou.count > 0 ? <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} audience={needsYouAudience} /> : null}
         {kind === 'owner' && queues.length === 0 && (!needsYou || needsYou.count === 0) ? (
-          <EmptyState title="All clear" body="No exceptions: every appointment has an outcome, every sold job has a date, nothing is stuck." />
+          <EmptyState title="All clear" body={orgProfile.today.allClear ?? "No exceptions: every appointment has an outcome, every sold job has a date, nothing is stuck."} />
         ) : null}
         <div className="grid gap-4 md:grid-cols-2">
           {queues.map((q) => (

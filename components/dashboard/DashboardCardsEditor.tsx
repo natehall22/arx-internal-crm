@@ -9,7 +9,7 @@ import type { DashboardMode } from '@/lib/dashboard-cards'
  * the cards that take one, and resets to the industry profile's starting set. Everything saves through
  * `/api/admin/dashboard-cards` (one writer, server-side validation against the catalog). Reorder is by buttons (works on a phone).
  */
-type Offered = { key: string; label: string; description: string; group: string; goal: boolean; goalUnit: 'money' | 'percent' | 'count' }
+type Offered = { key: string; label: string; description: string; group: string; audiences?: string[]; goal: boolean; goalUnit: 'money' | 'percent' | 'count' }
 type Entry = { key: string; goal: string }
 type Loaded = {
   mode: DashboardMode
@@ -85,7 +85,7 @@ export default function DashboardCardsEditor({ onMode }: { onMode?: (mode: Dashb
       <h2 className="text-lg font-semibold text-gray-900 mb-1">Dashboard cards</h2>
       <p className="text-sm text-gray-800 mb-4">
         {reorderable
-          ? 'Choose the cards on your dashboard and their order. People see the cards that fit their role; money cards only show to people who can see financials.'
+          ? 'Choose the cards on your dashboard and their order. One list for everyone: each person sees only the cards built for their role (shown under each card). Money cards need the money permission.'
           : 'Choose which sections of the classic dashboard are shown. Their place on the page stays the same.'}
       </p>
 
@@ -102,6 +102,7 @@ export default function DashboardCardsEditor({ onMode }: { onMode?: (mode: Dashb
                 <div className="min-w-0">
                   <p className="font-medium text-gray-900">{o?.label ?? e.key}</p>
                   <p className="text-sm text-gray-700">{o?.description}</p>
+                  {o?.audiences?.length ? <p className="text-sm font-medium text-gray-800">Shown to: {o.audiences.join(', ')}</p> : null}
                 </div>
                 {data.canEdit ? (
                   <div className="flex shrink-0 gap-1">
@@ -146,6 +147,7 @@ export default function DashboardCardsEditor({ onMode }: { onMode?: (mode: Dashb
                     <div className="min-w-0">
                       <p className="font-medium text-gray-900">{o.label}</p>
                       <p className="text-sm text-gray-700">{o.description}</p>
+                      {o.audiences?.length ? <p className="text-sm font-medium text-gray-800">Shown to: {o.audiences.join(', ')}</p> : null}
                     </div>
                     <button type="button" className={BTN} onClick={() => add(o.key)} aria-label={`Add ${o.label}`}>Add</button>
                   </li>

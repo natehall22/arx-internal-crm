@@ -35,7 +35,7 @@ export type Dataset = {
 
 export const DATASET_KEYS = [
   'jobs', 'sales', 'payments', 'invoices', 'revenue', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
-  'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy',
+  'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy', 'visits', 'time',
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
 
@@ -89,6 +89,21 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
       c('reference', 'Job / invoice #'), c('customer', 'Customer'), c('billed', 'Billed', 'money'), c('collected', 'Collected', 'money'),
       c('billed_jobs', 'Billed: jobs', 'money'), c('billed_service', 'Billed: service', 'money'),
       c('collected_jobs', 'Collected: jobs', 'money'), c('collected_service', 'Collected: service', 'money'), c('category', 'Category'),
+    ],
+  },
+  visits: {
+    idColumn: 'visit_id', key: 'visits', label: 'Service visits', description: 'Every service-plan visit on the day it sits on: done, skipped and billed, per crew and plan.',
+    view: 'rpt_visits', dateColumn: 'visit_date', dateColumnIsDay: true, ownerColumn: null,
+    columns: [
+      c('visit_date', 'Day', 'date'), c('status', 'Status'), c('is_done', 'Done', 'bool'), c('is_skipped', 'Skipped', 'bool'), c('skip_reason', 'Skip reason'),
+      c('trade', 'Trade'), c('crew', 'Crew'), c('plan', 'Plan'), c('customer', 'Customer'), c('is_billed', 'Billed', 'bool'),
+    ],
+  },
+  time: {
+    idColumn: 'entry_id', key: 'time', label: 'Clocked time', description: 'Finished work time on the crew clock, per person, crew, job and day (a clock still running is not counted yet).',
+    view: 'rpt_time', dateColumn: 'work_date', dateColumnIsDay: true, ownerColumn: null,
+    columns: [
+      c('work_date', 'Day', 'date'), c('person', 'Person'), c('crew', 'Crew'), c('job_number', 'Job #'), c('visit_number', 'Visit #'), c('hours', 'Hours', 'number'),
     ],
   },
   job_costs: {

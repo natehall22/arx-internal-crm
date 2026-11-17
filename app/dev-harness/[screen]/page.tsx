@@ -85,7 +85,7 @@ import SupportAccessCard from '@/components/admin/SupportAccessCard'
 import SupportPlans from '@/app/support/SupportPlans'
 import { ORG_FEATURE_KEYS as PLAN_HARNESS_KEYS, resolveOrgEntitlements as planHarnessEntitlements } from '@/lib/org-features'
 import SupportBannerView from '@/components/support/SupportBannerView'
-import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD, HARNESS_CARD_DASHBOARD } from '@/e2e/fixtures'
+import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD, HARNESS_CARD_DASHBOARD, HARNESS_OFFICE_DASHBOARD, HARNESS_MY_DAY, HARNESS_EMPTY_DASHBOARD } from '@/e2e/fixtures'
 import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
 import DashboardClient from '@/app/dashboard/DashboardClient'
 import CardDashboard from '@/components/dashboard/CardDashboard'
@@ -607,6 +607,12 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} settings={{}} />
     case 'dashboard-cards':
       return <div className="min-h-screen bg-gray-50"><CardDashboard firstName="Pat" cards={HARNESS_CARD_DASHBOARD} canEdit /></div>
+    case 'dashboard-office':
+      return <div className="min-h-screen bg-gray-50"><CardDashboard firstName="Pat" cards={HARNESS_OFFICE_DASHBOARD} canEdit={false} /></div>
+    case 'dashboard-my-day':
+      return <div className="min-h-screen bg-gray-50"><CardDashboard firstName="Tony" cards={HARNESS_MY_DAY} canEdit={false} /></div>
+    case 'dashboard-empty':
+      return <div className="min-h-screen bg-gray-50"><CardDashboard firstName="Pat" cards={HARNESS_EMPTY_DASHBOARD} canEdit emptyStart /></div>
     case 'dashboard-cards-editor':
       return <div className="mx-auto max-w-4xl px-4 py-4"><DashboardCardsEditor /></div>
     case 'whats-new': {

@@ -23,6 +23,7 @@ import { resolveOrgProfile } from '@/lib/org-profile'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { DATASETS } from '@/lib/reporting/catalog'
 import { parseSpec } from '@/lib/reporting/report-spec'
+import { loadRoleCard } from '@/lib/dashboard-role-loaders'
 import * as billing from '@/lib/service-billing-db'
 import * as plansDb from '@/lib/service-plans-db'
 import * as timeDb from '@/lib/time-tracking-db'
@@ -32,7 +33,9 @@ const viewer = (audiences: DashboardAudience[], financials: boolean) => ({ audie
 const lawnList = () => resolveDashboard({}, lawn.dashboard.cards)
 
 describe('catalog: every card reads from an existing source', () => {
-  const LOADERS: Record<string, unknown> = { unpaidInvoices: billing.loadUnpaidInvoices, visits: plansDb.loadVisits, servicePlans: plansDb.loadServicePlans, timeWeek: timeDb.loadTimeWeek }
+  const LOADERS: Record<string, unknown> = { unpaidInvoices: billing.loadUnpaidInvoices, visits: plansDb.loadVisits, servicePlans: plansDb.loadServicePlans, timeWeek: timeDb.loadTimeWeek,
+    // the role loaders (lib/dashboard-role-loaders.ts): one switch, each name a branch of loadRoleCard
+    ...Object.fromEntries(['revenuePerCrewHour', 'contractedRecurring', 'cancellations', 'jobHours', 'projects', 'office', 'sales', 'crewDay', 'billing', 'renewals'].map((n) => [n, loadRoleCard])) }
 
   it('keys are unique and every card has a label and a description', () => {
     expect(new Set(DASHBOARD_CARD_KEYS).size).toBe(DASHBOARD_CARDS.length)
@@ -64,7 +67,7 @@ describe('catalog: every card reads from an existing source', () => {
   })
 
   it('the cards with no existing source are exactly the ones we know of', () => {
-    expect(DASHBOARD_CARDS.filter((c) => !isDrawableCard(c)).map((c) => c.key).sort()).toEqual(['cancellations-month', 'mrr', 'quotes-sent-week', 'revenue-per-crew-hour'])
+    expect(DASHBOARD_CARDS.filter((c) => !isDrawableCard(c)).map((c) => c.key).sort()).toEqual(['visit-hours-vs-plan'])
   })
 
   it('money cards that read the report runner are on finance-gated or own-price columns only', () => {
@@ -92,10 +95,15 @@ describe('industry profiles: starting sets', () => {
   it.each(['lawn_landscape', 'exterior_cleaning'] as const)('%s starts with the owner-approved cards, in order', (id) => {
     expect(INDUSTRY_PROFILES[id].dashboard?.cards).toEqual([
       'billed-week', 'collected-week', 'unpaid-overdue', 'revenue-per-crew-hour',
-      'active-plans', 'new-plans-month', 'cancellations-month', 'mrr',
+      'mrr', 'active-plans', 'new-plans-month', 'cancellations-month',
       'visits-done-week', 'visits-skipped-week', 'visits-moved-week',
-      'quotes-sent-week', 'quotes-won-week', 'win-rate', 'dollars-sold-week',
+      'quotes-sent-week', 'quotes-won-week', 'win-rate', 'won-vs-lost', 'dollars-sold-week', 'my-quotes-out',
       'salespeople', 'crews',
+      'office-crews-today', 'office-carried-over', 'office-skipped', 'office-unassigned', 'office-callbacks',
+      'my-followups', 'my-sales-goal',
+      'my-day', 'my-visits-left', 'my-hours-today',
+      'ar-aging', 'unbilled-visits', 'qb-problems',
+      'renewals-open', 'next-season-plans', 'offseason-unpaid',
     ])
   })
 
@@ -103,11 +111,11 @@ describe('industry profiles: starting sets', () => {
     for (const id of INDUSTRY_PROFILE_IDS) for (const k of INDUSTRY_PROFILES[id].dashboard?.cards ?? []) expect(DASHBOARD_CARD_KEYS).toContain(k)
   })
 
-  it('a card dashboard draws only cards with a source (the four without one are skipped)', () => {
+  it('a card dashboard draws only cards with a source (one without a source is never drawn)', () => {
     const r = lawnList()
     expect(r.mode).toBe('cards')
-    expect(r.cards.map((c) => c.key)).not.toContain('mrr')
-    expect(r.cards).toHaveLength(13)
+    expect(r.cards.map((c) => c.key)).not.toContain('visit-hours-vs-plan')
+    expect(r.cards).toHaveLength(INDUSTRY_PROFILES.lawn_landscape.dashboard!.cards!.length)
   })
 })
 
@@ -124,6 +132,7 @@ describe('lawn default shows no door-knocking wording', () => {
   it('the rendered owner dashboard uses none of it either', () => {
     const cards: CardData[] = lawnList().cards.map((c) => {
       const card = DASHBOARD_CARDS.find((x) => x.key === c.key)!
+      if (card.display === 'list') return { kind: 'list', key: card.key, label: card.label, count: 1, rows: [{ id: '1', title: 'Row one', detail: 'Today' }], empty: '', failed: false }
       return card.display === 'leaderboard'
         ? { kind: 'leaderboard', key: card.key, label: card.label, columns: [{ key: 'a', label: 'Visits done', format: 'count' }], rows: [{ id: '1', name: 'Crew A', values: [3] }], empty: '', failed: false }
         : { kind: 'tile', key: card.key, label: card.label, display: card.display as 'count', value: 4, goal: card.goal ? 10 : null }
@@ -139,8 +148,10 @@ describe('who sees which card', () => {
   const list = lawnList().cards
   const keys = (v: ReturnType<typeof viewer>) => cardsForViewer(list, v, lawn.features).map((c) => c.card.key)
 
-  it('owners see every drawable card', () => {
-    expect(keys(viewer(['owner'], true))).toHaveLength(13)
+  it('an owner sees the owner cards (health and leaks), not each role’s own-day cards', () => {
+    const out = keys(viewer(['owner'], true))
+    expect(out).toEqual(expect.arrayContaining(['billed-week', 'cancellations-month', 'mrr', 'revenue-per-crew-hour', 'salespeople', 'crews']))
+    for (const own of ['my-day', 'my-followups', 'office-callbacks']) expect(out).not.toContain(own)
   })
 
   it('money cards are hidden without reports:financials — even from an owner', () => {
@@ -150,19 +161,21 @@ describe('who sees which card', () => {
   })
 
   it('a salesperson sees sales cards only (the dollars card is their own, decided by the report runner)', () => {
-    expect(keys(viewer(['sales'], false))).toEqual(['quotes-won-week', 'win-rate', 'dollars-sold-week', 'salespeople'])
+    const out = cardsForViewer(list, viewer(['sales'], false), lawn.features).map((c) => c.card)
+    expect(out.map((c) => c.key)).toEqual(expect.arrayContaining(['quotes-sent-week', 'quotes-won-week', 'win-rate', 'dollars-sold-week', 'salespeople', 'my-quotes-out']))
+    for (const c of out) { expect(c.audience).toContain('sales'); expect([null, 'own']).toContain(c.money) }
   })
 
   it('a crew lead sees work cards and never a money card', () => {
     const out = cardsForViewer(list, viewer(['crew'], false), lawn.features).map((c) => c.card)
-    expect(out.map((c) => c.key)).toEqual(['visits-done-week', 'visits-skipped-week', 'visits-moved-week', 'crews'])
-    expect(out.every((c) => c.money === null)).toBe(true)
+    expect(out.map((c) => c.key)).toEqual(expect.arrayContaining(['visits-done-week', 'crews', 'my-day', 'my-visits-left', 'my-hours-today']))
+    expect(out.every((c) => c.money === null && c.audience.includes('crew'))).toBe(true)
   })
 
   it('a person granted reports:financials sees the finance cards whatever their audience; field roles (no audience) see nothing', () => {
     expect(keys(viewer(['crew'], true))).toEqual(expect.arrayContaining(['billed-week', 'collected-week', 'unpaid-overdue']))
     expect(keys(viewer([], false))).toEqual([])
-    expect(keys(viewer([], true)).filter((k) => !['billed-week', 'collected-week', 'unpaid-overdue'].includes(k))).toEqual([])
+    for (const c of cardsForViewer(list, viewer([], true), lawn.features)) expect(['financials', 'books']).toContain(c.card.money)
   })
 
   it('cards of a feature the company has off are not drawn', () => {
@@ -177,6 +190,13 @@ describe('who sees which card', () => {
 describe('owner customization: server-side validation', () => {
   const ok = (cards: unknown) => parseCardsInput({ cards }, lawn.features)
 
+  it('the whole starting set can be saved back unchanged (the cap is not below the catalog)', () => {
+    // (QuickBooks is off for this company, so its card is not offered; the rest of the set is more than the old cap of 30)
+    const all = lawnList().cards.filter((c) => c.key !== 'qb-problems').map((c) => ({ key: c.key, goal: c.goal }))
+    expect(all.length).toBeGreaterThan(30)
+    expect(ok(all).ok).toBe(true)
+  })
+
   it('accepts catalog keys, in the owner’s order, with goals only where a card takes one', () => {
     const r = ok([{ key: 'quotes-won-week', goal: 5 }, { key: 'billed-week', goal: 12000 }, { key: 'win-rate' }])
     expect(r).toEqual({ ok: true, cards: [{ key: 'quotes-won-week', goal: 5 }, { key: 'billed-week', goal: 12000 }, { key: 'win-rate', goal: null }] })
@@ -185,7 +205,7 @@ describe('owner customization: server-side validation', () => {
   it.each([
     ['an unknown key', [{ key: 'doors-knocked' }]],
     ['a key that only looks like a key', [{ key: '__proto__' }]],
-    ['a card with no data source', [{ key: 'mrr' }]],
+    ['a card with no data source', [{ key: 'visit-hours-vs-plan' }]],
     ['the same card twice', [{ key: 'win-rate' }, { key: 'win-rate' }]],
     ['a goal on a card that takes none', [{ key: 'win-rate', goal: 5 }]],
     ['a goal of zero or less', [{ key: 'billed-week', goal: 0 }]],
@@ -202,7 +222,7 @@ describe('owner customization: server-side validation', () => {
   })
 
   it('reading what is stored drops anything not in the catalog (a hand-edited row cannot draw a card)', () => {
-    expect(readSavedCards({ dashboardCards: { cards: [{ key: 'nope' }, { key: 'mrr' }, { key: 'win-rate' }, { key: 'win-rate' }] } })).toEqual([{ key: 'win-rate', goal: null }])
+    expect(readSavedCards({ dashboardCards: { cards: [{ key: 'nope' }, { key: 'visit-hours-vs-plan' }, { key: 'win-rate' }, { key: 'win-rate' }] } })).toEqual([{ key: 'win-rate', goal: null }])
     expect(readSavedCards({ dashboardCards: { cards: [{ key: 'nope' }] } })).toBeNull()
   })
 

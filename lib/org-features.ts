@@ -290,8 +290,11 @@ export function insuranceFieldsSetInPatch(body: unknown): string[] {
 
 /** Report datasets that belong to one feature (lib/reporting/catalog.ts keys): hidden from Reports when it is off. */
 export const FEATURE_REPORT_DATASETS: Readonly<Partial<Record<OrgFeature, readonly string[]>>> = {
-  canvassing: ['canvass_doors'],
+  // Sits and Inspections set are door-knocking / inspection measures: a company that does not knock doors never sees them.
+  canvassing: ['canvass_doors', 'sits', 'inspection_sets'],
   roofMeasure: ['instant_estimate_accuracy'],
+  servicePlans: ['visits'],
+  timeTracking: ['time'],
 }
 
 /** Pure: is this report dataset hidden because the company switched its feature off? */

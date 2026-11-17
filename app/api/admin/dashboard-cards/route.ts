@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import {
+  AUDIENCE_LABELS,
   DASHBOARD_CARDS,
   cardsOfferedTo,
   isDrawableCard,
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
   const canBuildCards = ctx.owner && resolved.mode === 'classic' && ctx.profileId !== 'roofing'
   const asked: DashboardMode = new URL(request.url).searchParams.get('mode') === 'cards' ? 'cards' : resolved.mode
   const wanted: DashboardMode = asked === 'cards' && resolved.mode === 'classic' && !canBuildCards ? resolved.mode : asked
-  const brief = (c: (typeof DASHBOARD_CARDS)[number]) => ({ key: c.key, label: c.label, description: c.description, group: c.group, goal: !!c.goal, goalUnit: c.display === 'money' ? 'money' : c.display === 'percent' ? 'percent' : 'count' })
+  const brief = (c: (typeof DASHBOARD_CARDS)[number]) => ({ key: c.key, label: c.label, description: c.description, group: c.group, goal: !!c.goal, audiences: c.audience.map((a) => AUDIENCE_LABELS[a]), goalUnit: c.display === 'money' ? 'money' : c.display === 'percent' ? 'percent' : 'count' })
   return NextResponse.json({
     mode: resolved.mode,
     editingMode: wanted,

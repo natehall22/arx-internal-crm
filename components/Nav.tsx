@@ -39,6 +39,7 @@ export default function Nav() {
   const [userPermissions, setUserPermissions] = useState<string[]>([])
   const [effectivePermsReady, setEffectivePermsReady] = useState(false)
   const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
+  const [superAdmin, setSuperAdmin] = useState(false)
   const [payWeekEnabled, setPayWeekEnabled] = useState(false)
   const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(DEFAULT_ORG_FEATURES)
   // No first-paint flash by construction: the profile only reorders/renames/hides permission-gated entries, and those
@@ -88,6 +89,7 @@ export default function Nav() {
             ? ((data as { permissions: unknown[] }).permissions.filter((x) => typeof x === 'string') as string[])
             : []
           setEffectiveFullAccess(apiFullAccess)
+          setSuperAdmin((data as { superAdmin?: unknown }).superAdmin === true)
           setPayWeekEnabled((data as { flags?: { payWeek?: unknown } }).flags?.payWeek === true)
           setOrgFeatures(featuresFromEffectivePermissions(data))
           setOrgProfile(profileFromEffectivePermissions(data))
@@ -185,7 +187,7 @@ export default function Nav() {
     }
   }
 
-  const isOpsOnly = userRole === 'operations'
+  const isOpsOnly = userRole === 'operations' && !superAdmin
   const hasFullNavAccess = effectiveFullAccess || isOrgSuperuserRoleSlug(userRole ?? '')
   /** Same shape as SSR guards / centralized RBAC helpers */
   const navPermInput = { fullAccess: hasFullNavAccess, permissionNames: effectivePermissionNames }

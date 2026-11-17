@@ -32,9 +32,10 @@ export type QueueItem = { id: string; title: string; detail: string; href: strin
 export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string }
 
 export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean }): TodayKind {
+  // A super admin is the owner whatever their role slug says (Precision's owner holds role 'operations').
+  if (args.isSuperuser) return 'owner'
   if (isSetterLikeRole(args.role)) return 'setter'
   if (args.role === 'operations') return 'ops'
-  if (args.isSuperuser) return 'owner'
   if (args.canJobBoard && !['sales_rep', 'closer', 'sales_manager', 'regional_manager'].includes(args.role ?? '')) return 'ops'
   return 'closer'
 }
@@ -516,6 +517,41 @@ export async function loadServiceVisitQueues(admin: SupabaseClient, orgId: strin
       }),
     },
   ].filter((q) => q.count > 0 || q.items.length > 0)
+}
+
+/**
+ * Visits from the last 14 days that are still "scheduled" — the crew never marked them done or skipped. Behind, by the
+ * calendar's own count (visits carry no planned time, so "behind" is never guessed from the clock). Cancelled ones are left out.
+ */
+export async function loadCarriedOverVisitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
+  const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
+  const rows = (await loadVisits(admin, orgId, { from: addDaysYmd(today, -14), to: addDaysYmd(today, -1), accessNotes: false })).filter((v) => v.status === 'scheduled')
+  return {
+    id: 'carried-over-visits',
+    title: 'Visits left from earlier days',
+    count: rows.length,
+    empty: 'Every earlier visit is finished or skipped.',
+    items: rows.slice(0, cap).map((v) => {
+      const note = `${formatDateShort(v.scheduledDate)} · ${v.subName ?? v.userName ?? 'No crew assigned'}`
+      return { id: v.id, title: v.planName, detail: note, href: '/ops/schedule?view=visits', ref: v.workOrderNumber ?? 'Visit', note }
+    }),
+  }
+}
+
+/** Visits in the next 7 days (today included) with no crew and no person on them: nobody is going. */
+export async function loadUnassignedVisitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
+  const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
+  const rows = (await loadVisits(admin, orgId, { from: today, to: addDaysYmd(today, 6), accessNotes: false })).filter((v) => v.status === 'scheduled' && !v.subId && !v.userId)
+  return {
+    id: 'unassigned-visits',
+    title: 'Visits with no crew',
+    count: rows.length,
+    empty: 'Every visit this week has a crew.',
+    items: rows.slice(0, cap).map((v) => {
+      const note = `${formatDateShort(v.scheduledDate)} · no crew`
+      return { id: v.id, title: v.planName, detail: [v.address, note].filter(Boolean).join(' · '), href: '/ops/schedule?view=visits', ref: v.workOrderNumber ?? 'Visit', note }
+    }),
+  }
 }
 
 /**

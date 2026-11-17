@@ -309,6 +309,28 @@ const SCREENS: Screen[] = [
         if (gone.test(text)) throw new Error(`lawn dashboard still says ${gone}`)
       }
     } }] },
+  { name: 'dashboard-office', path: '/dev-harness/dashboard-office', ready: 'text=Skipped visits',
+    states: [{ name: 'todays-problems', run: async (p) => {
+      await p.getByRole('heading', { name: 'Visits carried over' }).waitFor()
+      await p.getByText('Mow — Rivera, 14 Oak Lane').waitFor()
+      // The office view carries no money anywhere.
+      const text = await p.locator('main, body').first().innerText()
+      if (/\$\s?\d/.test(text)) throw new Error('office dashboard shows a dollar amount')
+    } }] },
+  { name: 'dashboard-my-day', path: '/dev-harness/dashboard-my-day', ready: 'text=My day',
+    mock: async (p) => {
+      await p.route('**/api/time/clock', (route) => route.fulfill(json(HARNESS_JOB_CLOCK_SELF)))
+    },
+    states: [{ name: 'stops-and-clock', run: async (p) => {
+      await p.getByText('Gate code 4471').waitFor()
+      await p.getByText('1 done · 2 left').waitFor()
+      const text = await p.locator('main, body').first().innerText()
+      if (/\$\s?\d/.test(text)) throw new Error('My day shows a dollar amount')
+    } }] },
+  { name: 'dashboard-empty', path: '/dev-harness/dashboard-empty', ready: 'text=let’s get you started',
+    states: [{ name: 'what-to-do-next', run: async (p) => {
+      await p.getByRole('link', { name: 'Finish setup' }).waitFor()
+    } }] },
   { name: 'dashboard-cards-editor', path: '/dev-harness/dashboard-cards-editor', ready: 'text=Dashboard cards',
     mock: async (p) => {
       let saved: unknown = null
@@ -326,8 +348,8 @@ const SCREENS: Screen[] = [
       await p.getByText('Saved. The dashboard shows this list now.').waitFor()
       // A card with no data source is listed, greyed, with the reason — and has no Add button.
       await p.getByText('Not available yet').click()
-      await p.getByText('Monthly recurring revenue').waitFor()
-      if ((await p.getByRole('button', { name: 'Add Monthly recurring revenue' }).count()) > 0) throw new Error('a card with no source can be added')
+      await p.getByText('Visit hours vs plan').waitFor()
+      if ((await p.getByRole('button', { name: 'Add Visit hours vs plan' }).count()) > 0) throw new Error('a card with no source can be added')
     } }] },
   { name: 'bonuses', path: '/dev-harness/bonuses', ready: 'text=Bonuses', mock: async (p) => {
     const line = (id: string, name: string, type: string, amount: number) => ({ id, org_id: 'o1', payroll_period_id: 'p1', user_id: `u-${id}`, bonus_type: type, amount, description: 'Week 1: 400 doors and 4 inspections', status: 'pending_approval', reviewed_by: null, reviewed_at: null, review_note: null, created_at: '2026-11-09T12:00:00Z', user: { id: `u-${id}`, full_name: name, role: 'setter' }, period: { id: 'p1', period_label: 'Nov 2 - Nov 8', cutoff_at: null, lock_at: null, scheduled_pay_date: '2026-11-13T12:00:00Z', status: 'open' }, reviewer: null })

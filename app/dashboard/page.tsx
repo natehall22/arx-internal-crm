@@ -20,8 +20,8 @@ import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import CardDashboard from '@/components/dashboard/CardDashboard'
-import { CLASSIC_SECTIONS, cardsForViewer, resolveDashboard, type ClassicSection } from '@/lib/dashboard-cards'
-import { loadDashboardCardData, resolveDashboardViewer } from '@/lib/dashboard-cards-server'
+import { CLASSIC_SECTIONS, cardsForViewer, dashboardIsEmpty, resolveDashboard, type ClassicSection } from '@/lib/dashboard-cards'
+import { detectOffSeason, loadDashboardCardData, resolveDashboardViewer } from '@/lib/dashboard-cards-server'
 import { resolveOrgProfile } from '@/lib/org-profile'
 import { isOwnerProfile } from '@/lib/super-admin'
 
@@ -61,13 +61,17 @@ export default async function DashboardPage() {
   const dashboard = resolveDashboard(orgSettings, orgProfile.dashboard.cards)
   if (dashboard.mode === 'cards') {
     const admin = createServiceClient()
-    const viewer = await resolveDashboardViewer(admin, profile)
+    const resolved = await resolveDashboardViewer(admin, profile)
+    // Off-season (weekly work quiet): owner / office see renewals and balances instead of the empty weekly cards.
+    const viewer = { ...resolved, offSeason: await detectOffSeason(admin, profile.org_id, resolved, orgProfile.features) }
     const visible = cardsForViewer(dashboard.cards, viewer, orgProfile.features)
     const cards = await loadDashboardCardData(admin, { profile, viewer, cards: visible, features: orgProfile.features })
+    // A new company's owner / office sees "what to do next" instead of rows of zeros.
+    const emptyStart = (viewer.audiences.has('owner') || viewer.audiences.has('office')) && dashboardIsEmpty(cards)
     return (
       <div className="min-h-screen bg-gray-50">
         <Nav />
-        <CardDashboard firstName={profile.full_name?.split(' ')[0] || ''} cards={cards} canEdit={isOrgSuperuserRoleSlug(profile.role) || isOwnerProfile(profile)} />
+        <CardDashboard firstName={profile.full_name?.split(' ')[0] || ''} cards={cards} emptyStart={emptyStart} canEdit={isOrgSuperuserRoleSlug(profile.role) || isOwnerProfile(profile)} />
       </div>
     )
   }

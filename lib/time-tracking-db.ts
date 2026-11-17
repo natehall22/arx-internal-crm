@@ -195,19 +195,20 @@ export async function loadCrewsLedBy(admin: SupabaseClient, orgId: string, userI
 }
 
 /**
- * Every crew this person leads, whether or not the crew tracks time (that switch is about the clock, not about who leads).
- * Throws on any read error, the table not being there included: a caller that narrows what someone may see to their crews
- * must treat a failure as "no crews", never as "no narrowing" (dashboard cards, 2026-11-16).
+ * Every active crew this person is ON (`all`) and the ones they LEAD (`led`), one read of crew_members. A crew lead and a field
+ * tech are both "on a crew"; only a lead clocks the crew in. Whether or not a crew tracks time, they count (that switch is about the clock). A caller that narrows what someone may see to their crews must treat a failure as "no crews", never as "no narrowing": throws on any read error, the table not being there included.
  */
-export async function loadCrewIdsLedBy(admin: SupabaseClient, orgId: string, userId: string): Promise<string[]> {
+export async function loadCrewSubIds(admin: SupabaseClient, orgId: string, userId: string): Promise<{ all: string[]; led: string[] }> {
   const db = orgDb(admin, orgId)
-  const { data, error } = await db.from('crew_members').select('sub_id').eq('user_id', userId).eq('is_lead', true)
+  const { data, error } = await db.from('crew_members').select('sub_id, is_lead').eq('user_id', userId)
   if (error) throw error
-  const subIds = ((data ?? []) as Array<{ sub_id: string }>).map((r) => r.sub_id)
-  if (subIds.length === 0) return []
+  const rows = (data ?? []) as Array<{ sub_id: string; is_lead: boolean | null }>
+  const subIds = Array.from(new Set(rows.map((r) => r.sub_id)))
+  if (subIds.length === 0) return { all: [], led: [] }
   const { data: subs, error: subsError } = await db.from('sub_contractors').select('id, active').in('id', subIds)
   if (subsError) throw subsError
-  return ((subs ?? []) as Array<{ id: string; active: boolean | null }>).filter((s) => s.active !== false).map((s) => s.id)
+  const live = new Set(((subs ?? []) as Array<{ id: string; active: boolean | null }>).filter((s) => s.active !== false).map((s) => s.id))
+  return { all: subIds.filter((id) => live.has(id)), led: Array.from(new Set(rows.filter((r) => r.is_lead === true).map((r) => r.sub_id))).filter((id) => live.has(id)) }
 }
 
 /**
@@ -216,19 +217,28 @@ export async function loadCrewIdsLedBy(admin: SupabaseClient, orgId: string, use
  * null = time tracking is not set up yet.
  */
 export async function loadWorkSecondsByStop(admin: SupabaseClient, orgId: string, opts: { fromIso: string; toIso: string; workOrderIds: string[] }): Promise<Map<string, number> | null> {
+  return workSecondsBy(admin, orgId, 'work_order_id', opts.workOrderIds, opts)
+}
+
+/** The same total per JOB (entries tapped on the job itself), for entries that started between two instants. null = no time clock yet. */
+export async function loadWorkSecondsByJob(admin: SupabaseClient, orgId: string, opts: { fromIso: string; toIso: string; jobIds: string[] }): Promise<Map<string, number> | null> {
+  return workSecondsBy(admin, orgId, 'production_job_id', opts.jobIds, opts)
+}
+
+async function workSecondsBy(admin: SupabaseClient, orgId: string, column: 'work_order_id' | 'production_job_id', ids: string[], opts: { fromIso: string; toIso: string }): Promise<Map<string, number> | null> {
   const out = new Map<string, number>()
   const PAGE = 1000
   const MAX_PAGES = 20
-  for (let i = 0; i < opts.workOrderIds.length; i += 200) {
+  for (let i = 0; i < ids.length; i += 200) {
     // Paged, never cut off: past MAX_PAGES it throws, so the card shows a dash instead of hours that quietly leave entries out.
     for (let page = 0; ; page++) {
       if (page >= MAX_PAGES) throw new Error('Too many time entries to total')
       const { data, error } = await orgDb(admin, orgId)
         .from('time_entries')
-        .select('id, work_order_id, kind, started_at, ended_at')
+        .select(`id, ${column}, kind, started_at, ended_at`)
         .is('removed_at', null)
         .eq('kind', 'work')
-        .in('work_order_id', opts.workOrderIds.slice(i, i + 200))
+        .in(column, ids.slice(i, i + 200))
         .gte('started_at', opts.fromIso)
         .lte('started_at', opts.toIso)
         .order('started_at', { ascending: true })
@@ -238,10 +248,11 @@ export async function loadWorkSecondsByStop(admin: SupabaseClient, orgId: string
         if (isTimeTrackingNotReadyError(error)) return null
         throw error
       }
-      const rows = (data ?? []) as Array<{ work_order_id: string | null; started_at: string; ended_at: string | null }>
+      const rows = (data ?? []) as unknown as Array<Record<string, string | null>>
       for (const r of rows) {
-        if (!r.work_order_id || !r.ended_at) continue
-        out.set(r.work_order_id, (out.get(r.work_order_id) ?? 0) + Math.max(0, (Date.parse(r.ended_at) - Date.parse(r.started_at)) / 1000))
+        const key = r[column]
+        if (!key || !r.ended_at || !r.started_at) continue
+        out.set(key, (out.get(key) ?? 0) + Math.max(0, (Date.parse(r.ended_at) - Date.parse(r.started_at)) / 1000))
       }
       if (rows.length < PAGE) break
     }
