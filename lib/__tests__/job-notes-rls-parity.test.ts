@@ -22,7 +22,9 @@ const BODY = SQL.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n'
 // The CURRENT definition of the function (it was replaced by the field-role deny).
 const FN_SQL = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202610280010_atomic_approve_and_field_role_deny.sql'), 'utf8')
 const FN_BODY = FN_SQL.slice(FN_SQL.indexOf('CREATE OR REPLACE FUNCTION arx_private.can_view_job_board')).split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
-const FIELD_FN = FN_SQL.slice(FN_SQL.indexOf('CREATE OR REPLACE FUNCTION arx_private.is_field_role'), FN_SQL.indexOf('-- 6. Private evaluators'))
+// is_field_role was re-created by 202611300020 (field_tech); that file holds its CURRENT definition.
+const FIELD_ROLE_SQL = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202611300020_field_tech_preset_and_field_role.sql'), 'utf8')
+const FIELD_FN = FIELD_ROLE_SQL.slice(FIELD_ROLE_SQL.indexOf('CREATE OR REPLACE FUNCTION arx_private.is_field_role'), FIELD_ROLE_SQL.indexOf('CREATE OR REPLACE FUNCTION public.create_field_tech_preset'))
 // the ONE SQL classification: its role list and its name regex are parsed out of the migration and compared with the TS twin
 const FIELD_ROLES = ((FIELD_FN.match(/IN \(([^)]*)\)/) || [])[1] || '').split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean)
 const SQL_NAME_PATTERN = (FIELD_FN.match(/~ '(\(\^\|\[\^a-z\]\)[^']*)'/) || [])[1] || ''

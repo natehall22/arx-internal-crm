@@ -1,10 +1,11 @@
 'use client'
 
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
+import { offeredPresets, presetDescription, roleOffered } from '@/lib/role-presets'
 import { getRoleDisplayName, isOrgSuperuserRoleSlug, permissionCategories } from '@/lib/permissions'
 import type { User, Team, Region, UserRole, CustomRole } from '@/lib/types/database'
 import EmployeeAgreementPanel from '@/components/employee-agreements/EmployeeAgreementPanel'
@@ -43,6 +44,7 @@ const legacyRoleOptions: UserRole[] = [
   'setter',
   'call_center',
   'canvasser',
+  'field_tech',
   'operations',
   'custom',
 ]
@@ -64,7 +66,9 @@ type PermissionPreset = {
 
 export default function UsersPage() {
   /** Door knocking switched off (Settings → Features): no canvass pin-visibility settings. */
-  const canvassingOn = useOrgFeatures().canvassing
+  const orgFeatures = useOrgFeatures()
+  const canvassingOn = orgFeatures.canvassing
+  const orgTerms = useOrgProfile().terms
   const [users, setUsers] = useState<UserWithDetails[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [regions, setRegions] = useState<Region[]>([])
@@ -506,7 +510,7 @@ export default function UsersPage() {
                 >
                   <option value="">All roles</option>
                   <optgroup label="Legacy Roles">
-                    {legacyRoleOptions.map((role) => (
+                    {legacyRoleOptions.filter((role) => roleOffered(role, orgFeatures, users.some((u) => u.role === role) ? role : null)).map((role) => (
                       <option key={role} value={role}>
                         {getRoleDisplayName(role)}
                       </option>
@@ -1030,7 +1034,7 @@ export default function UsersPage() {
                       </div>
                     ) : (
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
-                        {permissionPresets.map((preset) => {
+                        {offeredPresets(permissionPresets, orgFeatures).map((preset) => {
                           const colorMap: Record<string, string> = {
                             gray: 'border-gray-300 bg-gray-50',
                             red: 'border-red-300 bg-red-50',
@@ -1059,7 +1063,7 @@ export default function UsersPage() {
                                 {preset.name}
                               </p>
                               <p className="text-xs text-gray-700 mt-0.5 line-clamp-2">
-                                {preset.description || `${preset.preset_permissions.length} permissions`}
+                                {presetDescription(preset, orgTerms) || `${preset.preset_permissions.length} permissions`}
                               </p>
                             </button>
                           )
@@ -1484,7 +1488,7 @@ export default function UsersPage() {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                     disabled={!!formCustomRoleId}
                   >
-                    {legacyRoleOptions.map((role) => (
+                    {legacyRoleOptions.filter((role) => roleOffered(role, orgFeatures, formRole)).map((role) => (
                       <option key={role} value={role}>
                         {getRoleDisplayName(role)}
                       </option>

@@ -49,6 +49,7 @@ const colorOptions = [
 
 const roleOptions = [
   { value: 'canvasser', label: 'Canvasser' },
+  { value: 'field_tech', label: 'Field Tech' },
   { value: 'sales_rep', label: 'Sales Rep' },
   { value: 'sales_manager', label: 'Sales Manager' },
   { value: 'regional_manager', label: 'Regional Manager' },

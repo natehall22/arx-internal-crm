@@ -21,7 +21,7 @@ import { NEW_COST_LINE_PAYROLL_FLAGS } from '@/lib/job-cost-ledger'
 import { loadPlanForWeek, saveHoursEntries } from '@/lib/payroll-hours'
 import { resolveHourlyRate } from '@/lib/payroll-hourly-rate'
 import { findOrCreateWeek, findWeekNear, periodIsEditable } from '@/lib/payroll-periods'
-import { isFieldRoleLike } from '@/lib/permissions'
+import { isCrewFieldRole, isFieldRoleLike } from '@/lib/permissions'
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 import { orgDb } from '@/lib/supabase/org-db'
 import {
@@ -255,7 +255,7 @@ export async function loadSelfClockRoleChoices(admin: SupabaseClient, orgId: str
   const roles = new Set<string>()
   for (const r of (data ?? []) as Array<{ role: string | null }>) {
     const role = String(r.role ?? '').trim().toLowerCase()
-    if (role && !isFieldRoleLike({ role })) roles.add(role)
+    if (role && !isFieldRoleLike({ role })) roles.add(role) // (a Field Tech clocks as a crew member, not through this list)
   }
   return Array.from(roles).sort()
 }
@@ -339,10 +339,10 @@ export async function allowedPeople(admin: SupabaseClient, actor: ClockActor, op
     return { people, crews: [crew] }
   }
   // Signed in: only people on a time-tracked crew (leads also act for their crew), or a role the owner allowed to clock
-  // themselves. Field roles (setters, canvassers, inside sales) never; nobody clocks in by job id otherwise.
+  // themselves. Sales field roles (setters, canvassers, inside sales) never — a Field Tech (crew member) may; nobody clocks in by job id otherwise.
   const { data: me } = await orgDb(admin, actor.orgId).from('users').select('id, full_name, role, active').eq('id', actor.userId).maybeSingle()
   const meRow = me as { id: string; full_name: string | null; role: string | null; active: boolean | null } | null
-  if (!meRow || meRow.active === false || isFieldRoleLike({ role: meRow.role })) return { people, crews: [] }
+  if (!meRow || meRow.active === false || (isFieldRoleLike({ role: meRow.role }) && !isCrewFieldRole(meRow.role))) return { people, crews: [] }
   const crews = await loadCrewsLedBy(admin, actor.orgId, actor.userId)
   for (const c of crews) for (const m of c.members) if (!people.has(m.userId)) people.set(m.userId, { name: m.name, subId: c.subId, isLead: m.isLead })
   if (!people.has(actor.userId)) {
@@ -351,6 +351,19 @@ export async function allowedPeople(admin: SupabaseClient, actor: ClockActor, op
     if (memberOf || allowedRole) people.set(actor.userId, { name: meRow.full_name || 'Me', subId: memberOf, isLead: false })
   }
   return { people, crews }
+}
+
+/**
+ * The crews a signed-in Field Tech's taps are limited to (their own crew memberships); null for anyone else (staff clock by job
+ * id as before). A Field Tech on no crew gets an empty list, which matches nothing.
+ */
+async function crewScopeFor(admin: SupabaseClient, actor: ClockActor): Promise<string[] | null> {
+  if (actor.via !== 'signed_in') return null
+  const db = orgDb(admin, actor.orgId)
+  const { data: me } = await db.from('users').select('role').eq('id', actor.userId).maybeSingle()
+  if (!isCrewFieldRole((me as { role?: string | null } | null)?.role)) return null
+  const { data } = await db.from('crew_members').select('sub_id').eq('user_id', actor.userId)
+  return ((data ?? []) as Array<{ sub_id: string }>).map((r) => r.sub_id)
 }
 
 /** The time-tracked, active crew this person is on (first found), or null. */
@@ -367,20 +380,27 @@ async function loadCrewMembership(admin: SupabaseClient, orgId: string, userId: 
 type Where = { workOrderId: string | null; jobId: string | null }
 
 /** The visit / job a tap names, checked against what this actor may clock in on. */
-async function resolveWhere(admin: SupabaseClient, actor: ClockActor, tap: Pick<ClockTap, 'workOrderId' | 'jobId'>): Promise<Where | Fail> {
+async function resolveWhere(admin: SupabaseClient, actor: ClockActor, tap: Pick<ClockTap, 'workOrderId' | 'jobId'>, scopeSubIds: string[] | null = null): Promise<Where | Fail> {
   const db = orgDb(admin, actor.orgId)
+  const notOnList: Fail = { ok: false, status: 404, error: 'That stop isn’t on the list' }
   if (tap.workOrderId) {
     const { data } = await db.from('work_orders').select('id, job_id, assigned_sub_id, status').eq('id', tap.workOrderId).maybeSingle()
     const wo = data as { id: string; job_id: string | null; assigned_sub_id: string | null; status: string | null } | null
     if (!wo) return { ok: false, status: 404, error: 'That stop isn’t on the list' }
     // A crew link may only clock in on its own work.
-    if (actor.via === 'crew_link' && wo.assigned_sub_id !== actor.subId) return { ok: false, status: 404, error: 'That stop isn’t on the list' }
+    if (actor.via === 'crew_link' && wo.assigned_sub_id !== actor.subId) return notOnList
+    // A signed-in Field Tech likewise: only their own crew's work.
+    if (scopeSubIds && (!wo.assigned_sub_id || !scopeSubIds.includes(wo.assigned_sub_id))) return notOnList
     if (wo.status === 'cancelled') return { ok: false, status: 409, error: 'That stop was cancelled' }
     if (tap.jobId && wo.job_id && tap.jobId !== wo.job_id) return { ok: false, status: 400, error: 'That stop belongs to another job' }
     return { workOrderId: wo.id, jobId: wo.job_id }
   }
   if (tap.jobId) {
     if (actor.via === 'crew_link') return { ok: false, status: 400, error: 'Pick a stop' }
+    if (scopeSubIds) {
+      const { data: mine } = await db.from('work_orders').select('id').eq('job_id', tap.jobId).in('assigned_sub_id', scopeSubIds).limit(1)
+      if (!mine || (mine as unknown[]).length === 0) return { ok: false, status: 404, error: 'Job not found' }
+    }
     const { data } = await db.from('production_jobs').select('id, status').eq('id', tap.jobId).maybeSingle()
     const job = data as { id: string; status: string | null } | null
     if (!job) return { ok: false, status: 404, error: 'Job not found' }
@@ -491,6 +511,7 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
   if ('error' in time) return { ok: false, status: 400, error: time.error, permanent: true }
   const { people, crews } = await allowedPeople(admin, actor, { settings: config.settings })
   if (people.size === 0) return { ok: false, status: 403, error: 'This crew doesn’t use the time clock', permanent: true }
+  const scopeSubIds = await crewScopeFor(admin, actor)
 
   // Who is tapping: on a crew link, the lead the phone named (must be on this crew); signed in, the person.
   let tappedBy: string | null = actor.via === 'signed_in' ? actor.userId : null
@@ -534,7 +555,7 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
   try {
     switch (tap.action) {
       case 'clock_in': {
-        const where = await resolveWhere(admin, actor, tap)
+        const where = await resolveWhere(admin, actor, tap, scopeSubIds)
         if ('ok' in where) return { ...where, permanent: where.status !== 500 }
         const [openWork, openBreak] = await Promise.all([loadOpen(admin, actor.orgId, picked, 'work'), loadOpen(admin, actor.orgId, picked, 'break')])
         for (const userId of picked) {
@@ -607,7 +628,7 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
         if (!item || (item as { active?: boolean }).active === false) return { ok: false, status: 404, error: 'That equipment isn’t in the price book', permanent: true }
         let where: Where | null = null
         if (tap.workOrderId || tap.jobId) {
-          const w = await resolveWhere(admin, actor, tap)
+          const w = await resolveWhere(admin, actor, tap, scopeSubIds)
           if ('ok' in w) return { ...w, permanent: true }
           where = w
         } else {

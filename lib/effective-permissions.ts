@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { getPermissions, isFieldRoleLike } from '@/lib/permissions'
+import { getPermissions, isCrewFieldRole, isFieldRoleLike } from '@/lib/permissions'
 import { ORG_SUPERUSER_ROLE_SLUGS } from '@/lib/org-role-constants'
 import type { UserRole } from '@/lib/types/database'
 
@@ -108,6 +108,12 @@ async function resolveBasePermissionNames(
     // (an admin:full grant is a grant too: a field role is never promoted to full access)
     for (const n of Array.from(names)) if (n === 'admin:full' || FIELD_ROLE_DENIED_PERMISSION_PREFIXES.some((pre) => n.startsWith(pre))) names.delete(n)
   }
+
+  // A Field Tech (crew member, role slug field_tech) holds NO permission at all, whatever a custom role or a per-user grant says
+  // (reports:financials, pricebook, reports, users, customers, scheduling, settings ...). Their day, photos and time clock run
+  // through the crew phone link and crew membership, which need no permission; this keeps money, the pipeline and settings
+  // shut even if an owner grants something by mistake. They do not get Referral Partners either.
+  if (isCrewFieldRole(roleNorm)) return { fullAccess: false, permissionNames: new Set() }
 
   if (names.has('admin:full')) {
     return { fullAccess: true, permissionNames: new Set() }

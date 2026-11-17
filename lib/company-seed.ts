@@ -3,7 +3,7 @@
  *
  * Creates or updates ONE org: its `orgs` columns (name, phone, email, address, timezone), `settings.brand` (through
  * saveBrandSettings), the default permission presets (SQL `create_default_permission_presets`, only when the org has
- * none), its trades (lib/org-trades-admin seed plan) and a first owner (role admin + `is_super_admin`).
+ * none) plus the Field Tech preset for a profile with crews (`create_field_tech_preset`), its trades (lib/org-trades-admin seed plan) and a first owner (role admin + `is_super_admin`).
  *
  * Safe to re-run: every step compares with what is stored and writes only the difference. It only ever touches the org
  * it targets: an existing org is changed only when the input names its id; a new org is refused when another org already
@@ -24,7 +24,8 @@ import { orgDb } from '@/lib/supabase/org-db'
 import { normalizeSubdomain } from '@/lib/company-host'
 import { isMissingTable } from '@/lib/supabase/errors'
 import { applyOrgTradesSeed, planOrgTradesSeed, readOrgTradesForSeed, type OrgTradeSeed } from '@/lib/org-trades-admin'
-import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES, isIndustryProfileId, type IndustryProfileId } from '@/lib/industry-profiles'
+import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES, isIndustryProfileId, storedProfileId, type IndustryProfileId } from '@/lib/industry-profiles'
+import { hasFieldCrews } from '@/lib/role-presets'
 import { ORG_PROFILE_SETTINGS_KEY } from '@/lib/org-profile'
 import { isOrgFeature, ORG_FEATURE_KEYS, resolveOrgEntitlements, resolveOrgFeatures, type OrgFeature, type OrgFeatures } from '@/lib/org-features'
 import { DEMO_FEATURES } from '@/lib/demo-company-data'
@@ -552,6 +553,23 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
       if (error) throw new Error(`roles: create_default_permission_presets: ${error.message}`)
     }
   } else say('roles: presets already exist')
+
+  // The system "Field Tech" preset (crew members) for a company whose profile has crews (service plans / time clock); one per
+  // company, idempotent (SQL create_field_tech_preset, migration 202611300020). A roofing company without those switches gets none.
+  const profileForPresets = input.profile ?? storedProfileId({ profile: org?.profile })
+  if (hasFieldCrews(resolveOrgFeatures({ features: {}, profile: { id: profileForPresets } }))) {
+    const haveFieldTech = org
+      ? ((await must(client.from('permission_presets').select('id').eq('org_id', orgId).eq('base_role', 'field_tech').limit(1), 'read field tech preset')) as unknown[]).length > 0
+      : false
+    if (haveFieldTech) say('roles: Field Tech preset already exists')
+    else {
+      say('roles: create the Field Tech preset')
+      if (opts.apply) {
+        const { error } = await client.rpc('create_field_tech_preset', { p_org_id: orgId, p_created_by: ownerId })
+        if (error) throw new Error(`roles: create_field_tech_preset: ${error.message}`)
+      }
+    }
+  }
 
   // ---- trades (the org_trades writer) ----
   const canRead = opts.apply || org
