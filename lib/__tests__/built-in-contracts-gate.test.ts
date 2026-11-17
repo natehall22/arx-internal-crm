@@ -9,7 +9,7 @@ jest.mock('@/lib/auth', () => ({ requireAuthApi: async () => ({ authUser: { id: 
 jest.mock('@/lib/sales-doc-access', () => ({ resolveSalesDocAccessBarred: async () => false }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
-    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profileSettings ? { features: {}, profile: profileSettings } : { features: {} }, error: null }) }) }) }),
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profileSettings ? { features: {}, email: 'info@arxroofing.com', profile: profileSettings } : { features: {}, email: 'info@arxroofing.com' }, error: null }) }) }) }),
   }),
 }))
 
@@ -23,14 +23,14 @@ describe('built-in roofing agreements', () => {
     profileSettings = { id }
     const res = await POST(req())
     expect(res.status).toBe(403)
-    expect((await res.json()).error).toBe('Use Signatures to send your own agreement')
+    expect((await res.json()).error).toBe('Use Contracts to send your own agreement')
   })
 
   it('roofing (nothing stored or roofing stored) is not refused by the gate', async () => {
     for (const stored of [null, { id: 'roofing' }]) {
       profileSettings = stored
       const res = await POST(req())
-      expect(res.status === 403 && (await res.json()).error === 'Use Signatures to send your own agreement').toBe(false)
+      expect(res.status === 403 && (await res.json()).error === 'Use Contracts to send your own agreement').toBe(false)
     }
   })
 

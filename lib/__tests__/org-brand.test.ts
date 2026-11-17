@@ -122,7 +122,7 @@ describe('legal name (invoices, contracts)', () => {
   it('defaults to the exact string invoices printed before', () => {
     expect(resolveOrgBrand(null).legalName).toBe('ARX Roofing & Exteriors, LLC')
     // ARX prod row: org name has no ", LLC" and settings.brand is null — invoices still show the legal name
-    expect(resolveOrgBrand({ name: 'ARX Roofing & Exteriors', settings: null }).legalName).toBe('ARX Roofing & Exteriors, LLC')
+    expect(resolveOrgBrand({ name: 'ARX Roofing & Exteriors', email: 'info@arxroofing.com', settings: null }).legalName).toBe('ARX Roofing & Exteriors, LLC')
   })
   it('comes from settings.brand.legalName and is editable from the General form', () => {
     expect(resolveOrgBrand({ settings: { brand: { legalName: 'Other Co, Inc.' } } }).legalName).toBe('Other Co, Inc.')
@@ -152,16 +152,16 @@ describe('resolveOrgBrand precedence', () => {
   })
 
   it('blank and whitespace strings count as missing', () => {
-    const b = resolveOrgBrand({ name: '   ', settings: { brand: { name: '', website: ' \t ', phone: null } } })
+    const b = resolveOrgBrand({ name: '   ', email: 'info@arxroofing.com', settings: { brand: { name: '', website: ' \t ', phone: null } } })
     expect(b.name).toBe(defaults.name)
     expect(b.website).toBe(defaults.website)
     expect(b.phone).toBe(defaults.phone)
   })
 
   it('ignores junk brand values', () => {
-    expect(resolveOrgBrand({ settings: { brand: 'nope' } })).toEqual(defaults)
-    expect(resolveOrgBrand({ settings: { brand: [1, 2] } })).toEqual(defaults)
-    expect(resolveOrgBrand({ settings: { brand: { name: 42 } } }).name).toBe(defaults.name)
+    expect(resolveOrgBrand({ email: 'info@arxroofing.com', settings: { brand: 'nope' } })).toEqual(defaults)
+    expect(resolveOrgBrand({ email: 'info@arxroofing.com', settings: { brand: [1, 2] } })).toEqual(defaults)
+    expect(resolveOrgBrand({ email: 'info@arxroofing.com', settings: { brand: { name: 42 } } }).name).toBe(defaults.name)
   })
 
   it('a second company gets its own footer and header', () => {

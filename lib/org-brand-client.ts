@@ -11,6 +11,8 @@ export type ClientBrandNames = {
   legalName: string
   /** Wordmark — "authorizes Summit", "share your calendar with Summit". */
   shortName: string
+  /** Present only when the server said so: this is the original company (its own artwork and built-in contract terms). */
+  original?: boolean
 }
 
 export const GENERIC_BRAND_NAMES: Readonly<ClientBrandNames> = Object.freeze({
@@ -28,7 +30,9 @@ export function coerceClientBrandNames(v: unknown): ClientBrandNames {
   const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
   const name = str(o.name)
   if (!name) return { ...GENERIC_BRAND_NAMES }
-  return { name, legalName: str(o.legalName) || name, shortName: str(o.shortName) || name }
+  const names: ClientBrandNames = { name, legalName: str(o.legalName) || name, shortName: str(o.shortName) || name }
+  if (typeof o.original === 'boolean') names.original = o.original
+  return names
 }
 
 /** Pure: the three names out of a resolved DocumentBrand (server side). */

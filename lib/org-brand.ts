@@ -92,23 +92,22 @@ export function legacyBrandFallback(): boolean {
 }
 
 /**
- * The legacy fallback belongs to the original company only: no row (local dev/tests), no name yet, or a name that starts with the
- * original company's. Any other company on the shared app that left a field blank gets neutral text, never the original's
- * phone, address or website (decided from the org's own name, never an id).
+ * The legacy fallback belongs to the original company only: no org row (local dev/tests), or a row whose own `email` column is
+ * the original company's alias — the same marker `getCrmEmailFrom` uses. Any other company on the shared app that left a field
+ * blank gets neutral text, never the original's phone, address or website. A name is not a marker (a company that merely shares a word with the original is not it).
  */
 function isOriginalCompanyRow(row: OrgBrandRow | null | undefined): boolean {
-  const name = present(row?.name)
-  return !name || isOriginalCompanyName(name)
+  return !row || isOriginalCompanyEmail(row.email)
 }
 
-/** True when `name` is the original company's own (its first word). Data-based, never an org id. */
-export function isOriginalCompanyName(name: string | null | undefined): boolean {
-  return !!name && name.trim().toLowerCase().startsWith(LEGACY_ORG_BRAND.name.split(' ')[0].toLowerCase())
+/** True when `email` is the original company's alias (compared as the org's `email` column). Data-based, never an id. */
+export function isOriginalCompanyEmail(email: string | null | undefined): boolean {
+  return !!email && email.trim().toLowerCase() === LEGACY_ORG_BRAND.email.toLowerCase()
 }
 
-/** True when this brand is the original company's (its own name), so its own bundled artwork may be shown. */
-export function usesOriginalCompanyAssets(brand: Pick<OrgBrand, 'name'>): boolean {
-  return legacyBrandFallback() && isOriginalCompanyName(brand.name)
+/** True when this brand is the original company's (its own email), so its own bundled artwork may be shown. */
+export function usesOriginalCompanyAssets(brand: Pick<OrgBrand, 'email'>): boolean {
+  return legacyBrandFallback() && isOriginalCompanyEmail(brand.email)
 }
 
 /** The always-present fields (the optional contract spellings are resolved separately). */

@@ -1,6 +1,6 @@
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { getOrgBrand } from '@/lib/org-brand'
+import { getOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import Nav from '@/components/Nav'
 import { getOrgFeatures, isOrgFeatureOn } from '@/lib/org-features-server'
 import { builtInContractsAvailable, loadOrgProfile } from '@/lib/org-profile'
@@ -385,7 +385,7 @@ export default async function OpportunityView({
   // The company's Roof measuring switch (Settings → Features) — the one answer (the old measure_tool_enabled is retired).
   const measureToolEnabled = await isOrgFeatureOn(profile.org_id, 'roofMeasure')
   const orgBrand = await getOrgBrand(createServiceClient(), profile.org_id)
-  const builtInContracts = builtInContractsAvailable(await loadOrgProfile(createServiceClient(), profile.org_id), orgBrand.name)
+  const builtInContracts = builtInContractsAvailable(await loadOrgProfile(createServiceClient(), profile.org_id), usesOriginalCompanyAssets(orgBrand))
 
   // Fetch the most recent inspection appointment linked to this opportunity
   const { data: inspectionAppointment } = await supabase

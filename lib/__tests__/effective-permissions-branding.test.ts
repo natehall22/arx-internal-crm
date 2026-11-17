@@ -18,6 +18,7 @@ jest.mock('@/lib/org-profile', () => ({
 }))
 jest.mock('@/lib/org-brand', () => ({
   getDocumentBrand: jest.fn(async (_c: unknown, orgId: string) => ({ name: orgId === 'org-a' ? 'Summit Lawn' : 'Other Co', legalName: 'x', shortName: 'x' })),
+  usesOriginalCompanyAssets: () => false,
 }))
 let db: ReturnType<typeof createFakeDb>
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => db.client }))

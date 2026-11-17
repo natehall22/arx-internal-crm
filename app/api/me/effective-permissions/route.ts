@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { requireAuthApi } from '@/lib/auth'
-import { getDocumentBrand } from '@/lib/org-brand'
+import { getDocumentBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import { clientBrandNames } from '@/lib/org-brand-client'
 import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
@@ -56,7 +56,7 @@ export async function GET() {
       // lib/org-features.ts — and the industry profile's words/menu/price book lists, lib/org-profile.ts — read
       // client-side through hooks/useOrgFeatures.ts). `features` is the profile-aware map (one rule, resolveOrgFeatures).
       org,
-      flags: { payWeek: isPayWeekEnabled(), features: orgProfile.features, profile: clientOrgProfile(orgProfile), brand: clientBrandNames(documentBrand) },
+      flags: { payWeek: isPayWeekEnabled(), features: orgProfile.features, profile: clientOrgProfile(orgProfile), brand: { ...clientBrandNames(documentBrand), original: usesOriginalCompanyAssets(documentBrand) } },
     })
   } catch (e) {
     if (e instanceof Error && (e.message === 'Unauthorized' || e.message === 'Account disabled')) {

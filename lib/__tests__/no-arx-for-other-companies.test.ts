@@ -6,7 +6,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { PRODUCT_NAME } from '@/lib/product'
-import { isOriginalCompanyName, resolveOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
+import { isOriginalCompanyEmail, resolveOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import { seedReportDoc } from '@/lib/inspection-report/types'
 import { printKitBrand } from '@/lib/print-kit'
 import { builtInContractsAvailable } from '@/lib/org-profile'
@@ -29,10 +29,20 @@ describe('another company never gets ARX identity', () => {
   })
 
   it('the original company keeps its fallback exactly', () => {
-    const b = resolveOrgBrand({ name: 'ARX Roofing & Exteriors' })
-    expect(b.email).toBe('info@arxroofing.com')
-    expect(isOriginalCompanyName(b.name)).toBe(true)
+    const b = resolveOrgBrand({ name: 'ARX Roofing & Exteriors', email: 'info@arxroofing.com' })
+    expect(b.website).toBe('arxroofing.com')
+    expect(isOriginalCompanyEmail(b.email)).toBe(true)
+    expect(usesOriginalCompanyAssets(b)).toBe(true)
     expect(resolveOrgBrand(null).name).toBe('ARX Roofing & Exteriors')
+  })
+
+  it('a name is not the marker: "ARX Lawn" (its own email) gets nothing of the original company', () => {
+    const b = resolveOrgBrand({ name: 'ARX Lawn', email: 'hello@arxlawn.example' })
+    expect(b.website).toBe('')
+    expect(b.phone).toBe('')
+    expect(usesOriginalCompanyAssets(b)).toBe(false)
+    expect(builtInContractsAvailable({ id: 'roofing' }, usesOriginalCompanyAssets(b))).toBe(false)
+    expect(resolveOrgBrand({ name: 'ARX Lawn' }).email).toBe('')
   })
 
   it('the roof report default copy uses the company, and the original text is unchanged for ARX', () => {
@@ -51,8 +61,8 @@ describe('another company never gets ARX identity', () => {
   })
 
   it('built-in contracts (their terms name the original company) are offered to it only', () => {
-    expect(builtInContractsAvailable({ id: 'roofing' }, OTHER.name)).toBe(false)
-    expect(builtInContractsAvailable({ id: 'roofing' }, 'ARX Roofing & Exteriors')).toBe(true)
+    expect(builtInContractsAvailable({ id: 'roofing' }, false)).toBe(false)
+    expect(builtInContractsAvailable({ id: 'roofing' }, true)).toBe(true)
     expect(builtInContractsAvailable({ id: 'roofing' })).toBe(true)
   })
 

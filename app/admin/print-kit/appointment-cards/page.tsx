@@ -28,8 +28,8 @@ export default async function AppointmentCardsPage() {
   const admin = createServiceClient()
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
   // The company's own name and logo (orgs row); roofing keeps the card exactly as it was (lib/print-kit.ts).
-  const { data: org } = await admin.from('orgs').select('name, logo_url, settings').eq('id', profile.org_id).maybeSingle()
-  const brand = printKitBrand(orgProfile, { name: org?.name ?? '', logoHref: orgLogoHref(profile.org_id, org), original: usesOriginalCompanyAssets({ name: org?.name ?? '' }) })
+  const { data: org } = await admin.from('orgs').select('name, email, logo_url, settings').eq('id', profile.org_id).maybeSingle()
+  const brand = printKitBrand(orgProfile, { name: org?.name ?? '', logoHref: orgLogoHref(profile.org_id, org), original: usesOriginalCompanyAssets({ email: org?.email ?? '' }) })
 
   return <AppointmentCardsClient brand={brand} />
 }
