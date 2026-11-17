@@ -59,11 +59,13 @@ export async function POST(req: NextRequest) {
         if (fence.kind === 'closed') return
 
         const admin = createServiceClient()
-        const { data: rows } = await admin
-          .from('users')
-          .select('org_id, email, active')
-          .ilike('email', email.replace(/[\\%_]/g, (c) => `\\${c}`))
-          .limit(5)
+        const pattern = email.replace(/[\\%_]/g, (c) => `\\${c}`)
+        // On a company's address only that company's users are looked up; on the open (legacy) address any company's user may
+        // ask, and the link goes to their own company's address.
+        // org-scope-ok: open fence = the legacy shared address, unfenced on purpose during the overlap (same rule as login)
+        let query = admin.from('users').select('org_id, email, active').ilike('email', pattern)
+        if (fence.kind !== 'open') query = query.eq('org_id', fence.orgId)
+        const { data: rows } = await query.limit(5)
         const person = (rows ?? []).find(
           (r) => String(r.email ?? '').toLowerCase() === email && r.active !== false && r.org_id && fenceAllowsOrg(fence, r.org_id as string)
         )
