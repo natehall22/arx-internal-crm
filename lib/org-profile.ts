@@ -50,6 +50,8 @@ export type ResolvedOrgProfile = {
   starterReports: readonly string[] | null
   reportsOverview: ReportsOverviewProfile | null
   hiddenLeadSources: readonly string[]
+  /** The dashboard's starting cards; null = the classic dashboard (lib/dashboard-cards.ts). */
+  dashboard: { cards: readonly string[] | null }
 }
 
 function asObject(v: unknown): Record<string, unknown> {
@@ -79,6 +81,7 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
     starterReports: p.starterReports,
     reportsOverview: p.reportsOverview ?? null,
     hiddenLeadSources: p.hiddenLeadSources ?? [],
+    dashboard: { cards: p.dashboard?.cards ?? null },
   }
 }
 
