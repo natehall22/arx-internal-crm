@@ -5,7 +5,8 @@ import * as React from 'react'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, confirmDialog, Dialog, DialogContent, DialogFooter, Field, Input, toast } from '@/components/ui'
 import { PlanFields, bodyFrom, formFromPlan, formFromTemplate, planFormReady, todayLocal, type PlanEditorOptions, type PlanFormValues, type PlanRow } from '@/components/service-plans/PlanForm'
 import { formatDateShort, formatDateTime, formatMoney } from '@/lib/format'
-import { BILLING_BASIS_LABELS, WEEKDAY_LABELS, planWeekday, seasonLabel } from '@/lib/service-plans'
+import OneOffVisit from '@/components/service-plans/OneOffVisit'
+import { BILLING_BASIS_LABELS, WEEKDAY_LABELS, isOneOffPlan, planWeekday, seasonLabel } from '@/lib/service-plans'
 
 type Load = PlanEditorOptions & { ready: boolean; plans: PlanRow[]; canEdit: boolean }
 
@@ -55,7 +56,8 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
   if (failed) return <p className="text-ui-base text-ink">Service plans couldn’t load. Refresh to try again.</p>
   if (!data || !data.ready) return null
   if (data.plans.length === 0 && !data.canEdit) return null
-  const d = data
+  // A one-off visit is a plan that starts and ends the same day: it lives on the Visits board, not in this list of recurring plans.
+  const d = { ...data, plans: data.plans.filter((p) => !isOneOffPlan(p)) }
 
   async function send(url: string, method: string, body: unknown): Promise<Record<string, unknown> | null> {
     setSaving(true)
@@ -118,9 +120,12 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
       <CardHeader>
         <CardTitle>Service plans</CardTitle>
         {d.canEdit && d.properties.length > 0 ? (
+          <span className="flex flex-wrap gap-2">
+            <OneOffVisit customerId={customerId} onCreated={() => void load()} />
           <Button size="sm" onClick={() => setEditing({ plan: null, form: formFromTemplate(d.templates[0] ?? null, d) })}>
             {oneTime ? 'Put on a plan' : '+ Add plan'}
           </Button>
+          </span>
         ) : null}
       </CardHeader>
       <CardContent>

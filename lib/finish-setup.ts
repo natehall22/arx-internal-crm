@@ -24,7 +24,7 @@ export function buildFinishSetupItems(facts: {
   const items: FinishSetupItem[] = [
     { id: 'logo', label: 'Upload your logo', done: facts.hasLogo, href: '/admin/settings' },
     { id: 'pricebook', label: 'Add something to your price book', done: facts.pricebookItems > 0, href: '/admin/pricing' },
-    { id: 'crew', label: 'Add a crew', done: facts.crews > 0, href: '/admin/crews' },
+    { id: 'crew', label: 'Add a crew', done: facts.crews > 0, href: '/admin/subs' },
   ]
   if (facts.servicePlansOn) items.push({ id: 'plan', label: 'Create a service plan', done: facts.planTemplates > 0, href: '/admin/s/jobs#plan-templates' })
   items.push({ id: 'contact', label: 'Set your company phone and email', done: facts.hasPhone && facts.hasEmail, href: '/admin/settings' })
@@ -54,7 +54,8 @@ export async function loadFinishSetup(
   }
   const [pricebook, crews, plans] = await Promise.all([
     count('pricebook_items', (q) => q.eq('active', true)),
-    count('crews', (q) => q.eq('active', true)),
+    // The real crew list is Settings → Subcontractors (`sub_contractors`, incl. "Our own crew"); plans, visits and the time clock all read it. The legacy `crews` table is roofing-only.
+    count('sub_contractors', (q) => q.eq('active', true)),
     opts.servicePlansOn ? count('service_plan_templates', (q) => q.eq('active', true)) : Promise.resolve(0),
   ])
   // A failed count must not show a false "not done" nag: treat it as done.

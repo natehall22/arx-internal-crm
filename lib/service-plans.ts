@@ -11,13 +11,15 @@
 import { HEALTH_RESULTS, HEALTH_RESULT_STYLE } from '@/lib/health-result'
 import { cleanServiceLines } from '@/lib/visit-checklist'
 
-export const SERVICE_FREQUENCIES = ['weekly', 'every_2_weeks', 'every_4_weeks', 'monthly', 'none'] as const
+export const SERVICE_FREQUENCIES = ['weekly', 'every_2_weeks', 'every_4_weeks', 'monthly', 'quarterly', 'yearly', 'none'] as const
 export type ServiceFrequency = (typeof SERVICE_FREQUENCIES)[number]
 export const SERVICE_FREQUENCY_LABELS: Record<ServiceFrequency, string> = {
   weekly: 'Every week',
   every_2_weeks: 'Every 2 weeks',
   every_4_weeks: 'Every 4 weeks',
   monthly: 'Once a month',
+  quarterly: 'Every 3 months',
+  yearly: 'Once a year',
   none: 'No visits',
 }
 
@@ -205,7 +207,7 @@ export function seasonLabel(s: Season): string {
   return `${SERVICE_FREQUENCY_LABELS[s.frequency]}, ${monthDayLabel(s.from)} – ${monthDayLabel(s.to)}`
 }
 
-const SHORT_FREQUENCY: Record<ServiceFrequency, string> = { weekly: 'Weekly', every_2_weeks: 'Every 2 weeks', every_4_weeks: 'Every 4 weeks', monthly: 'Monthly', none: '' }
+const SHORT_FREQUENCY: Record<ServiceFrequency, string> = { weekly: 'Weekly', every_2_weeks: 'Every 2 weeks', every_4_weeks: 'Every 4 weeks', monthly: 'Monthly', quarterly: 'Every 3 months', yearly: 'Yearly', none: '' }
 const MONTH_END = ['01-31', '02-28', '03-31', '04-30', '05-31', '06-30', '07-31', '08-31', '09-30', '10-31', '11-30', '12-31']
 
 /** "Weekly Apr–Oct, every 2 weeks Nov–Mar" — one line for a plan's seasons (seasons with no visits are left out). */
@@ -254,9 +256,23 @@ function frequencyHits(freq: ServiceFrequency, anchor: string, ymd: string): boo
     case 'monthly':
       // The first <weekday> of the month ("first Tuesday").
       return Number(ymd.slice(8)) <= 7
+    case 'quarterly':
+      return monthlyCadenceHits(3, anchor, ymd)
+    case 'yearly':
+      return monthlyCadenceHits(12, anchor, ymd)
     case 'none':
       return false
   }
+}
+
+/**
+ * Every 3 months / yearly: the anchor day itself, then the first <weekday> of every n-th month counted from the anchor's
+ * month. Pure calendar arithmetic on the date's own year/month, so daylight saving cannot move it.
+ */
+function monthlyCadenceHits(everyMonths: number, anchor: string, ymd: string): boolean {
+  if (ymd === anchor) return true
+  const months = (Number(ymd.slice(0, 4)) - Number(anchor.slice(0, 4))) * 12 + Number(ymd.slice(5, 7)) - Number(anchor.slice(5, 7))
+  return months > 0 && months % everyMonths === 0 && Number(ymd.slice(8)) <= 7
 }
 
 /**
@@ -289,6 +305,81 @@ export function planVisitDates(p: ServicePlanSchedule, from: string, to: string)
     if (season && frequencyHits(season.frequency, anchor, d)) out.push(d)
   }
   return out
+}
+
+/**
+ * A ONE-OFF visit (a single mow, a one-time grading touch-up) is a plan that starts and ends the same day — so it is a
+ * `service_visit` work order like every other, with the same visit code, checklist, crew-day stop, price snapshot and
+ * invoicing. No second kind of visit exists. It is not "recurring": lists and tags that mean recurring skip it.
+ */
+export function isOneOffPlan(p: Pick<ServicePlanSchedule, 'start_date' | 'end_date'>): boolean {
+  return !!p.end_date && p.end_date === p.start_date
+}
+
+export const ONE_OFF_DEFAULT_NAME = 'One-time visit'
+
+export type OneOffVisitInput = {
+  property_id: string
+  trade: string
+  name: string
+  date: string
+  service_lines: string[]
+  price: number | null
+  taxable: boolean
+  default_sub_id: string | null
+  description: string | null
+}
+
+/** Pure: a one-off visit request → clean values, or why not. `today` is the company's calendar day. */
+export function cleanOneOffVisit(body: unknown, today: string): { ok: true; value: OneOffVisitInput } | { ok: false; error: string } {
+  const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
+  if (typeof b.property_id !== 'string' || !b.property_id) return { ok: false, error: 'Pick the property' }
+  if (typeof b.trade !== 'string' || !/^[a-z0-9_]{1,40}$/.test(b.trade)) return { ok: false, error: 'Pick the service type' }
+  if (!isYmd(b.date)) return { ok: false, error: 'Pick the day' }
+  const horizon = visitHorizon(today)
+  if (b.date < today) return { ok: false, error: 'Pick today or a day ahead' }
+  if (b.date > horizon.to) return { ok: false, error: 'Pick a day within the next 6 weeks' }
+  const lines = cleanServiceLines(b.service_lines)
+  if (!lines.ok) return lines
+  let price: number | null = null
+  if (b.price !== null && b.price !== undefined && b.price !== '') {
+    const n = typeof b.price === 'number' ? b.price : typeof b.price === 'string' ? Number(b.price.replace(/[$,\s]/g, '')) : NaN
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) return { ok: false, error: 'Price must be a dollar amount' }
+    price = Math.round(n * 100) / 100
+  }
+  return {
+    ok: true,
+    value: {
+      property_id: b.property_id,
+      trade: b.trade,
+      name: str(b.name, 120) ?? ONE_OFF_DEFAULT_NAME,
+      date: b.date,
+      service_lines: lines.value,
+      price,
+      taxable: b.taxable === true,
+      default_sub_id: typeof b.sub_id === 'string' && b.sub_id ? b.sub_id : null,
+      description: str(b.notes, 2000),
+    },
+  }
+}
+
+/** The plan body that makes exactly one visit, on `date`: billed per visit, never repeating. */
+export function oneOffPlanBody(v: OneOffVisitInput): Record<string, unknown> {
+  return {
+    property_id: v.property_id,
+    trade: v.trade,
+    name: v.name,
+    description: v.description,
+    service_lines: v.service_lines,
+    price: v.price,
+    billing_basis: 'per_visit',
+    taxable: v.taxable,
+    start_date: v.date,
+    end_date: v.date,
+    preferred_weekday: weekdayOfYmd(v.date),
+    seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' }],
+    default_sub_id: v.default_sub_id,
+  }
 }
 
 /** The window the generator fills: today through VISIT_HORIZON_DAYS − 1 days ahead. */

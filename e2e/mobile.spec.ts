@@ -443,6 +443,15 @@ const SCREENS: Screen[] = [
       { name: 'crew-links', run: async (p) => { await p.getByRole('button', { name: 'Crew phone links' }).click(); await p.getByRole('button', { name: 'Make link' }).first().click(); await p.getByRole('button', { name: 'Copy' }).waitFor() } },
       { name: 'more', run: async (p) => { await p.getByRole('button', { name: 'More', exact: true }).first().click(); await p.waitForSelector('text=Add photos (drop or tap)') } },
       { name: 'new-customer', run: async (p) => { await p.getByRole('button', { name: '+ New customer + plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Customer name *') } },
+      { name: 'one-off-visit', run: async (p) => {
+        await p.route('**/api/customers/search*', (route) => route.fulfill(json({ customers: [{ id: 'cust-1', name: 'Pat Lee', phone: '7045550101' }] })))
+        await p.route('**/api/customers/cust-1/service-plans', (route) => route.fulfill(json(HARNESS_SERVICE_PLANS)))
+        await p.getByRole('button', { name: '+ One-off visit' }).click()
+        await p.getByLabel('Customer *').fill('Pat')
+        await p.getByRole('button', { name: /Pat Lee/ }).click()
+        await p.waitForSelector('[role=dialog] >> text=Notes for the crew')
+        await p.getByRole('button', { name: 'Add visit' }).waitFor()
+      } },
     ] },
   { name: 'ready-to-bill', path: '/dev-harness/ready-to-bill', ready: 'text=Pat Lee', mock: async (p) => {
     await p.route(/\/api\/ops\/billing(\?.*)?$/, (route) =>
@@ -618,6 +627,14 @@ const SCREENS: Screen[] = [
       { name: 'move-crew', run: async (p) => { await p.getByRole('button', { name: 'Move crew here' }).first().click(); await p.waitForSelector('text=Move the crew to this stop?') } },
       { name: 'done-clock-out', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).first().click(); await p.waitForSelector('text=Driving to the next stop') } },
       { name: 'clock-out', run: async (p) => { await p.getByRole('button', { name: 'Clock out crew' }).click(); await p.waitForSelector('text=Yes — done for the day') } },
+    ] },
+  { name: 'crew-day-project', path: '/dev-harness/crew-day-project', ready: 'text=Project work today',
+    mock: async (p) => {
+      await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
+      await p.route('**/api/crew/day/*/clock', (route) => route.fulfill(route.request().method() === 'GET' ? json(HARNESS_CLOCK_STATE) : json({ ok: true, done: 3 })))
+    },
+    states: [
+      { name: 'project-stop', run: async (p) => { await p.waitForSelector('[data-testid=project-stop] >> text=Day 2 of 2'); await p.getByRole('link', { name: 'Photos & notes' }).waitFor() } },
     ] },
   { name: 'job-clock', path: '/dev-harness/job-clock', ready: 'text=My time',
     // Stateful like the server: after the tap, the re-read shows the person clocked in on this job.

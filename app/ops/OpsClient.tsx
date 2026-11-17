@@ -14,6 +14,8 @@ import OperationsSnapshotCard, {
 import { OpsBoardJobCard } from '@/components/ops/OpsBoardJobCard'
 import {
   JOB_STATUS_CONFIG,
+  boardColumnForStatus,
+  boardColumnStatuses,
   jobStatusConfig,
   isJobPastDue,
   paymentStatusChip,
@@ -129,7 +131,10 @@ function formatJobTypeLabel(jobType: string): string {
 export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp, orgProfile, categories = [] }: OpsClientProps) {
   // The company's words (industry profile, lib/org-profile.ts; server-resolved by the page so the first paint is right).
   const terms = useOrgProfile(orgProfile).terms
-  const squaresOn = useOrgFeatures().squaresPricing
+  const orgFeatures = useOrgFeatures()
+  const squaresOn = orgFeatures.squaresPricing
+  // No materials-ordering step (mowing, grading): no "Material Ordering" column; those jobs go Sold → Scheduled.
+  const materialsOn = orgFeatures.materialOrdering
   const catchUpOn = catchUp?.enabled === true
   const viewerId = catchUp?.viewerId ?? null
   // Same notice as the first render when a refresh couldn't build the lines.
@@ -242,7 +247,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
         accessorFn: (j) => paymentStatusChip(j)?.label ?? '',
         cell: (c) => c.getValue() || '—',
       },
-      { id: 'materials', header: 'Materials', accessorFn: (j) => (materialsConfig[j.materials_status] || materialsConfig.not_ordered).label },
+      ...(materialsOn ? [{ id: 'materials', header: 'Materials', accessorFn: (j: OpsBoardJob) => (materialsConfig[j.materials_status] || materialsConfig.not_ordered).label }] : []),
       { id: 'assigned', header: 'Assigned', accessorFn: (j) => j.assigned_crew?.name ?? j.assigned_sub?.company_name ?? 'Unassigned' },
       {
         id: 'scheduled',
@@ -282,7 +287,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
     }
     return cols
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canViewProfitability, catchUpOn, categories])
+  }, [canViewProfitability, catchUpOn, categories, materialsOn])
 
   const activeJobs = useMemo(
     () => jobs.filter((job) => job.status !== 'collected' && job.status !== CANCELLED_JOB_STATUS),
@@ -333,10 +338,10 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
 
   const listFilters = useMemo<TableFilter<OpsBoardJob>[]>(
     () => [
-      { key: 'status', label: 'Status', options: Object.keys(JOB_STATUS_CONFIG).filter((k) => k !== 'collected' && k !== CANCELLED_JOB_STATUS).map((k) => ({ value: k, label: JOB_STATUS_CONFIG[k as JobStatus].label })), accessor: (j) => j.status },
+      { key: 'status', label: 'Status', options: Object.keys(JOB_STATUS_CONFIG).filter((k) => k !== 'collected' && k !== CANCELLED_JOB_STATUS && (materialsOn || k !== 'materials')).map((k) => ({ value: k, label: JOB_STATUS_CONFIG[k as JobStatus].label })), accessor: (j) => j.status },
       { key: 'type', label: 'Type', options: jobTypeOptions.map((t) => ({ value: t, label: formatJobTypeLabel(t) })), accessor: (j) => j.job_type },
       ...(categoryOptions.length > 0 ? [{ key: 'category', label: 'Category', options: [...categoryOptions, { value: 'none', label: 'Not set' }], accessor: (j: OpsBoardJob) => j.effective_category || 'none' }] : []),
-      { key: 'materials', label: 'Materials', options: Object.entries(materialsConfig).map(([value, m]) => ({ value, label: m.label })), accessor: (j) => j.materials_status },
+      ...(materialsOn ? [{ key: 'materials', label: 'Materials', options: Object.entries(materialsConfig).map(([value, m]) => ({ value, label: m.label })), accessor: (j: OpsBoardJob) => j.materials_status }] : []),
       { key: 'scheduled', label: 'Scheduled', options: [{ value: 'no', label: 'Not scheduled' }, { value: 'yes', label: 'Scheduled' }, { value: 'late', label: 'Past due' }], accessor: (j) => (isJobPastDue(j) ? 'late' : j.scheduled_date ? 'yes' : 'no') },
       ...(catchUpOn
         ? [
@@ -345,7 +350,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
           ]
         : []),
     ],
-    [jobTypeOptions, categoryOptions, catchUpOn, viewerId]
+    [jobTypeOptions, categoryOptions, catchUpOn, viewerId, materialsOn]
   )
 
   const jobsByBoardStatus = useMemo(() => {
@@ -357,14 +362,12 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
       complete: [],
     }
     for (const job of filteredActiveJobs) {
-      const s = job.status
-      if (s === 'sold' || s === 'materials' || s === 'scheduled' || s === 'in_progress' || s === 'complete') {
-        base[s].push(job)
-      }
+      const col = boardColumnForStatus(job.status, materialsOn)
+      if (col) base[col].push(job)
     }
     base.sold = sortSoldColumn(base.sold)
     return base
-  }, [filteredActiveJobs])
+  }, [filteredActiveJobs, materialsOn])
 
   const onHoldJobs = useMemo(
     () => filteredActiveJobs.filter((job) => job.status === 'on_hold'),
@@ -517,15 +520,17 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+        <div className={materialsOn ? 'grid grid-cols-2 md:grid-cols-6 gap-3 mb-6' : 'grid grid-cols-2 md:grid-cols-5 gap-3 mb-6'}>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-blue-600">{stats.sold}</div>
             <div className="text-xs text-gray-700">Sold - Not Scheduled</div>
           </div>
-          <div className="bg-white rounded-lg border p-4">
-            <div className="text-2xl font-bold text-amber-600">{stats.materials}</div>
-            <div className="text-xs text-gray-700">Ordering Materials</div>
-          </div>
+          {materialsOn && (
+            <div className="bg-white rounded-lg border p-4">
+              <div className="text-2xl font-bold text-amber-600">{stats.materials}</div>
+              <div className="text-xs text-gray-700">Ordering Materials</div>
+            </div>
+          )}
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-purple-600">{stats.scheduled}</div>
             <div className="text-xs text-gray-700">Scheduled</div>
@@ -636,6 +641,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                   onMarkOrdered={onBoardMarkOrdered}
                   onJobStatus={updateJobStatus}
                   squaresOn={squaresOn}
+                  materialsOn={materialsOn}
                 />
               ))}
             </div>
@@ -643,8 +649,8 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
         )}
 
         {viewMode === 'board' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            {(['sold', 'materials', 'scheduled', 'in_progress', 'complete'] as BoardColumnStatus[]).map((status) => {
+          <div className={materialsOn ? 'grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4' : 'grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4'}>
+            {(boardColumnStatuses(materialsOn) as BoardColumnStatus[]).map((status) => {
               const config = JOB_STATUS_CONFIG[status]
               const statusJobs = jobsByBoardStatus[status]
 
@@ -678,6 +684,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                           onMarkOrdered={onBoardMarkOrdered}
                           onJobStatus={updateJobStatus}
                   squaresOn={squaresOn}
+                          materialsOn={materialsOn}
                         />
                       ))
                     )}
@@ -697,7 +704,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
             getRowHref={(j) => `/ops/jobs/${j.id}`}
             searchPlaceholder="Search job number, address, customer or handoff"
             filters={listFilters}
-            systemViews={catchUpOn ? LIST_VIEWS_WITH_STUCK : LIST_VIEWS}
+            systemViews={(catchUpOn ? LIST_VIEWS_WITH_STUCK : LIST_VIEWS).filter((v) => materialsOn || v.id !== 'sys:materials')}
             defaultViewId="sys:all"
             initialSorting={[{ id: 'scheduled', desc: false }]}
             rowActions={(job) => (

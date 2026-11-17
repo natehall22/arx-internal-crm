@@ -730,6 +730,11 @@ export const HARNESS_CREW_DAY = [
   { id: 'v3', planName: 'Clean-up check — Hedges', address: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, accessNotes: null, status: 'scheduled', skipReason: null, photoCount: 0, routePosition: null, resultOptions: [{ key: 'pass', label: 'Passed', tone: 'good' }, { key: 'fail', label: 'Needs a return trip', tone: 'bad' }] },
 ].map((v) => ({ officeNotes: null, checklist: [], money: null, ...v })) // the v2 fields every real visit carries
 
+/** A grading project stop on a clocking crew's day (lib/crew-day-projects.ts): job work order, not a service visit. */
+export const HARNESS_CREW_DAY_PROJECTS = [
+  { id: 'wo-grade-1', jobNumber: '26-0141', tradeLabel: 'Grading', address: '412 Pasture Ln, Crawfordville, FL 32327', lat: 30.18, lng: -84.4, status: 'scheduled', photoLinkPath: '/crew/harness-grading-token-aaaaaaaa', dayNumber: 2, dayCount: 2 },
+]
+
 /** Crew day with the v2 pieces: office notes, a checklist (one unchecked) and money owed (card payment ready). */
 export const HARNESS_CREW_DAY_MONEY = [
   { ...HARNESS_CREW_DAY[0], officeNotes: 'Customer wants the side beds done first.', checklist: [{ label: 'Mow', done: true }, { label: 'Edge', done: true }, { label: 'Blow off drive', done: false }], money: { dueCents: 7000, pendingCents: 0, canPayOnline: true } },

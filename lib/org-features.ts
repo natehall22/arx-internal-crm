@@ -116,6 +116,10 @@ export const ORG_FEATURE_DEFS = {
     description: 'Draw lawns, beds, cut-outs and edging on the satellite photo of a property to get square feet, acres, feet of edging and an estimate of mulch or pine straw. Saved to the customer or lead with the older measurements kept.',
     defaultOn: false,
   },
+  materialOrdering: {
+    label: 'Materials ordering step',
+    description: 'The “Material Ordering” stage on the job board, the Start Materials / Mark Ordered buttons and the “Order materials” next step. Turn off for work with no supplier orders (mowing, grading): jobs go from Sold straight to Scheduled.',
+  },
   quoteApproval: {
     label: 'Online quote approval',
     description: 'Send customers a quote link: they tick the optional items, watch the total and tax update, approve with their name, and pay a deposit by card. An approved quote becomes the signed sale.',

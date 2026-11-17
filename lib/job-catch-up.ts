@@ -96,6 +96,8 @@ export type CatchUpFacts = {
   job: CatchUpJob
   trades: CatchUpTrade[]
   materials: MaterialsState
+  /** false = this company has no materials-ordering step (`materialOrdering` switch off): no "Order materials" step. Left out = true. */
+  materialsStep?: boolean
   /** `paymentStatusChip(job).label`, or null when the viewer doesn't see collection today / no sale amount. */
   payment: string | null
   /** Ops-visible Needs-you problems for this job (already shaped: no dollars). */
@@ -250,7 +252,7 @@ export function tradeEvents(trades: CatchUpTrade[]): CatchUpEvent[] {
 type Step = { text: string; owner: 'crew' | 'office' | 'none'; crew?: string | null }
 
 /** The next thing that has to happen on the job — first match wins. */
-export function deriveNextStep(f: Pick<CatchUpFacts, 'job' | 'trades' | 'materials' | 'payment' | 'problems'>, todayYmd: string): Step {
+export function deriveNextStep(f: Pick<CatchUpFacts, 'job' | 'trades' | 'materials' | 'payment' | 'problems'> & { materialsStep?: boolean }, todayYmd: string): Step {
   const { job } = f
   if (job.status === 'cancelled') return { text: 'Cancelled', owner: 'none' }
   if (job.status === 'collected') return { text: 'Done — closed out', owner: 'none' }
@@ -282,8 +284,8 @@ export function deriveNextStep(f: Pick<CatchUpFacts, 'job' | 'trades' | 'materia
   if (PRE_INSTALL.has(job.status)) {
     if (job.permit_required && job.permit_status === 'denied') return { text: 'Permit denied — fix permit', owner: 'office' }
     if (job.permit_required && job.permit_status !== 'approved') return { text: 'Waiting on permit', owner: 'office' }
-    if (f.materials.key === 'not_ordered') return { text: 'Order materials', owner: 'office' }
-    if (f.materials.key === 'partial') return { text: `Finish ordering materials${f.materials.detail ? ` (${f.materials.detail})` : ''}`, owner: 'office' }
+    if (f.materialsStep !== false && f.materials.key === 'not_ordered') return { text: 'Order materials', owner: 'office' }
+    if (f.materialsStep !== false && f.materials.key === 'partial') return { text: `Finish ordering materials${f.materials.detail ? ` (${f.materials.detail})` : ''}`, owner: 'office' }
   }
 
   const unscheduled = open.filter((t) => !t.scheduled_date)
@@ -305,7 +307,7 @@ export function buildJobCatchUp(f: CatchUpFacts): JobCatchUp {
   const todayYmd = ymdInBusinessTz(f.now)
   const done = DONE_STATUSES.has(f.job.status)
   const paused = f.job.status === 'on_hold'
-  const stage = jobStatusConfig(f.job.status).label
+  const stage = f.materialsStep === false && f.job.status === 'materials' ? jobStatusConfig('sold').label : jobStatusConfig(f.job.status).label
   const step = deriveNextStep(f, todayYmd)
 
   // Automated notes are not shown at all; customer messages are shown but are not movement.

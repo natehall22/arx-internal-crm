@@ -30,6 +30,8 @@ export interface OpsBoardJobCardProps {
   onJobStatus: (jobId: string, status: JobStatus) => void
   /** The company's squaresPricing switch, read once by the board (roof squares are a roofing idea). */
   squaresOn?: boolean
+  /** The company's materialOrdering switch: off = no Start Materials / Mark Ordered buttons. */
+  materialsOn?: boolean
 }
 
 function OpsBoardJobCardInner({
@@ -41,6 +43,7 @@ function OpsBoardJobCardInner({
   onMarkOrdered,
   onJobStatus,
   squaresOn = true,
+  materialsOn = true,
 }: OpsBoardJobCardProps) {
   const priority = priorityConfig[job.priority] || priorityConfig.normal
   const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
@@ -219,7 +222,7 @@ function OpsBoardJobCardInner({
       )}
 
       <div className="flex flex-wrap gap-1.5 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
-        {job.status === 'sold' && (
+        {materialsOn && job.status === 'sold' && (
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -230,7 +233,7 @@ function OpsBoardJobCardInner({
             Start Materials
           </button>
         )}
-        {needsMaterials && job.status === 'materials' && (
+        {materialsOn && needsMaterials && job.status === 'materials' && (
           <button
             onClick={(e) => {
               e.stopPropagation()

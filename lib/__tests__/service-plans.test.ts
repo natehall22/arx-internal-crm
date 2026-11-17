@@ -4,8 +4,12 @@ import {
   DEFAULT_STEP_RESULTS,
   addDaysYmd,
   planPriceOn,
+  scheduleSummary,
   priceScheduleFor,
   cleanPlanInput,
+  cleanOneOffVisit,
+  isOneOffPlan,
+  oneOffPlanBody,
   cleanPricing,
   cleanSeasons,
   cleanSteps,
@@ -112,6 +116,25 @@ describe('planVisitDates (season boundaries)', () => {
     const p = plan({ seasons: [{ from: '01-01', to: '12-31', frequency: 'every_4_weeks' }] })
     expect(planVisitDates(p, '2026-03-01', '2026-05-31')).toEqual(['2026-03-02', '2026-03-30', '2026-04-27', '2026-05-25'])
     expect(planVisitDates(plan({ seasons: [{ from: '01-01', to: '12-31', frequency: 'none' }] }), '2026-03-01', '2026-12-31')).toEqual([])
+  })
+  it('every 3 months and yearly: anchor day, then the first weekday of every 3rd / 12th month; same answer for any window', () => {
+    const q = plan({ seasons: [{ from: '01-01', to: '12-31', frequency: 'quarterly' }] })
+    expect(planVisitDates(q, '2026-03-01', '2027-04-30')).toEqual(['2026-03-02', '2026-06-01', '2026-09-07', '2026-12-07', '2027-03-01'].filter((d) => d <= '2027-04-30'))
+    expect(planVisitDates(q, '2026-09-01', '2027-04-30')).toEqual(['2026-09-07', '2026-12-07', '2027-03-01'])
+    const y = plan({ seasons: [{ from: '01-01', to: '12-31', frequency: 'yearly' }] })
+    expect(planVisitDates(y, '2026-03-01', '2028-12-31')).toEqual(['2026-03-02', '2027-03-01', '2028-03-06'])
+  })
+  it('quarterly starting mid-month still visits on the first week (the anchor), then month starts across a DST change', () => {
+    const q = plan({ start_date: '2026-01-14', seasons: [{ from: '01-01', to: '12-31', frequency: 'quarterly' }] })
+    expect(planVisitDates(q, '2026-01-01', '2026-12-31')).toEqual(['2026-01-14', '2026-04-01', '2026-07-01', '2026-10-07'])
+    // Mar 8 and Nov 1 2026 are the US clock changes: bare calendar days never shift.
+    const y = plan({ start_date: '2026-03-02', seasons: [{ from: '01-01', to: '12-31', frequency: 'yearly' }] })
+    expect(planVisitDates(y, '2026-03-01', '2027-03-31')).toEqual(['2026-03-02', '2027-03-01'])
+  })
+  it('labels and summaries cover the new frequencies', () => {
+    expect(scheduleSummary([{ from: '01-01', to: '12-31', frequency: 'quarterly' }])).toBe('Every 3 months all year')
+    expect(scheduleSummary([{ from: '01-01', to: '12-31', frequency: 'yearly' }])).toBe('Yearly all year')
+    expect(cleanSeasons([{ from: '01-01', to: '12-31', frequency: 'yearly' }]).ok).toBe(true)
   })
   it('respects start, end, the preferred weekday, pause with and without a resume date, and ended', () => {
     expect(planVisitDates(plan({ start_date: '2026-03-04' }), '2026-03-01', '2026-03-20')).toEqual(['2026-03-04', '2026-03-11', '2026-03-18']) // weekday from the start date
@@ -326,5 +349,39 @@ describe('new price starts on', () => {
     expect(priceScheduleFor(old, 50, '2026-11-10', '2026-11-10')).toBeNull() // today = now
     expect(priceScheduleFor(plan, 45, '2026-12-15', '2026-11-10')).toEqual({ previous_price: null, price_starts_on: null }) // back to today’s price
     expect(priceScheduleFor(plan, 55, null, '2026-11-10')).toEqual({ previous_price: null, price_starts_on: null })
+  })
+})
+
+describe('one-off visits', () => {
+  const body = { property_id: 'p1', trade: 'lawn', date: '2026-11-18', price: '$60', service_lines: 'Mow\nEdge', sub_id: 's1', notes: 'Gate is open' }
+  it('a one-off is a plan that starts and ends the same day; the generator makes exactly one visit', () => {
+    const c = cleanOneOffVisit(body, '2026-11-17')
+    expect(c.ok).toBe(true)
+    if (!c.ok) return
+    const plan = oneOffPlanBody(c.value)
+    expect(plan).toMatchObject({ start_date: '2026-11-18', end_date: '2026-11-18', billing_basis: 'per_visit', price: 60, default_sub_id: 's1', description: 'Gate is open', preferred_weekday: 3 })
+    expect(isOneOffPlan(plan as { start_date: string; end_date: string })).toBe(true)
+    const p = { status: 'active' as const, start_date: '2026-11-18', end_date: '2026-11-18', paused_until: null, seasons: plan.seasons as never, preferred_weekday: 3 }
+    expect(planVisitDates(p, '2026-11-17', '2026-12-28')).toEqual(['2026-11-18'])
+    // The plan body passes the SAME validator every plan goes through.
+    expect(cleanPlanInput(plan).ok).toBe(true)
+  })
+  it('a recurring plan is not a one-off, even with an end date', () => {
+    expect(isOneOffPlan({ start_date: '2026-03-02', end_date: null })).toBe(false)
+    expect(isOneOffPlan({ start_date: '2026-03-02', end_date: '2026-10-31' })).toBe(false)
+  })
+  it('day must be today..6 weeks ahead in the company day; property, service and day are required', () => {
+    expect(cleanOneOffVisit({ ...body, date: '2026-11-16' }, '2026-11-17')).toEqual({ ok: false, error: 'Pick today or a day ahead' })
+    expect(cleanOneOffVisit({ ...body, date: '2026-11-17' }, '2026-11-17').ok).toBe(true)
+    expect(cleanOneOffVisit({ ...body, date: '2026-12-28' }, '2026-11-17').ok).toBe(true) // last day of the 42-day horizon
+    expect(cleanOneOffVisit({ ...body, date: '2026-12-29' }, '2026-11-17')).toEqual({ ok: false, error: 'Pick a day within the next 6 weeks' })
+    expect(cleanOneOffVisit({ ...body, date: 'soon' }, '2026-11-17')).toEqual({ ok: false, error: 'Pick the day' })
+    expect(cleanOneOffVisit({ ...body, property_id: '' }, '2026-11-17')).toEqual({ ok: false, error: 'Pick the property' })
+    expect(cleanOneOffVisit({ ...body, trade: 'Bad Slug' }, '2026-11-17')).toEqual({ ok: false, error: 'Pick the service type' })
+    expect(cleanOneOffVisit({ ...body, price: 'abc' }, '2026-11-17')).toEqual({ ok: false, error: 'Price must be a dollar amount' })
+  })
+  it('defaults: name, no price, no crew, not taxable', () => {
+    const c = cleanOneOffVisit({ property_id: 'p1', trade: 'lawn', date: '2026-11-17' }, '2026-11-17')
+    expect(c.ok && c.value).toMatchObject({ name: 'One-time visit', price: null, taxable: false, default_sub_id: null, description: null, service_lines: [] })
   })
 })

@@ -26,13 +26,16 @@ import {
   TEMPLATE_COLUMNS,
   TEMPLATE_FIELD_LABELS,
   addDaysYmd,
+  cleanOneOffVisit,
   cleanPlanInput,
   cleanPricingInputs,
   cleanTemplateInput,
   crewAfterEdit,
   describeVisitEffect,
   followUpVisitFields,
+  isOneOffPlan,
   isYmd,
+  oneOffPlanBody,
   priceScheduleFor,
   planVisitDates,
   previewVisitEffect,
@@ -167,7 +170,7 @@ export async function loadPlanCustomerIds(admin: SupabaseClient, orgId: string):
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await orgDb(admin, orgId)
       .from('service_plans')
-      .select('customer_id, status')
+      .select('customer_id, status, start_date, end_date')
       .order('id')
       .range(from, from + PAGE - 1)
     if (error) {
@@ -177,7 +180,8 @@ export async function loadPlanCustomerIds(admin: SupabaseClient, orgId: string):
     for (const r of data ?? []) {
       if (!r.customer_id) continue
       onPlan.add(r.customer_id as string)
-      if (r.status === 'active') recurring.add(r.customer_id as string)
+      // A one-off visit is a plan that starts and ends the same day: a sale, but not a recurring customer.
+      if (r.status === 'active' && !isOneOffPlan({ start_date: String(r.start_date ?? ''), end_date: (r.end_date as string | null) ?? null })) recurring.add(r.customer_id as string)
     }
     if ((data ?? []).length < PAGE) break
   }
@@ -647,6 +651,23 @@ export async function createServicePlan(
  * ENDED when it ended in the old system. No history row: the import run is its record, and a history row would point at the
  * plan and stop "Undo this import" from removing it. `importSourceId` keeps a re-run from making a second plan.
  */
+export type OneOffVisitResult = { ok: true; visitId: string | null; workOrderNumber: string | null; date: string } | Fail
+
+/**
+ * A one-off visit for a customer's property: a plan that starts and ends on the day (lib/service-plans.ts `isOneOffPlan`), so
+ * the visit is a normal `service_visit` work order — visit code, checklist, price snapshot for invoicing, crew-day stop.
+ * Same plan writer (`createServicePlan`) and generator as every plan; nothing new is stored.
+ */
+export async function createOneOffVisit(admin: SupabaseClient, orgId: string, userId: string, customerId: string, body: unknown, now = new Date()): Promise<OneOffVisitResult> {
+  const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
+  const clean = cleanOneOffVisit(body, today)
+  if (!clean.ok) return { ok: false, status: 400, error: clean.error }
+  const made = await createServicePlan(admin, orgId, userId, customerId, oneOffPlanBody(clean.value), now)
+  if (!made.ok) return made
+  const visits = await loadVisits(admin, orgId, { from: clean.value.date, to: clean.value.date, planId: made.plan.id, accessNotes: false })
+  return { ok: true, visitId: visits[0]?.id ?? null, workOrderNumber: visits[0]?.workOrderNumber ?? null, date: clean.value.date }
+}
+
 export async function createImportedServicePlan(
   admin: SupabaseClient,
   orgId: string,

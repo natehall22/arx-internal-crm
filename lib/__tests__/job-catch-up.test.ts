@@ -110,6 +110,12 @@ describe('next step (first match wins)', () => {
     expect(step({ job: { ...job, permit_status: 'approved' }, materials: materials('not_ordered') }).text).toBe('Order materials')
     expect(step({ job: { id: 'j', status: 'sold' }, materials: materials('ordered') }).text).toBe('Schedule crew')
   })
+  it('no materials-ordering step (mowing, grading): never "Order materials"; goes straight to scheduling; stage reads Sold', () => {
+    const f = facts({ job: { id: 'j', status: 'materials' }, materials: materials('not_ordered'), materialsStep: false })
+    expect(deriveNextStep(f, TODAY).text).toBe('Schedule crew')
+    expect(buildJobCatchUp(f).stage).toBe('Sold')
+    expect(deriveNextStep({ ...f, materialsStep: true }, TODAY).text).toBe('Order materials')
+  })
   it('partly ordered materials name what is missing when suppliers say so', () => {
     const partial = deriveMaterialsState({ stored: 'not_ordered', suppliers: { rollup: { covered: 2, total: 3, allCovered: false }, sentOrders: [{ receivedAt: null }] } })
     expect(step({ materials: partial }).text).toBe('Finish ordering materials (2 of 3 ordered)')

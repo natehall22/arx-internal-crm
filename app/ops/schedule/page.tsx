@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import ProductionCalendarClient, { type ProductionCalendarCrew, type ProductionCalendarJob } from '../calendar/ProductionCalendarClient'
 import InstallScheduleClient from './InstallScheduleClient'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
+import { scheduleViewFor } from '@/lib/schedule-view'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 
 function transformCalendarJobs(rows: unknown[]): ProductionCalendarJob[] {
@@ -38,8 +39,11 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
 
   // Service-plan visits (lib/service-plans.ts) live here as a third view, for companies with service plans on.
   const visitsOn = await isOrgFeatureOn(profile.org_id, 'servicePlans')
-  const visits = visitsOn && searchParams?.view === 'visits'
-  const calendar = searchParams?.view === 'calendar'
+  // A company with service plans lives in its Visits: that is where /ops/schedule opens. The roofing install Board stays one
+  // tap away ("?view=board"), and is still the default for a company without service plans.
+  const view = scheduleViewFor(visitsOn, searchParams?.view)
+  const visits = view === 'visits'
+  const calendar = view === 'calendar'
   let calendarJobs: ProductionCalendarJob[] = []
   let crews: ProductionCalendarCrew[] = []
   if (calendar) {
@@ -69,11 +73,11 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <nav aria-label="Schedule views" className="mx-auto flex max-w-[1800px] flex-wrap gap-2 px-4 pt-4">
-        <Link href="/ops/schedule" className={tab(!calendar && !visits)} aria-current={!calendar && !visits ? 'page' : undefined}>Board</Link>
-        <Link href="/ops/schedule?view=calendar" className={tab(calendar)} aria-current={calendar ? 'page' : undefined}>Calendar</Link>
         {visitsOn ? (
-          <Link href="/ops/schedule?view=visits" className={tab(visits)} aria-current={visits ? 'page' : undefined}>Visits</Link>
+          <Link href="/ops/schedule" className={tab(visits)} aria-current={visits ? 'page' : undefined}>Visits</Link>
         ) : null}
+        <Link href={visitsOn ? '/ops/schedule?view=board' : '/ops/schedule'} className={tab(!calendar && !visits)} aria-current={!calendar && !visits ? 'page' : undefined}>Board</Link>
+        <Link href="/ops/schedule?view=calendar" className={tab(calendar)} aria-current={calendar ? 'page' : undefined}>Calendar</Link>
       </nav>
       {visits ? <VisitsBoard /> : calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
     </div>

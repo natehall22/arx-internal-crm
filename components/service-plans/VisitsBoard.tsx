@@ -9,6 +9,7 @@ import { RESULT_TONE_CLASS, SERVICE_STEP, SKIP_REASONS, SKIP_REASON_LABELS, VISI
 import type { ShiftPreview, VisitView } from '@/lib/service-plans-db'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
+import OneOffVisit from '@/components/service-plans/OneOffVisit'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 import VisitIncentiveMarks from '@/components/service-plans/VisitIncentiveMarks'
 import { checklistSummary } from '@/lib/visit-checklist'
@@ -171,6 +172,7 @@ export default function VisitsBoard() {
           <>
             <Button size="sm" onClick={() => setSheet({ kind: 'shift', from: addDaysYmd(d.today, 1), to: addDaysYmd(d.today, 1), move: 'next', date: '', crew: crew && crew !== 'mine' ? crew : 'all', preview: null })}>Rain day — move visits</Button>
             <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'links', made: {} })}>Crew phone links</Button>
+            <OneOffVisit onCreated={() => void load()} />
             <NewCustomerPlan onCreated={() => void load()} />
           </>
         ) : null}
