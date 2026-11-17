@@ -125,6 +125,15 @@ export async function loadProfileSwitchInputs(client: SupabaseClient, orgId: str
 export async function ensureProfileAppointmentType(client: SupabaseClient, orgId: string, to: IndustryProfileId): Promise<boolean> {
   const v = INDUSTRY_PROFILES[to].siteVisitType
   if (!v) return false
+  // A company that still keeps its types in orgs.settings.appointment_types (no table rows yet) would lose them the moment a table
+  // row exists (lib/org-appointment-types.ts reads the table first), so add nothing there. A failed read adds nothing either.
+  const org = await client.from('orgs').select('settings_types:settings->appointment_types').eq('id', orgId).maybeSingle()
+  if (org.error) {
+    console.error('ensureProfileAppointmentType: cannot read settings appointment types', org.error.message)
+    return false
+  }
+  const settingsTypes = (org.data as { settings_types?: unknown } | null)?.settings_types
+  if (Array.isArray(settingsTypes) && settingsTypes.length > 0) return false
   const { data, error } = await client.from('appointment_types').select('id, name, sort_order').eq('org_id', orgId)
   if (error) {
     console.error('ensureProfileAppointmentType: cannot read appointment_types', error.message)

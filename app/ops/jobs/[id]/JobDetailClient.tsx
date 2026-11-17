@@ -424,8 +424,8 @@ interface OrgUser {
 // ─── Insurance Card ────────────────────────────────────────────────────────────
 const INSURANCE_STAGES: { value: string; label: string; probability: number }[] = [
   { value: 'contingency_signed',    label: 'Contingency signed',       probability: 35 },
-  { value: 'claim_filed',           label: 'Claim filed',              probability: 50 },
-  { value: 'claim_approved',        label: 'Claim approved',           probability: 88 },
+  { value: 'claim_filed',           label: 'Claim filed',              probability: 50 }, // roofing-ok: insurance-gated
+  { value: 'claim_approved',        label: 'Claim approved',           probability: 88 }, // roofing-ok: insurance-gated
   { value: 'acv_received',          label: 'ACV received',             probability: 95 },
   { value: 'job_complete',          label: 'Job complete',             probability: 95 },
   { value: 'depreciation_filed',    label: 'Depreciation filed',       probability: 82 },
@@ -461,6 +461,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
                 : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
             }`}
           >
+            {/* roofing-ok: insurance-gated */}
             Insurance
           </button>
         </div>
@@ -470,6 +471,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
         <div className="space-y-4">
           {/* Stage */}
           <div>
+            {/* roofing-ok: insurance-gated */}
             <label className="block text-xs font-medium text-gray-700 mb-1">Claim stage</label>
             <select
               value={job.insurance_stage || ''}
@@ -491,6 +493,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
           {/* Claim info */}
           <div className="grid grid-cols-2 gap-3">
             <div>
+              {/* roofing-ok: insurance-gated */}
               <label className="block text-xs font-medium text-gray-700 mb-1">Claim number</label>
               <input
                 type="text"
@@ -501,6 +504,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
               />
             </div>
             <div>
+              {/* roofing-ok: insurance-gated */}
               <label className="block text-xs font-medium text-gray-700 mb-1">Insurance company</label>
               <input
                 type="text"
@@ -2390,6 +2394,7 @@ export default function JobDetailClient({
                         >
                           <option value="cash">Cash</option>
                           <option value="finance">Finance</option>
+                          {/* roofing-ok: insurance-gated */}
                           {(orgFeatures.insurance || financialSourceDraft.paymentMethod === 'insurance') && <option value="insurance">Insurance</option>}
                           <option value="other">Other</option>
                         </select>

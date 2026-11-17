@@ -20,8 +20,8 @@ import { resolveOrgProfile, roofingOr } from '@/lib/org-profile'
 
 jest.mock('@/components/Nav', () => ({ __esModule: true, default: () => <nav /> }))
 
-/** The term list a non-roofing company must never read in user-facing text. */
-const TERMS = /\bARX\b|roof|shingle|tear-?off|insurance|insurer|adjuster|\bclaims?\b|\bsetters?\b|\bcanvass|door-?knock|\bstorm|\bhail\b|gutter|\bsiding\b|\bIKO\b|homeowner|Kannapolis|Concord|Charlotte|dump run/i
+/** The term list a non-roofing company must never read in user-facing text: the one list the static guard scans with. */
+const { TERMS } = require('../../scripts/roofing-terms.cjs') as { TERMS: RegExp }
 
 const root = process.cwd()
 

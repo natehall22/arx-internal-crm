@@ -21,7 +21,6 @@
   "app/api/canvass/": "canvass APIs: canvassing feature switch",
   "components/canvass-territories/": "canvass territories: canvassing feature switch",
   "app/api/public/estimate/": "public roof instant-estimate: roofing website feature",
-  "app/ops/jobs/[id]/JobDetailClient.tsx": "insurance card rendered only when features.insurance; other hits are inside it",
   "lib/adjuster-meeting-alert.ts": "insurance adjuster alerts: insurance feature switch",
   "lib/ai/insurance-claim-benchmarks.ts": "insurance benchmarks: insurance feature switch (ARX data)",
   "lib/sync-setter-ramp-core.ts": "setter ramp: incentives feature switch",

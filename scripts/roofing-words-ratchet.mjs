@@ -24,39 +24,12 @@ const ts = createRequire(import.meta.url)('typescript')
 const BASELINE = 'scripts/roofing-words-baseline.json'
 const ALLOW = 'scripts/roofing-words-allow.json'
 
-export const TERMS = new RegExp(
-  [
-    '(?<![A-Za-z0-9])ARX(?![a-z0-9])',
-    'arxroofing',
-    '\\broof(?:s|ing|er|ers)?\\b',
-    'shingles?',
-    'tear[- ]?off',
-    'insurance',
-    'insurer',
-    'adjusters?',
-    '\\bclaims?\\b',
-    'setters?\\b',
-    'closers?\\b',
-    'canvass\\w*',
-    'door[- ]?knock\\w*',
-    '\\bdoors? (?:knocked|per|count)',
-    'storm\\w*',
-    '\\bhail\\b',
-    'gutters?',
-    '\\bsiding\\b',
-    '\\bIKO\\b',
-    'homeowners?',
-    'Kannapolis',
-    'Concord',
-    'Charlotte',
-    'dump run',
-    'squares?\\b',
-  ].join('|'),
-  'gi'
-)
+const { TERMS: TERMS_ONCE, TERMS_SOURCE } = createRequire(import.meta.url)('./roofing-terms.cjs')
+export const TERMS = TERMS_ONCE // one list, shared with the jest render guard and the phone crawl
+const TERMS_ALL = new RegExp(TERMS_SOURCE, 'gi') // global copy: counts every match in a text
 
 // Product source only. Tests, mocks, fixtures and the dev harness are not shipped text.
-const INCLUDE = /^(app|components|lib)\//
+const INCLUDE = /^(app|components|lib|hooks|supabase\/functions)\//
 const EXT = /\.(ts|tsx)$/
 const EXCLUDE = /(^|\/)(__tests__|__mocks__|e2e|test-helpers|dev-harness)\/|\.(test|spec)\.[a-z]+$|\.d\.ts$/
 
@@ -66,10 +39,13 @@ function files() {
 }
 
 // Text a person can read: has whitespace, or is a Capitalised word. Snake/kebab/camel identifiers, URLs, SQL column lists are not.
-function humanText(s) {
+// `adjacent`: the text sits next to an expression (a template span, JSX text beside `{...}`): `{n} squares`, `${n} squares`.
+// That is a sentence being assembled, so case and word count do not matter.
+function humanText(s, adjacent = false) {
   const t = s.trim()
   if (!t || !/[A-Za-z]/.test(t)) return false
   if (/^(?:https?:|\/|\.|#|@)/.test(t)) return false
+  if (adjacent) return !/\b[a-z]+_[a-z_]+\b/.test(t) && !(/^[\w.:/-]+$/.test(t) && /[-_/.:]/.test(t)) // skip snake_case lists and one-token keys like `roofing-`
   if (/^[a-z0-9_.:\-\/\[\]]+$/.test(t)) return false // identifier-ish, e.g. roofing_types, /api/roof
   if (/^[a-z]+(?:[A-Z][a-z0-9]*)+$/.test(t)) return false // camelCase
   if (/\b[a-z]+_[a-z_]+\b/.test(t) && !/^[A-Z]/.test(t)) return false
@@ -82,10 +58,12 @@ function scanFile(file) {
   const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
   const lines = src.split('\n')
   const hits = []
-  const okLine = (line) => /roofing-ok:/.test(lines[line] || '') || /roofing-ok:/.test(lines[line - 1] || '')
-  const push = (node, text) => {
-    if (!humanText(text)) return
-    const m = text.match(TERMS)
+  // `roofing-ok:` excuses its own line, or the line below when the comment stands alone on its line.
+  const okLine = (line) =>
+    /roofing-ok:/.test(lines[line] || '') || (/^\s*(?:\/\/|\/\*|\{\/\*|\*)/.test(lines[line - 1] || '') && /roofing-ok:/.test(lines[line - 1] || ''))
+  const push = (node, text, adjacent = false) => {
+    if (!humanText(text, adjacent)) return
+    const m = text.match(TERMS_ALL)
     if (!m) return
     const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line
     if (okLine(line)) return
@@ -102,7 +80,9 @@ function scanFile(file) {
       const isCase = p && ts.isCaseClause(p)
       const isCmp = p && ts.isBinaryExpression(p) && /^[!=]==?$/.test(p.operatorToken.getText(sf))
       const isIdxAttr = p && ts.isJsxAttribute(p) && /^(className|href|src|key|id|type|name|htmlFor|data-.*|role|rel|target|style|value)$/.test(p.name.getText(sf))
-      const isCall = p && ts.isCallExpression(p) && /^(\w+\.)*(from|rpc|select|eq|neq|in|is|order|get|has|includes|startsWith|endsWith|test|match|split|require|import|log|warn|error|info|debug|setHeader|cookies|headers)$/.test(p.expression.getText(sf).replace(/\)$/, '')) && !/(console)/.test(p.expression.getText(sf))
+      // toast.* is read by people: never skipped. Only console.* is a log.
+      const isToast = p && ts.isCallExpression(p) && /^toast\b/.test(p.expression.getText(sf))
+      const isCall = p && !isToast && ts.isCallExpression(p) && /^(\w+\.)*(from|rpc|select|eq|neq|in|is|order|get|has|includes|startsWith|endsWith|test|match|split|require|import|log|warn|error|info|debug|setHeader|cookies|headers)$/.test(p.expression.getText(sf).replace(/\)$/, '')) && !/(console)/.test(p.expression.getText(sf))
       // rw('roofing text', 'neutral') (useRoofingWord) and roofingOr(profile, 'roofing text', 'neutral'): the first text is the roofing profile's own.
       const isGated =
         p && ts.isCallExpression(p) &&
@@ -111,9 +91,12 @@ function scanFile(file) {
       if (!isGated && !isLog && !isKey && !isCase && !isCmp && !isIdxAttr && !isCall) push(node, node.text)
     } else if (ts.isTemplateExpression(node)) {
       if (node.parent && ts.isCallExpression(node.parent) && /^console\./.test(node.parent.expression.getText(sf))) return
-      push(node, node.head.text + ' ' + node.templateSpans.map((s) => s.literal.text).join(' '))
+      push(node, node.head.text + ' ' + node.templateSpans.map((s) => s.literal.text).join(' '), true)
     } else if (ts.isJsxText(node)) {
-      push(node, node.text)
+      const sib = node.parent && node.parent.children ? node.parent.children : []
+      const i = sib.indexOf(node)
+      const nextToExpr = [sib[i - 1], sib[i + 1]].some((x) => x && ts.isJsxExpression(x))
+      push(node, node.text, nextToExpr)
     }
     ts.forEachChild(node, visit)
   }
@@ -156,6 +139,19 @@ function main() {
     if (typeof reason !== 'string' || reason.trim().length < 8) problems.push(`${ALLOW}: ${f} needs a one-line reason`)
     if (!existsSync(f) && !((f.endsWith('/') || f.endsWith('-')) && files().some((x) => x.startsWith(f)))) problems.push(`${ALLOW}: ${f} no longer exists - remove the entry`)
   }
+  // Like the hardcode ratchet: neither the baseline total nor the allow-list may be higher / longer than origin/main's.
+  const fromMain = (p) => {
+    try {
+      return JSON.parse(execFileSync('git', ['show', `origin/main:${p}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }))
+    } catch {
+      return null // not on origin/main yet (first rollout) or not fetched: nothing to compare against
+    }
+  }
+  const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0)
+  const mainBase = fromMain(BASELINE)
+  if (mainBase?.files && sum(base) > sum(mainBase.files)) problems.push(`${BASELINE} allows ${sum(base)} occurrences; origin/main allows ${sum(mainBase.files)}. The baseline can only go down.`)
+  const mainAllow = fromMain(ALLOW)
+  if (mainAllow) for (const k of Object.keys(allow)) if (!(k in mainAllow)) problems.push(`${ALLOW}: "${k}" is not on origin/main's allow-list. The allow-list cannot grow; gate the text or mark the line roofing-ok instead.`)
   const grew = []
   for (const [f, n] of Object.entries(counts)) {
     const b = base[f] ?? 0

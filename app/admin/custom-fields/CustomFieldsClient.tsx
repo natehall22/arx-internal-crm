@@ -97,7 +97,6 @@ function EntityFields({
   save: (body: Record<string, unknown>, done: string) => Promise<boolean>
 }) {
   const canvassingOn = useOrgFeatures().canvassing
-  const fieldRoles = canvassingOn ? 'Setters, canvassers and inside sales' : 'Field sales roles'
   const [settingsFor, setSettingsFor] = React.useState<CustomFieldDefinition | null>(null)
   const byId = (id: string) => defs.find((d) => d.id === id)
   const where = entity === 'customer' ? 'each customer' : entity === 'property' ? 'each property' : 'each job'
