@@ -4,6 +4,7 @@ import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
 import { visibleActivities } from '@/lib/threads/legacy-feed'
 import { createServiceClient } from '@/lib/supabase/service'
+import { dealTypeLabel, loadOrgProfile } from '@/lib/org-profile'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -508,7 +509,7 @@ export default async function ProjectDetailPage({
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-700">Project Type</h3>
-              <p className="mt-1 text-sm text-gray-900 capitalize">{project.project_type}</p>
+              <p className="mt-1 text-sm text-gray-900 capitalize">{dealTypeLabel(await loadOrgProfile(createServiceClient(), profile.org_id), project.project_type)}</p>
             </div>
             <div className="md:col-span-2">
               <h3 className="text-sm font-medium text-gray-700">Address</h3>

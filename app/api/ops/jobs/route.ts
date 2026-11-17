@@ -93,21 +93,19 @@ export async function POST(request: Request) {
           .maybeSingle()
       : { data: null }
 
-    let acceptedProposalId = project.project_type === 'roofing'
-      ? (
-          (
-            await adminClient
-              .from('proposals')
-              .select('id')
-              .eq('org_id', profile.org_id)
-              .or(`project_id.eq.${project.id}${project.opportunity_id ? `,opportunity_id.eq.${project.opportunity_id}` : ''}`)
-              .not('accepted_at', 'is', null)
-              .order('accepted_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-          ).data?.id ?? null
-        )
-      : null
+    let acceptedProposalId: string | null = (
+      (
+        await adminClient
+          .from('proposals')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .or(`project_id.eq.${project.id}${project.opportunity_id ? `,opportunity_id.eq.${project.opportunity_id}` : ''}`)
+          .not('accepted_at', 'is', null)
+          .order('accepted_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      ).data?.id ?? null
+    )
 
     const saleAgreementFilter =
       acceptedProposalId && project.opportunity_id
