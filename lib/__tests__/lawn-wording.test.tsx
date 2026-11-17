@@ -167,7 +167,7 @@ describe('roofing / ARX copy is unchanged', () => {
   })
 
   it('Print Kit: the ARX appointment card prints exactly as before', () => {
-    const brand = printKitBrand(roof, { name: 'Anything', logoHref: '/x' })
+    const brand = printKitBrand(roof, { name: 'Anything', logoHref: '/x', original: true })
     const { container } = render(<AppointmentCardsClient brand={brand} />)
     expect(container.textContent).toContain('ARX Roofing & Exteriors')
     expect(container.textContent).toContain('Free Inspection')

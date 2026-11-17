@@ -52,7 +52,8 @@ const OLD = {
 const COMPANY_PHONE = '(704) 313-8834'
 const withPhone = (s: string, phone: string) => s.split(OLD_PHONE).join(phone)
 
-const defaults = resolveOrgBrand(null)
+// An org row flagged as the original company with nothing else stored: the legacy ARX strings. (No row at all is neutral.)
+const defaults = resolveOrgBrand({ original_brand: true })
 // What an unreadable or missing org row resolves to: neutral, never the original company's text.
 const neutral = resolveOrgBrand({ original_brand: false })
 // orgs row as read from prod 2026-11-05 (settings.brand is null)
@@ -66,7 +67,7 @@ const prodRow = {
 }
 
 describe.each([
-  ['no org row', defaults],
+  ['original company flag only', defaults],
   ['prod ARX org row', resolveOrgBrand(prodRow)],
 ])('%s: every string is the old one, phone = rep or company', (_label, b) => {
   it('rep phone present → old strings byte-identical when the rep is the old number', () => {
@@ -123,7 +124,8 @@ describe('atomic brand save fallback', () => {
 
 describe('legal name (invoices, contracts)', () => {
   it('defaults to the exact string invoices printed before', () => {
-    expect(resolveOrgBrand(null).legalName).toBe('ARX Roofing & Exteriors, LLC')
+    expect(resolveOrgBrand({ original_brand: true }).legalName).toBe('ARX Roofing & Exteriors, LLC')
+    expect(resolveOrgBrand(null).legalName).toBe('')
     // ARX prod row: org name has no ", LLC" and settings.brand is null — invoices still show the legal name
     expect(resolveOrgBrand({ name: 'ARX Roofing & Exteriors', original_brand: true, settings: null }).legalName).toBe('ARX Roofing & Exteriors, LLC')
   })
@@ -185,7 +187,7 @@ describe('resolveOrgBrand precedence', () => {
 
 describe('normalizeReportDoc keeps stored footer values (sent reports never change)', () => {
   it('stored footerLine / footerContact win over brand and rep phone', () => {
-    const stored = JSON.parse(JSON.stringify(seedReportDoc({ repPhone: '(360)485-9413' })))
+    const stored = JSON.parse(JSON.stringify(seedReportDoc({ repPhone: '(360)485-9413' }, defaults)))
     const other = resolveOrgBrand({ settings: { brand: { name: 'Other', website: 'other.test' } } })
     const n = normalizeReportDoc(stored, { repPhone: '9995550000' }, other)
     expect(n.footerLine).toBe(OLD.footerLine)
@@ -193,13 +195,13 @@ describe('normalizeReportDoc keeps stored footer values (sent reports never chan
   })
 
   it('missing footer fields are filled from brand + rep phone', () => {
-    const stored = JSON.parse(JSON.stringify(seedReportDoc()))
+    const stored = JSON.parse(JSON.stringify(seedReportDoc({}, defaults)))
     delete stored.footerLine
     delete stored.cover.footerContact
     const n = normalizeReportDoc(stored, { repPhone: '3604859413' }, defaults)
     expect(n.footerLine).toBe(OLD.footerLine)
     expect(n.cover.footerContact).toBe(OLD.footerContact)
-    expect(normalizeReportDoc(JSON.parse(JSON.stringify(stored))).footerLine).toBe(withPhone(OLD.footerLine, COMPANY_PHONE))
+    expect(normalizeReportDoc(JSON.parse(JSON.stringify(stored)), undefined, defaults).footerLine).toBe(withPhone(OLD.footerLine, COMPANY_PHONE))
   })
 })
 

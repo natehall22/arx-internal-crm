@@ -32,7 +32,10 @@ describe('another company never gets ARX identity', () => {
     const b = resolveOrgBrand({ name: 'ARX Roofing & Exteriors', original_brand: true })
     expect(b.website).toBe('arxroofing.com')
     expect(usesOriginalCompanyAssets(b)).toBe(true)
-    expect(resolveOrgBrand(null).name).toBe('ARX Roofing & Exteriors')
+    expect(resolveOrgBrand({ original_brand: true }).name).toBe('ARX Roofing & Exteriors')
+    // no row at all is never the original company
+    expect(resolveOrgBrand(null).name).toBe('')
+    expect(usesOriginalCompanyAssets(resolveOrgBrand(null))).toBe(false)
   })
 
   it('a name or an email is not the marker: "ARX Lawn" (even holding the original alias) gets nothing of the original company', () => {
@@ -65,7 +68,7 @@ describe('another company never gets ARX identity', () => {
     const other = seedReportDoc({}, resolveOrgBrand({ ...OTHER, settings: { brand: { shortName: 'Precision' } } }))
     expect(mentionsArx(JSON.stringify(other))).toBe(false)
     expect(JSON.stringify(other)).toContain('Precision Maintenance performed a detailed roof inspection')
-    const arx = JSON.stringify(seedReportDoc())
+    const arx = JSON.stringify(seedReportDoc({}, resolveOrgBrand({ original_brand: true })))
     expect(arx).toContain('ARX Roofing & Exteriors performed a detailed roof inspection')
     expect(arx).toContain('ARX respectfully requests')
   })
@@ -79,7 +82,7 @@ describe('another company never gets ARX identity', () => {
   it('built-in contracts (their terms name the original company) are offered to it only', () => {
     expect(builtInContractsAvailable({ id: 'roofing' }, false)).toBe(false)
     expect(builtInContractsAvailable({ id: 'roofing' }, true)).toBe(true)
-    expect(builtInContractsAvailable({ id: 'roofing' })).toBe(true)
+    expect(builtInContractsAvailable({ id: 'roofing' })).toBe(false) // unknown = not original
   })
 
   it('the morning update is titled with the recipient company', () => {

@@ -8,7 +8,7 @@
  * Fallback: DEFAULT_ORG_BRAND is NEUTRAL (blank; a missing legal/short name falls back to the company name). Only the org
  * row flagged `orgs.original_brand` (server-only, guard-triggered) keeps the original company's strings as its fallback
  * (LEGACY_ORG_BRAND) until its identity is stored on the row (supabase/data-fixes/2026-11-10_arx_brand_into_org_row.sql);
- * a failed org read is neutral. Do not add another copy of these strings anywhere.
+ * a missing row or failed org read is neutral (no row is NEVER the original company). Do not add another copy of these strings anywhere.
  *
  * Customer documents show the owning rep's phone when it is dialable, else the company phone (`contactPhone`).
  */
@@ -81,14 +81,17 @@ const LEGACY_ORG_BRAND: Readonly<Required<Omit<OrgBrand, 'original'>>> = (() => 
   })
 })()
 
+/** The `orgs` columns every brand reader selects (`.select(\`${ORG_BRAND_COLUMNS}, …\`)`); one list so none can omit the marker. */
+export const ORG_BRAND_COLUMNS = 'name, phone, email, address, original_brand'
+
 /**
  * The legacy fallback and the bundled artwork belong to the original company only. The marker is `orgs.original_brand`, a
  * server-only column (a guard trigger lets only the service role / a migration session change it), so nothing a manager can edit
- * (name, email, settings) can claim it. No org row at all (local dev/tests) counts as the original company, as before; a row
- * without the flag is any other company and gets neutral text, never the original's phone, address or website.
+ * (name, email, settings) can claim it. No row (or a row without the flag) is NOT the original company and gets neutral text,
+ * never the original's phone, address or website.
  */
 function isOriginalCompanyRow(row: OrgBrandRow | null | undefined): boolean {
-  return !row || row.original_brand === true
+  return row?.original_brand === true
 }
 
 /** True when this resolved brand is the original company's, so its own bundled artwork may be shown. */
@@ -174,16 +177,22 @@ export interface OrgBrandResult {
   ok: boolean
 }
 
-/** What a failed or empty org read resolves to: neutral — no original-company text, logo or phone (never the legacy fallback). */
-const UNREADABLE_ORG_ROW: OrgBrandRow = Object.freeze({ original_brand: false })
-
 async function readOrgBrandRow(client: SupabaseClient, orgId: string): Promise<OrgBrandRow | null> {
   const { data, error } = await client
     .from('orgs')
-    .select('name, phone, email, address, original_brand, brand:settings->brand')
+    .select(`${ORG_BRAND_COLUMNS}, brand:settings->brand`)
     .eq('id', orgId)
     .maybeSingle()
-  if (error) throw error
+  if (error) {
+    // Code deployed before the original_brand migration: say so loudly and read without it (neutral — never the original company).
+    if ((error as { code?: string }).code === '42703' && /original_brand/.test(error.message ?? '')) {
+      console.error('getOrgBrand: orgs.original_brand is missing — apply migration 202611280020 and set the flag BEFORE deploying. Using neutral brand.')
+      const fallback = await client.from('orgs').select('name, phone, email, address, brand:settings->brand').eq('id', orgId).maybeSingle()
+      if (fallback.error) throw fallback.error
+      return (fallback.data as OrgBrandRow | null) ?? null
+    }
+    throw error
+  }
   return (data as OrgBrandRow | null) ?? null
 }
 
@@ -192,20 +201,20 @@ async function readOrgBrandRow(client: SupabaseClient, orgId: string): Promise<O
  * returned with `ok: false` so callers that must not act on the defaults (e.g. sending to the company inbox) can tell.
  */
 export async function getOrgBrandResult(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgBrandResult> {
-  if (!orgId) return { brand: resolveOrgBrand(UNREADABLE_ORG_ROW), ok: false }
+  if (!orgId) return { brand: resolveOrgBrand(null), ok: false }
   let lastError: unknown = null
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const row = await readOrgBrandRow(client, orgId)
       if (row) return { brand: resolveOrgBrand(row), ok: true }
       console.error('getOrgBrand: org row not found, using neutral defaults', orgId)
-      return { brand: resolveOrgBrand(UNREADABLE_ORG_ROW), ok: false }
+      return { brand: resolveOrgBrand(null), ok: false }
     } catch (e) {
       lastError = e
     }
   }
   console.error('getOrgBrand: org row not readable after retry, using neutral defaults', orgId, lastError)
-  return { brand: resolveOrgBrand(UNREADABLE_ORG_ROW), ok: false }
+  return { brand: resolveOrgBrand(null), ok: false }
 }
 
 /** Load and resolve an org's brand (defaults when it can't be read). Never throws. */

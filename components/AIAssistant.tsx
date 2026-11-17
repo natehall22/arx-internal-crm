@@ -8,6 +8,7 @@ import {
   type AIAssistantMessage,
 } from '@/components/AIAssistantProvider'
 import { useOrgBrandNames } from '@/hooks/useOrgFeatures'
+import { GENERIC_BRAND_NAMES } from '@/lib/org-brand-client'
 import { AI_CHAT_MAX_MESSAGE_LENGTH } from '@/lib/ai/chat-constants'
 import { consumeAiChatSseStream, type AiChatStreamEvent } from '@/lib/ai/chat-stream'
 
@@ -653,7 +654,7 @@ export default function AIAssistant({ context }: AIAssistantProps) {
                 ? 'Ask about labor cost, material orders, crew assignment, or what to do next on this job.'
                 : context?.type === 'lead'
                   ? 'Ask about scheduling an inspection or what to do next with this lead.'
-                  : `Ask where things go in ${brandNames.name || 'the CRM'} — labor cost, commissions, pipeline counts, or scheduling.`}
+                  : `Ask where things go${brandNames.name && brandNames.name !== GENERIC_BRAND_NAMES.name ? ` in ${brandNames.name}` : ''} — labor cost, commissions, pipeline counts, or scheduling.`}
             </p>
             
             {/* Suggestions */}

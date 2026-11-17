@@ -57,7 +57,7 @@ import {
 } from '@/lib/public-estimate-rate-limit'
 
 /** The fallback brand on an unfenced deployment (the original company's strings — legacy gate). */
-const LEGACY_BRAND = resolveOrgBrand(null)
+const LEGACY_BRAND = resolveOrgBrand({ original_brand: true })
 
 const previewRows = new Map<string, Record<string, unknown>>()
 

@@ -35,7 +35,7 @@ describe('built-in roofing agreements', () => {
   })
 
   it('availability: roofing only; the entry points swap the button for a Signatures link', () => {
-    expect(builtInContractsAvailable(resolveOrgProfile({}))).toBe(true)
+    expect(builtInContractsAvailable(resolveOrgProfile({}), true)).toBe(true)
     expect(builtInContractsAvailable(resolveOrgProfile({ profile: { id: 'lawn_landscape' } }))).toBe(false)
     for (const f of ['app/opportunities/[id]/OpportunityView.tsx', 'app/proposals/[id]/page.tsx']) {
       const src = read(f)

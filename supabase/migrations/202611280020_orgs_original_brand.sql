@@ -8,6 +8,11 @@
 --        update orgs set original_brand = true where id = '9089d4ad-f46c-405b-9798-6751d45a7051';
 --      This MUST happen BEFORE the code is deployed, or the original company would resolve as neutral.
 --   3. Deploy the code.
+-- The code must NOT deploy before steps 1 and 2: it reads orgs.original_brand (a missing column is logged loudly and treated as
+-- "not original", so the original company would print neutral text), and unflagged means neutral. The original company
+-- keeps its text only while its row is flagged.
+-- Direct app-user updates of orgs are already blocked (RLS is on and there is no UPDATE policy for app roles), so the guard
+-- below covers original_brand against any future policy; email is changed only through the settings API (super admins).
 
 ALTER TABLE orgs ADD COLUMN IF NOT EXISTS original_brand BOOLEAN NOT NULL DEFAULT FALSE;
 

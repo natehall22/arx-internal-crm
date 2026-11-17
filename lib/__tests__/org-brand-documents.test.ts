@@ -65,7 +65,8 @@ const ARX_IDENTITY = [/ARX/, /arxroofing/i, /313-8834/, /Woodbury/, /28027/]
 
 describe('brandDocument (letterhead spellings)', () => {
   it("the prod row and an empty org both give the contract's historical spellings", () => {
-    for (const d of [PROD_DOC, DEFAULT_DOCUMENT_BRAND]) {
+    expect(DEFAULT_DOCUMENT_BRAND.name).toBe('') // no row is neutral
+    for (const d of [PROD_DOC, brandDocument(resolveOrgBrand({ original_brand: true }))]) {
       expect(d).toEqual({
         name: 'ARX Roofing & Exteriors',
         nameUpper: 'ARX ROOFING & EXTERIORS',
@@ -408,7 +409,7 @@ describe('legacy gate (unfenced = ARX prod today) keeps the old strings', () => 
     delete process.env.SMTP_FROM
     expect(await getCrmEmailFrom(null)).toBe('ARX Roofing <info@arxroofing.com>')
     if (saved !== undefined) process.env.SMTP_FROM = saved
-    expect(misconfiguredMessage(resolveOrgBrand(null).phone)).toBe('Public roof estimate is not configured. Please call (704) 313-8834.')
+    expect(misconfiguredMessage(resolveOrgBrand({ original_brand: true }).phone)).toBe('Public roof estimate is not configured. Please call (704) 313-8834.')
   })
   it('out-of-area copy is byte-identical for ARX (serviceRegion "Charlotte metro"), before and after the data fix', () => {
     const OLD = 'That address looks outside our service area (Charlotte metro and nearby). Call (704) 313-8834 and we can still help.'

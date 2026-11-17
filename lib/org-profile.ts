@@ -98,11 +98,11 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
 export function builtInContractsAvailable(
   profile: Pick<ResolvedOrgProfile, 'id'> | Pick<ClientOrgProfile, 'id'> | null | undefined,
   /** `usesOriginalCompanyAssets(brand)`: the built-in terms are the original company's own wording (they name it), so any
-   *  other company — roofing or not — sends its own agreement. Omitted/unknown = not checked. */
+   *  other company — roofing or not — sends its own agreement. Omitted/unknown = not original (false). */
   original?: boolean
 ): boolean {
   if ((profile?.id ?? DEFAULT_INDUSTRY_PROFILE) !== 'roofing') return false
-  return original !== false
+  return original === true
 }
 
 /** The company's word for an outcome (profile wording, else the one given). Roofing has none: unchanged. */

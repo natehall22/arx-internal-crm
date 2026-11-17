@@ -66,7 +66,6 @@ import { getAppUrl } from '@/lib/app-url'
 import { orgAppUrl } from '@/lib/company-links'
 import { getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
-import { resolveOrgBrand } from '@/lib/org-brand'
 import {
   HALF_DAY_HOURS,
   calendarDaySpan,
@@ -233,7 +232,7 @@ export type BuildInstallEventInput = {
   schedulingEmail?: string | null
   /** The company's own number, so the crew has someone to call from the invite itself. */
   orgPhone?: string | null
-  /** The company's short name (org brand) — "call <name>", "<name> staff only". Missing → the default brand. */
+  /** The company's short name (org brand) — "call <name>", "<name> staff only". Missing → "the office" (never a company's name). */
   orgShortName?: string | null
   /** The crew's photo link token; the line is omitted without one. */
   crewLinkToken?: string | null
@@ -263,7 +262,7 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
       : null
 
   const photoUrl = input.crewLinkToken ? crewLinkUrl(input.crewLinkToken, input.appUrl) : null
-  const company = input.orgShortName?.trim() || resolveOrgBrand(null).shortName
+  const company = input.orgShortName?.trim() || 'the office'
 
   const descriptionLines = [
     input.addressText ? `📍 ${input.addressText}` : null,

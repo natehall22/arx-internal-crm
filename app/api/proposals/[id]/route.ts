@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveOrgBrand } from '@/lib/org-brand'
+import { ORG_BRAND_COLUMNS, resolveOrgBrand } from '@/lib/org-brand'
 import { resolveOrgProfile } from '@/lib/org-profile'
 import { resolveProposalContent } from '@/lib/proposal-content'
 import { createClient } from '@supabase/supabase-js'
@@ -141,7 +141,7 @@ export async function GET(
     // Get company info
     const { data: company } = await adminClient
       .from('orgs')
-      .select('name, logo_url, settings, phone, email, address')
+      .select(`${ORG_BRAND_COLUMNS}, logo_url, settings`)
       .eq('id', profile.org_id)
       .single()
 

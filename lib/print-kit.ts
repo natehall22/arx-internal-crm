@@ -10,8 +10,8 @@ export type PrintKitBrand = { companyName: string; logoHref: string | null; card
 
 /** The original company's card words (verbatim); `useShield` = its own shield image, used only for roofing. */
 export function printKitBrand(profile: Pick<ResolvedOrgProfile, 'id' | 'label' | 'terms'>, org: { name: string; logoHref: string | null; original?: boolean }): PrintKitBrand {
-  // `original` (usesOriginalCompanyAssets) is unset only by callers that cannot tell; roofing then keeps the card words as before.
-  if (profile.id === 'roofing' && org.original !== false) {
+  // `original` (usesOriginalCompanyAssets) unknown/unset = not original: the company's own words.
+  if (profile.id === 'roofing' && org.original === true) {
     return { companyName: 'ARX Roofing & Exteriors', logoHref: null, cardTagline: 'Free Inspection', cardRole: 'Roofing Specialist', useShield: true }
   }
   return { companyName: org.name, logoHref: org.logoHref, cardTagline: `Free ${profile.terms.inspection}`, cardRole: `${profile.label} specialist`, useShield: false }
