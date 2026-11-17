@@ -23,14 +23,14 @@ import { toast } from '@/components/ui/toast'
 import CompanyLogoCard from '@/components/admin/CompanyLogoCard'
 import { orgLogoHref, orgLogoPath } from '@/lib/files/files-object'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { resolveOrgProfile } from '@/lib/org-profile'
+import { resolveDashboard } from '@/lib/dashboard-cards'
 import GeneralSettingsCard, { GENERAL_BRAND_INPUTS, type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type BrandInputKey = (typeof GENERAL_BRAND_INPUTS)[number][0]
 
 type SettingsSection = 
-  | 'job-workflows'
-  | 'work-order-workflows'
   | 'canvass-dispositions'
   | 'inspection-outcomes'
   | 'close-outcomes'
@@ -41,17 +41,6 @@ type SettingsSection =
   | 'notifications'
   | 'reports'
   | 'general'
-
-interface AppointmentType {
-  id: string
-  name: string
-  duration_minutes: number
-  /** Extra minutes after slot end for scheduling gaps (not used for feedback prompt time). */
-  buffer_after_minutes?: number
-  color: string
-  active: boolean
-  description?: string
-}
 
 interface DispositionType {
   id: string
@@ -84,17 +73,6 @@ interface WorkflowStage {
   name: string
   color: string
   sort_order: number
-  auto_actions?: string[]
-}
-
-interface WorkOrderWorkflowStage {
-  id: string
-  name: string
-  color: string
-  sort_order: number
-  is_default?: boolean
-  is_complete_stage?: boolean
-  notify_customer?: boolean
   auto_actions?: string[]
 }
 
@@ -170,34 +148,14 @@ export default function AdminSettingsPage() {
   const [editingCloseOutcome, setEditingCloseOutcome] = useState<InspectionOutcomeType | null>(null)
   const [showAddCloseOutcome, setShowAddCloseOutcome] = useState(false)
   
-  // Appointment types
-  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([
-    { id: 'inspection', name: 'Inspection', duration_minutes: 60, buffer_after_minutes: 0, color: '#3b82f6', active: true, description: 'Standard roof inspection' },
-    { id: 'follow_up', name: 'Follow Up', duration_minutes: 30, buffer_after_minutes: 0, color: '#22c55e', active: true, description: 'Follow up visit' },
-    { id: 'insurance_follow_up', name: 'Insurance Follow Up', duration_minutes: 30, buffer_after_minutes: 0, color: '#a855f7', active: true, description: 'Insurance follow-up visit' },
-    { id: 'close', name: 'Close', duration_minutes: 60, buffer_after_minutes: 0, color: '#6366f1', active: true, description: 'Close appointment' },
-    { id: 'contract_signing', name: 'Contract Signing', duration_minutes: 45, buffer_after_minutes: 0, color: '#8b5cf6', active: true, description: 'Contract signing appointment' },
-    { id: 'final_walkthrough', name: 'Final Walkthrough', duration_minutes: 30, buffer_after_minutes: 0, color: '#f59e0b', active: true, description: 'Post-installation walkthrough' },
-  ])
+  // The period only drives the classic dashboard's commission widget, so it is shown only to companies that have that dashboard.
+  const [classicDashboard, setClassicDashboard] = useState(true)
   const [schedulingSettings, setSchedulingSettings] = useState({
     inspection_feedback_buffer_minutes: 0,
     default_scheduling_gap_minutes: 15,
   })
-  const [editingAppointmentType, setEditingAppointmentType] = useState<AppointmentType | null>(null)
-  const [showAddAppointmentType, setShowAddAppointmentType] = useState(false)
   
   
-  // Work Order Workflow Stages state
-  const [workOrderStages, setWorkOrderStages] = useState<WorkOrderWorkflowStage[]>([
-    { id: 'pending', name: 'Pending', color: '#6b7280', sort_order: 0, is_default: true }, // contrast-ok: swatch color data, not text
-    { id: 'scheduled', name: 'Scheduled', color: '#3b82f6', sort_order: 1, notify_customer: true },
-    { id: 'in_progress', name: 'In Progress', color: '#f59e0b', sort_order: 2 },
-    { id: 'on_hold', name: 'On Hold', color: '#ef4444', sort_order: 3 },
-    { id: 'completed', name: 'Completed', color: '#22c55e', sort_order: 4, is_complete_stage: true, notify_customer: true },
-    { id: 'cancelled', name: 'Cancelled', color: '#9ca3af', sort_order: 5 }, // contrast-ok: swatch color data, not text
-  ])
-  const [editingWorkOrderStage, setEditingWorkOrderStage] = useState<WorkOrderWorkflowStage | null>(null)
-  const [showAddWorkOrderStage, setShowAddWorkOrderStage] = useState(false)
   
   // Logo state
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
@@ -444,6 +402,12 @@ export default function AdminSettingsPage() {
       
       const data = await response.json()
       
+      try {
+        setClassicDashboard(resolveDashboard(data.settings, resolveOrgProfile(data.settings).dashboard.cards).mode === 'classic')
+      } catch {
+        setClassicDashboard(true)
+      }
+
       if (data.org) {
         const brand = {
           brand_legal_name: data.settings?.brand?.legalName || '',
@@ -498,9 +462,6 @@ export default function AdminSettingsPage() {
       }
       
       // Load appointment types from org settings
-      if (data.settings?.appointment_types) {
-        setAppointmentTypes(data.settings.appointment_types)
-      }
       
       // Load external integrations from org settings
       if (data.settings?.external_integrations_config) {
@@ -630,8 +591,6 @@ export default function AdminSettingsPage() {
     {
       title: 'WORKFLOWS & FIELDS',
       items: [
-        { id: 'job-workflows', label: 'Project Workflows' },
-        { id: 'work-order-workflows', label: 'Work Order Workflows' },
         { id: 'canvass-dispositions', label: 'Canvass Dispositions' },
         { id: 'inspection-outcomes', label: 'Inspection outcomes' },
         { id: 'close-outcomes', label: 'Close outcomes' },
@@ -640,7 +599,7 @@ export default function AdminSettingsPage() {
     {
       title: 'SCHEDULING',
       items: [
-        { id: 'appointment-settings', label: 'Appointment Types' },
+        { id: 'appointment-settings', label: 'Scheduling defaults' },
       ],
     },
     {
@@ -785,7 +744,7 @@ export default function AdminSettingsPage() {
             </div>
           )}
 
-          {/* Appointment Settings */}
+          {/* Scheduling defaults. Appointment types live in Admin > Scheduling (the appointment_types table). */}
           {activeSection === 'appointment-settings' && (
             <div className="max-w-3xl">
               <div className="mb-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
@@ -868,302 +827,6 @@ export default function AdminSettingsPage() {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Appointment Types</h1>
-                  <p className="text-gray-700 mt-1">Configure appointment types, durations, and buffer after each type.</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setEditingAppointmentType({
-                      id: `apt_${Date.now()}`,
-                      name: '',
-                      duration_minutes: 60,
-                      buffer_after_minutes: 0,
-                      color: '#3b82f6',
-                      active: true,
-                      description: '',
-                    })
-                    setShowAddAppointmentType(true)
-                  }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
-                >
-                  + Add Appointment Type
-                </button>
-              </div>
-
-              {/* Appointment Types List */}
-              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Color</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Duration</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Buffer after</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Status</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {appointmentTypes.map((apt) => (
-                      <tr key={apt.id} className={!apt.active ? 'bg-gray-50 opacity-60' : ''}>
-                        <td className="px-4 py-3">
-                          <div
-                            className="w-8 h-8 rounded-full border-2 border-white shadow"
-                            style={{ backgroundColor: apt.color }}
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div>
-                            <span className="font-medium text-gray-900">{apt.name}</span>
-                            {apt.description && (
-                              <p className="text-xs text-gray-700">{apt.description}</p>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-sm text-gray-700">{apt.duration_minutes} minutes</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-sm text-gray-700">
-                            {apt.buffer_after_minutes ?? 0} min
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            apt.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                          }`}>
-                            {apt.active ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => {
-                              setEditingAppointmentType(apt)
-                              setShowAddAppointmentType(true)
-                            }}
-                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium mr-3"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => {
-                              setAppointmentTypes(prev => prev.map(a => 
-                                a.id === apt.id ? { ...a, active: !a.active } : a
-                              ))
-                            }}
-                            className="text-gray-700 hover:text-gray-900 text-sm"
-                          >
-                            {apt.active ? 'Disable' : 'Enable'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Save Button */}
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={async () => {
-                    setSaving(true)
-                    try {
-                      const response = await fetch('/api/admin/settings', {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          type: 'appointment_types',
-                          appointment_types: appointmentTypes,
-                        }),
-                      })
-                      
-                      if (!response.ok) {
-                        const data = await response.json()
-                        toast.error(data.error || 'Failed to save appointment types')
-                        return
-                      }
-                      
-                      toast.error('Appointment types saved!')
-                    } catch (error) {
-                      console.error('Error saving appointment types:', error)
-                      toast.error('Failed to save appointment types')
-                    } finally {
-                      setSaving(false)
-                    }
-                  }}
-                  disabled={saving}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {saving ? 'Saving...' : 'Save Appointment Types'}
-                </button>
-              </div>
-
-              {/* Default Duration Info */}
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <h4 className="font-medium text-blue-900 mb-2">How Appointment Durations Work</h4>
-                <ul className="text-sm text-blue-700 space-y-1">
-                  <li>• When scheduling an appointment, the duration will default to the type&apos;s setting</li>
-                  <li>• Buffer after (per type) affects spacing after the slot; closer feedback prompts at appointment start</li>
-                  <li>• Default gap between appointments applies when round-robin checks availability if the closer has no queue buffer</li>
-                  <li>• Calendar events will be created with the specified duration</li>
-                </ul>
-              </div>
-
-              {/* Edit/Add Modal */}
-              {showAddAppointmentType && editingAppointmentType && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto bg-black/50">
-                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[min(90vh,calc(100dvh-2rem))] flex flex-col overflow-hidden">
-                    <div className="p-6 border-b flex-shrink-0">
-                      <h2 className="text-xl font-bold text-gray-900">
-                        {appointmentTypes.find(a => a.id === editingAppointmentType.id) ? 'Edit Appointment Type' : 'Add Appointment Type'}
-                      </h2>
-                    </div>
-                    <div className="p-6 space-y-4 overflow-y-auto min-h-0 flex-1">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Name *</label>
-                        <input
-                          type="text"
-                          value={editingAppointmentType.name}
-                          onChange={(e) => setEditingAppointmentType(prev => prev ? { ...prev, name: e.target.value } : null)}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
-                          placeholder="e.g., Inspection, Follow Up"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                        <input
-                          type="text"
-                          value={editingAppointmentType.description || ''}
-                          onChange={(e) => setEditingAppointmentType(prev => prev ? { ...prev, description: e.target.value } : null)}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
-                          placeholder="Brief description"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Duration (minutes) *</label>
-                        <select
-                          value={editingAppointmentType.duration_minutes}
-                          onChange={(e) => setEditingAppointmentType(prev => prev ? { ...prev, duration_minutes: parseInt(e.target.value) } : null)}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
-                        >
-                          <option value={15}>15 minutes</option>
-                          <option value={30}>30 minutes</option>
-                          <option value={45}>45 minutes</option>
-                          <option value={60}>1 hour</option>
-                          <option value={90}>1.5 hours</option>
-                          <option value={120}>2 hours</option>
-                          <option value={150}>2.5 hours</option>
-                          <option value={180}>3 hours</option>
-                          <option value={240}>4 hours</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Buffer after (minutes)
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          value={editingAppointmentType.buffer_after_minutes ?? 0}
-                          onChange={(e) =>
-                            setEditingAppointmentType((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    buffer_after_minutes: parseInt(e.target.value, 10) || 0,
-                                  }
-                                : null
-                            )
-                          }
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
-                        />
-                        <p className="text-xs text-gray-700 mt-1">
-                          Extra time after the scheduled slot end for spacing and conflict checks; feedback prompts at start time.
-                        </p>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
-                        <div className="flex gap-2 flex-wrap">
-                          {[
-                            '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', 
-                            '#8b5cf6', '#ec4899', '#6b7280', '#14b8a6', '#f43f5e'
-                          ].map((color) => (
-                            <button
-                              key={color}
-                              type="button"
-                              onClick={() => setEditingAppointmentType(prev => prev ? { ...prev, color } : null)}
-                              className={`w-10 h-10 rounded-full border-2 ${
-                                editingAppointmentType.color === color ? 'border-gray-900 scale-110' : 'border-transparent'
-                              }`}
-                              style={{ backgroundColor: color }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          id="apt-active"
-                          checked={editingAppointmentType.active}
-                          onChange={(e) => setEditingAppointmentType(prev => prev ? { ...prev, active: e.target.checked } : null)}
-                          className="w-4 h-4 rounded border-gray-300 text-indigo-600"
-                        />
-                        <label htmlFor="apt-active" className="text-sm text-gray-700">Active</label>
-                      </div>
-                    </div>
-                    <div className="p-6 border-t flex justify-between flex-shrink-0 bg-white">
-                      {appointmentTypes.find(a => a.id === editingAppointmentType.id) && (
-                        <button
-                          onClick={async () => {
-                            if ((await confirmDialog({ title: 'Delete this appointment type?', destructive: true }))) {
-                              setAppointmentTypes(prev => prev.filter(a => a.id !== editingAppointmentType.id))
-                              setShowAddAppointmentType(false)
-                              setEditingAppointmentType(null)
-                            }
-                          }}
-                          className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg"
-                        >
-                          Delete
-                        </button>
-                      )}
-                      <div className="flex gap-3 ml-auto">
-                        <button
-                          onClick={() => {
-                            setShowAddAppointmentType(false)
-                            setEditingAppointmentType(null)
-                          }}
-                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-900"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (!editingAppointmentType.name) {
-                              toast.error('Please enter a name')
-                              return
-                            }
-                            const exists = appointmentTypes.find(a => a.id === editingAppointmentType.id)
-                            if (exists) {
-                              setAppointmentTypes(prev => prev.map(a => 
-                                a.id === editingAppointmentType.id ? editingAppointmentType : a
-                              ))
-                            } else {
-                              setAppointmentTypes(prev => [...prev, editingAppointmentType])
-                            }
-                            setShowAddAppointmentType(false)
-                            setEditingAppointmentType(null)
-                          }}
-                          className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -2867,10 +2530,11 @@ export default function AdminSettingsPage() {
               <h1 className="text-2xl font-bold text-gray-900 mb-6">Commission Settings</h1>
               
               {/* Period Settings */}
+              {classicDashboard && (
               <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Commission Period</h2>
                 <p className="text-sm text-gray-700 mb-6">
-                  Configure how commission periods are calculated for your team. This affects how commissions are grouped and displayed in reports and dashboards.
+                  This only sets the period shown in the commission widget on the dashboard. It does not change payroll, which uses its own pay week.
                 </p>
                 
                 <div className="space-y-6">
@@ -2990,6 +2654,7 @@ export default function AdminSettingsPage() {
                   </button>
                 </div>
               </div>
+              )}
 
               {/* Link to Comp Plans */}
               <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -3007,322 +2672,6 @@ export default function AdminSettingsPage() {
                   </svg>
                 </a>
               </div>
-            </div>
-          )}
-
-          {/* Job/Project Workflows */}
-          {activeSection === 'job-workflows' && (
-            <div className="max-w-3xl">
-              <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">Project Workflows</h1>
-                <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
-                  + Add Stage
-                </button>
-              </div>
-              
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-sm text-gray-700 mb-4">
-                  Define the stages a project goes through from sale to completion.
-                </p>
-                <div className="space-y-2">
-                  {[
-                    { name: 'Open', color: '#6366f1' },
-                    { name: 'In Progress', color: '#3b82f6' },
-                    { name: 'Materials Ordered', color: '#8b5cf6' },
-                    { name: 'Scheduled', color: '#f59e0b' },
-                    { name: 'In Production', color: '#22c55e' },
-                    { name: 'Complete', color: '#10b981' },
-                    { name: 'Collected', color: '#059669' },
-                    { name: 'On Hold', color: '#ef4444' },
-                  ].map((stage, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                      <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }} />
-                      <span className="font-medium text-gray-900 flex-1">{stage.name}</span>
-                      <button className="text-gray-600 hover:text-gray-900">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Work Order Workflows */}
-          {activeSection === 'work-order-workflows' && (
-            <div className="max-w-3xl">
-              <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">Work Order Workflows</h1>
-                <button 
-                  onClick={() => {
-                    setEditingWorkOrderStage(null)
-                    setShowAddWorkOrderStage(true)
-                  }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
-                >
-                  + Add Stage
-                </button>
-              </div>
-              
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-gray-700 mb-6">Define workflow stages for work orders. Drag to reorder stages.</p>
-                
-                <div className="space-y-3">
-                  {workOrderStages.sort((a, b) => a.sort_order - b.sort_order).map((stage, index) => (
-                    <div key={stage.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <div className="flex flex-col gap-1">
-                          <button 
-                            onClick={() => {
-                              if (index > 0) {
-                                setWorkOrderStages(prev => {
-                                  const sorted = [...prev].sort((a, b) => a.sort_order - b.sort_order)
-                                  const newStages = [...sorted]
-                                  const temp = newStages[index].sort_order
-                                  newStages[index].sort_order = newStages[index - 1].sort_order
-                                  newStages[index - 1].sort_order = temp
-                                  return newStages
-                                })
-                              }
-                            }}
-                            disabled={index === 0}
-                            className="text-gray-600 hover:text-gray-900 disabled:opacity-30"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                            </svg>
-                          </button>
-                          <button 
-                            onClick={() => {
-                              if (index < workOrderStages.length - 1) {
-                                setWorkOrderStages(prev => {
-                                  const sorted = [...prev].sort((a, b) => a.sort_order - b.sort_order)
-                                  const newStages = [...sorted]
-                                  const temp = newStages[index].sort_order
-                                  newStages[index].sort_order = newStages[index + 1].sort_order
-                                  newStages[index + 1].sort_order = temp
-                                  return newStages
-                                })
-                              }
-                            }}
-                            disabled={index === workOrderStages.length - 1}
-                            className="text-gray-600 hover:text-gray-900 disabled:opacity-30"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-                        </div>
-                        <div 
-                          className="w-4 h-4 rounded-full" 
-                          style={{ backgroundColor: stage.color }}
-                        />
-                        <div>
-                          <h4 className="font-medium text-gray-900 flex items-center gap-2">
-                            {stage.name}
-                            {stage.is_default && (
-                              <span className="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs rounded-full">Default</span>
-                            )}
-                            {stage.is_complete_stage && (
-                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Complete</span>
-                            )}
-                          </h4>
-                          <div className="flex items-center gap-2 text-sm text-gray-700">
-                            {stage.notify_customer && (
-                              <span className="flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                                </svg>
-                                Notifies customer
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => {
-                            setEditingWorkOrderStage(stage)
-                            setShowAddWorkOrderStage(true)
-                          }}
-                          className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                        >
-                          Edit
-                        </button>
-                        {!stage.is_default && !stage.is_complete_stage && (
-                          <button 
-                            onClick={async () => {
-                              if ((await confirmDialog({ title: `Delete stage "${stage.name}"?`, destructive: true }))) {
-                                setWorkOrderStages(prev => prev.filter(s => s.id !== stage.id))
-                              }
-                            }}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                
-                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                  <p className="text-sm text-blue-700">
-                    <strong>Tip:</strong> The "Default" stage is assigned to new work orders. The "Complete" stage marks work orders as finished.
-                  </p>
-                </div>
-              </div>
-              
-              {/* Add/Edit Work Order Stage Modal */}
-              {showAddWorkOrderStage && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-                    <div className="p-6 border-b">
-                      <h2 className="text-xl font-bold text-gray-900">
-                        {editingWorkOrderStage ? 'Edit Stage' : 'Add Stage'}
-                      </h2>
-                    </div>
-                    <form onSubmit={(e) => {
-                      e.preventDefault()
-                      const formData = new FormData(e.currentTarget)
-                      const stageData: WorkOrderWorkflowStage = {
-                        id: editingWorkOrderStage?.id || `stage_${Date.now()}`,
-                        name: formData.get('name') as string,
-                        color: formData.get('color') as string,
-                        sort_order: editingWorkOrderStage?.sort_order ?? workOrderStages.length,
-                        is_default: formData.get('is_default') === 'on',
-                        is_complete_stage: formData.get('is_complete_stage') === 'on',
-                        notify_customer: formData.get('notify_customer') === 'on',
-                      }
-                      
-                      if (editingWorkOrderStage) {
-                        setWorkOrderStages(prev => prev.map(s => s.id === editingWorkOrderStage.id ? stageData : s))
-                      } else {
-                        setWorkOrderStages(prev => [...prev, stageData])
-                      }
-                      
-                      // If this is set as default, unset other defaults
-                      if (stageData.is_default) {
-                        setWorkOrderStages(prev => prev.map(s => 
-                          s.id !== stageData.id ? { ...s, is_default: false } : s
-                        ))
-                      }
-                      
-                      // If this is set as complete stage, unset other complete stages
-                      if (stageData.is_complete_stage) {
-                        setWorkOrderStages(prev => prev.map(s => 
-                          s.id !== stageData.id ? { ...s, is_complete_stage: false } : s
-                        ))
-                      }
-                      
-                      setShowAddWorkOrderStage(false)
-                      setEditingWorkOrderStage(null)
-                    }}>
-                      <div className="p-6 space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Stage Name</label>
-                          <input
-                            type="text"
-                            name="name"
-                            required
-                            defaultValue={editingWorkOrderStage?.name || ''}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            placeholder="e.g., In Progress"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="color"
-                              name="color"
-                              defaultValue={editingWorkOrderStage?.color || '#3b82f6'}
-                              className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-                            />
-                            <div className="flex gap-2">
-                              {['#6b7280', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'].map(color => (
-                                <button
-                                  key={color}
-                                  type="button"
-                                  onClick={(e) => {
-                                    const colorInput = e.currentTarget.parentElement?.parentElement?.querySelector('input[type="color"]') as HTMLInputElement
-                                    if (colorInput) colorInput.value = color
-                                  }}
-                                  className="w-6 h-6 rounded-full border-2 border-white shadow-sm hover:scale-110 transition-transform"
-                                  style={{ backgroundColor: color }}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-3 pt-2">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              name="is_default"
-                              id="stage_is_default"
-                              defaultChecked={editingWorkOrderStage?.is_default || false}
-                              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                            />
-                            <label htmlFor="stage_is_default" className="text-sm text-gray-700">
-                              Default stage for new work orders
-                            </label>
-                          </div>
-                          
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              name="is_complete_stage"
-                              id="stage_is_complete"
-                              defaultChecked={editingWorkOrderStage?.is_complete_stage || false}
-                              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                            />
-                            <label htmlFor="stage_is_complete" className="text-sm text-gray-700">
-                              This stage marks work order as complete
-                            </label>
-                          </div>
-                          
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              name="notify_customer"
-                              id="stage_notify_customer"
-                              defaultChecked={editingWorkOrderStage?.notify_customer || false}
-                              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                            />
-                            <label htmlFor="stage_notify_customer" className="text-sm text-gray-700">
-                              Notify customer when entering this stage
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="p-6 border-t flex justify-end gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddWorkOrderStage(false)
-                            setEditingWorkOrderStage(null)
-                          }}
-                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                        >
-                          {editingWorkOrderStage ? 'Save Changes' : 'Add Stage'}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 

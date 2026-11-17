@@ -5,13 +5,26 @@
  */
 import nodemailer from 'nodemailer'
 
+import { resolveCompanyMailRoute, sendViaResend } from '@/lib/company-mail'
 import { guardReservedRecipients, isDemoSenderOrg } from '@/lib/demo-org'
 import { createServiceClient } from '@/lib/supabase/service'
 import { assertNoSupportSend } from '@/lib/support/send-guard'
 
 export function createGuardedTransport(options: Parameters<typeof nodemailer.createTransport>[0], sendingOrgId?: string | null) {
   // A support session (lib/support/send-guard.ts) can send nothing: the mail is refused, never faked as sent.
-  return guardReservedRecipients(nodemailer.createTransport(options), async () => {
+  const smtp = nodemailer.createTransport(options)
+  // Another company (not the original) goes out through Resend when its env is set (lib/company-mail.ts); everyone else stays on SMTP.
+  const routed = new Proxy(smtp, {
+    get(target, prop, receiver) {
+      if (prop !== 'sendMail') return Reflect.get(target, prop, receiver)
+      return async (message: Record<string, unknown>, ...rest: unknown[]) => {
+        const route = await resolveCompanyMailRoute(sendingOrgId)
+        if (route) return sendViaResend(route, message)
+        return (target as { sendMail: (...a: unknown[]) => unknown }).sendMail(message, ...rest)
+      }
+    },
+  })
+  return guardReservedRecipients(routed, async () => {
     await assertNoSupportSend('email', { sendingOrgId: sendingOrgId ?? null })
     return sendingOrgId ? isDemoSenderOrg(createServiceClient(), sendingOrgId) : false
   })

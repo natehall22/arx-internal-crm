@@ -118,7 +118,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
     expect(nav.sections.map((s) => s.id)).toEqual(['today', 'dashboard', 'pipeline', 'customers', 'jobs', 'money', 'reports'])
     expect(nav.sections.find((s) => s.id === 'jobs')!.label).toBe('Work')
     const hrefs = nav.sections.flatMap((s) => (s.children.length ? s.children.map((c) => c.href) : [s.href]))
-    for (const gone of ['/inside-sales', '/ops/checkups', '/projects', '/sisu']) expect(hrefs).not.toContain(gone)
+    for (const gone of ['/inside-sales', '/ops/checkups', '/projects', '/sisu', '/referral-partners']) expect(hrefs).not.toContain(gone)
     expect(nav.canvass).toBe(false)
     expect(nav.sections.find((s) => s.id === 'jobs')!.children[0]).toEqual({ href: '/ops', label: 'Work board' })
   })

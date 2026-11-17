@@ -5,6 +5,7 @@ import {
   sortCloseOutcomes,
   type CloseOutcomeConfigRow,
 } from '@/lib/close-outcomes'
+import { loadOrgProfile, profileOutcomeRows } from '@/lib/org-profile'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -85,10 +86,12 @@ export async function GET(request: NextRequest) {
       .single()
 
     const raw = org?.settings?.close_outcomes as CloseOutcomeConfigRow[] | undefined
+    // Its own saved list wins; with none, the built-ins in the company's industry profile (no insurance outcomes without insurance).
+    const orgProfile = await loadOrgProfile(admin, profile.org_id)
     const outcomes: CloseOutcomeConfigRow[] =
       Array.isArray(raw) && raw.length > 0
         ? sortCloseOutcomes(raw, { includeInactive })
-        : sortCloseOutcomes([...DEFAULT_CLOSE_OUTCOMES], { includeInactive })
+        : sortCloseOutcomes(profileOutcomeRows(orgProfile, null, [...DEFAULT_CLOSE_OUTCOMES]), { includeInactive })
 
     return NextResponse.json({ outcomes })
   } catch (error) {

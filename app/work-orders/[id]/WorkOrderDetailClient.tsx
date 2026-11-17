@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import PhoneLink from '@/components/PhoneLink'
+import { toast } from '@/components/ui/toast'
 
 interface WorkOrder {
   id: string
@@ -116,10 +117,19 @@ export default function WorkOrderDetailClient({
       updates.completed_by = userId
     }
 
-    const { error } = await supabase
+    // Ask for the row back: a policy that refuses the change updates zero rows WITHOUT an error, and the status history must
+    // never record a change that did not happen.
+    const { data: changed, error } = await supabase
       .from('work_orders')
       .update(updates)
       .eq('id', workOrder.id)
+      .select('id')
+
+    if (!error && (!changed || changed.length === 0)) {
+      setSaving(false)
+      toast.error('Could not change this work order. You may not have access to change it.')
+      return
+    }
 
     if (!error) {
       await supabase.from('work_order_status_history').insert({
@@ -138,6 +148,8 @@ export default function WorkOrderDetailClient({
         .order('created_at', { ascending: false })
       
       if (historyData) setStatusHistory(historyData)
+    } else {
+      toast.error('Could not change this work order.')
     }
 
     setSaving(false)

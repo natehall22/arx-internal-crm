@@ -1,3 +1,4 @@
+import { insertOpportunityRow } from '@/lib/new-deal'
 import { NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { requireAuthApi } from '@/lib/auth'
@@ -112,23 +113,18 @@ export async function POST(
       !hasSourceCoordinates && opportunityAddress ? await geocodeAddressToLatLng(opportunityAddress) : null
 
     const now = new Date().toISOString()
-    const { data: opportunity, error: insertError } = await supabase
-      .from('opportunities')
-      .insert({
+    const { data: opportunity, error: insertError } = await insertOpportunityRow(supabase, profile.org_id, {
         org_id: profile.org_id,
         customer_id: customer.id,
         lead_id: null,
         owner_user_id: profile.id,
         status: 'open',
-        project_type: 'roofing',
         address_text: opportunityAddress,
         lat: hasSourceCoordinates ? opportunityLat : geocodedCoords?.lat ?? null,
         lng: hasSourceCoordinates ? opportunityLng : geocodedCoords?.lng ?? null,
         ...(pickedProperty ? { property_id: pickedProperty.id } : {}),
         notes: `Add-on opportunity created from customer file on ${new Date(now).toLocaleDateString()}. Use this for new post-completion scope with a separate proposal and Installation Agreement.`,
-      })
-      .select('id')
-      .single()
+      }, 'id')
 
     if (insertError || !opportunity?.id) {
       console.error('Add-on opportunity insert failed:', insertError)
