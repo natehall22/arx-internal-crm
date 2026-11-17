@@ -4,6 +4,7 @@ import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
 import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSettingsCard'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
+import PaymentTermsCard from '@/components/admin/PaymentTermsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import OrgProfileCard from '@/components/admin/OrgProfileCard'
 import ProposalContentCard from '@/components/admin/ProposalContentCard'
@@ -59,9 +60,10 @@ export const SECTION_PAGES: Record<string, SectionPage> = {
     ],
   },
   payments: {
-    subtitle: 'Sales tax, online payments, QuickBooks and hourly billing.',
+    subtitle: 'Sales tax, payment terms, online payments, QuickBooks and hourly billing.',
     cards: [
       { anchor: 'sales-tax', render: async ({ admin, profile, orgProfile }) => <SalesTaxCard initial={await loadOrgSalesTax(admin, profile.org_id)} proposalWord={orgProfile.terms.proposal} /> },
+      { anchor: 'payment-terms', render: () => <PaymentTermsCard /> },
       { anchor: 'online-payments', render: () => <OnlinePaymentsCard /> },
       {
         anchor: 'quickbooks',

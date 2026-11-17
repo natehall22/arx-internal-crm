@@ -132,6 +132,7 @@ import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSetting
 import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSettingsCard'
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
 import { HARNESS_CREW_SCOREBOARD } from '@/e2e/fixtures'
+import AllInvoices from '@/components/billing/AllInvoices'
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import PayClient from '@/components/pay/PayClient'
 import PortalHomeView from '@/components/portal/PortalHomeView'
@@ -790,6 +791,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><CompanyLogoCard initialLogoUrl="/dev-harness-logo.svg" initialDarkLogoUrl={null} confirmRemove={async () => true} /></div>
     case 'hourly-settings':
       return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
+    case 'all-invoices':
+      return <div className="mx-auto max-w-2xl p-4"><AllInvoices /></div>
     case 'customer-invoices':
       return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
     case 'portal-signin':

@@ -34,7 +34,8 @@ import { loadCompletedServiceVisits } from '@/lib/service-plans-db'
 import { ymdInZone, addDaysYmd, SERVICE_VISIT_TYPE, type BillingBasis } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 import { isMissingColumn } from '@/lib/supabase/errors'
-import type { JobInvoice } from '@/lib/types/invoices'
+import { invoiceDaysOverdue } from '@/lib/payment-terms'
+import type { InvoiceStatus, JobInvoice } from '@/lib/types/invoices'
 
 const ID_CHUNK = 200
 /** Invoices made per request; the screen sends a big batch in pieces and shows progress (Vercel time limits). */
@@ -327,7 +328,7 @@ export async function visitInvoiceNumber(admin: SupabaseClient, orgId: string, v
 }
 
 /** Payments applied per invoice (one read shape for the Customer File list and the Today unpaid-invoices card). */
-async function loadAppliedCents(admin: SupabaseClient, invoiceIds: string[]): Promise<Map<string, number>> {
+export async function loadAppliedCents(admin: SupabaseClient, invoiceIds: string[]): Promise<Map<string, number>> {
   const applied = new Map<string, number>()
   for (const ids of chunks(invoiceIds)) {
     // invoice_payments has no org_id: callers pass invoice ids they just loaded company-scoped.
@@ -411,13 +412,7 @@ export async function loadUnpaidInvoices(admin: SupabaseClient, orgId: string): 
   }
   for (let k = open.length - 1; k >= 0; k--) if (open[k].balance <= 0) open.splice(k, 1)
   // A job invoice names its customer through the job (customer_id on the invoice itself is only set without a job).
-  const jobIds = Array.from(new Set(open.map((x) => x.i.job_id).filter((id): id is string => !!id)))
-  const jobFacts = new Map<string, { customerId: string | null; jobNumber: string | null; cancelled: boolean }>()
-  for (const part of chunks(jobIds)) {
-    const { data, error } = await orgDb(admin, orgId).from('production_jobs').select('id, customer_id, job_number, status').in('id', part)
-    if (error) throw new Error(`billing: read invoice jobs: ${error.message}`)
-    for (const j of (data ?? []) as Array<{ id: string; customer_id: string | null; job_number: string | null; status: string | null }>) jobFacts.set(j.id, { customerId: j.customer_id, jobNumber: j.job_number, cancelled: j.status === CANCELLED_JOB_STATUS })
-  }
+  const jobFacts = await loadInvoiceJobFacts(admin, orgId, open.map((x) => x.i.job_id))
   const customerOf = (i: JobInvoice) => (i.job_id ? jobFacts.get(i.job_id)?.customerId : i.customer_id) ?? null
   const names = await loadCustomers(admin, orgId, Array.from(new Set(open.map((x) => customerOf(x.i)).filter((id): id is string => !!id))))
   return {
@@ -435,6 +430,111 @@ export async function loadUnpaidInvoices(admin: SupabaseClient, orgId: string): 
       balanceCents: balance,
     })),
   }
+}
+
+type InvoiceJobFacts = { customerId: string | null; jobNumber: string | null; cancelled: boolean }
+
+/** The facts of the jobs behind job invoices (customer, number, cancelled), company-scoped. One read shape for the unpaid list and the all-invoices list. */
+export async function loadInvoiceJobFacts(admin: SupabaseClient, orgId: string, jobIds: Array<string | null | undefined>): Promise<Map<string, InvoiceJobFacts>> {
+  const ids = Array.from(new Set(jobIds.filter((id): id is string => !!id)))
+  const jobFacts = new Map<string, InvoiceJobFacts>()
+  for (const part of chunks(ids)) {
+    const { data, error } = await orgDb(admin, orgId).from('production_jobs').select('id, customer_id, job_number, status').in('id', part)
+    if (error) throw new Error(`billing: read invoice jobs: ${error.message}`)
+    for (const j of (data ?? []) as Array<{ id: string; customer_id: string | null; job_number: string | null; status: string | null }>) jobFacts.set(j.id, { customerId: j.customer_id, jobNumber: j.job_number, cancelled: j.status === CANCELLED_JOB_STATUS })
+  }
+  return jobFacts
+}
+
+export type InvoiceListRow = {
+  id: string
+  invoiceNumber: string
+  customerId: string
+  customerName: string
+  jobId: string | null
+  jobNumber: string | null
+  status: InvoiceStatus
+  createdAt: string
+  issuedAt: string | null
+  dueAt: string | null
+  totalCents: number
+  paidCents: number
+  /** Owed now: sent / partially paid invoices only (a draft or void owes nothing); a job's invoices by the job's own rule (see loadUnpaidInvoices). */
+  balanceCents: number
+  daysOverdue: number
+}
+
+/** Newest invoices read for the all-invoices list; past it the list says so. */
+export const ALL_INVOICES_CAP = 2000
+
+/**
+ * EVERY invoice of the company (a job's and a recurring-service customer's, any status), newest first, for Billing → All
+ * invoices, its export and the customer statement. What is OWED is never a second rule: an open job invoice takes the
+ * unpaid list's answer (loadUnpaidInvoices, capped by what its job still owes), an open service invoice total − paid
+ * (invoicePaidCents). `today` is the company's calendar day (late = a balance owed past the due day).
+ */
+export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts: { today: string; customerId?: string | null; cap?: number }): Promise<{ rows: InvoiceListRow[]; capped: boolean } | null> {
+  const cap = opts.cap ?? ALL_INVOICES_CAP
+  let invoices: JobInvoice[] = []
+  const read = async (apply: (q: any) => any) => {
+    const { data, error } = await apply(orgDb(admin, orgId).from('job_invoices').select('*')).order('created_at', { ascending: false }).order('id').limit(cap + 1)
+    if (error) {
+      if (notReady(error)) return null
+      throw new Error(`billing: read invoices: ${error.message}`)
+    }
+    return (data ?? []) as JobInvoice[]
+  }
+  if (opts.customerId) {
+    const mine = await read((q) => q.eq('customer_id', opts.customerId).is('job_id', null))
+    if (!mine) return null
+    const { data: jobs, error: jobsError } = await orgDb(admin, orgId).from('production_jobs').select('id').eq('customer_id', opts.customerId).limit(500)
+    if (jobsError) throw new Error(`billing: read customer jobs: ${jobsError.message}`)
+    const jobIds = ((jobs ?? []) as Array<{ id: string }>).map((j) => j.id)
+    const theirs: JobInvoice[] = []
+    for (const part of chunks(jobIds)) theirs.push(...((await read((q) => q.in('job_id', part))) ?? []))
+    invoices = [...mine, ...theirs].sort((a, b) => b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id))
+  } else {
+    const all = await read((q) => q)
+    if (!all) return null
+    invoices = all
+  }
+  const capped = invoices.length > cap
+  if (capped) invoices = invoices.slice(0, cap)
+
+  const applied = await loadAppliedCents(admin, invoices.map((i) => i.id))
+  const isOpen = (i: JobInvoice) => i.status === 'sent' || i.status === 'partially_paid'
+  const openJobInvoices = invoices.filter((i) => isOpen(i) && i.job_id)
+  const owedByJob = new Map<string, number>()
+  if (openJobInvoices.length > 0) {
+    const unpaid = await loadUnpaidInvoices(admin, orgId)
+    for (const r of unpaid?.rows ?? []) owedByJob.set(r.id, r.balanceCents)
+  }
+  const jobFacts = await loadInvoiceJobFacts(admin, orgId, invoices.map((i) => i.job_id))
+  const customerOf = (i: JobInvoice) => (i.job_id ? jobFacts.get(i.job_id)?.customerId : i.customer_id) ?? null
+  const names = await loadCustomers(admin, orgId, Array.from(new Set(invoices.map(customerOf).filter((id): id is string => !!id))))
+  const rows = invoices.map((i): InvoiceListRow => {
+    const own = i.total_cents - invoicePaidCents(i, applied.get(i.id) ?? 0)
+    const balance = !isOpen(i) ? 0 : i.job_id ? owedByJob.get(i.id) ?? 0 : Math.max(0, own)
+    const paid = i.status === 'void' || i.status === 'draft' ? 0 : Math.max(0, i.total_cents - balance)
+    const dueAt = i.due_at ? String(i.due_at).slice(0, 10) : null
+    return {
+      id: i.id,
+      invoiceNumber: i.invoice_number,
+      customerId: customerOf(i) ?? '',
+      customerName: names[customerOf(i) ?? '']?.name ?? 'Customer',
+      jobId: i.job_id ?? null,
+      jobNumber: i.job_id ? jobFacts.get(i.job_id)?.jobNumber ?? null : null,
+      status: i.status,
+      createdAt: i.created_at,
+      issuedAt: i.issued_at ? String(i.issued_at).slice(0, 10) : null,
+      dueAt,
+      totalCents: i.total_cents,
+      paidCents: paid,
+      balanceCents: balance,
+      daysOverdue: invoiceDaysOverdue(dueAt, opts.today, balance),
+    }
+  })
+  return { rows, capped }
 }
 
 export type CustomerServiceInvoice = JobInvoice & { applied_cents: number; balance_cents: number }

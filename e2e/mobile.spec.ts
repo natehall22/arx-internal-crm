@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { HARNESS_CATEGORIES, JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CREW_INCENTIVES, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS, HARNESS_DASHBOARD_CARDS_API } from './fixtures'
+import { HARNESS_CATEGORIES, JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CREW_INCENTIVES, HARNESS_CUSTOMER_INVOICES, HARNESS_ALL_INVOICES, HARNESS_NEW_INVOICE_OFFER, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS, HARNESS_DASHBOARD_CARDS_API } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -500,9 +500,27 @@ const SCREENS: Screen[] = [
     await p.route('**/api/customers/*/invoices', (route) => route.fulfill(json(HARNESS_CUSTOMER_INVOICES)))
     await p.route('**/api/customers/*/card', (route) => route.fulfill(json({ available: true, featureOn: true, card: { label: 'Visa •••• 4242', autopay: true, expired: false, expires: '12/30' } })))
     await p.route('**/api/invoices/*', (route) => route.fulfill(json({ success: true, invoice: { ...HARNESS_CUSTOMER_INVOICES.invoices[0], items: [], payments: [] } })))
+    await p.route('**/api/customers/*/invoices/new', (route) => route.fulfill(json(HARNESS_NEW_INVOICE_OFFER)))
   },
     states: [
       { name: 'mark-paid', run: async (p) => { await p.getByRole('button', { name: 'Mark paid' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Amount paid') } },
+      { name: 'new-invoice', run: async (p) => { await p.getByRole('button', { name: 'New invoice' }).click(); await p.waitForSelector('[role=dialog] >> text=Make invoice'); await p.waitForSelector('[role=dialog] >> text=Standard yard mowing') } },
+      { name: 'new-invoice-sized-line', run: async (p) => {
+        await p.getByRole('button', { name: 'New invoice' }).click()
+        await p.waitForSelector('[role=dialog] >> text=Standard yard mowing')
+        await p.getByRole('dialog').getByLabel('Item').selectOption('mow')
+        await p.getByRole('dialog').getByLabel('Size').selectOption('l')
+        await p.getByRole('dialog').getByRole('button', { name: 'Add a line' }).click()
+        await p.waitForSelector('[role=dialog] >> text=Line 2')
+      } },
+    ] },
+  { name: 'all-invoices', path: '/dev-harness/all-invoices', ready: 'text=INV-26-00012', mock: async (p) => {
+    await p.route('**/api/invoices', (route) => route.fulfill(json(HARNESS_ALL_INVOICES)))
+    await p.route('**/api/invoices/*', (route) => route.fulfill(json({ success: true, invoice: { ...HARNESS_CUSTOMER_INVOICES.invoices[0], items: [], payments: [] } })))
+  },
+    states: [
+      { name: 'overdue-only', run: async (p) => { await p.getByLabel('Status').first().selectOption('overdue'); await p.waitForSelector('text=Overdue 10 days') } },
+      { name: 'open-invoice', run: async (p) => { await p.getByRole('button', { name: 'Open' }).first().click(); await p.waitForSelector('[role=dialog], .fixed') } },
     ] },
   { name: 'crew-day', path: '/dev-harness/crew-day', ready: 'text=Gate code 4421. Dog in back yard.',
     mock: async (p) => {

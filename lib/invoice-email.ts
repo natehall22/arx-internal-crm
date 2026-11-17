@@ -12,6 +12,9 @@ import { formatCurrency } from '@/lib/job-payments'
 import { finalizeAndSendInvoice } from '@/lib/invoices'
 import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
 import { isUsableCustomerEmail, loadInvoiceDocument, type InvoiceDocument } from '@/lib/invoice-document'
+import { dueLabel } from '@/lib/payment-terms'
+import type { EmailCompany } from '@/lib/customer-email-layout'
+import { tryOrgAppUrl } from '@/lib/company-links'
 import { companyIdentity } from '@/lib/customer-messages-db'
 import { normalizeEmail } from '@/lib/customer-message-channels'
 import { suppressionOf } from '@/lib/customer-message-suppressions'
@@ -52,7 +55,7 @@ export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string
     totalRow('Balance due', doc.isPaid ? 'Paid — thank you' : money(doc.balanceCents), true),
   ].join('')
   const contact = [company.phone, company.email].filter(Boolean).map((v) => escapeHtml(v)).join(' · ')
-  const due = invoice.due_at ? `Due ${dateLabel(invoice.due_at)}` : 'Due on receipt'
+  const due = dueLabel(invoice.issued_at, invoice.due_at, dateLabel)
   const pay = opts.payUrl
     ? `<p style="margin:20px 0;"><a href="${escapeHtml(opts.payUrl)}" style="display:inline-block;background:#111827;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">Pay ${escapeHtml(money(doc.balanceCents))}</a></p>`
     : ''
@@ -91,7 +94,7 @@ export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string
   return { subject, html, text }
 }
 
-type InvoiceSender = { ok: true; from: string; replyTo: string } | { ok: false; status: 400 | 409 | 503; error: string }
+type InvoiceSender = { ok: true; from: string; replyTo: string; company: EmailCompany } | { ok: false; status: 400 | 409 | 503; error: string }
 
 /**
  * Who an invoice email comes from and whether it may go: the SAME rules as customer messages (lib/customer-messages-db.ts) —
@@ -113,7 +116,7 @@ export async function resolveInvoiceSender(admin: SupabaseClient, orgId: string,
     if (!error && (data ?? []).length > 0) return { ok: false, status: 409, error: 'This customer turned off email, so the invoice was not sent. Send it another way.' }
     if (error && !isMissingColumn(error, 'messages_off_at')) throw new Error(`invoice email: ${error.message}`)
   }
-  return { ok: true, from: formatFromHeader(id.from.name, id.from.address), replyTo: id.from.address }
+  return { ok: true, from: formatFromHeader(id.from.name, id.from.address), replyTo: id.from.address, company: companyIdentity(org as Parameters<typeof companyIdentity>[0], await tryOrgAppUrl(orgId, 'customer email logo')).company }
 }
 
 export type SendInvoiceResult = { ok: true; invoice: JobInvoice } | { ok: false; status: 400 | 409 | 503; error: string }
