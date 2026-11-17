@@ -395,17 +395,12 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     if (!savedSections || orgProfile.id === 'roofing') return
     const visit = profileWord(orgProfile, 'inspection').toLowerCase()
-    if (!savedSections.types) {
-      setAppointmentTypes(prev => prev
-        .filter(a => insuranceOn || a.id !== 'insurance_follow_up')
-        .map(a => (a.id === 'inspection' ? { ...a, description: `Standard ${visit}` } : a)))
-    }
     if (!savedSections.templates) {
       setNotificationTemplates(prev => prev.map(n => (n.id === 'inspection_scheduled'
         ? { ...n, name: `${profileWord(orgProfile, 'inspection')} Scheduled`, subject: `Your ${visit} has been scheduled`, body: n.body?.replace('roof inspection', visit) }
         : n)))
     }
-  }, [savedSections, orgProfile, insuranceOn])
+  }, [savedSections, orgProfile])
 
   const loadSettings = async () => {
     try {
