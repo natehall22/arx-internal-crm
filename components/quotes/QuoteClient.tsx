@@ -8,6 +8,9 @@ import { depositCents } from '@/lib/quotes/settings'
 import { legacyTaxLabel, taxLineLabel } from '@/lib/sales-tax'
 import type { QuoteView } from '@/lib/quotes/load'
 
+/** "3 hours" / "12 yd" for a line bought in more than one: nothing for a single item. */
+const qtyLabel = (q: number | null | undefined, unit: string | undefined) => (q != null && q !== 1 && q > 0 ? `${q}${unit && unit !== 'each' ? ` ${unit}` : ''}` : '')
+
 const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 
 /**
@@ -24,6 +27,9 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
   const [busy, setBusy] = useState<'approve' | 'deposit' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+  const [askOpen, setAskOpen] = useState(false)
+  const [askText, setAskText] = useState('')
+  const [askState, setAskState] = useState<'idle' | 'sending' | 'sent'>('idle')
 
   const price = useMemo(
     () =>
@@ -69,6 +75,19 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
     }
     setDone(true)
     window.location.reload()
+  }
+
+  async function sendChanges() {
+    setError(null)
+    if (!askText.trim()) return setError('Write what you would like changed first.')
+    setAskState('sending')
+    const res = await fetch(`/api/q/${token}/changes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: askText }) }).catch(() => null)
+    const data = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : {}
+    if (!res || !res.ok) {
+      setAskState('idle')
+      return setError(data.error || 'Something went wrong. Please try again or call us.')
+    }
+    setAskState('sent')
   }
 
   async function payDeposit() {
@@ -128,7 +147,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
           <ul className="mt-2 divide-y divide-[#e5e3dc] rounded-xl border border-[#d6d3c9]">
             {view.required.map((l) => (
               <li key={l.id} className="flex items-start justify-between gap-3 p-3">
-                <span className="text-base text-[#2c2c2a]"><span className="font-semibold">{l.name}</span>{l.description ? <span className="block text-sm">{l.description}</span> : null}</span>
+                <span className="text-base text-[#2c2c2a]"><span className="font-semibold">{l.name}</span>{qtyLabel(l.quantity, l.unit) ? <span data-testid="line-qty" className="block text-sm">Quantity: {qtyLabel(l.quantity, l.unit)}</span> : null}{l.description ? <span className="block text-sm">{l.description}</span> : null}</span>
                 <span className="shrink-0 text-base font-semibold tabular-nums text-[#2c2c2a]">{money(l.cents)}</span>
               </li>
             ))}
@@ -165,7 +184,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
                         })
                       }
                     />
-                    <span className="flex-1 text-base text-[#2c2c2a]"><span className="font-semibold">{o.name}</span>{o.description ? <span className="block text-sm">{o.description}</span> : null}</span>
+                    <span className="flex-1 text-base text-[#2c2c2a]"><span className="font-semibold">{o.name}</span>{qtyLabel(o.quantity, o.unit) ? <span data-testid="line-qty" className="block text-sm">Quantity: {qtyLabel(o.quantity, o.unit)}</span> : null}{o.description ? <span className="block text-sm">{o.description}</span> : null}</span>
                     <span className="shrink-0 text-base font-semibold tabular-nums text-[#2c2c2a]">{money(o.cents)}</span>
                   </label>
                 </li>
@@ -241,6 +260,24 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
               {termsOpen ? <p className="mt-2 whitespace-pre-line rounded-lg border border-[#d6d3c9] p-3 text-sm text-[#2c2c2a]">{view.terms}</p> : null}
             </section>
           ) : null}
+          <section className="mt-5" aria-label="Ask for changes">
+            {askState === 'sent' ? (
+              <p role="status" className="rounded-lg border border-[#1f7a3d] bg-[#e8f5ec] p-3 text-base font-semibold text-[#2c2c2a]">Thanks. We got your message and will get back to you.</p>
+            ) : askOpen ? (
+              <div>
+                <label className="block">
+                  <span className="text-base font-semibold text-[#2c2c2a]">What would you like changed?</span>
+                  <textarea value={askText} onChange={(e) => setAskText(e.target.value)} rows={4} maxLength={1500} className="mt-1 w-full rounded-lg border border-[#a8a69f] p-3 text-base text-[#2c2c2a]" />
+                </label>
+                <div className="mt-2 flex gap-3">
+                  <button type="button" onClick={() => void sendChanges()} disabled={askState === 'sending'} className="min-h-[48px] flex-1 rounded-xl border-2 border-[#1f2937] px-4 text-base font-bold text-[#1f2937] disabled:opacity-60">{askState === 'sending' ? 'Sending…' : 'Send to us'}</button>
+                  <button type="button" onClick={() => setAskOpen(false)} className="min-h-[48px] px-4 text-base font-semibold text-[#2c2c2a] underline">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setAskOpen(true)} className="min-h-[48px] w-full rounded-xl border-2 border-[#1f2937] px-4 text-base font-bold text-[#1f2937]">Ask for changes</button>
+            )}
+          </section>
           <section className="mt-5" aria-label="Approve">
             <label className="block">
               <span className="text-base font-semibold text-[#2c2c2a]">Type your full name to approve</span>

@@ -15,6 +15,7 @@ import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from '@/components/ui/toast'
 import { StatusPill } from '@/components/ui/badge'
 import { formatDate, formatMoney } from '@/lib/format'
+import { useOrgProfile } from '@/hooks/useOrgFeatures'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 
 interface Proposal {
@@ -50,6 +51,8 @@ export default function ProposalsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // The company's word for it (lawn: "Quote"; roofing keeps "Proposal").
+  const word = useOrgProfile().terms.proposal
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [currentUserId, setCurrentUserId] = useState('')
   const [userRole, setUserRole] = useState('')
@@ -85,7 +88,7 @@ export default function ProposalsPage() {
   useEffect(() => { void load() }, [load])
 
   const handleDelete = useCallback(async (p: Proposal) => {
-    if (!(await confirmDialog({ title: `Delete proposal ${p.proposal_number}? This cannot be undone.`, destructive: true }))) return
+    if (!(await confirmDialog({ title: `Delete ${word.toLowerCase()} ${p.proposal_number}? This cannot be undone.`, destructive: true }))) return
     setDeletingId(p.id)
     try {
       const response = await fetch(`/api/proposals/${p.id}`, { method: 'DELETE' })
@@ -101,13 +104,13 @@ export default function ProposalsPage() {
     } finally {
       setDeletingId(null)
     }
-  }, [])
+  }, [word])
 
   const columns = useMemo<ColumnDef<Proposal, any>[]>(
     () => [
       {
         id: 'number',
-        header: 'Proposal',
+        header: word,
         accessorFn: (p) => `${p.proposal_number} ${p.customer_name} ${p.customer_address}`,
         cell: (c) => {
           const p = c.row.original
@@ -126,7 +129,7 @@ export default function ProposalsPage() {
       { id: 'created', header: 'Created', accessorFn: (p) => p.created_at, cell: (c) => formatDate(c.getValue()) },
       { id: 'by', header: 'By', accessorFn: (p) => p.users?.full_name ?? '', meta: { mobile: 'hide' } },
     ],
-    []
+    [word]
   )
 
   const accepted = proposals.filter((p) => p.status === 'accepted')
@@ -134,11 +137,11 @@ export default function ProposalsPage() {
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <main className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6">
-        <PageHeader title="Proposals" subtitle="Create and manage customer proposals" actions={<Button asChild><Link href="/proposals/builder">New proposal</Link></Button>} />
+        <PageHeader title={`${word}s`} subtitle={`Create and manage customer ${word.toLowerCase()}s`} actions={<Button asChild><Link href="/proposals/builder">{`New ${word.toLowerCase()}`}</Link></Button>} />
         {error ? <p role="alert" className="text-ui-base text-danger">{error}</p> : null}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
-            ['All proposals', String(proposals.length)],
+            [`All ${word.toLowerCase()}s`, String(proposals.length)],
             ['Drafts', String(proposals.filter((p) => p.status === 'draft').length)],
             ['Sent', String(proposals.filter((p) => p.status === 'sent').length)],
             ['Accepted value', formatMoney(accepted.reduce((s, p) => s + (p.total || 0), 0))],

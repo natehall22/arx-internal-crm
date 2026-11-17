@@ -215,6 +215,7 @@ export default function ProposalBuilderPage() {
   /** Recurring service lines (service plans): separate from the one-time lines so no total or tax maths ever sees them. */
   const [recurringLines, setRecurringLines] = useState<LineItem[]>([])
   const [planTemplates, setPlanTemplates] = useState<PlanTemplateOption[]>([])
+  const [typedLine, setTypedLine] = useState({ name: '', qty: '1', unit: 'each', price: '', taxable: true })
   const [newPlan, setNewPlan] = useState({ templateId: '', price: '', start: '', weekday: '' })
   /**
    * Sales tax (lib/sales-tax.ts). `taxRateIds === null` = legacy: one rate typed on this quote, every line taxed
@@ -2106,10 +2107,47 @@ export default function ProposalBuilderPage() {
 
               {(simple ? simpleItems : adders).length === 0 && (
                 <div className="text-center py-8 text-gray-700">
-                  {simple ? 'Your price list has no items yet. Ask your admin to add them.' : 'No add-ons available. Contact admin to add items.'}
+                  {simple ? 'Your price list has no items yet. Type a line below, or ask your admin to add price list items.' : 'No add-ons available. Contact admin to add items.'}
                 </div>
               )}
             </div>
+
+
+            {simple && (
+              <fieldset className="mb-6 rounded-xl border border-gray-200 bg-white p-4" data-testid="typed-line">
+                <legend className="px-1 text-base font-semibold text-[#2c2c2a]">Type a line</legend>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <label className="col-span-2 block text-sm text-[#2c2c2a]">Name
+                    <input aria-label="Line name" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={typedLine.name} onChange={(e) => setTypedLine((t) => ({ ...t, name: e.target.value }))} />
+                  </label>
+                  <label className="block text-sm text-[#2c2c2a]">Qty
+                    <input aria-label="Line quantity" type="number" inputMode="decimal" min="0" step="any" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={typedLine.qty} onChange={(e) => setTypedLine((t) => ({ ...t, qty: e.target.value }))} />
+                  </label>
+                  <label className="block text-sm text-[#2c2c2a]">Unit
+                    <input aria-label="Line unit" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={typedLine.unit} onChange={(e) => setTypedLine((t) => ({ ...t, unit: e.target.value }))} />
+                  </label>
+                  <label className="block text-sm text-[#2c2c2a]">Price each
+                    <input aria-label="Line price" type="number" inputMode="decimal" min="0" step="0.01" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={typedLine.price} onChange={(e) => setTypedLine((t) => ({ ...t, price: e.target.value }))} />
+                  </label>
+                </div>
+                <label className="mt-2 flex min-h-[44px] items-center gap-3 text-base text-[#2c2c2a]">
+                  <input type="checkbox" className="h-5 w-5" checked={typedLine.taxable} onChange={(e) => setTypedLine((t) => ({ ...t, taxable: e.target.checked }))} />
+                  <span>Taxable</span>
+                </label>
+                <button
+                  type="button"
+                  className="mt-2 min-h-[44px] w-full rounded-lg bg-[#1f2937] px-4 text-base font-semibold text-white disabled:opacity-50 sm:w-auto"
+                  disabled={!typedLine.name.trim() || !(Number(typedLine.qty) > 0) || !(Number(typedLine.price) >= 0) || typedLine.price === ''}
+                  onClick={() => {
+                    const qty = Number(typedLine.qty)
+                    const price = Number(typedLine.price)
+                    setLineItems((prev) => [...prev, { id: crypto.randomUUID(), pricebook_item_id: null, category: 'General', name: typedLine.name.trim().slice(0, 200), description: '', unit: typedLine.unit.trim() || 'each', quantity: qty, unit_price: price, line_total: Math.round(qty * price * 100) / 100, is_adder: false, show_to_customer: true, price_type: 'fixed', taxable: typedLine.taxable }])
+                    setTypedLine({ name: '', qty: '1', unit: typedLine.unit, price: '', taxable: typedLine.taxable })
+                    toast('Line added')
+                  }}
+                >Add line</button>
+              </fieldset>
+            )}
 
             <div className="flex justify-between">
               <button

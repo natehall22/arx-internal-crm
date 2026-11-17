@@ -227,10 +227,10 @@ export type QuoteView = {
   number: string
   scope: string
   /** Required lines the customer sees by name. */
-  required: Array<{ id: string; name: string; description: string; cents: number }>
+  required: Array<{ id: string; name: string; description: string; cents: number; quantity?: number | null; unit?: string }>
   /** Required lines the office chose not to itemize, as one amount (so the total still adds up). */
   hiddenRequiredCents: number
-  options: Array<{ id: string; name: string; description: string; cents: number; defaultOn: boolean }>
+  options: Array<{ id: string; name: string; description: string; cents: number; defaultOn: boolean; quantity?: number | null; unit?: string }>
   /** Recurring service lines (a service plan is made on approval); shown apart from the one-time lines and total. */
   recurring: Array<{ id: string; name: string; description: string; detail: string; optional: boolean; defaultOn: boolean }>
   /** The short terms line(s) for the recurring part, one per billing basis in use. */
@@ -286,9 +286,9 @@ export function buildQuoteView(args: {
       continue
     }
     const cents = all.lineCents[l.id] ?? 0
-    if (isOptionalLine(l)) options.push({ id: l.id, name: l.name, description: l.description ?? '', cents, defaultOn: l.optional_default_on === true })
+    if (isOptionalLine(l)) options.push({ id: l.id, name: l.name, description: l.description ?? '', cents, defaultOn: l.optional_default_on === true, quantity: l.quantity ?? null, unit: l.unit ?? '' })
     else if (l.show_to_customer === false) hiddenRequiredCents += cents
-    else required.push({ id: l.id, name: l.name, description: l.description ?? '', cents })
+    else required.push({ id: l.id, name: l.name, description: l.description ?? '', cents, quantity: l.quantity ?? null, unit: l.unit ?? '' })
   }
   const p = ctx.proposal
   const d = effectiveDeposit(p, ctx.settings)

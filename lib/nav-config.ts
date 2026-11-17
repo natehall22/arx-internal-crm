@@ -21,7 +21,7 @@ export type NavContext = {
    * The company's industry profile (lib/org-profile.ts): section order, pages it hides and its words. Missing = roofing =
    * today's order and labels. Hiding only removes a menu entry; the page keeps its own permission gate.
    */
-  profile?: { nav: { order: readonly NavSectionId[]; hidden: readonly string[] }; terms: Pick<Terms, 'jobs' | 'jobBoard'> }
+  profile?: { nav: { order: readonly NavSectionId[]; hidden: readonly string[] }; terms: Pick<Terms, 'jobs' | 'jobBoard'> & Partial<Pick<Terms, 'proposal'>> }
   /** Helper results computed with lib/permissions (kept out of this file so there is one definition of each). */
   flags: {
     isOpsOnly: boolean
@@ -78,6 +78,8 @@ export const NAV_SECTIONS: NavSection[] = [
         label: 'Opportunities',
         show: (c) => gated('opportunities:view', 'opportunities:edit')(c) && c.role !== 'setter' && c.role !== 'canvasser',
       },
+      // Only for companies that sell by online quote (default-OFF switch, explicit true): roofing keeps its menu exactly as it was.
+      { href: '/proposals', label: 'Proposals', show: (c) => c.features?.quoteApproval === true && !c.flags.salesDocBarred && gated('proposals:view', 'proposals:create', 'proposals:edit')(c) },
       { href: '/inside-sales', label: 'Inside Sales', show: (c) => c.flags.canSeeInsideSales },
       { href: '/appointments', label: 'Appointments', show: gated(...SCHEDULING) },
       { href: '/referral-partners', label: 'Referral Partners', show: gated('referral_partners:view') },
@@ -143,6 +145,7 @@ function profileLabel(c: NavContext, key: string, fallback: string): string {
   if (!terms) return fallback
   if (key === 'section:jobs') return terms.jobs
   if (key === '/ops') return terms.jobBoard
+  if (key === '/proposals' && terms.proposal) return `${terms.proposal}s`
   return fallback
 }
 
