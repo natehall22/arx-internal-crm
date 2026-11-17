@@ -38,3 +38,14 @@ Staff are ordinary users of the operator's company; deactivating the user (or de
 - The banner sits above the sticky Nav (it can cover it by its own height while scrolling).
 - Needs a shared database between the operator's copy and a customer's copy (hand-off runs against one DB). Per-copy databases would need staff rows in each.
 - Pre-launch: legal terms for support access (customer consent wording).
+
+## Plans (which modules a company may use)
+Migration `202611270010_plan_entitlements.sql` (apply before the code; until then the code reads "no plan" = everything allowed).
+- **What it is.** `orgs.plan_entitlements jsonb NULL`, feature key to true/false (keys = `ORG_FEATURE_DEFS`). NULL = everything allowed, so ARX and every existing company are unchanged with no data change. An object = only keys that are `true` are allowed (a key left out is not).
+- **Who writes it.** Only the server: a guard trigger (same pattern as `support_access_always`) refuses any session that is not the service role or a direct SQL session, so no company user can change it through a route or RLS. The only app writer is `/api/support/plans` (platform staff only, anyone else gets 404), which calls SQL `set_plan_entitlement`: it locks the company row, changes one key and appends a row to `plan_entitlement_log` (append-only: who, company, module, before, after) in the same transaction. No log, no change.
+- **No support grant needed.** Managing plans is the platform's own job. `/support` → Plans lists every company (name, profile, each module's label and description) and shows nothing of the company's data.
+- **How it applies.** One reader, `lib/org-features.ts`: a feature is ON only if entitled AND the company's own switch (or profile default) is on. Not entitled = off in nav, pages (404), API (403), crons and the morning email, same as a company switching it off. Data is never deleted; adding the module back brings everything back as it was.
+- **Company side.** Settings → Features: modules in the plan keep their on/off switch; others show "Not in your plan — contact us to add it" with no switch. `PATCH /api/admin/settings` `type: 'features'` answers 403 (`not_in_plan`) to turning one on; turning off is always allowed.
+- **Seeding.** `lib/company-seed.ts` gives a NEW company a plan equal to what its industry profile turns on (roofing / no profile = the original modules). Demo companies also get what their sample data uses. An optional `"entitlements": { "texting": true, "servicePlans": false }` in the seed JSON overrides key by key; an existing company's plan is only touched when the seed file names `entitlements` (or it is the demo company).
+- **Pre-launch:** the plan cannot yet be priced or billed from the app; staff toggle by hand after a customer pays.
+
