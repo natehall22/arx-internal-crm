@@ -1,5 +1,7 @@
 /** @jest-environment node */
-import { DASHBOARD_CARDS, cardsForViewer, dashboardIsEmpty, resolveDashboard, type CardData, type DashboardAudience, type DashboardViewer } from '@/lib/dashboard-cards'
+import { DASHBOARD_CARDS, applyDashboardWords, cardsForViewer, dashboardIsEmpty, resolveDashboard, type CardData, type DashboardAudience, type DashboardViewer } from '@/lib/dashboard-cards'
+import { DATASETS } from '@/lib/reporting/catalog'
+import { datasetOffered } from '@/lib/reporting/run'
 import { agingBucketId, planContractValue, plansToRenew } from '@/lib/dashboard-role-loaders'
 import { resolveOrgProfile } from '@/lib/org-profile'
 import type { ServicePlan } from '@/lib/service-plans'
@@ -166,5 +168,31 @@ describe('the catalog has no card without a real source', () => {
   it('the one unavailable card says why', () => {
     const none = DASHBOARD_CARDS.filter((c) => c.source.kind === 'none')
     expect(none.map((c) => c.key)).toEqual(['visit-hours-vs-plan'])
+  })
+})
+
+describe('review fixes', () => {
+  it('the visits and time report datasets are not offered or runnable until their views are applied; time is finance-only', () => {
+    expect(DATASETS.visits.viewPending).toBe(true)
+    expect(DATASETS.time.viewPending).toBe(true)
+    expect(DATASETS.time.financeOnly).toBe(true)
+    expect(datasetOffered({ features: undefined }, 'visits')).toBe(false)
+    expect(datasetOffered({ features: undefined }, 'time')).toBe(false)
+    expect(datasetOffered({ features: undefined }, 'revenue')).toBe(true)
+  })
+  it('hours that add up everyone’s clocked time are called person-hours', () => {
+    const labels = DASHBOARD_CARDS.filter((c) => ['revenue-per-crew-hour', 'my-hours-today'].includes(c.key)).map((c) => c.label)
+    expect(labels).toEqual(['Revenue per person-hour', 'Person-hours today'])
+  })
+  it('a builder’s own word for a job replaces the whole word in the card’s words only', () => {
+    const tile = { kind: 'tile', key: 'k', label: 'Jobs in progress', display: 'count', value: 2, goal: null, sub: 'of 3 jobs' } as CardData
+    const list = { kind: 'list', key: 'l', label: 'Visits', count: 1, empty: 'No job today.', failed: false, rows: [{ id: '1', title: 'Fix the job-site gate', detail: 'job notes' }] } as CardData
+    const [a, b] = applyDashboardWords([tile, list], { job: 'Project', jobs: 'Projects' }) as Array<{ label: string; sub?: string; empty?: string; rows?: Array<{ title: string; detail: string }> }>
+    expect([a.label, a.sub, b.empty]).toEqual(['Projects in progress', 'of 3 projects', 'No project today.'])
+    expect(b.rows![0]).toEqual({ id: '1', title: 'Fix the job-site gate', detail: 'job notes' })
+    expect(applyDashboardWords([tile], { job: 'Job', jobs: 'Jobs' })[0]).toBe(tile)
+  })
+  it('the billing-only viewer does not also get the salesperson view', () => {
+    expect(keys(viewer(['billing'], { books: true }))).not.toContain('my-quotes-out')
   })
 })

@@ -74,21 +74,23 @@ export async function resolveDashboardViewer(admin: SupabaseClient, profile: Pro
   const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
   const financials = hasFinancials(perms)
   if (isOrgSuperuserRoleSlug(profile.role) || isSuperAdmin(profile)) return { userId: profile.id, audiences: new Set<DashboardAudience>(['owner']), financials, books: financials || hasMoneyRecord(perms), ledSubIds: null }
-  const canJobBoard = (await resolveOpsAccess(admin, profile.id, profile)).canJobBoard
-  const kind = todayKindFor({ role: profile.role, isSuperuser: false, canJobBoard })
-  // Crews this person is on, tracked or not. A failed lookup is "no crew access" (fail closed): the crew view is never the fallback.
-  let crews: { all: string[]; led: string[] } | null = null
-  try { crews = await loadCrewSubIds(admin, profile.org_id, profile.id) } catch (e) { console.error('dashboard: crew lookup failed', e) }
+  // The resolver reads are independent: run them together.
+  const [ops, crews, billing] = await Promise.all([
+    resolveOpsAccess(admin, profile.id, profile),
+    loadCrewSubIds(admin, profile.org_id, profile.id).catch((e): null => { console.error('dashboard: crew lookup failed', e); return null }),
+    callerCanAccessJobBilling(admin, profile).catch(() => false),
+  ])
+  // Crews this person is on, tracked or not. A failed lookup (null) is "no crew access" (fail closed): the crew view is never the fallback.
+  const kind = todayKindFor({ role: profile.role, isSuperuser: false, canJobBoard: ops.canJobBoard })
   const audiences = new Set<DashboardAudience>()
   const salesRole = SALES_ROLES.includes(profile.role)
   if (salesRole && kind !== 'ops') audiences.add('sales')
   if (kind === 'ops') audiences.add('office')
   if (crews !== null) {
     if (crews.all.length > 0) audiences.add('crew')
-    // an unknown role that is on no crew and is not office keeps what it had: the closer view
-    else if (!salesRole && kind !== 'ops') audiences.add('sales')
+    // an unknown role that is on no crew, is not office and is not billing keeps what it had: the closer view
+    else if (!salesRole && kind !== 'ops' && !billing) audiences.add('sales')
   }
-  const billing = await callerCanAccessJobBilling(admin, profile).catch(() => false)
   if (billing) audiences.add('billing')
   const ledSubIds = crews !== null && audiences.has('crew') && crews.all.length > 0 ? crews.all : null
   // A lookup that failed leaves a crew-only viewer with ledSubIds null AND no 'crew' audience: no crew card, no crew data.
@@ -212,6 +214,9 @@ export async function loadDashboardCardData(
   const now = args.now ?? new Date()
   const win = dashboardWindow(now, await loadOrgTimeZone(admin, orgId))
 
+  // Defense in depth: whatever list the caller passes, a card this viewer may not see (audience, money, season, feature) is never
+  // loaded — the same rule as the page's own filter (cardsForViewer), so a hidden card's loader does not run.
+  const allowed = args.cards.filter(({ card }) => cardsForViewer([{ key: card.key, goal: null }], viewer, features).length > 0)
   const once = <T,>(fn: () => Promise<T>) => { let p: Promise<T> | null = null; return () => (p ??= fn()) }
   const reportCtx = once(async () => narrowCtx(await buildReportContext(admin, profile), viewer))
   // Visits this week, narrowed to the crews a crew lead leads (office staff and owners see every crew).
@@ -223,7 +228,7 @@ export async function loadDashboardCardData(
   // the first card's run also sums its siblings' columns (the runner's `alsoSum`).
   const runKey = (spec: ReportSpec, range: string) => JSON.stringify([spec.dataset, range, spec.groupBy ?? null, spec.filters, spec.metric.kind])
   const siblingSums = new Map<string, string[]>()
-  for (const { card } of args.cards) {
+  for (const { card } of allowed) {
     const src = card.source
     if (src.kind !== 'report' || src.spec.metric.kind !== 'sum') continue
     const k = runKey(src.spec, src.range)
@@ -352,7 +357,7 @@ export async function loadDashboardCardData(
               if (c) c.seconds += secs
             }
           }
-          const columns: LeaderboardData['columns'] = [{ key: 'done', label: 'Visits done', format: 'count' }, ...(hoursOn ? [{ key: 'hours', label: 'Hours', format: 'hours' as const }] : []), { key: 'skips', label: 'Skips', format: 'count' }]
+          const columns: LeaderboardData['columns'] = [{ key: 'done', label: 'Visits done', format: 'count' }, ...(hoursOn ? [{ key: 'hours', label: 'Person-hours', format: 'hours' as const }] : []), { key: 'skips', label: 'Skips', format: 'count' }]
           const rows = Array.from(crews.entries())
             .sort((a, b) => b[1].done - a[1].done || a[1].name.localeCompare(b[1].name))
             .map(([id, c]) => ({ id, name: c.name, values: [c.done, ...(hoursOn ? [hoursFailed ? null : Math.round((c.seconds / 3600) * 10) / 10] : []), c.skipped] }))
@@ -371,9 +376,6 @@ export async function loadDashboardCardData(
     }
   }
 
-  // Defense in depth: whatever list the caller passes, a card this viewer may not see (audience, money, season, feature) is never
-  // loaded — the same rule as the page's own filter (cardsForViewer), so a hidden card's loader does not run.
-  const allowed = args.cards.filter(({ card }) => cardsForViewer([{ key: card.key, goal: null }], viewer, features).length > 0)
   const out = await Promise.all(allowed.map(one))
   return out.filter((c): c is CardData => c !== null)
 }
@@ -383,6 +385,8 @@ export async function loadDashboardCardData(
  * dashboard (one implementation). Empty unless the viewer is on a crew; never carries money.
  */
 export async function loadMyDayCards(admin: SupabaseClient, profile: Profile, features: OrgFeatures): Promise<CardData[]> {
+  // A company with neither service plans nor the time clock has no crew day to show: no reads at all.
+  if (!features.servicePlans && !features.timeTracking) return []
   const viewer = await resolveDashboardViewer(admin, profile)
   if (!viewer.audiences.has('crew') || !viewer.ledSubIds?.length) return []
   const keys = ['my-day', 'my-visits-left', 'my-hours-today']

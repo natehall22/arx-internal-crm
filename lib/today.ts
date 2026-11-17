@@ -263,9 +263,14 @@ export async function loadCloserQueues(admin: SupabaseClient, orgId: string, use
   ]
 }
 
-export async function loadOpsQueues(admin: SupabaseClient, orgId: string): Promise<Queue[]> {
+export async function loadOpsQueues(admin: SupabaseClient, orgId: string, opts: { only?: 'jobs-to-schedule' } = {}): Promise<Queue[]> {
   const cols = 'id, job_number, address_text, scheduled_date'
   const base = () => admin.from('production_jobs').select(cols, { count: 'exact' }).eq('org_id', orgId).neq('status', 'cancelled')
+  if (opts.only === 'jobs-to-schedule') {
+    // A caller that wants one list does not pay for the other two (the dashboard's "no crew / no date" card).
+    const r = ok(await base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(LIST_CAP))
+    return [jobQueue('jobs-to-schedule', 'Jobs to schedule', (r.data ?? []) as JobRow[], r.count ?? 0, 'Every sold job has an install date.')]
+  }
   const [toSchedule, toOrder, awaiting] = await Promise.all([
     base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(LIST_CAP),
     base().in('status', ['sold', 'materials', 'scheduled', 'in_progress']).eq('materials_status', 'not_ordered').order('scheduled_date', { ascending: true, nullsFirst: false }).limit(LIST_CAP),

@@ -205,7 +205,7 @@ export const HARNESS_MY_DAY: import('../lib/dashboard-cards').CardData[] = [
     { id: 'wo3', clockStopId: 'wo3', title: '3. 9 Pine Road — Mow', detail: '' },
   ] },
   { kind: 'tile', key: 'my-visits-left', label: 'Visits left today', display: 'count', value: 2, goal: null, group: 'My day' },
-  { kind: 'tile', key: 'my-hours-today', label: 'Hours today', display: 'count', value: 3.5, goal: null, group: 'My day', sub: 'of 8 budgeted' },
+  { kind: 'tile', key: 'my-hours-today', label: 'Person-hours today', display: 'count', value: 3.5, goal: null, group: 'My day', sub: 'of 8 budgeted' },
 ]
 
 /** A brand-new company: every number a real zero. */

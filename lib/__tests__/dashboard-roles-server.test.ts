@@ -125,6 +125,11 @@ describe('My day', () => {
 })
 
 describe('My day on /today', () => {
+  it('reads nothing at all for a company with neither service plans nor the time clock', async () => {
+    const off = { ...lawn.features, servicePlans: false, timeTracking: false }
+    expect(await loadMyDayCards(admin, profile('crew_lead') as never, off)).toEqual([])
+    expect(resolveIsFieldRole).not.toHaveBeenCalled()
+  })
   it('is empty for anyone who is not on a crew (no loader runs)', async () => {
     resolveIsFieldRole.mockResolvedValue(false)
     expect(await loadMyDayCards(admin, profile('sales_rep') as never, lawn.features)).toEqual([])

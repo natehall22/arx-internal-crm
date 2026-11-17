@@ -113,7 +113,7 @@ export const DASHBOARD_CARDS: readonly DashboardCard[] = [
   { key: 'collected-week', label: 'Collected this week', description: 'Payments received this week, refunds taken off (the Revenue report).', group: 'Money', audience: ['owner', 'billing'], money: 'books', display: 'money', goal: true,
     source: { kind: 'report', read: 'total', range: 'week', spec: base('revenue', { metric: { kind: 'sum', column: 'collected' } }) } },
   L({ key: 'unpaid-overdue', label: 'Unpaid and overdue', description: 'What customers still owe on sent invoices, and how many are past due (the list behind Today’s Unpaid invoices).', group: 'Money', audience: ['owner', 'billing'], money: 'books', display: 'money', loader: 'unpaidInvoices', measure: 'owed' }),
-  L({ key: 'revenue-per-crew-hour', label: 'Revenue per crew hour', description: 'Visit prices ÷ clocked crew hours, this week. Only per-visit-priced visits with clocked time count; the card says how many.', group: 'Money', audience: ['owner'], money: 'financials', requires: 'timeTracking', display: 'money', loader: 'revenuePerCrewHour', measure: 'week' }),
+  L({ key: 'revenue-per-crew-hour', label: 'Revenue per person-hour', description: 'Visit prices ÷ clocked person-hours (two people for 3 hours = 6), this week. Only per-visit-priced visits with clocked time count; the card says how many.', group: 'Money', audience: ['owner'], money: 'financials', requires: 'timeTracking', display: 'money', loader: 'revenuePerCrewHour', measure: 'week' }),
   L({ key: 'change-orders-month', label: 'Change orders this month', description: 'Signed change orders this month and what they added (cancelled jobs left out).', group: 'Money', audience: ['owner'], money: 'financials', display: 'money', loader: 'projects', measure: 'changeOrders' }),
 
   // ── OWNER · Recurring ────────────────────────────────────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ export const DASHBOARD_CARDS: readonly DashboardCard[] = [
   // ── CREW · My day (no money, ever) ───────────────────────────────────────────────────────────────────────────
   L({ key: 'my-day', label: 'My day', description: 'Today’s stops in order: address, notes and gate codes, done or left.', group: 'My day', audience: ['crew'], money: null, requires: 'servicePlans', display: 'list', loader: 'crewDay', measure: 'stops' }),
   L({ key: 'my-visits-left', label: 'Stops left today', description: 'Stops still to do today, of the stops on your crew’s day.', group: 'My day', audience: ['crew'], money: null, requires: 'servicePlans', display: 'count', loader: 'crewDay', measure: 'left' }),
-  L({ key: 'my-hours-today', label: 'Crew hours today', description: 'Hours your crew has clocked on today’s stops. Visits have no planned time, so there is no budget to compare against.', group: 'My day', audience: ['crew'], money: null, requires: 'timeTracking', display: 'count', loader: 'crewDay', measure: 'hours' }),
+  L({ key: 'my-hours-today', label: 'Person-hours today', description: 'Person-hours (everyone’s clocked time added up) your crew has clocked on today’s stops. Visits have no planned time, so there is no budget to compare against.', group: 'My day', audience: ['crew'], money: null, requires: 'timeTracking', display: 'count', loader: 'crewDay', measure: 'hours' }),
 
   // ── BILLING · The books ──────────────────────────────────────────────────────────────────────────────────────
   L({ key: 'ar-aging', label: 'Unpaid by age', description: 'Sent invoices still owing, by how far past due they are.', group: 'Billing', audience: ['billing', 'owner'], money: 'books', display: 'leaderboard', loader: 'billing', measure: 'aging' }),
@@ -366,5 +366,24 @@ export function dashboardIsEmpty(cards: readonly CardData[]): boolean {
     if (c.kind === 'tile') return !c.unavailable ? c.value === 0 : c.value === null
     if (c.kind === 'leaderboard') return !c.failed && c.rows.length === 0
     return !c.failed && c.count === 0 && c.rows.length === 0
+  })
+}
+
+/**
+ * The company's own word for a job ("Project" for a builder) in what the cards say. Pure; a company whose word is "Job" gets the
+ * cards back unchanged. Only the whole words job / jobs (any case) in the card's own words are replaced — never in rows, which carry customer and staff text.
+ */
+export function applyDashboardWords(cards: CardData[], terms: { job: string; jobs: string }): CardData[] {
+  if (terms.job === 'Job' && terms.jobs === 'Jobs') return cards
+  const say = (v: string): string => v.replace(/\b(jobs?)\b/gi, (m) => {
+    const plural = m.toLowerCase() === 'jobs'
+    const word = plural ? terms.jobs : terms.job
+    return m[0] === m[0].toUpperCase() ? word : word.toLowerCase()
+  })
+  const opt = (v: string | undefined) => (v === undefined ? v : say(v))
+  return cards.map((c): CardData => {
+    if (c.kind === 'tile') return { ...c, label: say(c.label), ...(c.sub !== undefined ? { sub: say(c.sub) } : {}), ...(c.unavailable !== undefined ? { unavailable: say(c.unavailable) } : {}) }
+    if (c.kind === 'leaderboard') return { ...c, label: say(c.label), empty: say(c.empty), columns: c.columns.map((x) => ({ ...x, label: say(x.label) })) }
+    return { ...c, label: say(c.label), empty: say(c.empty), sub: opt(c.sub) }
   })
 }

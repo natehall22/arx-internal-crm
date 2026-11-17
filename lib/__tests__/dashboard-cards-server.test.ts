@@ -149,6 +149,10 @@ describe('who is looking', () => {
     resolveOpsAccess.mockResolvedValue({ canJobBoard: true })
     expect(Array.from((await resolveDashboardViewer(admin, profile('operations'))).audiences)).toEqual(['office'])
   })
+  it('a billing-only person is billing, not also the closer view', async () => {
+    callerCanAccessJobBilling.mockResolvedValue(true)
+    expect(Array.from((await resolveDashboardViewer(admin, profile('bookkeeper'))).audiences)).toEqual(['billing'])
+  })
   it('a super admin is the owner even in the operations role', async () => {
     resolveOpsAccess.mockResolvedValue({ canJobBoard: true })
     const v = await resolveDashboardViewer(admin, { ...profile('operations'), is_super_admin: true })

@@ -184,7 +184,7 @@ async function revenuePerCrewHour(ctx: RoleCtx, card: DashboardCard, goal: numbe
     counted += 1
   }
   if (secs <= 0) return tile(card, goal, null, { unavailable: 'No clocked hours on priced visits this week yet.' })
-  return tile(card, goal, Math.round(value / (secs / 3600)), { sub: `${usd(value)} over ${hours1(secs)} h · ${counted} of ${done.length} finished visits counted (monthly-priced and unclocked visits are not)` })
+  return tile(card, goal, Math.round(value / (secs / 3600)), { sub: `${usd(value)} over ${hours1(secs)} person-hours · ${counted} of ${done.length} finished visits counted (monthly-priced and unclocked visits are not)` })
 }
 
 /** Active plans' contracted value over the next 12 months. */
@@ -328,7 +328,7 @@ async function office(ctx: RoleCtx, card: DashboardCard, measure: string): Promi
     return listCard(card, queueRows(q), q?.count ?? 0, 'No visits skipped in the last 7 days.')
   }
   if (measure === 'unassigned') {
-    const [visits, ops] = await Promise.all([loadUnassignedVisitsQueue(ctx.admin, ctx.orgId, ctx.now, ROW_CAP), loadOpsQueues(ctx.admin, ctx.orgId)])
+    const [visits, ops] = await Promise.all([loadUnassignedVisitsQueue(ctx.admin, ctx.orgId, ctx.now, ROW_CAP), loadOpsQueues(ctx.admin, ctx.orgId, { only: 'jobs-to-schedule' })])
     const toSchedule = ops.find((x) => x.id === 'jobs-to-schedule')
     const rows = [...queueRows(visits, 'warn'), ...queueRows(toSchedule)].slice(0, ROW_CAP)
     const features = ctx.features
@@ -338,7 +338,9 @@ async function office(ctx: RoleCtx, card: DashboardCard, measure: string): Promi
   // callbacks: texts nobody has answered + leads nobody has contacted (org-wide: this is the office's list)
   const [texts, leads] = await Promise.all([loadSmsInboxQueue(ctx.admin, ctx.orgId, ROW_CAP), loadLeadsWaitingQueue(ctx.admin, ctx.orgId, ctx.now, { cap: ROW_CAP })])
   const failed = leads.empty.includes('couldn’t load')
-  const out = listCard(card, [...queueRows(texts, 'warn'), ...queueRows(leads, 'warn')].slice(0, ROW_CAP), texts.count + leads.count, 'No texts or new leads are waiting.')
+  // The texting row links to Settings → Texting, which only owners can open: everyone else gets the row without the link.
+  const textRows = queueRows(texts, 'warn').map((r) => (isOwner(ctx.viewer) || !r.href?.startsWith('/admin/texting') ? r : { ...r, href: undefined }))
+  const out = listCard(card, [...textRows, ...queueRows(leads, 'warn')].slice(0, ROW_CAP), texts.count + leads.count, 'No texts or new leads are waiting.')
   return failed ? { ...out, failed: true } : out
 }
 
@@ -447,7 +449,7 @@ async function crewDay(ctx: RoleCtx, card: DashboardCard, goal: number | null, m
     const seconds = await loadWorkSecondsByStop(ctx.admin, ctx.orgId, { fromIso: ctx.win.todayFromIso, toIso: ctx.win.todayToIso, workOrderIds: visits.map((v) => v.id) })
     if (!seconds) return tile(card, goal, null, { unavailable: 'The time clock is not set up yet.' })
     const secs = Array.from(seconds.values()).reduce((t, s) => t + s, 0)
-    return tile(card, goal, hours1(secs), { sub: 'hours clocked on today’s stops · visits have no planned time to compare against' })
+    return tile(card, goal, hours1(secs), { sub: 'person-hours clocked on today’s stops · visits have no planned time to compare against' })
   }
   const rows: ListRow[] = visits.slice(0, MY_DAY_CAP).map((v, i) => {
     const isDone = v.status !== 'scheduled'

@@ -31,6 +31,8 @@ export type Dataset = {
   idColumn: string
   /** Whole dataset is finance-only (pay, costs). */
   financeOnly?: boolean
+  /** The view is written (supabase/migrations) but not applied yet: the dataset is not offered and cannot be run. Remove the flag when the migration is applied. */
+  viewPending?: boolean
 }
 
 export const DATASET_KEYS = [
@@ -93,7 +95,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
   },
   visits: {
     idColumn: 'visit_id', key: 'visits', label: 'Service visits', description: 'Every service-plan visit on the day it sits on: done, skipped and billed, per crew and plan.',
-    view: 'rpt_visits', dateColumn: 'visit_date', dateColumnIsDay: true, ownerColumn: null,
+    view: 'rpt_visits', dateColumn: 'visit_date', dateColumnIsDay: true, ownerColumn: null, viewPending: true,
     columns: [
       c('visit_date', 'Day', 'date'), c('status', 'Status'), c('is_done', 'Done', 'bool'), c('is_skipped', 'Skipped', 'bool'), c('skip_reason', 'Skip reason'),
       c('trade', 'Trade'), c('crew', 'Crew'), c('plan', 'Plan'), c('customer', 'Customer'), c('is_billed', 'Billed', 'bool'),
@@ -101,7 +103,8 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
   },
   time: {
     idColumn: 'entry_id', key: 'time', label: 'Clocked time', description: 'Finished work time on the crew clock, per person, crew, job and day (a clock still running is not counted yet).',
-    view: 'rpt_time', dateColumn: 'work_date', dateColumnIsDay: true, ownerColumn: null,
+    // Near-pay data (who worked how long): finance-only, like payroll lines.
+    view: 'rpt_time', dateColumn: 'work_date', dateColumnIsDay: true, ownerColumn: null, financeOnly: true, viewPending: true,
     columns: [
       c('work_date', 'Day', 'date'), c('person', 'Person'), c('crew', 'Crew'), c('job_number', 'Job #'), c('visit_number', 'Visit #'), c('hours', 'Hours', 'number'),
     ],

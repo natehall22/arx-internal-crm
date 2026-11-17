@@ -94,6 +94,7 @@ export function needsFinancials(ctx: Pick<ReportContext, 'finance' | 'scope'>, c
 
 /** The ONE "is this dataset offered to this viewer" rule for feature switches: the list (GET) and every run use it. */
 export function datasetOffered(ctx: Pick<ReportContext, 'features'>, datasetKey: string): boolean {
+  if ((DATASETS as Record<string, Dataset | undefined>)[datasetKey]?.viewPending) return false
   return !ctx.features || !reportDatasetHidden(datasetKey, ctx.features)
 }
 

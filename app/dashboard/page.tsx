@@ -20,10 +20,10 @@ import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import CardDashboard from '@/components/dashboard/CardDashboard'
-import { CLASSIC_SECTIONS, cardsForViewer, dashboardIsEmpty, resolveDashboard, type ClassicSection } from '@/lib/dashboard-cards'
+import { CLASSIC_SECTIONS, applyDashboardWords, cardsForViewer, dashboardCardByKey, dashboardIsEmpty, resolveDashboard, type ClassicSection } from '@/lib/dashboard-cards'
 import { detectOffSeason, loadDashboardCardData, resolveDashboardViewer } from '@/lib/dashboard-cards-server'
 import { resolveOrgProfile } from '@/lib/org-profile'
-import { isOwnerProfile } from '@/lib/super-admin'
+import { isOwnerProfile, isSuperAdmin } from '@/lib/super-admin'
 
 export default async function DashboardPage() {
   const { authUser, profile } = await requireAuth()
@@ -49,7 +49,7 @@ export default async function DashboardPage() {
   }
 
   // Legacy redirect for operations role (fallback)
-  if (profile.role === 'operations') {
+  if (profile.role === 'operations' && !isSuperAdmin(profile)) {
     redirect('/ops/dashboard')
   }
 
@@ -63,9 +63,11 @@ export default async function DashboardPage() {
     const admin = createServiceClient()
     const resolved = await resolveDashboardViewer(admin, profile)
     // Off-season (weekly work quiet): owner / office see renewals and balances instead of the empty weekly cards.
-    const viewer = { ...resolved, offSeason: await detectOffSeason(admin, profile.org_id, resolved, orgProfile.features) }
+    // (only probed when the saved list has a season card at all)
+    const hasSeasonCards = dashboard.cards.some((c) => dashboardCardByKey(c.key)?.season)
+    const viewer = { ...resolved, offSeason: hasSeasonCards ? await detectOffSeason(admin, profile.org_id, resolved, orgProfile.features) : false }
     const visible = cardsForViewer(dashboard.cards, viewer, orgProfile.features)
-    const cards = await loadDashboardCardData(admin, { profile, viewer, cards: visible, features: orgProfile.features })
+    const cards = applyDashboardWords(await loadDashboardCardData(admin, { profile, viewer, cards: visible, features: orgProfile.features }), orgProfile.terms)
     // A new company's owner / office sees "what to do next" instead of rows of zeros.
     const emptyStart = (viewer.audiences.has('owner') || viewer.audiences.has('office')) && dashboardIsEmpty(cards)
     return (
