@@ -269,6 +269,55 @@ describe('authorization (signed in)', () => {
   })
 })
 
+describe('Field Tech (crew member, signed in)', () => {
+  const FT = 'aaaaaaaa-0000-4000-8000-000000000020'
+  const ftActor: ClockActor = { via: 'signed_in', orgId: 'org1', userId: FT }
+  function withFieldTech(onCrew: boolean) {
+    const db = seed()
+    db.tables.users.push({ id: FT, org_id: 'org1', full_name: 'Field Fran', role: 'field_tech', active: true })
+    if (onCrew) db.tables.crew_members.push({ id: 'cm9', org_id: 'org1', sub_id: 's1', user_id: FT, is_lead: false })
+    db.tables.work_orders.push({ id: '11111111-1111-4111-8111-000000000003', org_id: 'org1', assigned_sub_id: 's2', job_id: '22222222-2222-4222-8222-000000000002', status: 'scheduled', title: 'Other crew' })
+    db.tables.production_jobs.push({ id: '22222222-2222-4222-8222-000000000002', org_id: 'org1', job_number: '26-0142', status: 'scheduled' })
+    return db
+  }
+
+  it('a Field Tech on a time-tracked crew clocks themselves in on their own crew\u2019s stop or job', async () => {
+    const db = withFieldTech(true)
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [FT] }), T('07:00'))).toMatchObject({ ok: true, done: 1 })
+    expect(open(db).map((e) => [e.user_id, e.source])).toEqual([[FT, 'self_tap']])
+    expect(await applyClockTap(db.client, ftActor, tap('clock_out', T('09:00'), { userIds: [FT] }), T('09:00'))).toMatchObject({ ok: true })
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('10:00'), { jobId: JOB1, userIds: [FT] }), T('10:00'))).toMatchObject({ ok: true, done: 1 })
+  })
+
+  it('never on another crew\u2019s stop or job (they are limited to their own crew, unlike office staff)', async () => {
+    const db = withFieldTech(true)
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: '11111111-1111-4111-8111-000000000003', userIds: [FT] }), T('07:00'))).toMatchObject({ ok: false, status: 404 })
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { jobId: '22222222-2222-4222-8222-000000000002', userIds: [FT] }), T('07:00'))).toMatchObject({ ok: false, status: 404 })
+    expect(open(db)).toEqual([])
+  })
+
+  it('a custom role named Field Technician is scoped the same way, and hours are filed under the stop\u2019s crew', async () => {
+    const db = withFieldTech(true)
+    db.tables.custom_roles = [{ id: 'cr1', org_id: 'org1', name: 'Field Technician', display_name: 'Field Technician' }]
+    Object.assign(db.tables.users.find((u) => u.id === FT)!, { role: 'custom', custom_role_id: 'cr1' })
+    db.tables.crew_members.push({ id: 'cm10', org_id: 'org1', sub_id: 's2', user_id: FT, is_lead: false }) // s2 does not track time
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: '11111111-1111-4111-8111-000000000003', userIds: [FT] }), T('07:00'))).toMatchObject({ ok: false, status: 404 })
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [FT] }), T('07:00'))).toMatchObject({ ok: true, done: 1 })
+    expect(open(db).map((e) => [e.user_id, e.sub_id])).toEqual([[FT, 's1']])
+  })
+
+  it('an inactive crew is not in scope', async () => {
+    const db = withFieldTech(true)
+    db.tables.sub_contractors[0].active = false
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [FT] }), T('07:00'))).toMatchObject({ ok: false })
+  })
+
+  it('a Field Tech who is on no crew has no clock', async () => {
+    const db = withFieldTech(false)
+    expect(await applyClockTap(db.client, ftActor, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [FT] }), T('07:00'))).toMatchObject({ ok: false, status: 403 })
+  })
+})
+
 describe('office', () => {
   it('adds, edits and removes with a reason; history kept; an approved week refuses', async () => {
     const db = seed()

@@ -4,6 +4,7 @@ import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { buildChangeOrderSignedEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { changeOrderDocumentName } from '@/lib/contracts/change-order-wording'
 import { createServiceClient } from '@/lib/supabase/service'
 import { customerSignedDocLinkForPage, customerSignedDocUrl } from '@/lib/files/files-object'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
@@ -174,6 +175,7 @@ export async function POST(request: NextRequest) {
         repName: changeOrder.rep_name || '',
         repSignature: changeOrder.rep_signature_data || '',
         originalContractDate: changeOrder.original_contract_date || null,
+        documentName: await changeOrderDocumentName(supabase, changeOrder.org_id),
       }, documentBrand)
 
       const fileName = `${String(changeOrder.co_number || 'co').replace(/-/g, '_')}_${Date.now()}.pdf`

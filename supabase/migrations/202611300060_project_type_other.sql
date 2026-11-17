@@ -1,0 +1,11 @@
+-- Additive: the project_type enum (opportunities.project_type, projects.project_type) gains 'other'.
+--
+-- WHY: every company that is not roofing (lawn, cleaning, builder …) had its deals created as 'roofing' (the column default),
+-- which then showed as a "Roofing" pill and in lists/AI text. New deals for those companies are created as 'other'
+-- (lib/org-profile.ts newDealProjectType; lib/new-deal.ts). production_jobs.job_type needs nothing: 'other' is a default
+-- org trade slug (migration 202611060030).
+--
+-- !! APPLY BEFORE DEPLOYING the code. If the code runs first, the insert fails with 22P02 and lib/new-deal.ts retries once as
+--    'roofing' and logs it (deal creation never blocks), but the deal is typed 'roofing' until retyped.
+-- Safe to re-run. Rollback: none needed (an unused enum value is harmless; Postgres cannot drop one).
+ALTER TYPE project_type ADD VALUE IF NOT EXISTS 'other';

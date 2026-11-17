@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { offeredPresets } from '@/lib/role-presets'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import {
@@ -49,6 +51,7 @@ const colorOptions = [
 
 const roleOptions = [
   { value: 'canvasser', label: 'Canvasser' },
+  { value: 'field_tech', label: 'Field Tech' },
   { value: 'sales_rep', label: 'Sales Rep' },
   { value: 'sales_manager', label: 'Sales Manager' },
   { value: 'regional_manager', label: 'Regional Manager' },
@@ -57,7 +60,10 @@ const roleOptions = [
 ]
 
 export default function PresetsPage() {
-  const [presets, setPresets] = useState<PermissionPreset[]>([])
+  const [allPresets, setPresets] = useState<PermissionPreset[]>([])
+  const orgFeatures = useOrgFeatures()
+  // The same list Add User offers (a Field Tech row stays out of a company without crews).
+  const presets = offeredPresets(allPresets, orgFeatures)
   const [allPermissions, setAllPermissions] = useState<Permission[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
