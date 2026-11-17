@@ -30,6 +30,7 @@ import { listWaiting } from '@/lib/threads/waiting'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
 import CardGrid from '@/components/dashboard/CardGrid'
 import { loadMyDayCards } from '@/lib/dashboard-cards-server'
+import { applyDashboardWords, type CardData } from '@/lib/dashboard-cards'
 import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
 import { loadCustomerMessagesBlockedQueue } from '@/lib/customer-messages-db'
 import { loadQuickBooksStuckQueue } from '@/lib/quickbooks/activity'
@@ -59,6 +60,8 @@ export default async function TodayPage() {
 
   // The company's industry profile (lib/org-profile.ts): feature switches + which Today cards, in what order, with what titles.
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
+  // My day reads run alongside the rest of the page's reads (it bails with no reads for a company with neither service plans nor the time clock).
+  const myDayPromise = loadMyDayCards(admin, profile, orgProfile.features).catch((e) => { console.error('today: my day failed', e); return [] as CardData[] })
   // Setters work in the field: on a phone, Today IS the canvass app (unless the company switched door knocking off).
   const canvassOn = kind === 'setter' && orgProfile.features.canvassing
   if (canvassOn && /iPhone|Android|Mobile/i.test(headers().get('user-agent') ?? '')) redirect('/canvass')
@@ -142,7 +145,8 @@ export default async function TodayPage() {
           ]
   const finishSetup = await finishSetupPromise
   // A crew lead's or field tech's "My day" (stops + the time clock), from the same loaders as the dashboard card; nothing for anyone else.
-  const myDay = await loadMyDayCards(admin, profile, orgProfile.features).catch((e) => { console.error('today: my day failed', e); return [] })
+  const myDay = applyDashboardWords(await myDayPromise, orgProfile.terms)
+  const myDayHasClock = myDay.some((c) => c.kind === 'list' && c.key === 'my-day' && c.clock === true)
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
   // AI changes waiting for THIS person's Approve (the switch must be on; a failed read just hides the card).
   const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
@@ -158,7 +162,7 @@ export default async function TodayPage() {
           actions={canvassOn ? <Button asChild><Link href="/canvass">Open Canvass</Link></Button> : undefined}
         />
         {/* The day clock: only for someone on a time-tracked crew (or leading one) and only when the company uses the clock. */}
-        {orgProfile.features.timeTracking ? <MyDayClock /> : null}
+        {orgProfile.features.timeTracking && !myDayHasClock ? <MyDayClock /> : null}
         {finishSetup ? <FinishSetupCard items={finishSetup} /> : null}
         {myDay.length > 0 ? <CardGrid cards={myDay} /> : null}
         <WaitingOnYou items={waiting} />

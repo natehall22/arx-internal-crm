@@ -1,12 +1,13 @@
 'use client'
 
-import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
+import { DayClockCard } from '@/components/time/DayClockCard'
+import { ClockHereButton } from '@/components/time/ClockPanel'
 import { useClock, usePresence } from '@/components/time/useClock'
 import type { ListData } from '@/lib/dashboard-cards'
 
 /**
- * "My day" for a crew lead or a field tech: the time clock (the same panel, taps and queue as the job page and the crew phone
- * page — one clock) above today's stops in order, each open stop with its own "Clock in here". Dark text, big targets.
+ * "My day" for a crew lead or a field tech: the day clock (DayClockCard — the one time block, same taps and queue as the crew phone
+ * page) above today's stops in order, each open stop with its own "Clock in here". Dark text, big targets.
  */
 export default function MyDayList({ list }: { list: ListData }) {
   const clock = useClock('/api/time/clock')
@@ -19,7 +20,7 @@ export default function MyDayList({ list }: { list: ListData }) {
       {list.sub ? <p className="px-4 pb-2 text-sm text-gray-800">{list.sub}</p> : null}
       {showClock ? (
         <div className="px-4 pb-3">
-          <ClockPanel clock={clock} selected={present} setSelected={setPresent} title={clock.state!.people.length > 1 ? 'Crew time' : 'My time'} placeLabel={(o) => stopLabel(o.workOrderId) ?? 'another stop'} />
+          <DayClockCard clock={clock} selected={present} setSelected={setPresent} title={clock.state!.people.length > 1 ? 'Crew day' : 'My day'} />
         </div>
       ) : null}
       {list.failed ? (

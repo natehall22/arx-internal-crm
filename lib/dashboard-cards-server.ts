@@ -28,6 +28,7 @@ import {
 } from '@/lib/dashboard-cards'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { resolveEffectivePermissionNames, resolveIsFieldRole } from '@/lib/effective-permissions'
+import { isCrewFieldRole } from '@/lib/permissions'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { loadRoleCard, type RoleCtx } from '@/lib/dashboard-role-loaders'
 import { hasFinancials, hasMoneyRecord } from '@/lib/financials-access'
@@ -55,8 +56,6 @@ export type DashboardViewerInfo = DashboardViewer & {
 }
 
 const SALES_ROLES = ['sales_rep', 'closer', 'sales_manager', 'regional_manager']
-/** The field technician's role slug (a string on purpose: its definition lives in the field-tech change). */
-const FIELD_TECH_ROLE = 'field_tech'
 
 /**
  * Who is looking at the dashboard, and which role cards that means: owner (health), office (job board), sales, crew (a lead or
@@ -65,7 +64,10 @@ const FIELD_TECH_ROLE = 'field_tech'
  */
 export async function resolveDashboardViewer(admin: SupabaseClient, profile: Profile): Promise<DashboardViewerInfo> {
   const none: DashboardViewerInfo = { userId: profile.id, audiences: new Set<DashboardAudience>(), financials: false, books: false, ledSubIds: null }
-  const tech = profile.role === FIELD_TECH_ROLE
+  // A Field Tech by role slug OR custom-role name (isCrewFieldRole, the same answer Today uses). A failed role-name lookup is "not a tech" (the field-role check below still fences money).
+  const customRoleId = (profile as { custom_role_id?: string | null }).custom_role_id
+  const customRole = customRoleId ? (await admin.from('custom_roles').select('name, display_name').eq('id', customRoleId).eq('org_id', profile.org_id).maybeSingle().then((r) => r.data, (): null => null)) : null
+  const tech = !isOrgSuperuserRoleSlug(profile.role) && !isSuperAdmin(profile) && isCrewFieldRole({ role: profile.role, customRoleName: (customRole?.name as string | null) ?? null, customRoleDisplayName: (customRole?.display_name as string | null) ?? null })
   if (!tech && (await resolveIsFieldRole(admin, profile))) return none
   if (tech) {
     // Crew only, no money, whatever was granted. A failed crew lookup is "no crew" (fail closed).

@@ -158,7 +158,7 @@ export const DASHBOARD_CARDS: readonly DashboardCard[] = [
   // ── CREW · My day (no money, ever) ───────────────────────────────────────────────────────────────────────────
   L({ key: 'my-day', label: 'My day', description: 'Today’s stops in order: address, notes and gate codes, done or left.', group: 'My day', audience: ['crew'], money: null, requires: 'servicePlans', display: 'list', loader: 'crewDay', measure: 'stops' }),
   L({ key: 'my-visits-left', label: 'Stops left today', description: 'Stops still to do today, of the stops on your crew’s day.', group: 'My day', audience: ['crew'], money: null, requires: 'servicePlans', display: 'count', loader: 'crewDay', measure: 'left' }),
-  L({ key: 'my-hours-today', label: 'Person-hours today', description: 'Person-hours (everyone’s clocked time added up) your crew has clocked on today’s stops. Visits have no planned time, so there is no budget to compare against.', group: 'My day', audience: ['crew'], money: null, requires: 'timeTracking', display: 'count', loader: 'crewDay', measure: 'hours' }),
+  L({ key: 'my-hours-today', label: 'Person-hours today', description: 'Paid person-hours (everyone’s paid day added up, breaks out) so far today — the same number the day clock shows. Visits have no planned time, so there is no budget to compare against.', group: 'My day', audience: ['crew'], money: null, requires: 'timeTracking', display: 'count', loader: 'crewDay', measure: 'hours' }),
 
   // ── BILLING · The books ──────────────────────────────────────────────────────────────────────────────────────
   L({ key: 'ar-aging', label: 'Unpaid by age', description: 'Sent invoices still owing, by how far past due they are.', group: 'Billing', audience: ['billing', 'owner'], money: 'books', display: 'leaderboard', loader: 'billing', measure: 'aging' }),
@@ -343,7 +343,7 @@ export type ListData = {
   rows: ListRow[]
   empty: string
   failed: boolean
-  /** My day with the company's time clock on: the clock sits above the stops (components/dashboard/MyDayList.tsx). */
+  /** My day with the company's time clock on: the day clock card (components/time/DayClockCard.tsx) sits above the stops. */
   clock?: boolean
   group?: CardGroup
 }

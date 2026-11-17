@@ -99,6 +99,7 @@ export function datasetOffered(ctx: Pick<ReportContext, 'features'>, datasetKey:
 }
 
 export function checkAccess(ctx: ReportContext, ds: Dataset, spec: ReportSpec): void {
+  if (ds.viewPending) throw new ReportAccessError('That report is not available yet.')
   if (!datasetOffered(ctx, ds.key)) throw new ReportAccessError('That report is for a feature your company has turned off.')
   if (ds.financeOnly && !ctx.finance) throw new ReportAccessError('That report is for owners and finance only.')
   if (!ds.ownerColumn && ctx.scope !== 'all' && !ctx.finance) throw new ReportAccessError('That report covers the whole company, which your role cannot see.')

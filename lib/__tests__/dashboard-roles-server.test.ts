@@ -5,7 +5,8 @@ jest.mock('@/lib/ops-access', () => ({ resolveOpsAccess: jest.fn(async () => ({ 
 jest.mock('@/lib/org-settings', () => ({ mergeOrgSettings: jest.fn() }))
 jest.mock('@/lib/finance-access', () => ({ callerCanAccessJobBilling: jest.fn(async () => false) }))
 const loadWorkSecondsByStop = jest.fn(async (..._a: unknown[]) => new Map<string, number>())
-jest.mock('@/lib/time-tracking-db', () => ({ loadCrewSubIds: jest.fn(async () => ({ all: [], led: [] })), loadWorkSecondsByStop: (...a: unknown[]) => loadWorkSecondsByStop(...a), loadWorkSecondsByJob: jest.fn(async () => new Map()) }))
+const loadClockState = jest.fn(async (..._a: unknown[]) => ({ ready: true, people: [{ userId: 'u1', paidTodaySeconds: 0 }] }))
+jest.mock('@/lib/time-tracking-db', () => ({ loadClockState: (...a: unknown[]) => loadClockState(...a), loadCrewSubIds: jest.fn(async () => ({ all: [], led: [] })), loadWorkSecondsByStop: (...a: unknown[]) => loadWorkSecondsByStop(...a), loadWorkSecondsByJob: jest.fn(async () => new Map()) }))
 jest.mock('@/lib/supabase/org-db', () => ({ orgDb: () => ({ from: () => ({ select: () => ({ in: async () => ({ data: [] }) }) }) }) }))
 const runReport = jest.fn()
 const buildReportContext = jest.fn(async () => ({ orgId: 'o1', userId: 'u1', scope: 'all', finance: false, canExport: true, scopedUserIds: null }))
@@ -107,6 +108,7 @@ describe('My day', () => {
       { id: 'v2', scheduledDate: '2026-11-11', status: 'scheduled', subId: 'a', address: '3 Birch Ct', planName: 'Edge', step: 'service', stepLabel: null, customerName: 'Sam Roe', officeNotes: null, accessNotes: null, routePosition: 2 },
     ])
     loadWorkSecondsByStop.mockResolvedValue(new Map([['v1', 5400]]))
+    loadClockState.mockResolvedValue({ ready: true, people: [{ userId: 'u1', paidTodaySeconds: 5400 }, { userId: 'u2', paidTodaySeconds: 2700 }] })
     const out = await run(viewer(['crew'], { ledSubIds: ['a'] }), ['my-day', 'my-visits-left', 'my-hours-today'])
     expect(loadVisits).toHaveBeenCalledTimes(1)
     expect(loadVisits.mock.calls[0][2]).toMatchObject({ subId: 'a', accessNotes: true })
@@ -115,7 +117,8 @@ describe('My day', () => {
     expect([day.count, day.rows.map((r) => r.done)]).toEqual([1, [true, false]])
     expect(day.rows[0].detail).toContain('Gate / access: Gate 4471')
     expect(JSON.stringify(out)).not.toMatch(/\$\d/)
-    expect(out[2]).toMatchObject({ value: 1.5 })
+    // paid-day hours (driving and loading count), not stop-only time (5400 s = 1.5 h)
+    expect(out[2]).toMatchObject({ value: 2.25 })
     expect(runReport).not.toHaveBeenCalled()
   })
   it('a crew member with no crew gets a plain "ask the office" message, not a failure', async () => {
