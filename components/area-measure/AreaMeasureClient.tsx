@@ -18,9 +18,11 @@
  * Roof measuring code is never imported here (jest guard: lib/__tests__/area-measure-isolation.test.ts).
  */
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import * as React from 'react'
 
 import { Button, Input } from '@/components/ui'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 import {
   AREA_MEASURE_DEFAULTS,
   AREA_MEASURE_SETTING_FIELDS,
@@ -80,7 +82,7 @@ const COLORS: Record<ShapeType, string> = { lawn: '#2e7d32', bed: '#a65e00', cut
 const CROSS_COLOR = '#d50000'
 
 /** Closest useful satellite zoom: a house fills the screen. Google's imagery is often missing past 20, so never ask for more. */
-const CUTOUT_NEEDS_LAWN = 'Draw the lawn first, then cut out the house'
+const CUTOUT_NEEDS_LAWN = 'Draw the lawn or a bed first, then cut out the house'
 const PROPERTY_ZOOM = 20
 const COMPACT_QUERY = '(max-width: 1023px)'
 
@@ -88,9 +90,24 @@ const COMPACT_QUERY = '(max-width: 1023px)'
 function zoomToProperty(g: any, map: any, center: any) {
   map.setCenter(center)
   map.setZoom(PROPERTY_ZOOM)
-  if (typeof g.MaxZoomService !== 'function') return
-  new g.MaxZoomService().getMaxZoomAtLatLng(center, (r: any) => {
-    if (r?.status === 'OK' && typeof r.zoom === 'number' && r.zoom < PROPERTY_ZOOM) map.setZoom(r.zoom)
+  capZoomToImagery(g, map)
+}
+
+/**
+ * Where the map is now, ask how far the satellite photo goes and zoom out to that if the view is closer (no grey tiles). The answer
+ * arrives later: if the person has zoomed or panned since, it is ignored.
+ */
+function capZoomToImagery(g: any, map: any) {
+  if (typeof g.MaxZoomService !== 'function' || typeof map.getZoom !== 'function') return
+  const at = map.getCenter()
+  const z0 = map.getZoom()
+  const lat0 = at.lat()
+  const lng0 = at.lng()
+  new g.MaxZoomService().getMaxZoomAtLatLng(at, (r: any) => {
+    if (r?.status !== 'OK' || typeof r.zoom !== 'number') return
+    const now = map.getCenter()
+    if (map.getZoom() !== z0 || Math.abs(now.lat() - lat0) > 2e-7 || Math.abs(now.lng() - lng0) > 2e-7) return
+    if (r.zoom < z0) map.setZoom(r.zoom)
   })
 }
 
@@ -131,6 +148,7 @@ const chip = (active: boolean) =>
 
 export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   const { refs, canSave, cannotSaveReason, canEditSettings, backHref, mapsApiKey } = props
+  const router = useRouter()
   const mapDivRef = React.useRef<HTMLDivElement>(null)
   const mapRef = React.useRef<any>(null)
   const overlaysRef = React.useRef<any[]>([])
@@ -151,11 +169,16 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   const [savedSig, setSavedSig] = React.useState<string | null>(null)
 
   const fitCapped = React.useRef(false)
+  // The property's own point (its saved coordinates, else the geocoded address). Saved with the measurement; the map centre is only the last resort.
+  const propertyPoint = React.useRef<LatLngPoint | null>(props.lat !== null && props.lng !== null ? { lat: props.lat, lng: props.lng } : null)
+  const initialSig = React.useMemo(() => JSON.stringify(props.initialShapes ?? []), [props.initialShapes])
   const draftRef = React.useRef<Draft | null>(null)
   draftRef.current = draft
 
   const sig = React.useMemo(() => JSON.stringify(shapes), [shapes])
   const dirty = savedSig !== sig
+  // "Unsaved" means changed since it was opened (a reopened measurement is not unsaved until something changes) or since the last save.
+  const unsaved = sig !== (savedSig ?? initialSig)
 
   // ---- map ----
   React.useEffect(() => {
@@ -195,8 +218,10 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
           for (const s of shapes) for (const p of s.points) b.extend(p)
           map.fitBounds(b, 48)
           map.addListener('idle', () => {
-            if (!fitCapped.current && typeof map.getZoom === 'function' && map.getZoom() > PROPERTY_ZOOM) map.setZoom(PROPERTY_ZOOM)
+            if (fitCapped.current) return
             fitCapped.current = true
+            if (typeof map.getZoom === 'function' && map.getZoom() > PROPERTY_ZOOM) map.setZoom(PROPERTY_ZOOM)
+            capZoomToImagery(g, map)
           })
         } else if (hasCenter) {
           zoomToProperty(g, map, { lat: props.lat, lng: props.lng })
@@ -219,7 +244,9 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     if (!g || !map || !text.trim()) return
     new g.Geocoder().geocode({ address: text.trim() }, (results: any[], status: string) => {
       if (status === 'OK' && results?.[0]?.geometry?.location) {
-        zoomToProperty(g, map, results[0].geometry.location)
+        const loc = results[0].geometry.location
+        propertyPoint.current = { lat: loc.lat(), lng: loc.lng() }
+        zoomToProperty(g, map, loc)
         setHint(null)
       } else {
         setHint('Could not find that address. Check it and try again.')
@@ -236,20 +263,28 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     }
   }, [shapes])
 
+  // ---- totals ----
+  // The geometry is done once (`cutter`, shared with the map). If the clipping library could not handle the drawing, lawn / bed
+  // totals are not shown as numbers and save is off until a point is moved (lines still total).
+  const geometryFailed = cutter === null
+  const totals = React.useMemo(
+    () => (cutter ? computeTotals(shapes, settings, cutter) : computeTotals(shapes.filter((s) => !isPolygonType(s.type)), settings)),
+    [shapes, settings, cutter]
+  )
   // While a cut-out is being drawn over a lawn / bed: the hole the lawn fill would get right now, and how much comes out.
   const preview = React.useMemo(() => {
     if (!draft || draft.type !== 'cutout' || draft.points.length < 3 || !cutter || polygonCrossings(draft.points).length > 0) return null
     try {
       const all: AreaShape[] = [...shapes, { id: 'draft', type: 'cutout', name: null, points: draft.points, takesFrom: draft.takesFrom }]
       const cc = cookieCutter(all)
-      const before = computeTotals(shapes, settings, cutter)
+      const before = totals
       const after = computeTotals(all, settings, cc)
       const removed = draft.takesFrom === 'bed' ? after.cutoutBedSqft - before.cutoutBedSqft : after.cutoutLawnSqft - before.cutoutLawnSqft
       return { cc, removed: Math.max(0, removed) }
     } catch {
       return null
     }
-  }, [draft, shapes, settings, cutter])
+  }, [draft, shapes, settings, cutter, totals])
 
   // Overlays for every finished shape and the one being drawn. Rebuilt on any change (a yard has a handful of shapes).
   // Lawn / bed: one fill per region WITH its holes (z 1, not clickable), the outline on top (z 2, clickable); cut-outs on top of that (z 3)
@@ -315,6 +350,8 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     if (!mapReady || !map || !editKey || !editType) return
     const g = (window as any).google.maps
     const color = COLORS[editType]
+    let raf = 0
+    let pending: LatLngPoint | null = null
     const markers = editPointsRef.current.map((p, i) => {
       const m = new g.Marker({
         map,
@@ -326,17 +363,35 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
         title: `Point ${i + 1}`,
         icon: { path: g.SymbolPath.CIRCLE, scale: 14, fillColor: '#ffffff', fillOpacity: 1, strokeColor: color, strokeWeight: 4 },
       })
-      const move = (e: any) => {
-        if (!e?.latLng) return
-        const np = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+      const apply = (np: LatLngPoint) => {
         if (editKey === 'draft') setDraft((d) => (d ? { ...d, points: d.points.map((q, j) => (j === i ? np : q)) } : d))
         else setShapes((list) => list.map((s) => (s.id === editKey ? withMeasure({ ...s, points: s.points.map((q, j) => (j === i ? np : q)) }) : s)))
       }
-      m.addListener('drag', move)
-      m.addListener('dragend', move)
+      // While dragging, the clipping + totals are redone at most once per frame; the drop applies at once.
+      m.addListener('drag', (e: any) => {
+        if (!e?.latLng) return
+        pending = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+        if (!raf) {
+          raf = requestAnimationFrame(() => {
+            raf = 0
+            if (pending) apply(pending)
+            pending = null
+          })
+        }
+      })
+      m.addListener('dragend', (e: any) => {
+        if (!e?.latLng) return
+        if (raf) cancelAnimationFrame(raf)
+        raf = 0
+        pending = null
+        apply({ lat: e.latLng.lat(), lng: e.latLng.lng() })
+      })
       return m
     })
-    return () => markers.forEach((m: any) => m.setMap(null))
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      markers.forEach((m: any) => m.setMap(null))
+    }
   }, [editKey, editType, editPoints.length, mapReady])
 
   // A tool is active: crosshair instead of the hand (the grab hand while panning is Google's default and stays).
@@ -349,28 +404,31 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
 
   // Warn before leaving with an unsaved measurement.
   React.useEffect(() => {
-    if (!dirty || shapes.length === 0) return
+    if (!unsaved || shapes.length === 0) return
     const h = (e: BeforeUnloadEvent) => {
       e.preventDefault()
       e.returnValue = ''
     }
     window.addEventListener('beforeunload', h)
     return () => window.removeEventListener('beforeunload', h)
-  }, [dirty, shapes.length])
+  }, [unsaved, shapes.length])
 
   // ---- drawing actions ----
   function pickType(t: ShapeType) {
     setSaveMsg(null)
     setHint(null)
     // A cut-out is cut out OF something: with no lawn or bed yet it would show as a lone red shape with its own area.
-    if (t === 'cutout' && !shapes.some((x) => x.type === 'lawn' || x.type === 'bed')) {
+    const hasLawn = shapes.some((x) => x.type === 'lawn')
+    if (t === 'cutout' && !hasLawn && !shapes.some((x) => x.type === 'bed')) {
       setHint(CUTOUT_NEEDS_LAWN)
       return
     }
-    if (draft) setDraft({ ...draft, type: t })
+    // With only beds drawn, a cut-out comes out of the beds.
+    const from: TakesFrom = t === 'cutout' && !hasLawn ? 'bed' : 'lawn'
+    if (draft) setDraft({ ...draft, type: t, takesFrom: t === 'cutout' ? from : draft.takesFrom })
     else {
       setSelectedId(null)
-      setDraft({ type: t, takesFrom: 'lawn', name: '', points: [] })
+      setDraft({ type: t, takesFrom: from, name: '', points: [] })
     }
   }
   const undoPoint = () => setDraft((d) => (d && d.points.length > 0 ? { ...d, points: d.points.slice(0, -1) } : d))
@@ -405,14 +463,6 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     setShapes((list) => list.map((s) => (s.id === selected.id ? { ...s, ...patch } : s)))
   }
 
-  // ---- totals ----
-  // The geometry is done once (`cutter`, shared with the map). If the clipping library could not handle the drawing, lawn / bed
-  // totals are not shown as numbers and save is off until a point is moved (lines still total).
-  const geometryFailed = cutter === null
-  const totals = React.useMemo(
-    () => (cutter ? computeTotals(shapes, settings, cutter) : computeTotals(shapes.filter((s) => !isPolygonType(s.type)), settings)),
-    [shapes, settings, cutter]
-  )
   const draftMeasure = React.useMemo(() => {
     if (!draft || !mapReady) return null
     const need = minPoints(draft.type)
@@ -442,7 +492,11 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   React.useEffect(() => {
     if (!full) return
     const h = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFull(false)
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      // Esc inside the address box (or any field) is for that field, not for leaving full screen.
+      const t = e.target
+      if (t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      setFull(false)
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
@@ -456,14 +510,26 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
       document.body.style.overflow = prev
     }
   }, [takesScreen])
-  // Tell the map its box changed (full screen, sheet, rotation) so it redraws the tiles.
-  React.useEffect(() => {
-    const map = mapRef.current
-    const g = (window as any).google?.maps
-    if (!mapReady || !map || !g?.event?.trigger) return
-    const t = window.setTimeout(() => g.event.trigger(map, 'resize'), 50)
-    return () => window.clearTimeout(t)
-  }, [full, compact, mapReady])
+  // Real sizes, measured: where the workspace starts on the page (a "What's new" banner or a taller top bar moves it) and how much
+  // room the details sheet has (the screen, minus the header, minus the tool bar) so it can never cover Back / the address box.
+  const wsRef = React.useRef<HTMLDivElement>(null)
+  const bodyRef = React.useRef<HTMLDivElement>(null)
+  const asideRef = React.useRef<HTMLElement>(null)
+  const [topOffset, setTopOffset] = React.useState<number | null>(null)
+  const [sheetMax, setSheetMax] = React.useState<number | null>(null)
+  React.useLayoutEffect(() => {
+    const measure = () => {
+      if (wsRef.current && !full && !compact) setTopOffset(Math.max(0, Math.round(wsRef.current.getBoundingClientRect().top + window.scrollY)))
+      if (bodyRef.current && asideRef.current) setSheetMax(Math.max(0, bodyRef.current.clientHeight - asideRef.current.offsetHeight))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(document.body)
+    if (bodyRef.current) ro.observe(bodyRef.current)
+    if (asideRef.current) ro.observe(asideRef.current)
+    return () => ro.disconnect()
+  }, [full, compact])
 
   // ---- save ----
   async function save() {
@@ -478,8 +544,8 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
         body: JSON.stringify({
           ...refs,
           address: addressText.trim() || null,
-          lat: c ? c.lat() : props.lat,
-          lng: c ? c.lng() : props.lng,
+          lat: propertyPoint.current ? propertyPoint.current.lat : c ? c.lat() : props.lat,
+          lng: propertyPoint.current ? propertyPoint.current.lng : c ? c.lng() : props.lng,
           shapes: shapes.map((s) => ({ id: s.id, type: s.type, name: s.name, points: s.points, sqft: s.sqft, feet: s.feet, takesFrom: s.takesFrom })),
         }),
       })
@@ -531,13 +597,24 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
 
   return (
     <div
+      ref={wsRef}
       data-testid="yard-workspace"
+      style={!takesScreen && topOffset !== null ? { height: `max(480px, calc(100dvh - ${topOffset}px - 0.75rem))` } : undefined}
       className={`flex flex-col overflow-hidden overscroll-contain bg-surface-subtle text-ink ${
         full ? 'fixed inset-0 z-50' : 'max-lg:fixed max-lg:inset-0 max-lg:z-50 lg:m-3 lg:h-[calc(100dvh-3.5rem-1.5rem)] lg:min-h-[480px] lg:rounded-ui lg:border lg:border-surface-line'
       }`}
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-surface-line bg-surface px-2 py-1.5 lg:gap-3 lg:px-3">
-        <Link href={backHref} className="inline-flex min-h-tap shrink-0 items-center px-2 text-ui-base font-semibold text-brand-800 underline">
+      <header className="flex shrink-0 items-center gap-2 border-b border-surface-line bg-surface px-2 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] lg:gap-3 lg:px-3">
+        <Link
+          href={backHref}
+          onClick={(e) => {
+            if (!unsaved || shapes.length === 0) return
+            e.preventDefault()
+            void confirmDialog({ title: 'Leave without saving this measurement?', confirmLabel: 'Leave', cancelLabel: 'Keep measuring' }).then((leave) => {
+              if (leave) router.push(backHref)
+            })
+          }}
+          className="inline-flex min-h-tap shrink-0 items-center px-2 text-ui-base font-semibold text-brand-800 underline">
           Back
         </Link>
         <div className="min-w-0 max-lg:sr-only">
@@ -568,7 +645,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
 
       {/* Phones / tablets: the map fills the whole body and the tool bar overlays its bottom edge, so picking a tool (rows appearing in the
           bar) never resizes the map or moves the drawing under a finger. Wide screens: map and side panel sit side by side. */}
-      <div className="relative min-h-0 flex-1 lg:flex lg:flex-row">
+      <div ref={bodyRef} className="relative min-h-0 flex-1 lg:flex lg:flex-row">
         {/* The map has no text or buttons of ours on it: every label and button lives in the panel / bar (solid backgrounds). */}
         <div className="absolute inset-0 bg-surface-subtle lg:relative lg:min-h-0 lg:flex-1">
           {mapError ? (
@@ -578,7 +655,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
           )}
         </div>
 
-        <aside aria-label="Measuring tools" className="absolute inset-x-0 bottom-0 z-10 flex flex-col border-t border-surface-line bg-surface lg:relative lg:inset-auto lg:z-auto lg:min-h-0 lg:w-[23rem] lg:shrink-0 lg:border-l lg:border-t-0">
+        <aside ref={asideRef} aria-label="Measuring tools" className="absolute inset-x-0 bottom-0 z-10 flex flex-col border-t border-surface-line bg-surface lg:relative lg:inset-auto lg:z-auto lg:min-h-0 lg:w-[23rem] lg:shrink-0 lg:border-l lg:border-t-0">
           <div className="flex shrink-0 flex-col gap-2 p-2 lg:gap-3 lg:p-3">
             <p className={`text-ui-sm font-semibold lg:text-ui-base ${hasCrossing ? 'text-danger' : 'text-ink'}`} role="status" data-testid="yard-status">
               {hint ?? status}
@@ -643,7 +720,8 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
           <div
             id="yard-details"
             data-testid="yard-details"
-            className={`${sheetOpen ? '' : 'max-lg:hidden'} flex flex-col gap-4 overflow-y-auto border-t border-surface-line bg-surface p-3 max-lg:absolute max-lg:inset-x-0 max-lg:bottom-full max-lg:max-h-[62dvh] max-lg:shadow-lg lg:min-h-0 lg:flex-1`}
+            style={compact && sheetMax !== null ? { maxHeight: sheetMax } : undefined}
+            className={`${sheetOpen ? '' : 'max-lg:hidden'} flex flex-col gap-4 overflow-y-auto border-t border-surface-line bg-surface p-3 max-lg:absolute max-lg:inset-x-0 max-lg:bottom-full max-lg:shadow-lg lg:min-h-0 lg:flex-1`}
           >
             {props.forLabel ? <p className="break-words text-ui-base font-semibold text-ink lg:hidden">Measure yard for {props.forLabel}</p> : null}
 
