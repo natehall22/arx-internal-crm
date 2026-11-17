@@ -73,18 +73,19 @@ const YARD_MAPS_STUB = `(function () {
   const ll = (p) => (p instanceof LatLng ? p : new LatLng(p.lat, p.lng))
   class Base { constructor(o) { this.o = o || {}; this.l = {} } addListener(n, f) { (this.l[n] = this.l[n] || []).push(f); return { remove() {} } } emit(n, e) { (this.l[n] || []).forEach((f) => f(e)) } setMap(m) { this.map = m } }
   class Map extends Base {
-    constructor(div, o) { super(o); this.c = ll(o.center); div.style.background = '#556b2f'; const self = this
+    constructor(div, o) { super(o); this.c = ll(o.center); this.z = o.zoom; window.__yardMapObj = this; div.style.background = '#556b2f'; const self = this
       div.addEventListener('click', (ev) => { const r = div.getBoundingClientRect(); const dx = ev.clientX - r.left - r.width / 2; const dy = ev.clientY - r.top - r.height / 2
         self.emit('click', { latLng: new LatLng(self.c.lat() - dy * 1e-6, self.c.lng() + dx * 1e-6) }) }) }
-    getCenter() { return this.c } setCenter(c) { this.c = ll(c) } setZoom() {} fitBounds() {}
+    setOptions(o) { Object.assign(this.o, o); window.__yardCursor = o.draggableCursor } getCenter() { return this.c } setCenter(c) { this.c = ll(c) } setZoom(z) { this.z = z; window.__yardZoom = z } getZoom() { return this.z } fitBounds(b, pad) { window.__yardFit = { pad } }
   }
   class Marker extends Base { constructor(o) { super(o); this.map = o.map; window.__yardMarkers = window.__yardMarkers || []; window.__yardMarkers.push(this) } setMap(m) { this.map = m; if (!m) window.__yardMarkers = (window.__yardMarkers || []).filter((x) => x !== this) } }
   class Poly extends Base { constructor(o) { super(o); this.map = o.map; window.__yardPolys = window.__yardPolys || []; window.__yardPolys.push(this) } setMap(m) { this.map = m; if (!m) window.__yardPolys = (window.__yardPolys || []).filter((x) => x !== this) } }
   class Bounds { extend() {} }
+  class MaxZoomService { getMaxZoomAtLatLng(c, cb) { (window.__yardMaxReplies = window.__yardMaxReplies || []).push(cb) } }
   class Geocoder { geocode(req, cb) { cb([{ geometry: { location: new LatLng(30.2, -84.3) } }], 'OK') } }
   const M = 111320
   const xy = (p) => { const q = ll(p); return [q.lng() * M * Math.cos((q.lat() * Math.PI) / 180), q.lat() * M] }
-  window.google = { maps: { Map, Marker, Polygon: Poly, Polyline: Poly, LatLng, LatLngBounds: Bounds, Geocoder, SymbolPath: { CIRCLE: 0 },
+  window.google = { maps: { Map, Marker, Polygon: Poly, Polyline: Poly, LatLng, LatLngBounds: Bounds, MaxZoomService, Geocoder, SymbolPath: { CIRCLE: 0 },
     geometry: { spherical: {
       computeArea(path) { const pts = path.map(xy); let a = 0; for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; a += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1] } return Math.abs(a) / 2 },
       computeLength(path) { const pts = path.map(xy); let d = 0; for (let i = 1; i < pts.length; i++) d += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return d },
@@ -107,7 +108,14 @@ async function drawShape(page: Page, label: string, x: number, y: number, size: 
   await page.getByRole('button', { name: 'Done', exact: true }).click()
 }
 
-const sqftOf = (text: string) => Number((text.match(/([\d,]+) sq ft/) ?? [])[1]?.replace(/,/g, '') ?? NaN)
+const sqftOf = (text: string | null) => Number(((text ?? '').match(/([\d,]+) sq ft/) ?? [])[1]?.replace(/,/g, '') ?? NaN)
+
+/** On phones / tablets the details (name, shapes, totals) are a sheet behind a "Totals" button; wide screens always show them. */
+async function openDetails(page: Page) {
+  const toggle = page.getByRole('button', { name: /^Totals/ })
+  if ((await toggle.isVisible()) && (await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await page.getByTestId('yard-totals').waitFor({ state: 'visible' })
+}
 
 /** Last POST body the save route was sent (the mock answers 201). */
 async function captureYardSave(page: Page) {
@@ -965,8 +973,8 @@ const SCREENS: Screen[] = [
         const live = sqftOf(await p.getByTestId('yard-live').innerText())
         if (!(live > 1000)) throw new Error(`live area looks wrong: ${live}`)
         await p.getByRole('button', { name: 'Done', exact: true }).click()
-        await p.waitForSelector('[data-testid=yard-totals] >> text=Lawn')
-        const totals = sqftOf(await p.getByTestId('yard-totals').innerText())
+        await p.waitForSelector('[data-testid=yard-totals] >> text=Lawn', { state: 'attached' })
+        const totals = sqftOf(await p.getByTestId('yard-totals').textContent())
         if (Math.abs(totals - live) > 1) throw new Error(`total ${totals} should equal the shape ${live}`)
       } },
       { name: 'undo-last-point', run: async (p) => {
@@ -977,10 +985,10 @@ const SCREENS: Screen[] = [
       } },
       { name: 'cutout-comes-out-of-lawn', run: async (p) => {
         await drawShape(p, '+ Lawn', 40, 40, 240)
-        const lawn = sqftOf(await p.getByTestId('yard-totals').innerText())
+        const lawn = sqftOf(await p.getByTestId('yard-totals').textContent())
         await drawShape(p, '+ Cut-out', 100, 100, 60)
-        await p.waitForSelector('text=Lawn (after cut-outs)')
-        const net = sqftOf(await p.getByTestId('yard-totals').innerText())
+        await p.waitForSelector('text=Lawn (after cut-outs)', { state: 'attached' })
+        const net = sqftOf(await p.getByTestId('yard-totals').textContent())
         if (!(net < lawn)) throw new Error(`cut-out did not reduce the lawn: ${lawn} -> ${net}`)
       } },
       { name: 'cutout-leaves-a-hole', run: async (p) => {
@@ -991,16 +999,80 @@ const SCREENS: Screen[] = [
       } },
       { name: 'cutout-half-off-lawn-removes-half', run: async (p) => {
         await drawShape(p, '+ Lawn', 80, 40, 200)
-        const lawn = sqftOf(await p.getByTestId('yard-totals').innerText())
+        const lawn = sqftOf(await p.getByTestId('yard-totals').textContent())
         // 80 x 80 px cut-out whose left half hangs off the lawn: 40 x 80 px sits on it (1 px^2 = 0.1153 sq ft at this latitude)
         await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
         for (const [x, y] of [[40, 100], [120, 100], [120, 180], [40, 180]]) await p.getByTestId('yard-map').click({ position: { x, y } })
         await p.getByRole('button', { name: 'Done', exact: true }).click()
-        await p.waitForSelector('text=Lawn (after cut-outs)')
-        const net = sqftOf(await p.getByTestId('yard-totals').innerText())
+        await p.waitForSelector('text=Lawn (after cut-outs)', { state: 'attached' })
+        const net = sqftOf(await p.getByTestId('yard-totals').textContent())
         const removed = lawn - net
         const want = 40 * 80 * 0.1153
         if (Math.abs(removed - want) > 12) throw new Error(`removed ${removed} sq ft, wanted about ${want} (only the half on the lawn)`)
+      } },
+      { name: 'cutout-needs-a-lawn-first', run: async (p) => {
+        await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
+        await p.waitForSelector('[data-testid=yard-status] >> text=Draw the lawn or a bed first, then cut out the house')
+        // no cut-out was started: the buttons still say "+ ..." and there is no Done / Undo row
+        if (await p.getByRole('button', { name: 'Done', exact: true }).count()) throw new Error('a cut-out was started with no lawn')
+        await p.getByTestId('yard-map').click({ position: { x: 60, y: 60 } })
+        if ((await p.evaluate(() => (window as any).__yardMarkers || []).then((m: unknown[]) => m.length)) !== 0) throw new Error('points were placed with no lawn')
+        // with a lawn drawn it works
+        await drawShape(p, '+ Lawn', 40, 40, 200)
+        await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
+        await p.waitForSelector('text=Tap the map to place the first point of the cut-out.')
+      } },
+      { name: 'cutout-with-only-beds-comes-out-of-beds', run: async (p) => {
+        await drawShape(p, '+ Bed', 40, 40, 240)
+        await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
+        await p.waitForSelector('text=Tap the map to place the first point of the cut-out.')
+        for (const [x, y] of [[100, 100], [160, 100], [160, 160]]) await p.getByTestId('yard-map').click({ position: { x, y } })
+        await p.waitForSelector('[data-testid=yard-live] >> text=Comes out of beds:')
+        if (!(await p.getByRole('button', { name: 'The beds' }).getAttribute('aria-pressed') === 'true')) throw new Error('should default to the beds')
+      } },
+      { name: 'max-zoom-answer-applies', run: async (p) => {
+        await p.waitForFunction(() => ((window as any).__yardMaxReplies || []).length > 0)
+        await p.evaluate(() => (window as any).__yardMaxReplies[0]({ status: 'OK', zoom: 18 }))
+        if ((await p.evaluate(() => (window as any).__yardZoom)) !== 18) throw new Error('max zoom was not applied')
+      } },
+      { name: 'late-max-zoom-answer-ignored-after-zoom', run: async (p) => {
+        await p.waitForFunction(() => ((window as any).__yardMaxReplies || []).length > 0)
+        await p.evaluate(() => (window as any).__yardMapObj.setZoom(17))
+        await p.evaluate(() => (window as any).__yardMaxReplies[0]({ status: 'OK', zoom: 18 }))
+        if ((await p.evaluate(() => (window as any).__yardZoom)) !== 17) throw new Error('a late max-zoom answer overrode the person zooming')
+      } },
+      { name: 'drag-previews-once-per-frame', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 200)
+        const before = sqftOf(await p.getByTestId('yard-totals').textContent())
+        await p.evaluate(() => {
+          const g = (window as any).google.maps
+          const m = (window as any).__yardMarkers[1]
+          const c = m.o.position
+          for (const k of [1, 2, 3]) m.emit('drag', { latLng: new g.LatLng(c.lat, c.lng + 0.0001 * k) })
+        })
+        await p.waitForFunction((b) => { const t = document.querySelector('[data-testid=yard-totals]')?.textContent ?? ''; const n = Number((t.match(/([\d,]+) sq ft/) ?? [])[1]?.replace(/,/g, '')); return n > b + 100 }, before)
+      } },
+      { name: 'back-asks-before-leaving-an-unsaved-drawing', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 200)
+        await p.getByRole('link', { name: 'Back', exact: true }).first().click()
+        await p.waitForSelector('text=Leave without saving this measurement?')
+        await p.getByRole('button', { name: 'Keep measuring' }).click()
+        if (!p.url().includes('/dev-harness/area-measure')) throw new Error('left the screen after Keep measuring')
+        await p.getByRole('link', { name: 'Back', exact: true }).first().click()
+        await p.getByRole('button', { name: 'Leave', exact: true }).click()
+        await p.waitForURL('**/dev-harness/yard-card', { timeout: 10_000 }).catch(() => { throw new Error('did not leave after Leave') })
+      } },
+      { name: 'cutout-previews-the-hole-live', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 240)
+        await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
+        for (const [x, y] of [[100, 100], [160, 100], [160, 160]]) await p.getByTestId('yard-map').click({ position: { x, y } })
+        await p.waitForSelector('[data-testid=yard-live] >> text=Comes out of lawn:')
+        const live = sqftOf(await p.getByTestId('yard-live').textContent())
+        const want = 1800 * 0.1153
+        if (Math.abs(live - want) > 15) throw new Error(`comes out ${live}, wanted about ${want}`)
+        // the lawn fill already has the hole while the cut-out is still being drawn
+        await p.waitForFunction(() => ((window as any).__yardPolys || []).some((x: any) => Array.isArray(x.o.paths) && Array.isArray(x.o.paths[0]) && x.o.paths.length === 2))
+        // a lawn alone is not labelled that way
       } },
       { name: 'crossing-keeps-points-and-dragging-fixes', run: async (p) => {
         await drawShape(p, '+ Lawn', 40, 40, 140)
@@ -1024,18 +1096,19 @@ const SCREENS: Screen[] = [
         const sent = await captureYardSave(p)
         await drawShape(p, '+ Lawn', 40, 40, 240)
         await drawShape(p, '+ Bed', 60, 60, 108)
-        await p.waitForSelector('[data-testid=yard-materials] >> text=est.')
-        const mat = await p.getByTestId('yard-materials').innerText()
+        await p.waitForSelector('[data-testid=yard-materials] >> text=est.', { state: 'attached' })
+        const mat = await p.getByTestId('yard-materials').textContent() ?? ''
         if (!/Mulch: est\. [\d.]+ cu yd at 3 in/.test(mat) || !/Pine straw: est\. \d+ bales? at 50 sq ft per bale/.test(mat)) throw new Error(`materials text: ${mat}`)
         await p.getByRole('button', { name: 'Save measurement' }).click()
         await p.waitForSelector('[data-testid=yard-save-msg] >> text=Saved')
-        const body = sent[0] as { customerId: string; shapes: Array<{ type: string }> }
+        const body = sent[0] as { customerId: string; lat: number; lng: number; shapes: Array<{ type: string }> }
+        if (body.lat !== 30.176 || body.lng !== -84.375) throw new Error(`saved ${body.lat},${body.lng}: the property point, not the map centre, should be saved`)
         if (body.customerId !== 'cust-1' || body.shapes.length !== 2) throw new Error(`bad save body ${JSON.stringify(body).slice(0, 200)}`)
       } },
       { name: 'drag-a-point', run: async (p) => {
         await drawShape(p, '+ Lawn', 40, 40, 200)
         await p.waitForSelector('text=Drag the round points')
-        const before = sqftOf(await p.getByTestId('yard-totals').innerText())
+        const before = sqftOf(await p.getByTestId('yard-totals').textContent())
         await p.evaluate(() => {
           const g = (window as any).google.maps
           const m = (window as any).__yardMarkers[1]
@@ -1047,12 +1120,13 @@ const SCREENS: Screen[] = [
       { name: 'owner-changes-numbers', run: async (p) => {
         await p.route('**/api/area-measure/settings', (route) => route.fulfill(json({ settings: { mulchDepthIn: 4, strawSqftPerBale: 40 }, canEdit: true })))
         await drawShape(p, '+ Bed', 60, 60, 108)
+        await openDetails(p)
         await p.getByRole('button', { name: 'Change mulch and pine straw numbers' }).click()
         await p.getByLabel('Mulch depth (inches)').fill('4')
         await p.getByLabel('Pine straw: sq ft per bale').fill('40')
         await p.getByRole('button', { name: 'Save for the company' }).click()
         await p.waitForSelector('text=Saved for the whole company.')
-        await p.waitForSelector('[data-testid=yard-materials] >> text=at 4 in deep')
+        await p.waitForSelector('[data-testid=yard-materials] >> text=at 4 in deep', { state: 'attached' })
         // the help text shows the company's saved number, not just the starting one
         await p.waitForSelector('text=Your company uses 4 now (starting number 3)')
         await p.waitForSelector('text=Your company uses 40 now (starting number 50)')
@@ -1075,19 +1149,129 @@ const SCREENS: Screen[] = [
         await drawShape(p, '+ Lawn', 40, 40, 200)
         await p.getByRole('button', { name: 'Save measurement' }).click()
         await p.waitForSelector('[data-testid=yard-save-msg]')
-        // Poll instead of measuring once: the page padding follows the bar's height a frame after the message appears.
+        // The whole message and the Save button stay on screen (the bar grows upward; nothing hides behind it or off the bottom).
         await p.waitForFunction(() => {
-          window.scrollTo(0, document.documentElement.scrollHeight)
-          const bar = document.querySelector('[data-testid=yard-save-msg]')!.closest('div.fixed') as HTMLElement
-          const lastCard = document.querySelector('[data-testid=yard-totals]')!.parentElement as HTMLElement
-          return bar.getBoundingClientRect().top - lastCard.getBoundingClientRect().bottom >= 0
-        }, undefined, { timeout: 5000 }).catch(() => { throw new Error('content runs behind the Save bar') })
+          const vh = window.innerHeight
+          const msg = document.querySelector('[data-testid=yard-save-msg]')!.getBoundingClientRect()
+          const btn = Array.from(document.querySelectorAll('button')).find((b) => /Save measurement|Saved/.test(b.textContent || ''))!.getBoundingClientRect()
+          return msg.top >= 0 && msg.bottom <= btn.top + 1 && btn.bottom <= vh + 1
+        }, undefined, { timeout: 5000 }).catch(() => { throw new Error('the save message or the Save button is cut off') })
       } },
     ] },
+  
   { name: 'area-measure-readonly', path: '/dev-harness/area-measure-readonly', ready: 'text=Open this from a customer or lead to save it.', mock: yardScreenMock },
   { name: 'yard-card', path: '/dev-harness/yard-card', ready: '[data-testid=yard-card]',
     states: [{ name: 'older-open', run: async (p) => { await p.getByText('Older measurements (1)').click(); await p.waitForSelector('text=lawn 11,800 sq ft') } }] },
 ]
+
+// Measure yard is roomy: wide screens get a big map + side panel (Full screen / Esc, crosshair while a tool is on); phones and tablets
+// get the map on the whole screen with a bottom tool bar, a Totals sheet and Save in thumb reach.
+test.describe('area-measure / roomy map', () => {
+  test('phone: map fills the screen, tools + Save at the bottom, totals sheet, no page scroll', async ({ page }, info) => {
+    
+    await mockApi(page)
+    await mockYardMaps(page)
+    await page.goto('/dev-harness/area-measure')
+    await page.waitForSelector('[data-testid=yard-map]')
+    const vh = page.viewportSize()!.height
+    const vw = page.viewportSize()!.width
+    const map = (await page.getByTestId('yard-map').boundingBox())!
+    expect(map.height, `map is ${map.height}px of ${vh}`).toBeGreaterThan(vh * 0.5)
+    expect(map.width).toBeGreaterThanOrEqual(vw - 1)
+    const save = (await page.getByRole('button', { name: /Save measurement|Saved/ }).boundingBox())!
+    expect(save.y + save.height).toBeLessThanOrEqual(vh + 1)
+    expect(save.y).toBeGreaterThan(vh * 0.6)
+    expect(await page.getByTestId('yard-map').evaluate((el) => getComputedStyle(el).touchAction)).toBe('none')
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden')
+    // chips sit in one row under the map
+    const chips = await page.getByRole('group', { name: 'What are you measuring' }).boundingBox()
+    expect(chips!.height).toBeLessThan(60)
+    // the details sheet opens above the bar, inside the screen, and holds the totals
+    await expect(page.getByTestId('yard-totals')).toBeHidden()
+    for (let i = 0; i < 5; i++) await drawShape(page, '+ Lawn', 30 + i * 20, 30 + i * 25, 50)
+    await openDetails(page)
+    const back = (await page.getByRole('link', { name: 'Back', exact: true }).boundingBox())!
+    const sheet = (await page.getByTestId('yard-details').boundingBox())!
+    expect(sheet.y, 'the sheet must not cover the header / Back').toBeGreaterThanOrEqual(back.y + back.height - 1)
+    expect(sheet.y + sheet.height).toBeLessThanOrEqual(save.y + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    // draw with the sheet closed: the map is reachable and the point count follows
+    await page.getByRole('button', { name: /^Totals/ }).click()
+    await page.getByRole('button', { name: '+ Lawn', exact: true }).click()
+    await page.getByTestId('yard-map').click({ position: { x: 60, y: 60 } })
+    await page.waitForSelector('text=1 point. Keep tapping.')
+  })
+
+  test.describe('wide screen', () => {
+    test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false })
+
+    test('big map beside a side panel; Full screen, Esc; crosshair while a tool is on', async ({ page }, info) => {
+      test.skip(info.project.name !== 'iphone-13')
+      await mockApi(page)
+      await mockYardMaps(page)
+      await page.goto('/dev-harness/area-measure')
+      await page.waitForSelector('[data-testid=yard-map]')
+      const map = (await page.getByTestId('yard-map').boundingBox())!
+      const panel = (await page.getByRole('complementary', { name: 'Measuring tools' }).boundingBox())!
+      expect(map.width, 'map uses the width the panel leaves').toBeGreaterThan(1440 * 0.7)
+      expect(map.height, `map height ${map.height}`).toBeGreaterThan(900 * 0.75)
+      expect(panel.x).toBeGreaterThanOrEqual(map.x + map.width - 1)
+      expect(panel.width).toBeLessThan(420)
+      // totals are in the panel, no sheet button on a wide screen
+      await expect(page.getByTestId('yard-totals')).toBeVisible()
+      await expect(page.getByRole('button', { name: /^Totals/ })).toBeHidden()
+      // the property is shown close up
+      expect(await page.evaluate(() => (window as any).__yardZoom)).toBe(20)
+      // crosshair only while a tool is on
+      expect(await page.evaluate(() => (window as any).__yardCursor ?? null)).toBeNull()
+      await page.getByRole('button', { name: '+ Lawn', exact: true }).click()
+      await page.waitForFunction(() => (window as any).__yardCursor === 'crosshair')
+      await page.getByRole('button', { name: 'Cancel' }).click()
+      await page.waitForFunction(() => (window as any).__yardCursor === null)
+      // a banner above the tool (like "What's new") pushes the workspace down: its height follows, nothing runs off the screen
+      await page.evaluate(() => { const d = document.createElement('div'); d.style.height = '60px'; d.id = 'fake-banner'; document.body.insertBefore(d, document.body.firstChild) })
+      await page.waitForFunction(() => { const r = document.querySelector('[data-testid=yard-workspace]')!.getBoundingClientRect(); return r.top >= 60 && r.bottom <= window.innerHeight })
+      // full screen: Esc inside the address box does not leave it, Esc elsewhere does
+      await page.getByRole('button', { name: 'Full screen' }).click()
+      await page.getByLabel('Address to show on the map').focus()
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('button', { name: /Exit full screen/ })).toBeVisible()
+      await page.getByTestId('yard-map').hover()
+      await page.getByLabel('Address to show on the map').evaluate((el) => (el as HTMLElement).blur())
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: 'Full screen' }).waitFor()
+      await page.getByRole('button', { name: 'Full screen' }).click()
+      const full = (await page.getByTestId('yard-workspace').boundingBox())!
+      expect([full.x, full.y, full.width, full.height]).toEqual([0, 0, 1440, 900])
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: 'Full screen' }).waitFor()
+      const back = (await page.getByTestId('yard-workspace').boundingBox())!
+      expect(back.width).toBeLessThan(1440)
+      // drawing still works at this size
+      await drawShape(page, '+ Lawn', 100, 100, 300)
+      await page.waitForSelector('[data-testid=yard-totals] >> text=Lawn')
+    })
+
+    test('a saved measurement opens fitted to its shapes', async ({ page }, info) => {
+      test.skip(info.project.name !== 'iphone-13')
+      await mockApi(page)
+      await mockYardMaps(page)
+      await page.goto('/dev-harness/area-measure-saved')
+      await page.waitForSelector('[data-testid=yard-map]')
+      await page.waitForFunction(() => !!(window as any).__yardFit)
+      expect(await page.evaluate(() => (window as any).__yardFit.pad)).toBeGreaterThan(0)
+      // after the fit the photo's real max zoom is asked for and applied (no grey tiles)
+      await page.evaluate(() => (window as any).__yardMapObj.emit('idle'))
+      await page.waitForFunction(() => ((window as any).__yardMaxReplies || []).length > 0)
+      await page.evaluate(() => (window as any).__yardMaxReplies[0]({ status: 'OK', zoom: 17 }))
+      expect(await page.evaluate(() => (window as any).__yardZoom)).toBe(17)
+      await expect(page.getByText('Front yard').first()).toBeVisible()
+      // opening a saved measurement is not "unsaved": Back leaves without asking
+      await page.getByRole('link', { name: 'Back', exact: true }).first().click()
+      await page.waitForURL('**/dev-harness/yard-card')
+    })
+  })
+})
 
 /** Interactive elements a thumb has to hit. Inline text links inside a sentence are exempt. */
 async function smallTargets(page: Page) {

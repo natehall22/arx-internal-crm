@@ -891,6 +891,36 @@ export default function Harness({ params }: { params: { screen: string } }) {
           mapsApiKey="harness-key"
         />
       )
+    case 'area-measure-saved':
+      return (
+        <AreaMeasureClient
+          address="1 Harness Way, Crawfordville, FL"
+          lat={30.176}
+          lng={-84.375}
+          refs={{ customerId: 'cust-1', propertyId: null, opportunityId: null, leadId: null }}
+          forLabel="Pat Lee"
+          canSave
+          cannotSaveReason={null}
+          settings={{ mulchDepthIn: 3, strawSqftPerBale: 50 }}
+          canEditSettings
+          initialShapes={[
+            {
+              id: 'saved-lawn',
+              type: 'lawn',
+              name: 'Front yard',
+              sqft: 2400,
+              points: [
+                { lat: 30.17595, lng: -84.37505 },
+                { lat: 30.17595, lng: -84.37485 },
+                { lat: 30.17612, lng: -84.37485 },
+                { lat: 30.17612, lng: -84.37505 },
+              ],
+            },
+          ]}
+          backHref="/dev-harness/yard-card"
+          mapsApiKey="harness-key"
+        />
+      )
     case 'area-measure-readonly':
       return (
         <AreaMeasureClient
