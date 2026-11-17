@@ -217,23 +217,33 @@ export async function loadCrewIdsLedBy(admin: SupabaseClient, orgId: string, use
  */
 export async function loadWorkSecondsByStop(admin: SupabaseClient, orgId: string, opts: { fromIso: string; toIso: string; workOrderIds: string[] }): Promise<Map<string, number> | null> {
   const out = new Map<string, number>()
+  const PAGE = 1000
+  const MAX_PAGES = 20
   for (let i = 0; i < opts.workOrderIds.length; i += 200) {
-    const { data, error } = await orgDb(admin, orgId)
-      .from('time_entries')
-      .select('work_order_id, kind, started_at, ended_at')
-      .is('removed_at', null)
-      .eq('kind', 'work')
-      .in('work_order_id', opts.workOrderIds.slice(i, i + 200))
-      .gte('started_at', opts.fromIso)
-      .lte('started_at', opts.toIso)
-      .limit(5000)
-    if (error) {
-      if (isTimeTrackingNotReadyError(error)) return null
-      throw error
-    }
-    for (const r of (data ?? []) as Array<{ work_order_id: string | null; started_at: string; ended_at: string | null }>) {
-      if (!r.work_order_id || !r.ended_at) continue
-      out.set(r.work_order_id, (out.get(r.work_order_id) ?? 0) + Math.max(0, (Date.parse(r.ended_at) - Date.parse(r.started_at)) / 1000))
+    // Paged, never cut off: past MAX_PAGES it throws, so the card shows a dash instead of hours that quietly leave entries out.
+    for (let page = 0; ; page++) {
+      if (page >= MAX_PAGES) throw new Error('Too many time entries to total')
+      const { data, error } = await orgDb(admin, orgId)
+        .from('time_entries')
+        .select('id, work_order_id, kind, started_at, ended_at')
+        .is('removed_at', null)
+        .eq('kind', 'work')
+        .in('work_order_id', opts.workOrderIds.slice(i, i + 200))
+        .gte('started_at', opts.fromIso)
+        .lte('started_at', opts.toIso)
+        .order('started_at', { ascending: true })
+        .order('id')
+        .range(page * PAGE, page * PAGE + PAGE - 1)
+      if (error) {
+        if (isTimeTrackingNotReadyError(error)) return null
+        throw error
+      }
+      const rows = (data ?? []) as Array<{ work_order_id: string | null; started_at: string; ended_at: string | null }>
+      for (const r of rows) {
+        if (!r.work_order_id || !r.ended_at) continue
+        out.set(r.work_order_id, (out.get(r.work_order_id) ?? 0) + Math.max(0, (Date.parse(r.ended_at) - Date.parse(r.started_at)) / 1000))
+      }
+      if (rows.length < PAGE) break
     }
   }
   return out

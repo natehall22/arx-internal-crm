@@ -102,6 +102,11 @@ describe('saveDashboardCards: the one writer', () => {
       expect(await saveDashboardCards(admin, 'o1', { cards: [{ key: 'win-rate' }] }, lawn.features, ROOFING_OWNER)).toMatchObject({ ok: false, status: 403 })
       expect(mergeOrgSettings).not.toHaveBeenCalled()
     })
+    it('reset: an admin cannot undo the owner’s hidden classic sections', async () => {
+      expect(await saveDashboardCards(admin, 'o1', null, lawn.features, ROOFING_ADMIN, { reset: true })).toMatchObject({ ok: false, status: 403 })
+      expect(mergeOrgSettings).not.toHaveBeenCalled()
+      expect((await saveDashboardCards(admin, 'o1', null, lawn.features, ROOFING_OWNER, { reset: true })).ok).toBe(true)
+    })
     it('reset: an admin may return a card dashboard to its card starting set, but not change the dashboard type', async () => {
       expect((await saveDashboardCards(admin, 'o1', null, lawn.features, ADMIN, { reset: true })).ok).toBe(true)
       mergeOrgSettings.mockClear()
@@ -164,7 +169,13 @@ describe('the numbers come from the existing sources', () => {
     const out = await loadDashboardCardData(admin, { profile: profile('admin'), viewer: owner, cards: cardsFor(owner), features: lawn.features, now: NOW })
     expect((byKey(out, 'billed-week') as TileData).value).toBe(4200)
     const call = runReport.mock.calls.find(([, , spec]) => spec.dataset === 'revenue')!
-    expect(call[3]).toEqual({ bounds: { start: '2026-11-08T00:00:00.000Z', end: '2026-11-14T23:59:59.999Z' } })
+    // rpt_revenue.event_date is a calendar day: the week's first and last DAY, both inclusive
+    expect(call[3]).toEqual({ bounds: { start: '2026-11-08', end: '2026-11-14' } })
+    // a timestamp column (rpt_sales.signed_at) gets the exact instants
+    runReport.mockClear()
+    await loadDashboardCardData(admin, { profile: profile('admin'), viewer: owner, cards: cardsFor(owner), features: lawn.features, now: NOW })
+    const sales = runReport.mock.calls.find(([, , sp]) => sp.dataset === 'sales')!
+    expect(sales[3]).toEqual({ bounds: { start: '2026-11-08T00:00:00.000Z', end: '2026-11-14T23:59:59.999Z' } })
     // the spec's own rolling date is never what a "this week" card reads
     expect(DASHBOARD_CARDS.filter((c) => c.source.kind === 'report' && c.source.range === 'week').map((c) => c.key)).toEqual(
       expect.arrayContaining(['billed-week', 'collected-week', 'quotes-won-week', 'dollars-sold-week', 'salespeople'])

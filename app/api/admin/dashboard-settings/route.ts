@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { isOwnerProfile } from '@/lib/super-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
     // Get user profile
     const { data: profile, error: profileError } = await adminClient
       .from('users')
-      .select('id, org_id, role, region_id, team_id')
+      .select('id, org_id, role, region_id, team_id, is_super_admin, active')
       .eq('id', user.id)
       .single()
 
@@ -84,7 +85,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check permissions
-    if (!['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
+    if (!['admin', 'regional_manager', 'sales_manager'].includes(profile.role) && !isOwnerProfile(profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
     // Get user profile
     const { data: profile, error: profileError } = await adminClient
       .from('users')
-      .select('id, org_id, role')
+      .select('id, org_id, role, is_super_admin, active')
       .eq('id', user.id)
       .single()
 
@@ -168,7 +169,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check permissions
-    if (!['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
+    if (!['admin', 'regional_manager', 'sales_manager'].includes(profile.role) && !isOwnerProfile(profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

@@ -31,6 +31,7 @@ import { resolveOpsAccess } from '@/lib/ops-access'
 import type { OrgFeatures } from '@/lib/org-features'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
+import { DATASETS } from '@/lib/reporting/catalog'
 import type { ReportSpec } from '@/lib/reporting/report-spec'
 import { ReportAccessError, buildReportContext, runReport, type ReportContext, type ReportResult } from '@/lib/reporting/run'
 import { SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
@@ -102,7 +103,8 @@ export async function saveDashboardCards(
   opts: { reset?: boolean } = {}
 ): Promise<{ ok: true; cards: SavedCard[] | null } | { ok: false; error: string; status: 400 | 403 | 500 }> {
   if (opts.reset) {
-    if (!ctx.owner && ctx.currentMode !== ctx.startMode) return { ok: false, error: 'Only the owner can switch the dashboard type', status: 403 }
+    // A reset can undo the owner's hidden sections (classic) or switch the dashboard type: neither is an admin's.
+    if (!ctx.owner && (ctx.currentMode === 'classic' || ctx.currentMode !== ctx.startMode)) return { ok: false, error: 'Only the owner can switch the dashboard type', status: 403 }
     const { error } = await mergeOrgSettings(admin, orgId, {}, { path: [DASHBOARD_CARDS_SETTINGS_KEY], remove: ['cards'] })
     return error ? { ok: false, error: 'Could not save', status: 500 } : { ok: true, cards: null }
   }
@@ -189,7 +191,7 @@ export async function loadDashboardCardData(
     const spec: ReportSpec = cols && src.spec.metric.kind === 'sum' && cols.length > 1 ? { ...src.spec, metric: { kind: 'sum', column: cols[0] }, alsoSum: cols.slice(1) } : src.spec
     const key = cols && cols.length > 1 ? k : `${k}|${JSON.stringify(src.spec.metric)}`
     let p = reportRuns.get(key)
-    if (!p) { p = runReport(admin, ctx, spec, src.range === 'week' ? { bounds: { start: win.fromIso, end: win.toIso } } : {}); reportRuns.set(key, p) }
+    if (!p) { p = runReport(admin, ctx, spec, src.range === 'week' ? { bounds: DATASETS[src.spec.dataset].dateColumnIsDay ? { start: win.from, end: win.weekEnd } : { start: win.fromIso, end: win.toIso } } : {}); reportRuns.set(key, p) }
     return p
   }
   const userNames = async (ids: string[]) => {
