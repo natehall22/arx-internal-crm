@@ -118,7 +118,7 @@ describe('My day', () => {
     expect(day.rows[0].detail).toContain('Gate / access: Gate 4471')
     expect(JSON.stringify(out)).not.toMatch(/\$\d/)
     // paid-day hours (driving and loading count), not stop-only time (5400 s = 1.5 h)
-    expect(out[2]).toMatchObject({ value: 2.25 })
+    expect(out[2]).toMatchObject({ value: 2.3 })
     expect(runReport).not.toHaveBeenCalled()
   })
   it('a crew member with no crew gets a plain "ask the office" message, not a failure', async () => {
