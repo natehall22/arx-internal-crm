@@ -11,7 +11,7 @@ import {
 } from '@/lib/job-trades'
 import { tradeLabel, type OrgTradeOption, type Trade } from '@/lib/org-trades'
 import { formatPhone } from '@/lib/format'
-import { useOrgBrandNames } from '@/hooks/useOrgFeatures'
+import { useOrgBrandNames, useRoofingWord } from '@/hooks/useOrgFeatures'
 
 /* ------------------------------------------------------------------------ *
  * API contract (GET /api/ops/install-schedule, POST .../assign, .../unassign)
@@ -330,6 +330,7 @@ interface PendingAssignConfirm {
 }
 
 export default function InstallScheduleClient({ embedded = false }: { /** Inside Jobs → Schedule: no Nav (the page provides it). */ embedded?: boolean } = {}) {
+  const rw = useRoofingWord()
   const brandNames = useOrgBrandNames()
   const [windowStart, setWindowStart] = useState<string>(() => startOfWeekISO(todayISO()))
   const [subs, setSubs] = useState<ScheduleSub[]>([])
@@ -715,7 +716,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
           <div>
             <h1 className="text-2xl font-bold text-[#2c2c2a]">Install Schedule</h1>
             <p className="text-sm text-[#57574f]">
-              Each crew on a job — roofing, gutters, siding — is its own card. Put it on a sub&apos;s day.
+              {rw('Each crew on a job — roofing, gutters, siding — is its own card.', 'Each crew on a job is its own card.')} Put it on a sub&apos;s day.
             </p>
             {availability?.source === 'no_token' && (
               <p className="mt-1 text-xs text-[#57574f]">

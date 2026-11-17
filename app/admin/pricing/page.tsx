@@ -284,7 +284,9 @@ export default function AdminPricingPage() {
           <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-8 text-white mb-8">
             <h2 className="text-2xl font-bold mb-2">Welcome! Let's set up your pricing.</h2>
             <p className="text-indigo-100 mb-6">
-              Add your first service type to get started. You can price by square (100 sq ft), per sq ft, or per linear foot.
+              {squaresOn
+                ? 'Add your first service type to get started. You can price by square (100 sq ft), per sq ft, or per linear foot.'
+                : 'Add your first service type to get started.'}
             </p>
             <button
               onClick={openAddModal}
@@ -529,7 +531,7 @@ export default function AdminPricingPage() {
                   value={typeForm.name}
                   onChange={(e) => setTypeForm(prev => ({ ...prev, name: e.target.value }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg"
-                  placeholder="e.g., Asphalt Shingles, Gutters, Siding"
+                  placeholder={squaresOn ? 'e.g., Asphalt Shingles, Gutters, Siding' : 'Name of the service'}
                   autoFocus
                 />
               </div>
@@ -541,7 +543,7 @@ export default function AdminPricingPage() {
                 </label>
                 {typeUnits.length === 0 && (
                   <p className="mb-2 text-sm text-[#2c2c2a]">
-                    Service types are priced from a roof measurement. Price your services (per visit, per month, per hour…) as add-ons under Settings → Proposals &amp; add-ons.
+                    Service types are priced from a property measurement. Price your services (per visit, per month, per hour…) as add-ons under Settings → Proposals &amp; add-ons.
                   </p>
                 )}
                 <div className={`grid gap-2 ${squaresOn || typeForm.pricing_unit === 'square' ? 'grid-cols-3' : 'grid-cols-2'}`}>

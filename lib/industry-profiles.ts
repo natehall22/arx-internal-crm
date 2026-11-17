@@ -164,6 +164,12 @@ export type IndustryProfile = {
   /** Settings hub entries (by href) this profile never shows. Left out = none (roofing). */
   settingsHidden?: readonly string[]
   settingsText?: Readonly<Record<string, string>>
+  /**
+   * The estimate / site-visit appointment type a service company starts with (`appointment_types` row, category 'inspection',
+   * so the existing scheduling flow offers it). Add-only: created on switch / seed when no type of that name exists, never
+   * renamed or removed. Left out = none (roofing keeps its own inspection types).
+   */
+  siteVisitType?: { name: string; description: string; durationMinutes: number }
   /** Schedule stage templates a job can start from (project tools, lib/job-schedule.ts). Left out = none. */
   scheduleTemplates?: readonly ScheduleTemplate[]
   /** The words on the customer proposal PDF's cover, process and why-us pages (lib/industry-profiles-proposal.ts). Left out = neutral text. */
@@ -237,7 +243,6 @@ const SERVICE_REPORTS = [
   'leads-by-source',
   'pipeline-by-stage',
   'appointments-by-type',
-  'referrals-by-partner',
   'payments-by-month',
   'revenue-by-month',
   'revenue-by-service',
@@ -290,6 +295,7 @@ const LAWN_SETTINGS_HIDDEN = [
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
+  siteVisitType: { name: 'Estimate Visit', description: 'On-site visit to look at the property and give a quote', durationMinutes: 45 },
   proposalContent: LAWN_LANDSCAPE_PROPOSAL_CONTENT,
   version: 7,
   label: 'Lawn & landscape',
@@ -377,6 +383,7 @@ const lawnLandscape: IndustryProfile = {
 
 const exteriorCleaning: IndustryProfile = {
   id: 'exterior_cleaning',
+  siteVisitType: { name: 'Estimate Visit', description: 'On-site visit to look at the property and give a quote', durationMinutes: 30 },
   proposalContent: EXTERIOR_CLEANING_PROPOSAL_CONTENT,
   version: 4,
   label: 'Exterior cleaning',

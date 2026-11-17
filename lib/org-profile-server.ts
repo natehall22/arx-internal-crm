@@ -118,6 +118,37 @@ export async function loadProfileSwitchInputs(client: SupabaseClient, orgId: str
  * Apply a profile switch. Order: trades (add-only), feature reset (if asked), then the profile key LAST — so a failure
  * part-way leaves the old profile showing and a re-run finishes the job (every step is idempotent).
  */
+/**
+ * Add-only: the profile's estimate / site-visit appointment type, when the company has no type of that name. Never renames,
+ * reorders or turns off an existing type. Returns true when a row was added. A missing table / error is logged and skipped.
+ */
+export async function ensureProfileAppointmentType(client: SupabaseClient, orgId: string, to: IndustryProfileId): Promise<boolean> {
+  const v = INDUSTRY_PROFILES[to].siteVisitType
+  if (!v) return false
+  const { data, error } = await client.from('appointment_types').select('id, name, sort_order').eq('org_id', orgId)
+  if (error) {
+    console.error('ensureProfileAppointmentType: cannot read appointment_types', error.message)
+    return false
+  }
+  const rows = (data ?? []) as Array<{ name: string; sort_order: number | null }>
+  if (rows.some((r) => r.name.trim().toLowerCase() === v.name.toLowerCase())) return false
+  const sortOrder = rows.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1
+  const ins = await client.from('appointment_types').insert({
+    org_id: orgId,
+    name: v.name,
+    duration_minutes: v.durationMinutes,
+    description: v.description,
+    category: 'inspection',
+    active: true,
+    sort_order: sortOrder,
+  })
+  if (ins.error) {
+    console.error('ensureProfileAppointmentType: insert failed', ins.error.message)
+    return false
+  }
+  return true
+}
+
 export async function applyIndustryProfile(
   client: SupabaseClient,
   orgId: string,
@@ -137,5 +168,6 @@ export async function applyIndustryProfile(
   }
   const { error } = await mergeOrgSettings(client, orgId, { id: to, version: INDUSTRY_PROFILES[to].version }, { path: [ORG_PROFILE_SETTINGS_KEY] })
   if (error) throw new Error(`profile: ${error}`)
+  await ensureProfileAppointmentType(client, orgId, to)
   return { plan }
 }

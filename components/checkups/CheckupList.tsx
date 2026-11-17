@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 
 import ContactActions, { type LoggedContact } from '@/components/customer/ContactActions'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -36,6 +37,7 @@ async function act(id: string, payload: Record<string, unknown>): Promise<boolea
 }
 
 function CheckupCard({ c, today }: { c: CheckupView; today: string }) {
+  const rw = useRoofingWord()
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [sheet, setSheet] = useState<null | 'book' | 'result' | 'close'>(null)
@@ -128,7 +130,7 @@ function CheckupCard({ c, today }: { c: CheckupView; today: string }) {
           </DialogContent>
         )}
         {sheet === 'result' && (
-          <DialogContent title="How did the roof look?" description={c.label}>
+          <DialogContent title={rw('How did the roof look?', 'How did it look?')} description={c.label}>
             <label className="flex flex-col gap-1 text-sm font-medium text-[#2c2c2a]">
               Notes (optional)
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={2000} className="rounded-lg border border-gray-300 p-2 text-base text-[#2c2c2a]" placeholder="What you saw, anything to fix" />

@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import Link from 'next/link'
 
 import { filesDocHref } from '@/lib/files/files-object'
@@ -15,6 +16,7 @@ type LinkJob = {
 
 /** Desktop side panel: the documents people open all day, one tap each. */
 export default function JobQuickLinks({ job }: { job: LinkJob }) {
+  const rw = useRoofingWord()
   const row = 'flex min-h-[44px] items-center justify-between rounded-lg px-3 text-sm font-medium text-[#2c2c2a] hover:bg-gray-50'
   const agreement = job.installation_agreement?.status === 'completed' ? job.installation_agreement : null
   return (
@@ -30,7 +32,7 @@ export default function JobQuickLinks({ job }: { job: LinkJob }) {
         </a>
       ) : null}
       {job.roof_report?.pdf_generated_at ? (
-        <a className={row} href={`/api/inspection-reports/${job.roof_report.id}/pdf?redirect=1`} target="_blank" rel="noopener noreferrer">Roof report <span aria-hidden>↗</span></a>
+        <a className={row} href={`/api/inspection-reports/${job.roof_report.id}/pdf?redirect=1`} target="_blank" rel="noopener noreferrer">{rw('Roof report', 'Report')} <span aria-hidden>↗</span></a>
       ) : null}
       {job.customer ? <Link className={row} href={`/customers/${job.customer.id}`}>Customer file <span aria-hidden>→</span></Link> : null}
     </nav>

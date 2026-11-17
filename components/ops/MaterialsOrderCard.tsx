@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { buildMaterialsOrderList } from '@/lib/materials-order-list'
@@ -31,6 +32,7 @@ export default function MaterialsOrderCard({
   coverageOverrides,
   showSheetLink = true,
 }: Props) {
+  const rw = useRoofingWord()
   const [overrides, setOverrides] = useState<JobMaterialOrderOverrideRow[]>([])
   const [loadingOverrides, setLoadingOverrides] = useState(true)
   const [savingKey, setSavingKey] = useState<string | null>(null)
@@ -144,7 +146,7 @@ export default function MaterialsOrderCard({
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-[#2c2c2a]">Materials Order List</h2>
             <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">
-              From sold scope + roof measure
+              {rw('From sold scope + roof measure', 'From sold scope + measurement')}
             </span>
             {!expanded && summaryText ? (
               <p className="mt-1 text-xs text-gray-600">{summaryText}</p>

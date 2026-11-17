@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import Link from 'next/link'
 import {
   DEFAULT_CLOSE_OUTCOMES,
@@ -11,6 +12,7 @@ import {
   sortCloseOutcomes,
   type CloseOutcomeConfigRow,
 } from '@/lib/close-outcomes'
+import { visibleOutcomeRows } from '@/lib/inspection-outcomes'
 import { FEEDBACK_PROMPT_DISPLAY_TIMEZONE, calendarDateYmdInTimezone } from '@/lib/scheduling-prompt'
 
 export default function CloseAppointmentFeedbackPage() {
@@ -32,6 +34,7 @@ export default function CloseAppointmentFeedbackPage() {
   const [scheduledFor, setScheduledFor] = useState<string | null>(null)
 
   const [outcome, setOutcome] = useState<string | null>(null)
+  const insuranceOn = useOrgFeatures().insurance
   const [outcomeRows, setOutcomeRows] = useState<CloseOutcomeConfigRow[]>(() =>
     sortCloseOutcomes([...DEFAULT_CLOSE_OUTCOMES], { includeInactive: false })
   )
@@ -296,7 +299,7 @@ export default function CloseAppointmentFeedbackPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">What was the outcome?</h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-            {outcomeRows.map((row) => {
+            {visibleOutcomeRows(outcomeRows, insuranceOn).map((row) => {
               const selected =
                 outcome != null && row.id.toLowerCase() === outcome.toLowerCase()
               return (

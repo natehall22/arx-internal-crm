@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import type { DragEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
@@ -166,6 +167,7 @@ export default function JobFileWorkspaceCard({
   sections,
   compact = false,
 }: JobFileWorkspaceCardProps) {
+  const rw = useRoofingWord()
   const show = (name: 'photos' | 'documents' | 'costs') => !sections || sections.includes(name)
   const supabase = useMemo(() => createClientBrowser(), [])
 
@@ -1197,7 +1199,7 @@ export default function JobFileWorkspaceCard({
                     value={certWorkDescription}
                     onChange={(e) => setCertWorkDescription(e.target.value)}
                     disabled={!certMetaLoaded}
-                    placeholder={certJobTypePlaceholder ? `Default: ${certJobTypePlaceholder}` : 'e.g. Roofing and Interior Work'}
+                    placeholder={certJobTypePlaceholder ? `Default: ${certJobTypePlaceholder}` : rw('e.g. Roofing and Interior Work', 'e.g. Exterior and Interior Work')}
                     className="mt-1 min-h-[34px] w-full sm:w-72 rounded-lg border border-emerald-200 bg-white px-2 py-1 text-sm text-gray-900 disabled:opacity-60"
                   />
                 </div>

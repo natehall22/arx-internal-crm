@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { DEFAULT_ORG_FEATURES, coerceOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { coerceClientBrandNames, GENERIC_BRAND_NAMES, type ClientBrandNames } from '@/lib/org-brand-client'
-import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
+import { coerceClientOrgProfile, roofingOr, type ClientOrgProfile } from '@/lib/org-profile'
 
 /**
  * The ONE client fetch of `/api/me/effective-permissions` (Nav and every `useOrgFeatures` caller share it). Calls made
@@ -126,4 +126,18 @@ export function resetOrgFeaturesCacheForTests(): void {
   lastKnown = null
   lastKnownProfile = null
   lastKnownBrand = null
+}
+
+/**
+ * Roofing-specific wording for a client component: `const rw = useRoofingWord()`; `rw('Roof report', 'Report')`.
+ * Roofing (and the original company) keeps the first text byte-for-byte; any other profile reads the second (neutral) one.
+ */
+export function useRoofingWord(): <T extends string>(roofing: T, other: T) => T {
+  const profile = useOrgProfile()
+  return (roofing, other) => roofingOr(profile, roofing, other)
+}
+
+/** True for the roofing profile (and the original company, which resolves to it). Hide roofing-only fields with it. */
+export function useIsRoofingProfile(): boolean {
+  return roofingOr(useOrgProfile(), true, false)
 }

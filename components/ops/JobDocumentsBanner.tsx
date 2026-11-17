@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import Link from 'next/link'
 
 /**
@@ -39,6 +40,7 @@ export default function JobDocumentsBanner({
   onUndoMaterialsOrdered?: () => void
   markingMaterials?: boolean
 }) {
+  const rw = useRoofingWord()
   const materialsOrdered = Boolean(materialsStatus && materialsStatus !== 'not_ordered')
   const orderedOn = materialsOrderedAt
     ? new Date(materialsOrderedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
@@ -96,7 +98,7 @@ export default function JobDocumentsBanner({
                 rel="noopener noreferrer"
                 className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
               >
-                View Roof Report
+                {rw('View Roof Report', 'View Report')}
               </a>
             )}
           </div>

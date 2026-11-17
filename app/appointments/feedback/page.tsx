@@ -3,12 +3,14 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import Link from 'next/link'
 import CloseVisitDebriefWizard from '@/components/inspection/CloseVisitDebriefWizard'
 import {
   DEFAULT_INSPECTION_OUTCOMES,
   inspectionOutcomeRequiresCloseSchedule,
   sortActiveOutcomes,
+  visibleOutcomeRows,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { easternDatetimeLocalToUtcIso, getEasternTodayIso } from '@/lib/eastern-datetime'
@@ -59,6 +61,7 @@ export default function AppointmentFeedbackPage() {
   const [success, setSuccess] = useState(false)
 
   // Form state — outcome id from org settings (admin Inspection Outcomes)
+  const insuranceOn = useOrgFeatures().insurance
   const [outcomeRows, setOutcomeRows] = useState<InspectionOutcomeConfigRow[]>(() =>
     sortActiveOutcomes([...DEFAULT_INSPECTION_OUTCOMES])
   )
@@ -536,7 +539,7 @@ export default function AppointmentFeedbackPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">What was the outcome?</h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-            {outcomeRows.map((opt) => (
+            {visibleOutcomeRows(outcomeRows, insuranceOn).map((opt) => (
               <button
                 key={opt.id}
                 type="button"
