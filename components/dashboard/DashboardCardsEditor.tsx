@@ -18,7 +18,7 @@ type Loaded = {
   cards: Array<{ key: string; goal: number | null }>
   offered: Offered[]
   unavailable: Array<{ key: string; label: string; reason: string }>
-  startsClassic: boolean
+  canBuildCards: boolean
   canEdit: boolean
 }
 
@@ -170,7 +170,7 @@ export default function DashboardCardsEditor({ onMode }: { onMode?: (mode: Dashb
         </details>
       ) : null}
 
-      {data.canEdit && data.mode === 'classic' && editingMode === 'classic' && data.startsClassic ? (
+      {data.canBuildCards && editingMode === 'classic' ? (
         <button type="button" className={`${BTN} mb-4`} onClick={() => void load('cards')}>Build a card dashboard instead</button>
       ) : null}
 
@@ -182,7 +182,7 @@ export default function DashboardCardsEditor({ onMode }: { onMode?: (mode: Dashb
           </button>
         </div>
       ) : (
-        <p className="text-sm text-gray-800">Only an owner or admin can change the cards.</p>
+        <p className="text-sm text-gray-800">{data.mode === 'classic' ? 'Only the owner can change which sections this dashboard shows.' : 'Only an owner or admin can change the cards.'}</p>
       )}
     </section>
   )

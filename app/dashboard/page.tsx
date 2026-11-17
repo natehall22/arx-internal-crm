@@ -155,12 +155,7 @@ export default async function DashboardPage() {
   // This period's doors, inspections set, sits, sales and calendar appointments come from the reporting
   // views (lib/reporting/period-metrics.ts) — one definition each, shared with /reports and the goals page.
   // Who may see whose numbers stays here: the rows carry the credited people, we filter them below.
-  const [{ data: orgForSits }, { count: badgeCount }, periodRows] = await Promise.all([
-    supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', profile.org_id)
-      .single(),
+  const [{ count: badgeCount }, periodRows] = await Promise.all([
     supabase
       .from('user_badges')
       .select('id', { count: 'exact', head: true })
@@ -173,7 +168,7 @@ export default async function DashboardPage() {
   ])
 
   const contactDispositionIdSet = getContactDispositionIdSet(
-    orgForSits?.settings?.canvass_dispositions as any[] | undefined
+    (orgSettings as { canvass_dispositions?: any[] } | null | undefined)?.canvass_dispositions
   )
   const visibleIds = new Set([profile.id, ...teamMemberIds])
 

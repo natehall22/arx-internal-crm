@@ -43,8 +43,12 @@ describe('catalog: every card reads from an existing source', () => {
     const src = c.source
     if (src.kind === 'report') {
       // A report card goes through the one runner: its spec must parse and name a real rpt_* dataset and real columns.
-      const parsed = parseSpec(src.spec)
+      // The one allowed difference: a leaderboard groups by the dataset's owner (user id) column, which the report builder does not list.
+      const ds = DATASETS[src.spec.dataset]
+      const perPerson = !!src.spec.groupBy && src.spec.groupBy === ds.ownerColumn
+      const parsed = parseSpec(perPerson ? { ...src.spec, groupBy: null } : src.spec)
       expect(parsed.ok).toBe(true)
+      expect(src.range === 'week' || src.range === 'spec').toBe(true)
       expect(DATASETS[src.spec.dataset].view).toMatch(/^rpt_/)
     } else if (src.kind === 'loader') {
       // A loader card calls a function that exists today (the one under a Today queue, or a screen's own loader).

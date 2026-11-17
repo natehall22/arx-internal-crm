@@ -137,7 +137,11 @@ function groupKey(row: Record<string, unknown>, ds: Dataset, groupBy: string | n
   return typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)
 }
 
-export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec: ReportSpec): Promise<ReportResult> {
+/**
+ * `opts.bounds` = exact timestamps to use in place of `spec.date` (a caller that knows its own time zone, e.g. the dashboard's
+ * "this week"). Left out, nothing changes for any caller: `spec.date` is read through `dateBounds`.
+ */
+export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec: ReportSpec, opts: { bounds?: { start: string | null; end: string | null } } = {}): Promise<ReportResult> {
   const ds = DATASETS[spec.dataset]
   checkAccess(ctx, ds, spec)
 
@@ -152,7 +156,7 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
   if (spec.sortBy) wanted.add(spec.sortBy)
   const select = Array.from(wanted).join(',')
 
-  const { start, end } = dateBounds(spec.date)
+  const { start, end } = opts.bounds ?? dateBounds(spec.date)
   const all: Record<string, unknown>[] = []
   let truncated = false
   const PAGE = 1000

@@ -194,6 +194,51 @@ export async function loadCrewsLedBy(admin: SupabaseClient, orgId: string, userI
   return live.map((s) => ({ subId: s.id, name: s.company_name ?? 'Crew', tracksTime: true, members: members.get(s.id) ?? [] }))
 }
 
+/**
+ * Every crew this person leads, whether or not the crew tracks time (that switch is about the clock, not about who leads).
+ * Throws on any read error, the table not being there included: a caller that narrows what someone may see to their crews
+ * must treat a failure as "no crews", never as "no narrowing" (dashboard cards, 2026-11-16).
+ */
+export async function loadCrewIdsLedBy(admin: SupabaseClient, orgId: string, userId: string): Promise<string[]> {
+  const db = orgDb(admin, orgId)
+  const { data, error } = await db.from('crew_members').select('sub_id').eq('user_id', userId).eq('is_lead', true)
+  if (error) throw error
+  const subIds = ((data ?? []) as Array<{ sub_id: string }>).map((r) => r.sub_id)
+  if (subIds.length === 0) return []
+  const { data: subs, error: subsError } = await db.from('sub_contractors').select('id, active').in('id', subIds)
+  if (subsError) throw subsError
+  return ((subs ?? []) as Array<{ id: string; active: boolean | null }>).filter((s) => s.active !== false).map((s) => s.id)
+}
+
+/**
+ * Finished work time (seconds) on the given stops, for entries that STARTED between two instants. A pure read: unlike
+ * `loadTimeWeek` it never closes forgotten clock-ins, so opening a dashboard writes nothing. A clock still running is not counted.
+ * null = time tracking is not set up yet.
+ */
+export async function loadWorkSecondsByStop(admin: SupabaseClient, orgId: string, opts: { fromIso: string; toIso: string; workOrderIds: string[] }): Promise<Map<string, number> | null> {
+  const out = new Map<string, number>()
+  for (let i = 0; i < opts.workOrderIds.length; i += 200) {
+    const { data, error } = await orgDb(admin, orgId)
+      .from('time_entries')
+      .select('work_order_id, kind, started_at, ended_at')
+      .is('removed_at', null)
+      .eq('kind', 'work')
+      .in('work_order_id', opts.workOrderIds.slice(i, i + 200))
+      .gte('started_at', opts.fromIso)
+      .lte('started_at', opts.toIso)
+      .limit(5000)
+    if (error) {
+      if (isTimeTrackingNotReadyError(error)) return null
+      throw error
+    }
+    for (const r of (data ?? []) as Array<{ work_order_id: string | null; started_at: string; ended_at: string | null }>) {
+      if (!r.work_order_id || !r.ended_at) continue
+      out.set(r.work_order_id, (out.get(r.work_order_id) ?? 0) + Math.max(0, (Date.parse(r.ended_at) - Date.parse(r.started_at)) / 1000))
+    }
+  }
+  return out
+}
+
 /** Roles the company actually uses that could be allowed to clock themselves in (never field roles). */
 export async function loadSelfClockRoleChoices(admin: SupabaseClient, orgId: string): Promise<string[]> {
   const { data } = await orgDb(admin, orgId).from('users').select('role').eq('active', true).limit(2000)

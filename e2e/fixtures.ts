@@ -188,7 +188,7 @@ export const HARNESS_CARD_DASHBOARD: import('../lib/dashboard-cards').CardData[]
 
 /** GET /api/admin/dashboard-cards for the lawn company (an owner editing). */
 export const HARNESS_DASHBOARD_CARDS_API = {
-  mode: 'cards', editingMode: 'cards', custom: false, startsClassic: false, canEdit: true,
+  mode: 'cards', editingMode: 'cards', custom: false, canBuildCards: false, canEdit: true,
   cards: [{ key: 'billed-week', goal: 25000 }, { key: 'collected-week', goal: null }, { key: 'visits-done-week', goal: null }, { key: 'salespeople', goal: null }],
   offered: [
     { key: 'billed-week', label: 'Billed this week', description: 'Job contracts and service invoices billed since Sunday, sales tax included (the Revenue report).', group: 'Money', goal: true, goalUnit: 'money' },

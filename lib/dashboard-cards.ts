@@ -40,7 +40,18 @@ export type LoaderName = 'unpaidInvoices' | 'visits' | 'servicePlans' | 'timeWee
 
 export type CardSource =
   | { kind: 'classic'; section: ClassicSection }
-  | { kind: 'report'; spec: ReportSpec; /** What to read off the result: the grand total, or one value per group (leaderboards). */ read: 'total' | 'groups' }
+  | {
+      kind: 'report'
+      spec: ReportSpec
+      /** What to read off the result: the grand total, or one value per group (leaderboards). */
+      read: 'total' | 'groups'
+      /**
+       * Which dates the card covers. 'week' = this week, Sunday through Saturday in the company's own time zone, passed to the
+       * runner as exact timestamps (lib/dashboard-cards-server.ts `dashboardWindow`); 'spec' = whatever `spec.date` says
+       * (a rolling window, the same as the report). For 'week' the spec's own `date` is not read.
+       */
+      range: 'week' | 'spec'
+    }
   | { kind: 'loader'; loader: LoaderName; measure: string }
   | { kind: 'none'; reason: string }
 
@@ -77,10 +88,10 @@ export const DASHBOARD_CARDS: readonly DashboardCard[] = [
   classic('account-overview', 'Account overview', 'Leads, opportunities and projects.'),
 
   // ── Money ────────────────────────────────────────────────────────────────────────────────────────────────────
-  { key: 'billed-week', label: 'Billed this week', description: 'Job contracts and service invoices billed since Sunday, sales tax included (the Revenue report).', group: 'Money', audience: ['owner'], money: 'financials', display: 'money', goal: true,
-    source: { kind: 'report', read: 'total', spec: base('revenue', { metric: { kind: 'sum', column: 'billed' } }) } },
-  { key: 'collected-week', label: 'Collected this week', description: 'Payments received since Sunday, refunds taken off (the Revenue report).', group: 'Money', audience: ['owner'], money: 'financials', display: 'money', goal: true,
-    source: { kind: 'report', read: 'total', spec: base('revenue', { metric: { kind: 'sum', column: 'collected' } }) } },
+  { key: 'billed-week', label: 'Billed this week', description: 'Job contracts and service invoices billed this week, sales tax included (the Revenue report).', group: 'Money', audience: ['owner'], money: 'financials', display: 'money', goal: true,
+    source: { kind: 'report', read: 'total', range: 'week', spec: base('revenue', { metric: { kind: 'sum', column: 'billed' } }) } },
+  { key: 'collected-week', label: 'Collected this week', description: 'Payments received this week, refunds taken off (the Revenue report).', group: 'Money', audience: ['owner'], money: 'financials', display: 'money', goal: true,
+    source: { kind: 'report', read: 'total', range: 'week', spec: base('revenue', { metric: { kind: 'sum', column: 'collected' } }) } },
   { key: 'unpaid-overdue', label: 'Unpaid and overdue', description: 'What customers still owe on sent invoices, and how many are past due (the list behind Today’s Unpaid invoices).', group: 'Money', audience: ['owner'], money: 'financials', display: 'money',
     source: { kind: 'loader', loader: 'unpaidInvoices', measure: 'owed' } },
   { key: 'revenue-per-crew-hour', label: 'Revenue per crew hour', description: 'What a crew hour brings in.', group: 'Money', audience: ['owner'], money: 'financials', requires: 'timeTracking', display: 'money',
@@ -107,16 +118,16 @@ export const DASHBOARD_CARDS: readonly DashboardCard[] = [
   // ── Sales ────────────────────────────────────────────────────────────────────────────────────────────────────
   { key: 'quotes-sent-week', label: 'Quotes sent', description: 'Quotes sent to customers this week.', group: 'Sales', audience: ['owner', 'sales'], money: null, display: 'count',
     source: { kind: 'none', reason: 'No report dataset holds quotes by the day they were sent (the proposals table has no rpt_ view; Today only lists quotes still waiting).' } },
-  { key: 'quotes-won-week', label: 'Quotes won', description: 'Quotes approved and signed since Sunday.', group: 'Sales', audience: ['owner', 'sales'], money: null, display: 'count', goal: true,
-    source: { kind: 'report', read: 'total', spec: base('sales', { metric: { kind: 'count' } }) } },
+  { key: 'quotes-won-week', label: 'Quotes won', description: 'Quotes approved and signed this week.', group: 'Sales', audience: ['owner', 'sales'], money: null, display: 'count', goal: true,
+    source: { kind: 'report', read: 'total', range: 'week', spec: base('sales', { metric: { kind: 'count' } }) } },
   { key: 'win-rate', label: 'Win rate', description: 'Share of deals opened in the last 30 days that were sold (the Sold % report).', group: 'Sales', audience: ['owner', 'sales'], money: null, display: 'percent',
-    source: { kind: 'report', read: 'total', spec: base('opportunities', { metric: { kind: 'rate', column: 'is_sold' }, date: { preset: '30d' } }) } },
-  { key: 'dollars-sold-week', label: 'Dollars sold', description: 'Signed sales since Sunday. A salesperson sees their own.', group: 'Sales', audience: ['owner', 'sales'], money: 'own', display: 'money', goal: true,
-    source: { kind: 'report', read: 'total', spec: base('sales', { metric: { kind: 'sum', column: 'amount' } }) } },
+    source: { kind: 'report', read: 'total', range: 'spec', spec: base('opportunities', { metric: { kind: 'rate', column: 'is_sold' }, date: { preset: '30d' } }) } },
+  { key: 'dollars-sold-week', label: 'Dollars sold', description: 'Signed sales this week. A salesperson sees their own.', group: 'Sales', audience: ['owner', 'sales'], money: 'own', display: 'money', goal: true,
+    source: { kind: 'report', read: 'total', range: 'week', spec: base('sales', { metric: { kind: 'sum', column: 'amount' } }) } },
 
   // ── Leaderboards ─────────────────────────────────────────────────────────────────────────────────────────────
-  { key: 'salespeople', label: 'Salespeople', description: 'Quotes won and dollars sold since Sunday, per salesperson. A salesperson sees their own row.', group: 'Leaderboards', audience: ['owner', 'sales'], money: 'own', display: 'leaderboard',
-    source: { kind: 'report', read: 'groups', spec: base('sales', { groupBy: 'closer', metric: { kind: 'sum', column: 'amount' } }) } },
+  { key: 'salespeople', label: 'Salespeople', description: 'Quotes won and dollars sold this week, per salesperson (one row per person, not per name). A salesperson sees their own row.', group: 'Leaderboards', audience: ['owner', 'sales'], money: 'own', display: 'leaderboard',
+    source: { kind: 'report', read: 'groups', range: 'week', spec: base('sales', { groupBy: 'closer_user_id', metric: { kind: 'sum', column: 'amount' } }) } },
   { key: 'crews', label: 'Crews', description: 'Visits done, hours and skips this week, per crew. A crew lead sees their own crew. Never shows money.', group: 'Leaderboards', audience: ['owner', 'crew'], money: null, requires: 'servicePlans', display: 'leaderboard',
     source: { kind: 'loader', loader: 'visits', measure: 'crews' } },
 ]
