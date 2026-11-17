@@ -369,9 +369,9 @@ async function timeStep(ctx: Ctx) {
     }
     return true
   }
-  // Ordinary days over the last 9 days (Mon-Fri), no job (visit time).
+  // Ordinary days: the last 5 weekdays in the past 3 weeks that have visits (the sample schedule has gaps), no job.
   let days = 0
-  for (let back = 9; back >= 1; back--) {
+  for (let back = 1; back <= 21 && days < 5; back++) {
     const ymd = addDaysYmd(ctx.today, -back)
     const dow = new Date(`${ymd}T12:00:00Z`).getUTCDay()
     if (dow === 0 || dow === 6) continue
