@@ -1180,13 +1180,13 @@ export default function JobFileWorkspaceCard({
             id="completion-certificate-tools"
             className="mb-3 scroll-mt-28 rounded-lg border border-emerald-200 bg-emerald-50 p-3"
           >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
+            <div className="flex flex-col gap-3">
+              <div className="min-w-0">
                 <p className="text-sm font-semibold text-emerald-950">Certificate of Completion</p>
                 <p className="text-xs text-emerald-800">
                   {completionCertificate
                     ? 'Attached in documents for this customer/job.'
-                    : 'Generate a simple proof-of-completion PDF for customer or insurance records.'}
+                    : 'A simple proof-of-completion PDF for the customer’s records.'}
                 </p>
                 <div className="mt-2">
                   <label className="block text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
@@ -1197,22 +1197,22 @@ export default function JobFileWorkspaceCard({
                     value={certWorkDescription}
                     onChange={(e) => setCertWorkDescription(e.target.value)}
                     disabled={!certMetaLoaded}
-                    placeholder={certJobTypePlaceholder ? `Default: ${certJobTypePlaceholder}` : 'e.g. Roofing and Interior Work'}
+                    placeholder={certJobTypePlaceholder ? `Default: ${certJobTypePlaceholder}` : 'e.g. Lawn care'}
                     className="mt-1 min-h-[34px] w-full sm:w-72 rounded-lg border border-emerald-200 bg-white px-2 py-1 text-sm text-gray-900 disabled:opacity-60"
                   />
                 </div>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 flex-wrap items-stretch gap-2">
                 <button
                   type="button"
                   onClick={() => handleGenerateCompletionCertificate(Boolean(completionCertificate))}
                   disabled={certificateBusy || tableUnavailable}
-                  className="min-h-[38px] px-3 py-2 rounded-lg border border-emerald-700 bg-white text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                  className="min-h-[44px] shrink-0 whitespace-nowrap px-4 py-2 rounded-lg border border-emerald-700 bg-white text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
                 >
                   {certificateBusy ? 'Working...' : completionCertificate ? 'Regenerate' : 'Generate'}
                 </button>
                 <div
-                  className={`min-h-[38px] w-full sm:w-56 rounded-lg border px-3 py-2 text-sm flex flex-col justify-center ${
+                  className={`min-h-[44px] min-w-0 flex-1 basis-56 rounded-lg border px-3 py-2 text-sm flex flex-col justify-center ${
                     customerCertificateRecipient
                       ? 'border-emerald-200 bg-white text-gray-900'
                       : 'border-amber-200 bg-amber-50/80 text-amber-950'
@@ -1247,7 +1247,7 @@ export default function JobFileWorkspaceCard({
                         ? 'Add a customer email on the customer record first.'
                         : 'Send certificate PDF to the customer'
                   }
-                  className="min-h-[38px] px-3 py-2 rounded-lg bg-emerald-700 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+                  className="min-h-[44px] shrink-0 whitespace-nowrap px-4 py-2 rounded-lg bg-emerald-700 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
                 >
                   Email certificate
                 </button>

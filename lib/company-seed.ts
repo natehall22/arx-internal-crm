@@ -3,7 +3,7 @@
  *
  * Creates or updates ONE org: its `orgs` columns (name, phone, email, address, timezone), `settings.brand` (through
  * saveBrandSettings), the default permission presets (SQL `create_default_permission_presets`, only when the org has
- * none), its trades (lib/org-trades-admin seed plan) and a first owner (role admin + `is_super_admin`).
+ * none) plus the service role presets (Field Tech, Crew Lead, Office, Bookkeeper) for a profile with crews (`create_service_role_presets`), its trades (lib/org-trades-admin seed plan) and a first owner (role admin + `is_super_admin`).
  *
  * Safe to re-run: every step compares with what is stored and writes only the difference. It only ever touches the org
  * it targets: an existing org is changed only when the input names its id; a new org is refused when another org already
@@ -24,7 +24,8 @@ import { orgDb } from '@/lib/supabase/org-db'
 import { normalizeSubdomain } from '@/lib/company-host'
 import { isMissingTable } from '@/lib/supabase/errors'
 import { applyOrgTradesSeed, planOrgTradesSeed, readOrgTradesForSeed, type OrgTradeSeed } from '@/lib/org-trades-admin'
-import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES, isIndustryProfileId, type IndustryProfileId } from '@/lib/industry-profiles'
+import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES, isIndustryProfileId, storedProfileId, type IndustryProfileId } from '@/lib/industry-profiles'
+import { orgHasFieldCrews, SERVICE_PRESET_NAMES } from '@/lib/role-presets'
 import { ORG_PROFILE_SETTINGS_KEY } from '@/lib/org-profile'
 import { isOrgFeature, ORG_FEATURE_KEYS, resolveOrgEntitlements, resolveOrgFeatures, type OrgFeature, type OrgFeatures } from '@/lib/org-features'
 import { DEMO_FEATURES } from '@/lib/demo-company-data'
@@ -271,7 +272,7 @@ export interface CompanySeedReport {
   demo?: { logins: Array<{ role: string; email: string; password: string }>; portalLink: string | null; portalPath: string | null; skipped: string[] }
 }
 
-type OrgRow = { plan_entitlements?: unknown; is_demo?: boolean | null; id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown; profile?: unknown }
+type OrgRow = { plan_entitlements?: unknown; is_demo?: boolean | null; id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown; profile?: unknown; features?: unknown }
 type UserRow = { id: string; org_id: string | null; email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null; full_name: string | null }
 
 class SeedStop extends Error {}
@@ -306,7 +307,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     org = await must(
       client
         .from('orgs')
-        .select(`id, name, phone, email, address, timezone, plan_entitlements, ${input.demo ? 'is_demo, ' : ''}${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`)
+        .select(`id, name, phone, email, address, timezone, plan_entitlements, ${input.demo ? 'is_demo, ' : ''}${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile, features:settings->features`)
         .eq('id', input.org.id)
         .maybeSingle(),
       'read org'
@@ -318,7 +319,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     // A demo run re-finds ITS OWN demo company by name (so a re-run / --reset needs no org id); anything else is refused below.
     if (input.demo && sameRows.length === 1 && sameRows[0].is_demo === true) {
       org = await must(
-        client.from('orgs').select(`id, name, phone, email, address, timezone, plan_entitlements, is_demo, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`).eq('id', sameRows[0].id).maybeSingle(),
+        client.from('orgs').select(`id, name, phone, email, address, timezone, plan_entitlements, is_demo, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile, features:settings->features`).eq('id', sameRows[0].id).maybeSingle(),
         'read demo org'
       )
     } else if (sameRows.length) {
@@ -552,6 +553,25 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
       if (error) throw new Error(`roles: create_default_permission_presets: ${error.message}`)
     }
   } else say('roles: presets already exist')
+
+  // The system "Field Tech" preset (crew members) for a company whose profile has crews (service plans / time clock); one per
+  // company, idempotent (SQL create_service_role_presets, migration 202611300020). A roofing company without those switches gets none.
+  const wantPlanForPresets = seedEntitlements(input)
+  const profileForPresets = input.profile ?? storedProfileId({ profile: org?.profile })
+  // Same answer as the Add User screen: profile defaults + the company's saved switches + its plan (lib/role-presets.ts).
+  const planForPresets = !org || input.entitlements || input.demo ? wantPlanForPresets : org.plan_entitlements
+  if (orgHasFieldCrews({ features: org?.features ?? {}, profile: { id: profileForPresets } }, planForPresets)) {
+    const haveNames = org ? new Set(((await must(client.from('permission_presets').select('name').eq('org_id', orgId), 'read service role presets')) as Array<{ name: string }>).map((r) => r.name)) : new Set<string>()
+    const haveFieldTech = SERVICE_PRESET_NAMES.every((n) => haveNames.has(n))
+    if (haveFieldTech) say('roles: service role presets already exist')
+    else {
+      say('roles: create the service role presets (Field Tech, Crew Lead, Office, Bookkeeper)')
+      if (opts.apply) {
+        const { error } = await client.rpc('create_service_role_presets', { p_org_id: orgId, p_created_by: ownerId })
+        if (error) throw new Error(`roles: create_service_role_presets: ${error.message}`)
+      }
+    }
+  }
 
   // ---- trades (the org_trades writer) ----
   const canRead = opts.apply || org

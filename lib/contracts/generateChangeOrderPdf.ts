@@ -17,6 +17,8 @@ export interface ChangeOrderData {
   repName: string
   repSignature: string
   originalContractDate: string | null
+  /** What the change order modifies (lib/contracts/change-order-wording.ts); left out = "Installation Agreement". */
+  documentName?: string
 }
 
 function formatDate(dateStr?: string | null): string {
@@ -244,9 +246,10 @@ export async function generateChangeOrderPdf(data: ChangeOrderData, brand: Docum
   // Footer - Reference to original contract
   doc.setFontSize(8)
   doc.setTextColor(80)
+  const doc0 = data.documentName || 'Installation Agreement'
   const footerText = data.originalContractDate 
-    ? `This change order modifies the original Installation Agreement dated ${formatDate(data.originalContractDate)}. The original Installation Agreement remains in full effect except as modified herein.`
-    : 'This change order modifies the original Installation Agreement. The original Installation Agreement remains in full effect except as modified herein.'
+    ? `This change order modifies the original ${doc0} dated ${formatDate(data.originalContractDate)}. The original ${doc0} remains in full effect except as modified herein.`
+    : `This change order modifies the original ${doc0}. The original ${doc0} remains in full effect except as modified herein.`
   
   const footerLines = wrapText(doc, footerText, contentWidth)
   for (const line of footerLines) {
