@@ -17,7 +17,7 @@ export default async function SigningPage() {
     <>
       <Nav />
       <main className="px-3 py-4">
-        <PageHeader title="Signatures" />
+        <PageHeader title="Contracts" />
         <SigningList />
       </main>
     </>

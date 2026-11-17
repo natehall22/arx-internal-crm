@@ -34,7 +34,7 @@ export default function SigningList() {
       <a href="/signing/new" className="flex min-h-[52px] items-center justify-center rounded-lg bg-gray-900 px-4 text-lg font-semibold text-white">Send a document for signature</a>
 
       <section aria-labelledby="tp">
-        <div className="mb-2 flex items-center justify-between"><h2 id="tp" className="text-lg font-semibold">Templates</h2>{canManage && <a href="/signing/templates/new" className="min-h-[44px] py-2 text-base font-semibold underline">New template</a>}</div>
+        <div className="mb-2 flex items-center justify-between"><h2 id="tp" className="text-lg font-semibold">Templates<span id="templates" /></h2>{canManage && <a href="/signing/templates/new" className="min-h-[44px] py-2 text-base font-semibold underline">New template</a>}</div>
         {templates.length === 0 ? <p className="text-base">No templates yet. A template is a PDF with its signature fields already placed.</p> : (
           <ul className="space-y-2">
             {templates.map((t) => (

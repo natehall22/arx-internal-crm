@@ -1129,7 +1129,7 @@ export default function ProposalDetailPage() {
                 <div className="flex gap-4 items-center">
                   {!builtInContracts ? (
                     <Link href="/signing" className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
-                      Send an agreement (Signatures)
+                      Send an agreement (Contracts)
                     </Link>
                   ) : proposal.opportunity_id ? (
                     <CreateContractButton

@@ -6,9 +6,10 @@ import type { FileContext } from '@/lib/customer-file/load'
 import { TAB_LABELS } from '@/lib/customer-file/access'
 
 /** Sticky identity block: who, where, how to reach them, which deal, where the deal stands, what's next, pinned alerts. */
-export default function FileHeader({ ctx }: { ctx: FileContext }) {
+export default function FileHeader({ ctx, canSendForSignature = false }: { ctx: FileContext; canSendForSignature?: boolean }) {
   const { customer, deal, deals, job, stages, next, pinned } = ctx
   const base = `/c/${customer.id}/d/${deal.id}`
+  const signHref = `/signing/new?${new URLSearchParams({ customerId: customer.id, opportunityId: deal.id, ...(customer.name ? { name: customer.name } : {}), ...(customer.email ? { email: customer.email } : {}) }).toString()}`
   const maps = deal.address_text || customer.address_text
   return (
     <div className="border-b border-surface-line bg-surface">
@@ -24,6 +25,9 @@ export default function FileHeader({ ctx }: { ctx: FileContext }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <ContactActions dealId={deal.id} phone={customer.phone} email={customer.email} surface={job ? 'job' : 'overview'} />
+            {canSendForSignature && (
+              <Link href={signHref} className="inline-flex min-h-tap items-center rounded-ui border border-surface-line px-4 text-ui-sm font-semibold text-ink">Send for signature</Link>
+            )}
             <Link href={`${base}/notes`} className="inline-flex min-h-tap items-center rounded-ui border border-surface-line px-4 text-ui-sm font-semibold text-ink lg:hidden">+ Note</Link>
           </div>
         </div>

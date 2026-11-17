@@ -1362,7 +1362,7 @@ export default async function OpportunityView({
             />
             ) : (
               <Link href="/signing" className="inline-flex min-h-[44px] items-center rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">
-                Send an agreement (Signatures)
+                Send an agreement (Contracts)
               </Link>
             )}
           </div>
