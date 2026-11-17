@@ -245,10 +245,18 @@ export async function loadOrgEntitlements(client: SupabaseClient, orgId: string)
 export async function loadOrgFeatures(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgFeatures> {
   if (!orgId) return { ...DEFAULT_ORG_FEATURES }
   try {
-    const s = await readOrgFeatureSettings(client, orgId)
+    let s
+    try {
+      s = await readOrgFeatureSettings(client, orgId)
+    } catch (first) {
+      // One quick retry: a transient read error (a dropped connection, a 503) must not switch every module off for the request.
+      console.error('[PLAN] loadOrgFeatures: read failed, retrying once', orgId, first)
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      s = await readOrgFeatureSettings(client, orgId)
+    }
     return resolveOrgFeatures(s, s.entitlements)
   } catch (e) {
-    // FAIL CLOSED: if the plan cannot be read we cannot know what the company is entitled to, so every plan-governed module is
+    // FAIL CLOSED (after the one retry above): if the plan cannot be read we cannot know what the company is entitled to, so every plan-governed module is
     // treated as not entitled (a transient error must never hand out paid modules). A missing column is NOT an error here: it is
     // the pre-migration state and `readOrgFeatureSettings` already returns the plan as NULL (= today's behavior).
     console.error('[PLAN] loadOrgFeatures: org features/plan not readable, treating every module as NOT entitled', orgId, e)

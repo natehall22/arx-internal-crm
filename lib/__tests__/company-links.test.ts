@@ -308,7 +308,7 @@ describe('wiring: each sent link is built on the record company address', () => 
     ['quote link', 'lib/quotes/approve.ts', /\$\{await orgAppUrl\(orgId\)\}\/q\//],
     ['/r report link', 'app/api/inspection-reports/[id]/send/route.ts', /\$\{await orgAppUrl\(profile\.org_id\)\}\/r\//],
     ['review link (SMS)', 'app/api/jobs/[id]/review-request/route.ts', /orgAppUrl\(job\.org_id\)/],
-    ['password reset', 'app/api/admin/users/route.ts', /orgAppUrl\(targetUser\.org_id\)[\s\S]*\$\{appUrl\}\/reset-password/],
+    ['password reset', 'lib/password-reset-email.ts', /orgAppUrl\(args\.orgId\)[\s\S]*\$\{appUrl\}\/reset-password/],
     ['employee agreement', 'app/api/admin/employee-agreements/route.ts', /orgAppUrl\(claimed\.org_id as string\)/],
     ['crew links (crews list)', 'app/api/ops/jobs/[id]/trades/route.ts', /tryOrgAppUrl\(orgId,[\s\S]*crewLinkUrl\(t\.crew_link_token, appUrl\)/],
     ['calendar invite', 'lib/install-calendar.ts', /params\.appUrl \?\? \(await orgAppUrl\(trade\.org_id\)\)/],

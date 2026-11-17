@@ -1,5 +1,5 @@
 import { getBlastSendDate } from '../email-blast-ledger'
-import { isMorningUpdateSendWindow } from '../morning-update-schedule'
+import { isMorningUpdateDailyWindow, isMorningUpdateSendWindow } from '../morning-update-schedule'
 
 /** The four UTC instants the Vercel cron fires at (:30 past 9, 10, 11, 12 UTC). */
 function cronFire(dateUtc: string, utcHour: number): Date {
@@ -47,6 +47,11 @@ describe('isMorningUpdateSendWindow', () => {
   it('never sends on Sunday', () => {
     // Sunday 2026-08-16, 5:30am EDT.
     expect(isMorningUpdateSendWindow(cronFire('2026-08-16', 9))).toBe(false)
+  })
+
+  it('the daily-jobs window still opens on Sunday', () => {
+    expect(isMorningUpdateDailyWindow(cronFire('2026-08-16', 9))).toBe(true)
+    expect(isMorningUpdateDailyWindow(cronFire('2026-08-16', 13))).toBe(false)
   })
 
   it('sends on Saturday', () => {

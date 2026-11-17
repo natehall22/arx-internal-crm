@@ -1,11 +1,9 @@
-import { orgAppUrl } from '@/lib/company-links'
+import { sendPasswordResetEmail } from '@/lib/password-reset-email'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi, type AuthContext } from '@/lib/auth'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
-import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { createServiceClient } from '@/lib/supabase/service'
 import { actorIsOwner, isMoneyPermissionName, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
-import { PRODUCT_NAME } from '@/lib/product'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -515,44 +513,16 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // The emailed link lands on the configured app address (it must be on Supabase Auth's redirect allow-list,
-    // docs/domain-cutover.md). Checked before a recovery token is minted.
-    let appUrl: string
-    try {
-      appUrl = await orgAppUrl(targetUser.org_id)
-    } catch {
-      return NextResponse.json({ error: 'The app address is not configured, so a reset link cannot be built.' }, { status: 500 })
-    }
-
-    // Generate password reset link using Supabase Admin API
-    const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
-      type: 'recovery',
+    const sent = await sendPasswordResetEmail(adminClient, {
+      orgId: targetUser.org_id,
       email: targetUser.email,
+      intro: "You've been sent a password reset link by your administrator.",
     })
-
-    if (linkError) {
-      console.error('Generate link error:', linkError)
-      return NextResponse.json({ error: 'Failed to generate reset link' }, { status: 500 })
+    if (!sent.ok) {
+      return sent.reason === 'no_app_url'
+        ? NextResponse.json({ error: 'The app address is not configured, so a reset link cannot be built.' }, { status: 500 })
+        : NextResponse.json({ error: 'Failed to generate reset link' }, { status: 500 })
     }
-
-    const resetLink = linkData.properties.action_link
-    // Replace Supabase redirect with our app's reset-password page
-    const finalLink = resetLink.replace(
-      /redirect_to=[^&]*/,
-      `redirect_to=${encodeURIComponent(`${appUrl}/reset-password`)}`
-    )
-
-    const transporter = getMailTransport(targetUser.org_id)
-    await transporter.sendMail({
-      from: await getCrmEmailFrom(targetUser.org_id),
-      to: targetUser.email,
-      subject: `Reset your ${PRODUCT_NAME} password`,
-      html: `
-        <p>You've been sent a password reset link by your administrator.</p>
-        <p><a href="${finalLink}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;">Reset Password</a></p>
-        <p style="color:#6B7280;font-size:13px;">This link expires in 1 hour. If you didn't request this, you can ignore this email.</p>
-      `,
-    })
 
     return NextResponse.json({ success: true, message: 'Password reset email sent' })
 

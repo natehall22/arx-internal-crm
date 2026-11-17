@@ -89,6 +89,15 @@ test('5:30am Pacific (13:30 UTC winter): the Pacific company sends; Eastern alre
   expect((db.tables.email_blast_sends ?? []).some((r) => r.org_id === TEST_ORG)).toBe(false)
 })
 
+test('Sunday: daily jobs run, but no email, no scheduled reports', async () => {
+  const res = await run('2026-11-15T10:30:00Z') // Sunday 5:30am EST
+  expect(res.status).toBe(200)
+  expect(ensureCheckups.mock.calls.map((c) => c[1])).toEqual([EAST])
+  expect(sendMorning).not.toHaveBeenCalled()
+  expect(sendScheduledReports).not.toHaveBeenCalled()
+  expect(db.tables.email_blast_sends ?? []).toHaveLength(0)
+})
+
 test('DEPLOYMENT_ORG_ID: a fenced copy runs only its own company', async () => {
   process.env.DEPLOYMENT_ORG_ID = WEST
   await run('2026-08-04T12:30:00Z') // 8:30 EDT and 5:30 PDT: both in window

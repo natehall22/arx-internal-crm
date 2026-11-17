@@ -17,13 +17,19 @@ import { insideSalesFeatureTabs } from '@/lib/inside-sales-follow-up'
 let storedFeatures: unknown = undefined
 let readError: { message: string } | null = null
 let reads = 0
+let failNextReads = 0
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     from: () => {
       const q: Record<string, unknown> = {
         select: () => q,
         eq: () => q,
-        maybeSingle: async () => (reads++, readError ? { data: null, error: readError } : { data: { features: storedFeatures }, error: null }),
+        maybeSingle: async () => {
+          reads++
+          if (readError) return { data: null, error: readError }
+          if (failNextReads > 0) { failNextReads--; return { data: null, error: { message: 'blip' } } }
+          return { data: { features: storedFeatures }, error: null }
+        },
       }
       return q
     },
@@ -36,6 +42,7 @@ beforeEach(() => {
   storedFeatures = undefined
   readError = null
   reads = 0
+  failNextReads = 0
 })
 
 describe('resolveOrgFeatures (pure)', () => {
@@ -102,6 +109,19 @@ describe('loadOrgFeatures / orgFeatureOffResponse', () => {
     expect(Object.values(await loadOrgFeatures(client, 'org-1')).some(Boolean)).toBe(false)
     spy.mockRestore()
     expect(await loadOrgFeatures(client, null)).toEqual(DEFAULT_ORG_FEATURES)
+  })
+  it('one transient read error is retried once and the real plan is used; two failures fail closed', async () => {
+    const client = jest.requireMock('@/lib/supabase/service').createServiceClient()
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    storedFeatures = { roofMeasure: false }
+    failNextReads = 1
+    const after = await loadOrgFeatures(client, 'org-1')
+    expect(after.roofMeasure).toBe(false)
+    expect(after.canvassing).toBe(true) // not failed closed
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('retrying once'), 'org-1', expect.anything())
+    failNextReads = 2
+    expect(Object.values(await loadOrgFeatures(client, 'org-1')).some(Boolean)).toBe(false)
+    spy.mockRestore()
   })
   it('API gate: 403 with code feature_off only when the feature is off', async () => {
     storedFeatures = { canvassing: false }

@@ -20,7 +20,9 @@ import { canBillService } from '@/lib/service-billing-access'
 import { canAccessJobBoardFromPermissionNames, isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { buildReportContext, runReport } from '@/lib/reporting/run'
 import { fetchPeriodMetricRows, getContactDispositionIdSet, summarizePeriodRows } from '@/lib/reporting/period-metrics'
-import { isOwnerProfile } from '@/lib/super-admin'
+import FinishSetupCard from '@/components/today/FinishSetupCard'
+import { loadFinishSetup } from '@/lib/finish-setup'
+import { isOwnerProfile, isSuperAdmin } from '@/lib/super-admin'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { listWaiting } from '@/lib/threads/waiting'
@@ -83,6 +85,8 @@ export default async function TodayPage() {
   const reversals = reversalsOn ? await loadPaymentReversalsQueue(admin, profile.org_id).catch((e) => { console.error('today: payment reversals failed', e); return null }) : null
   // Leads nobody has contacted: owners see them in the owner list (loadOwnerExceptions); everyone else but field roles sees their own.
   const myLeadsWaiting = kind === 'closer' || kind === 'ops' ? await loadLeadsWaitingQueue(admin, profile.org_id, new Date(), { ownerUserId: profile.id }).catch((e) => { console.error('today: leads waiting failed', e); return leadsWaitingFailedQueue() }) : null
+  // A new company's owner gets a "Finish setup" checklist until every step is done (never the original company; hides itself).
+  const finishSetup = isSuperAdmin(profile) ? await loadFinishSetup(admin, profile.org_id, { servicePlansOn: orgProfile.features.servicePlans }).catch((e) => { console.error('today: finish setup failed', e); return null }) : null
   const [visitQueues, closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
     visitsOn ? loadServiceVisitQueues(admin, profile.org_id).catch((e) => { console.error('today: visits failed', e); return [] }) : Promise.resolve([]),
     kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: true }) : Promise.resolve([]),
@@ -137,6 +141,7 @@ export default async function TodayPage() {
           subtitle={`Hi ${profile.full_name?.split(' ')[0] ?? 'there'} — here's what needs you.`}
           actions={canvassOn ? <Button asChild><Link href="/canvass">Open Canvass</Link></Button> : undefined}
         />
+        {finishSetup ? <FinishSetupCard items={finishSetup} /> : null}
         <WaitingOnYou items={waiting} />
         {needsYou && needsYou.count > 0 ? <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} audience={needsYouAudience} /> : null}
         {kind === 'owner' && queues.length === 0 && (!needsYou || needsYou.count === 0) ? (
