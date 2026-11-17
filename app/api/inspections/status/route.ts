@@ -1,4 +1,5 @@
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
+import { PRODUCT_NAME } from '@/lib/product'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -917,7 +918,7 @@ export async function POST(request: NextRequest) {
                     <div style="background: #F9FAFB; border-radius: 8px; padding: 12px; color: #111827;">${notes}</div>
                   </div>
                 ` : ''}
-                <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">This is an automated update from ARX CRM.</p>
+                <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">This is an automated update from ${PRODUCT_NAME}.</p>
               </div>
             `,
           })

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { PRODUCT_NAME } from '@/lib/product'
 
 import { getMailTransport } from '@/lib/setter-email'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
@@ -62,7 +63,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
     if (r.priority === 'fyi' && r.reason === 'reply') continue
     sendPushToUserBackground(
       r.userId,
-      r.blind ? 'ARX CRM' : r.priority === 'urgent' ? `URGENT · ${input.deal.label}` : input.deal.label,
+      r.blind ? PRODUCT_NAME : r.priority === 'urgent' ? `URGENT · ${input.deal.label}` : input.deal.label,
       r.blind ? `${input.senderName} mentioned you` : `${input.senderName}: ${input.message.body.slice(0, 140)}`,
       { type: 'thread_message', url: path, activity_id: input.message.id }
     )

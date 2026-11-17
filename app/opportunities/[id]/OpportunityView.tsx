@@ -1,5 +1,6 @@
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getOrgBrand } from '@/lib/org-brand'
 import Nav from '@/components/Nav'
 import { getOrgFeatures, isOrgFeatureOn } from '@/lib/org-features-server'
 import { builtInContractsAvailable, loadOrgProfile } from '@/lib/org-profile'
@@ -383,7 +384,8 @@ export default async function OpportunityView({
 
   // The company's Roof measuring switch (Settings → Features) — the one answer (the old measure_tool_enabled is retired).
   const measureToolEnabled = await isOrgFeatureOn(profile.org_id, 'roofMeasure')
-  const builtInContracts = builtInContractsAvailable(await loadOrgProfile(createServiceClient(), profile.org_id))
+  const orgBrand = await getOrgBrand(createServiceClient(), profile.org_id)
+  const builtInContracts = builtInContractsAvailable(await loadOrgProfile(createServiceClient(), profile.org_id), orgBrand.name)
 
   // Fetch the most recent inspection appointment linked to this opportunity
   const { data: inspectionAppointment } = await supabase
@@ -1165,7 +1167,7 @@ export default async function OpportunityView({
                           measurement.source === 'roofr' ? 'bg-green-100 text-green-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
-                          {measurement.source === 'in_house' ? 'ARX Measure' : 
+                          {measurement.source === 'in_house' ? `${orgBrand.shortName} Measure` : 
                            measurement.source.charAt(0).toUpperCase() + measurement.source.slice(1)}
                         </span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -1223,7 +1225,7 @@ export default async function OpportunityView({
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                   </svg>
-                  Measure with ARX Tool
+                  Measure with {orgBrand.shortName} Tool
                 </Link>
               ) : (
                 <p className="text-gray-600 text-xs">

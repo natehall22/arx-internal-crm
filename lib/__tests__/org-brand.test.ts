@@ -140,10 +140,11 @@ describe('resolveOrgBrand precedence', () => {
     expect(b.name).toBe('Column Co')
     expect(b.phone).toBe('(111) 222-3333')
     // a column-backed key in settings.brand never fills in, even when the column is empty
-    expect(b.email).toBe(defaults.email)
-    expect(b.address).toBe(defaults.address)
+    // another company never inherits the original company's fallback: blank stays neutral
+    expect(b.email).toBe('')
+    expect(b.address).toBe('')
     expect(b.website).toBe('brand.example')
-    expect(b.serviceArea).toBe(defaults.serviceArea)
+    expect(b.serviceArea).toBe('')
   })
 
   it('accepts the brand selected directly as `brand`', () => {

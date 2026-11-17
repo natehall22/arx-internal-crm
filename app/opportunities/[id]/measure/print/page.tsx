@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
+import { getOrgBrand } from '@/lib/org-brand'
 import { requireAuth } from '@/lib/auth'
 import { requireOrgFeaturePage } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -20,6 +21,7 @@ function fmt(value: number) {
 
 export default async function OpportunityMeasurePrintPage({ params }: { params: { id: string } }) {
   const { profile } = await requireAuth()
+  const brand = await getOrgBrand(createServiceClient(), profile.org_id)
   // Roof & exterior measuring switched off (Settings → Features): 404.
   await requireOrgFeaturePage(profile.org_id, 'roofMeasure')
   const supabase = createServiceClient()
@@ -58,7 +60,7 @@ export default async function OpportunityMeasurePrintPage({ params }: { params: 
         <header className="border-b-4 border-gray-950 pb-6">
           <div className="flex items-start justify-between gap-6">
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-indigo-700">ARX</p>
+              <p className="text-sm font-bold uppercase tracking-[0.18em] text-indigo-700">{brand.shortName}</p>
               <h1 className="mt-2 text-3xl font-bold">{report.report_title}</h1>
               <p className="mt-2 text-sm text-gray-600">{customerName} · Opportunity Measure</p>
               <p className="text-sm text-gray-600">{subject.address_text || 'No address on file'}</p>

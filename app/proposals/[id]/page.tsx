@@ -13,7 +13,8 @@ import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import { isCountedLine } from '@/lib/quotes/pricing'
 import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
-import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { GENERIC_BRAND_NAMES } from '@/lib/org-brand-client'
+import { useOrgBrandNames, useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
 import { builtInContractsAvailable } from '@/lib/org-profile'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/proposal-pricing-visibility'
@@ -95,11 +96,14 @@ interface LineItem {
   show_to_customer?: boolean  // Whether this item should be shown on customer-facing proposal
 }
 
+/** Before the company's names load the hook returns a placeholder: treat it as unknown, never as another company. */
+const brandNameLoaded = (name: string) => (name === GENERIC_BRAND_NAMES.name ? undefined : name)
+
 export default function ProposalDetailPage() {
   const router = useRouter()
   const params = useParams()
   const orgFeatures = useOrgFeatures()
-  const builtInContracts = builtInContractsAvailable(useOrgProfile())
+  const builtInContracts = builtInContractsAvailable(useOrgProfile(), brandNameLoaded(useOrgBrandNames().name))
   const proposalId = params.id as string
   
   const [loading, setLoading] = useState(true)

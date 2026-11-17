@@ -9,20 +9,11 @@
     "address": 1,
     "brand": 12
   },
-  "app/admin/email-blasts/resend-today/page.tsx": {
-    "brand": 1
-  },
   "app/admin/goals/GoalsClient.tsx": {
     "timezone": 1
   },
   "app/admin/payroll/weekly/page.tsx": {
     "timezone": 2
-  },
-  "app/admin/print-kit/appointment-cards/AppointmentCardsClient.tsx": {
-    "brand": 1
-  },
-  "app/admin/settings/page.tsx": {
-    "brand": 1
   },
   "app/admin/sisu/setter-ramp/SetterRampClient.tsx": {
     "timezone": 1
@@ -36,16 +27,7 @@
   "app/api/admin/sisu/accountability/route.ts": {
     "timezone": 1
   },
-  "app/api/admin/users/route.ts": {
-    "brand": 1
-  },
-  "app/api/ai/chat/route.ts": {
-    "brand": 1
-  },
   "app/api/ai/route.ts": {
-    "brand": 3
-  },
-  "app/api/appointments/[id]/route.ts": {
     "brand": 3
   },
   "app/api/calendar/sync/route.ts": {
@@ -85,11 +67,7 @@
     "timezone": 3
   },
   "app/api/inspections/status/route.ts": {
-    "brand": 1,
     "timezone": 4
-  },
-  "app/api/login/page.tsx": {
-    "brand": 1
   },
   "app/api/mobile/capabilities/route.ts": {
     "brand": 2
@@ -118,9 +96,6 @@
   "app/api/ops/jobs/[id]/cancel/route.ts": {
     "brand": 1
   },
-  "app/api/ops/jobs/[id]/notes/route.ts": {
-    "brand": 1
-  },
   "app/api/ops/scheduling-assignees/route.ts": {
     "brand": 1
   },
@@ -132,9 +107,6 @@
   },
   "app/api/sisu/leaderboard/route.ts": {
     "timezone": 1
-  },
-  "app/api/threads/[dealId]/messages/route.ts": {
-    "brand": 1
   },
   "app/api/trial-signup/route.ts": {
     "brand": 1,
@@ -152,27 +124,14 @@
   "app/dashboard/DashboardClient.tsx": {
     "timezone": 1
   },
-  "app/layout.tsx": {
-    "brand": 3
-  },
   "app/leads/[id]/LeadView.tsx": {
     "timezone": 6
   },
   "app/opportunities/[id]/OpportunityView.tsx": {
-    "brand": 2,
     "timezone": 1
-  },
-  "app/opportunities/[id]/measure/print/page.tsx": {
-    "brand": 1
   },
   "app/ops/jobs/[id]/JobDetailClient.tsx": {
     "timezone": 2
-  },
-  "app/ops/jobs/[id]/measure/ExteriorMeasureClient.tsx": {
-    "brand": 1
-  },
-  "app/ops/jobs/[id]/measure/print/page.tsx": {
-    "brand": 1
   },
   "app/page.tsx": {
     "brand": 10
@@ -191,9 +150,6 @@
   },
   "app/today/page.tsx": {
     "timezone": 1
-  },
-  "app/tools/roof-measure/measurements/page.tsx": {
-    "brand": 2
   },
   "app/trial/page.tsx": {
     "brand": 4
@@ -225,17 +181,8 @@
   "components/appointments/CloseScheduleModal.tsx": {
     "timezone": 2
   },
-  "components/change-orders/ChangeOrderModal.tsx": {
-    "brand": 1
-  },
-  "components/customer-file/ThreadPanel.tsx": {
-    "brand": 1
-  },
-  "components/employee-agreements/AgreementDocument.tsx": {
-    "brand": 1
-  },
   "components/inspection-report/ReportBuilder.tsx": {
-    "brand": 2
+    "brand": 1
   },
   "components/opportunities/CloseAppointmentStatusSection.tsx": {
     "timezone": 1
@@ -264,17 +211,11 @@
   "lib/adjuster-meeting-alert.ts": {
     "timezone": 1
   },
-  "lib/admin-sale-email.ts": {
-    "brand": 1
-  },
   "lib/ai/chat-aggregates.ts": {
     "timezone": 1
   },
   "lib/ai/chat-allowlist.ts": {
     "brand": 2
-  },
-  "lib/ai/crm-navigation-guide.ts": {
-    "brand": 5
   },
   "lib/ai/insurance-claim-benchmarks.ts": {
     "brand": 1
@@ -288,13 +229,7 @@
   "lib/canvass-lead-attribution.ts": {
     "timezone": 1
   },
-  "lib/closer-briefing-email.ts": {
-    "brand": 1
-  },
   "lib/comp-plan-roles.ts": {
-    "brand": 1
-  },
-  "lib/completion-certificate.tsx": {
     "brand": 1
   },
   "lib/contracts/terms.ts": {
@@ -315,9 +250,6 @@
   "lib/employee-comp-agreements.ts": {
     "timezone": 1
   },
-  "lib/exterior-measure-api.ts": {
-    "brand": 1
-  },
   "lib/founder-calendar/page-html.ts": {
     "address": 2,
     "brand": 3
@@ -335,7 +267,6 @@
     "timezone": 1
   },
   "lib/inside-sales-priority.ts": {
-    "brand": 1,
     "timezone": 1
   },
   "lib/inspection-local-wall-clock.ts": {
@@ -345,7 +276,7 @@
     "brand": 3
   },
   "lib/inspection-report/types.ts": {
-    "brand": 7
+    "brand": 1
   },
   "lib/install-calendar.ts": {
     "timezone": 1
@@ -357,7 +288,7 @@
     "brand": 1
   },
   "lib/lidar-measure-ingest.ts": {
-    "brand": 2
+    "brand": 1
   },
   "lib/lidar/roof-planes.ts": {
     "brand": 1
@@ -369,10 +300,7 @@
     "brand": 4
   },
   "lib/materials-order-list.ts": {
-    "brand": 2
-  },
-  "lib/morning-update-email.ts": {
-    "brand": 3
+    "brand": 1
   },
   "lib/org-brand.ts": {
     "address": 7,
@@ -381,14 +309,14 @@
   "lib/payroll-period-week.ts": {
     "timezone": 1
   },
-  "lib/payroll-statement-email.ts": {
-    "brand": 1
-  },
   "lib/pdf/job-run-sheet.ts": {
     "timezone": 2
   },
-  "lib/pdf/payroll-statement.ts": {
+  "lib/print-kit.ts": {
     "brand": 1
+  },
+  "lib/product.ts": {
+    "brand": 3
   },
   "lib/program-444-utils.ts": {
     "timezone": 1
@@ -410,9 +338,6 @@
   },
   "lib/scheduling-prompt.ts": {
     "timezone": 1
-  },
-  "lib/setter-email.ts": {
-    "brand": 1
   },
   "lib/setter-field-update-email.ts": {
     "timezone": 1
@@ -438,9 +363,6 @@
   },
   "lib/super-admin.ts": {
     "brand": 2
-  },
-  "lib/threads/notify.ts": {
-    "brand": 1
   },
   "lib/timezone.ts": {
     "timezone": 13

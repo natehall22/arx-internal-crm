@@ -10,7 +10,7 @@ import {
   getOrCreateReport,
   normalizeReportDocForOrg,
 } from '@/lib/inspection-report/server'
-import { getOrgBrand } from '@/lib/org-brand'
+import { getOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import ReportBuilder from '@/components/inspection-report/ReportBuilder'
 
 // Full-screen phone-first builder (no CRM nav chrome — the rep is on a roof).
@@ -68,6 +68,7 @@ export default async function OpportunityReportPage({ params }: { params: { id: 
       }))}
       customerEmail={customerEmail}
       companyShortName={brand.shortName}
+      useBundledLogo={usesOriginalCompanyAssets(brand)}
     />
   )
 }

@@ -5,6 +5,7 @@ import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { createServiceClient } from '@/lib/supabase/service'
 import { actorIsOwner, isMoneyPermissionName, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
+import { PRODUCT_NAME } from '@/lib/product'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -545,7 +546,7 @@ export async function PATCH(request: NextRequest) {
     await transporter.sendMail({
       from: await getCrmEmailFrom(targetUser.org_id),
       to: targetUser.email,
-      subject: 'Reset your ARX password',
+      subject: `Reset your ${PRODUCT_NAME} password`,
       html: `
         <p>You've been sent a password reset link by your administrator.</p>
         <p><a href="${finalLink}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;">Reset Password</a></p>

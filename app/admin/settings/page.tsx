@@ -1274,7 +1274,7 @@ export default function AdminSettingsPage() {
               <div className="bg-white rounded-xl shadow-sm border p-6 mb-6 mt-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-1">Materials order coverage</h2>
                 <p className="text-sm text-gray-600 mb-4">
-                  Override shingle-order constants for your org. Leave blank to use ARX defaults
+                  Override shingle-order constants for your org. Leave blank to use the standard defaults
                   (shown as placeholders).
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

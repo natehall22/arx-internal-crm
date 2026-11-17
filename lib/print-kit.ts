@@ -9,8 +9,9 @@ import type { ResolvedOrgProfile } from '@/lib/org-profile'
 export type PrintKitBrand = { companyName: string; logoHref: string | null; cardTagline: string; cardRole: string; useShield: boolean }
 
 /** The original company's card words (verbatim); `useShield` = its own shield image, used only for roofing. */
-export function printKitBrand(profile: Pick<ResolvedOrgProfile, 'id' | 'label' | 'terms'>, org: { name: string; logoHref: string | null }): PrintKitBrand {
-  if (profile.id === 'roofing') {
+export function printKitBrand(profile: Pick<ResolvedOrgProfile, 'id' | 'label' | 'terms'>, org: { name: string; logoHref: string | null; original?: boolean }): PrintKitBrand {
+  // `original` (usesOriginalCompanyAssets) is unset only by callers that cannot tell; roofing then keeps the card words as before.
+  if (profile.id === 'roofing' && org.original !== false) {
     return { companyName: 'ARX Roofing & Exteriors', logoHref: null, cardTagline: 'Free Inspection', cardRole: 'Roofing Specialist', useShield: true }
   }
   return { companyName: org.name, logoHref: org.logoHref, cardTagline: `Free ${profile.terms.inspection}`, cardRole: `${profile.label} specialist`, useShield: false }

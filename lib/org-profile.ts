@@ -1,3 +1,4 @@
+import { isOriginalCompanyName } from '@/lib/org-brand'
 /**
  * The ONE resolver for a company's industry profile (lib/industry-profiles.ts) merged with its own settings.
  * Client-safe (types only from supabase). Layers, lowest first: core app → industry profile → company settings.
@@ -95,8 +96,14 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
  * only the roofing profile offers them. Every other company sends its own agreement from Customers → Signatures (/signing).
  * Existing signed contracts stay viewable and links already sent keep signing — this only gates creating a new one.
  */
-export function builtInContractsAvailable(profile: Pick<ResolvedOrgProfile, 'id'> | Pick<ClientOrgProfile, 'id'> | null | undefined): boolean {
-  return (profile?.id ?? DEFAULT_INDUSTRY_PROFILE) === 'roofing'
+export function builtInContractsAvailable(
+  profile: Pick<ResolvedOrgProfile, 'id'> | Pick<ClientOrgProfile, 'id'> | null | undefined,
+  /** The company's name. The built-in terms are the original company's own wording (they name it), so any other company
+   *  — roofing or not — sends its own agreement. Omitted = not checked (callers that cannot tell). */
+  companyName?: string | null
+): boolean {
+  if ((profile?.id ?? DEFAULT_INDUSTRY_PROFILE) !== 'roofing') return false
+  return companyName === undefined || !companyName?.trim() || isOriginalCompanyName(companyName)
 }
 
 /** The company's word for an outcome (profile wording, else the one given). Roofing has none: unchanged. */

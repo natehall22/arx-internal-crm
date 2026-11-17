@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from '@/lib/product'
+
 export default function LoginPage({
     searchParams,
   }: {
@@ -9,7 +11,7 @@ export default function LoginPage({
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="w-full max-w-md rounded-xl border bg-white p-6 shadow-sm">
-          <h1 className="text-2xl font-semibold">ARX CRM Login</h1>
+          <h1 className="text-2xl font-semibold">{PRODUCT_NAME} Login</h1>
           <p className="mt-1 text-sm text-gray-600">Sign in to your account.</p>
   
           <form method="POST" action="/login" className="mt-6 space-y-3">

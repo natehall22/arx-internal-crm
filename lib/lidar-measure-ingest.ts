@@ -223,7 +223,7 @@ export async function ingestLidarPayload(
         job_id: jobId,
         measure_kind: 'siding',
         status: 'draft',
-        report_title: 'ARX Exterior Measure Report',
+        report_title: 'Exterior Measure Report',
         waste_percent: 10,
         created_by: userId,
         updated_by: userId,

@@ -91,6 +91,26 @@ export function legacyBrandFallback(): boolean {
   return !deploymentOrgId()
 }
 
+/**
+ * The legacy fallback belongs to the original company only: no row (local dev/tests), no name yet, or a name that starts with the
+ * original company's. Any other company on the shared app that left a field blank gets neutral text, never the original's
+ * phone, address or website (decided from the org's own name, never an id).
+ */
+function isOriginalCompanyRow(row: OrgBrandRow | null | undefined): boolean {
+  const name = present(row?.name)
+  return !name || isOriginalCompanyName(name)
+}
+
+/** True when `name` is the original company's own (its first word). Data-based, never an org id. */
+export function isOriginalCompanyName(name: string | null | undefined): boolean {
+  return !!name && name.trim().toLowerCase().startsWith(LEGACY_ORG_BRAND.name.split(' ')[0].toLowerCase())
+}
+
+/** True when this brand is the original company's (its own name), so its own bundled artwork may be shown. */
+export function usesOriginalCompanyAssets(brand: Pick<OrgBrand, 'name'>): boolean {
+  return legacyBrandFallback() && isOriginalCompanyName(brand.name)
+}
+
 /** The always-present fields (the optional contract spellings are resolved separately). */
 type CoreBrandKey = Exclude<keyof OrgBrand, 'documentLegalName' | 'documentAddress' | 'serviceRegion'>
 const ORG_BRAND_KEYS = Object.keys(DEFAULT_ORG_BRAND) as CoreBrandKey[]
@@ -130,7 +150,7 @@ function brandObject(v: unknown): Record<string, unknown> {
 
 /** Pure: resolve every identity field for an org row (null row → the fallback). */
 export function resolveOrgBrand(row: OrgBrandRow | null | undefined): OrgBrand {
-  const legacy = legacyBrandFallback()
+  const legacy = legacyBrandFallback() && isOriginalCompanyRow(row)
   const fallback: Readonly<OrgBrand> = legacy ? LEGACY_ORG_BRAND : DEFAULT_ORG_BRAND
   const stored = brandObject(row?.brand ?? row?.settings?.brand)
   const out = {} as OrgBrand

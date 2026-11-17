@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { PRODUCT_NAME } from '@/lib/product'
 import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import AppointmentFeedbackPrompt from '@/components/AppointmentFeedbackPrompt'
@@ -13,8 +14,8 @@ import { getRequestHostFence } from '@/lib/company-host-server'
 
 /** The original company's metadata — served ONLY on the unfenced legacy address (see generateMetadata). */
 const LEGACY_METADATA: Metadata = {
-  title: 'ARX Internal CRM',
-  description: 'Internal CRM and estimating system for ARX Roofing',
+  title: PRODUCT_NAME,
+  description: 'CRM and estimating system for field service companies',
   manifest: '/manifest.json',
   icons: {
     icon: [{ url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
@@ -23,7 +24,7 @@ const LEGACY_METADATA: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'ARX CRM',
+    title: PRODUCT_NAME,
   },
   formatDetection: {
     telephone: true,

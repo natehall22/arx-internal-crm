@@ -1,4 +1,5 @@
 import type { OrgBrand } from '@/lib/org-brand'
+import { PRODUCT_NAME } from '@/lib/product'
 import { getAppUrl, type AppUrlOrg } from '@/lib/app-url'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 import { adjustmentsLabel, formatPayrollMoney } from '@/lib/payroll-format'
@@ -87,7 +88,7 @@ export function buildPayrollStatementEmailHtml(input: {
         </a>
       </p>
       <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">
-        This is an automated message from ARX CRM. If you have questions, contact your manager or payroll admin.
+        This is an automated message from ${PRODUCT_NAME}. If you have questions, contact your manager or payroll admin.
       </p>
     </div>
   `

@@ -58,6 +58,8 @@ interface Props {
   customerEmail: string | null
   /** Company short name (org brand) for the PDF's wordmark fallback and guide copy. */
   companyShortName: string
+  /** The bundled report logo is the original company's: only it may print it (other companies get the wordmark). */
+  useBundledLogo?: boolean
 }
 
 /** One-tap captions per section flavor — typing on a roof is the enemy. */
@@ -553,6 +555,7 @@ export default function ReportBuilder(props: Props) {
       setBusy('Preparing photos…')
       let logoPng: Uint8Array | null = null
       try {
+        if (!props.useBundledLogo) throw new Error('no bundled logo')
         const lr = await fetch('/brand/arx-report-logo.png')
         if (lr.ok) logoPng = new Uint8Array(await lr.arrayBuffer())
       } catch { /* wordmark fallback */ }
@@ -728,7 +731,7 @@ export default function ReportBuilder(props: Props) {
         </a>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-bold tracking-wide" style={{ color: CREAM }}>
-            <span style={{ color: GOLD }}>ARX</span> Roof Report
+            <span style={{ color: GOLD }}>{props.companyShortName}</span> Roof Report
           </div>
           <div className="truncate text-xs" style={{ color: '#cfc6b3' }}>
             {doc.propertyAddressHeader || 'No address'}

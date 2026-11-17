@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { PRODUCT_NAME } from '@/lib/product'
 import { requireAuthApi } from '@/lib/auth'
 import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
 import {
@@ -466,7 +467,7 @@ function generateLegacyFallbackResponse(
     }
   }
 
-  return `I can help you navigate ARX CRM. Ask things like:
+  return `I can help you navigate ${PRODUCT_NAME}. Ask things like:
 - "Where do I enter labor cost?"
 - "How do I schedule an inspection?"
 - "Where are my commissions?"

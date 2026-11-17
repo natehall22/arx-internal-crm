@@ -1,5 +1,6 @@
 'use client'
 
+import { useOrgBrandNames } from '@/hooks/useOrgFeatures'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, usePathname } from 'next/navigation'
@@ -237,6 +238,7 @@ export default function ThreadPanel({ customerId, dealId, variant = 'rail' }: { 
 }
 
 function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: ThreadMessage; data: Payload; highlighted: boolean; onAct: (id: string, b: Record<string, unknown>) => void; onReply: () => void; parent: ThreadMessage | null }) {
+  const brandNames = useOrgBrandNames()
   const mine = m.user_id === data.viewerId
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(m.body)
@@ -247,7 +249,7 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
   return (
     <li id={`m-${m.id}`} className={`rounded-ui border p-3 ${highlighted ? 'border-brand-700 bg-brand-50' : 'border-surface-line bg-surface'}`}>
       <div className="flex flex-wrap items-center gap-2 text-ui-sm text-ink-muted">
-        <span className="font-semibold text-ink">{m.author_name ?? 'ARX'}</span>
+        <span className="font-semibold text-ink">{m.author_name ?? brandNames.shortName}</span>
         <span>{when(m.created_at)}</span>
         {m.audience && m.audience !== 'team' && <Badge tone={AUDIENCE_TONE[m.audience]}>{AUDIENCE_LABEL[m.audience]}</Badge>}
         {m.via === 'sms' && <Badge tone="info">By text</Badge>}

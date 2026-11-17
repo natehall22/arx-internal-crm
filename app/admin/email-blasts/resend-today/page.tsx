@@ -57,7 +57,7 @@ export default function ResendMorningEmailsPage() {
         <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h1 className="text-2xl font-bold text-gray-900">Resend Today&apos;s Morning Emails</h1>
           <p className="mt-2 text-gray-600">
-            Sends the ARX Morning Update and Setter Time In Field reports now using the current configured recipients. This bypasses the normal 5:30 AM send window.
+            Sends the Morning Update and Setter Time In Field reports now using the current configured recipients. This bypasses the normal 5:30 AM send window.
           </p>
 
           <div className="mt-5 rounded-lg bg-amber-50 p-4 text-sm text-amber-800">
