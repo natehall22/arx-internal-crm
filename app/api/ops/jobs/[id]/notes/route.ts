@@ -9,6 +9,7 @@ import { notifyMessage } from '@/lib/threads/notify'
 import { loadDeal } from '@/lib/threads/get-thread'
 import { resolveByReply } from '@/lib/threads/waiting'
 import { loadJobNotes } from '@/lib/threads/job-notes'
+import { getOrgBrand } from '@/lib/org-brand'
 
 /**
  * Legacy job-notes endpoint, kept for the old job page and any stale client. Notes now live in the deal's thread
@@ -96,7 +97,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     await notifyMessage(admin, {
       orgId: profile.org_id,
       senderId: profile.id,
-      senderName: profile.full_name || 'ARX Team',
+      senderName: profile.full_name || `${(await getOrgBrand(admin, profile.org_id)).shortName || 'Your'} Team`,
       message: res.message,
       deal: { id: deal.id, customerId: deal.customer_id, leadId: deal.lead_id, label: deal.address_text || 'Job' },
       recipients: res.recipients,

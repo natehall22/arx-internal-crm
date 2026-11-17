@@ -33,11 +33,14 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Proposals & add-ons', description: 'Ventilation, gutters, skylights, price visibility, PDF templates', href: '/admin/proposals', access: 'leadership', keywords: 'adders' },
       { title: 'Financing programs', description: 'Lenders, APR, term and the dealer fee', href: '/admin/financing-programs', access: 'leadership' },
       { title: 'Appointment scheduling', description: 'Round-robin and appointment settings', href: '/admin/scheduling', access: 'leadership', keywords: 'calendar google' },
+      { title: 'Contracts & templates', description: 'Your agreements and other documents to sign: upload once, place the fields, reuse.', href: '/signing#templates', access: 'leadership', keywords: 'signature sign esign agreement document template contract' },
+      { title: 'Service plans', description: 'Recurring services like weekly or bi-weekly mowing: seasons, prices, what’s included', href: '/admin#plan-templates', access: 'superAdmin', feature: 'servicePlans', keywords: 'mowing recurring plan template weekly biweekly season' },
+      { title: 'E-sign settings', description: 'The e-sign notice, decline, filing, reminders and signed-copy emails (owners only)', href: '/admin#signing', access: 'superAdmin', keywords: 'signature signing esign reminder decline signed copy notice' },
       { title: 'Campaigns & lead sources', description: 'Marketing campaigns and inbound lead webhooks', href: '/admin/campaigns', access: 'leadership' },
       { title: 'Lead routing', description: 'Who gets new website leads (one person, take turns, or by service) and reminders for leads nobody has contacted', href: '/admin/lead-routing', access: 'superuser', keywords: 'assign round robin turns website form inquiry owner overdue follow up untouched' },
       { title: 'Work areas', description: 'Draw canvass areas and assign reps or teams', href: '/canvass?areas=1', access: 'workAreas', keywords: 'territories', feature: 'canvassing' },
       { title: 'Print Kit', description: 'Door-drop kit, appointment cards and print tools', href: '/admin/print-kit', access: 'leadership' },
-      { title: 'Door drops', description: 'Door-drop campaigns', href: '/admin/door-drop', access: 'leadership' },
+      { title: 'Door drops', description: 'Door-drop campaigns', href: '/admin/door-drop', access: 'leadership', profile: 'roofing' },
       { title: 'Inspection feedback', description: 'Pending feedback and reminders to closers', href: '/admin/inspection-feedback', access: 'leadership' },
       { title: 'Roof measure tool', description: 'In-house satellite roof measurement', href: '/tools/roof-measure', access: 'leadership', feature: 'roofMeasure' },
       { title: 'Email blasts', description: 'Who gets sale, payment and funding emails', href: '/admin/email-blasts', access: 'leadership' },
@@ -110,12 +113,16 @@ export function canOpenSettingsHub(role: string): boolean {
   return LEADERSHIP.includes(role)
 }
 
-export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean; canSuperAdmin?: boolean; features?: Partial<OrgFeatures>; terms?: Pick<Terms, 'subs'>; profileId?: IndustryProfileId }): SettingsGroup[] {
-  const featureOn = (i: SettingsItem) => (!i.feature || flags.features?.[i.feature] !== false) && (!i.profile || flags.profileId === i.profile)
+export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean; canSuperAdmin?: boolean; features?: Partial<OrgFeatures>; terms?: Pick<Terms, 'subs'>; profileId?: IndustryProfileId; hiddenHrefs?: readonly string[]; text?: Readonly<Record<string, string>> }): SettingsGroup[] {
+  const featureOn = (i: SettingsItem) => (!i.feature || flags.features?.[i.feature] !== false) && (!i.profile || flags.profileId === i.profile) && !flags.hiddenHrefs?.includes(i.href)
   const ok = (a: SettingsAccess) =>
     a === 'leadership' || (a === 'cost' && flags.canCost) || (a === 'payroll' && flags.canPayroll) || (a === 'superuser' && flags.canSuperuser) || (a === 'workAreas' && flags.canWorkAreas) || (a === 'owner' && !!flags.canOwner) || (a === 'superAdmin' && !!flags.canSuperAdmin)
   // The company's word for subcontractors (industry profile; roofing = "Subcontractors", unchanged).
-  const word = (i: SettingsItem): SettingsItem => (i.href === '/admin/subs' && flags.terms ? { ...i, title: flags.terms.subs } : i)
+  const word = (i: SettingsItem): SettingsItem => {
+    const own = flags.text?.[i.href]
+    const named = i.href === '/admin/subs' && flags.terms ? { ...i, title: flags.terms.subs } : i
+    return own ? { ...named, description: own } : named
+  }
   return SETTINGS_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => ok(i.access) && featureOn(i)).map(word) })).filter((g) => g.items.length > 0)
 }
 

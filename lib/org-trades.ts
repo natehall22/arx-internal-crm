@@ -264,3 +264,11 @@ export async function loadOrgTrades(client: SupabaseClient, orgId: string): Prom
 export function forgetOrgTrades(client: SupabaseClient, orgId: string): void {
   cache.get(client as object)?.delete(orgId)
 }
+
+/** The crew types `crews.crew_type` accepts (its CHECK constraint). A company's other trades (lawn_care…) are saved as 'general'. */
+export const DB_CREW_TYPES = ['roofing', 'siding', 'gutters', 'windows', 'general'] as const
+
+/** The ONE mapping from a trade slug to a value the crews table accepts (no migration needed); unknown/blank → 'general'. */
+export function dbCrewType(slug: string | null | undefined): string {
+  return (DB_CREW_TYPES as readonly string[]).includes(slug ?? '') ? (slug as string) : 'general'
+}

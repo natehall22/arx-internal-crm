@@ -1,4 +1,5 @@
 import { appointmentCalendarTitleLabel, canCompleteAdjusterMeeting } from '@/lib/adjuster-meeting'
+import { PRODUCT_NAME } from '@/lib/product'
 import { orgAppUrl } from '@/lib/company-links'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
@@ -377,7 +378,7 @@ export async function PATCH(
                   <tr><td style="padding: 6px 0; color: #6B7280;">When</td><td style="padding: 6px 0; color: #111827;">${scheduledTime} ET</td></tr>
                   <tr><td style="padding: 6px 0; color: #6B7280;">Address</td><td style="padding: 6px 0; color: #111827;">${appointment.address_text || 'TBD'}</td></tr>
                 </table>
-                <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ARX CRM</a></p>
+                <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ${PRODUCT_NAME}</a></p>
               </div>`
             : `<div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
                 <h2 style="margin: 0 0 12px; color: #111827;">You were assigned an inspection</h2>
@@ -423,7 +424,7 @@ export async function PATCH(
                   <h2 style="color: #111827;">Appointment reassigned</h2>
                   <p style="color: #374151;">Hi ${prevUser.full_name || 'there'},</p>
                   <p style="color: #374151;">The <strong>${typeLabel}</strong> with <strong>${homeownerLabel}</strong> (${scheduledTime} ET) was reassigned to <strong>${newCloser.full_name}</strong> by ${profile.full_name}. You can remove it from your calendar if it is still there.</p>
-                  <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ARX CRM</a></p>
+                  <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ${PRODUCT_NAME}</a></p>
                 </div>`,
             })
           }
@@ -456,7 +457,7 @@ export async function PATCH(
                   <h2 style="color: #111827;">Appointment reassigned</h2>
                   <p style="color: #374151;">Hi ${setterUser.full_name || 'there'},</p>
                   <p style="color: #374151;">The <strong>${typeLabel}</strong> for <strong>${homeownerLabel}</strong> (${scheduledTime} ET) was reassigned from <strong>${previousCloserName}</strong> to <strong>${newCloser.full_name}</strong> by ${profile.full_name}. You are added as a calendar attendee on the new assignee’s Google event (matching the original scheduling flow).</p>
-                  <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ARX CRM</a></p>
+                  <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ${PRODUCT_NAME}</a></p>
                 </div>`,
             })
           }

@@ -16,6 +16,7 @@ import { textStatus } from '@/lib/sms/gate'
 import { loadMessage, postMessage } from '@/lib/threads/post-message'
 import { resolveByReply } from '@/lib/threads/waiting'
 import { AUDIENCES, canReadMessage, defaultAudience, writableAudiences, type Audience } from '@/lib/threads/visibility'
+import { getOrgBrand } from '@/lib/org-brand'
 
 async function customerChannelOn(orgId: string): Promise<boolean> {
   const f = await loadOrgFeatures(createServiceClient(), orgId)
@@ -113,7 +114,7 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
   await notifyMessage(ctx.admin, {
     orgId: ctx.viewer.orgId,
     senderId: ctx.viewer.userId,
-    senderName: ctx.profile.full_name || 'ARX Team',
+    senderName: ctx.profile.full_name || `${(await getOrgBrand(ctx.admin, ctx.viewer.orgId)).shortName || 'Your'} Team`,
     message: res.message,
     deal: { id: deal.id, customerId: deal.customer_id, leadId: deal.lead_id, label: await dealLabel(ctx.admin, ctx.viewer.orgId, deal.id) },
     recipients: res.recipients,

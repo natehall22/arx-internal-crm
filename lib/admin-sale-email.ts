@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { PRODUCT_NAME } from '@/lib/product'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
@@ -98,7 +99,7 @@ export async function notifyOrgAdminsOfSale(
     ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Sales rep</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.closerName)}</td></tr>`
     : ''
 
-  const linkLabel = params.projectUrl ? 'Open project' : 'Open in ARX CRM'
+  const linkLabel = params.projectUrl ? 'Open project' : `Open in ${PRODUCT_NAME}`
   const linkHref = params.projectUrl ?? params.recordUrl
 
   const html = `

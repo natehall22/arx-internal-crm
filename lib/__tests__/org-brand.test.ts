@@ -52,18 +52,22 @@ const OLD = {
 const COMPANY_PHONE = '(704) 313-8834'
 const withPhone = (s: string, phone: string) => s.split(OLD_PHONE).join(phone)
 
-const defaults = resolveOrgBrand(null)
+// An org row flagged as the original company with nothing else stored: the legacy ARX strings. (No row at all is neutral.)
+const defaults = resolveOrgBrand({ original_brand: true })
+// What an unreadable or missing org row resolves to: neutral, never the original company's text.
+const neutral = resolveOrgBrand({ original_brand: false })
 // orgs row as read from prod 2026-11-05 (settings.brand is null)
 const prodRow = {
   name: 'ARX Roofing & Exteriors',
   phone: '(704) 313-8834',
   email: 'info@arxroofing.com',
+  original_brand: true,
   address: '4101 Woodbury Ter NW\nConcord, NC 28027',
   settings: { pricing: {}, logo_url: 'x' },
 }
 
 describe.each([
-  ['no org row', defaults],
+  ['original company flag only', defaults],
   ['prod ARX org row', resolveOrgBrand(prodRow)],
 ])('%s: every string is the old one, phone = rep or company', (_label, b) => {
   it('rep phone present → old strings byte-identical when the rep is the old number', () => {
@@ -120,9 +124,10 @@ describe('atomic brand save fallback', () => {
 
 describe('legal name (invoices, contracts)', () => {
   it('defaults to the exact string invoices printed before', () => {
-    expect(resolveOrgBrand(null).legalName).toBe('ARX Roofing & Exteriors, LLC')
+    expect(resolveOrgBrand({ original_brand: true }).legalName).toBe('ARX Roofing & Exteriors, LLC')
+    expect(resolveOrgBrand(null).legalName).toBe('')
     // ARX prod row: org name has no ", LLC" and settings.brand is null — invoices still show the legal name
-    expect(resolveOrgBrand({ name: 'ARX Roofing & Exteriors', settings: null }).legalName).toBe('ARX Roofing & Exteriors, LLC')
+    expect(resolveOrgBrand({ name: 'ARX Roofing & Exteriors', original_brand: true, settings: null }).legalName).toBe('ARX Roofing & Exteriors, LLC')
   })
   it('comes from settings.brand.legalName and is editable from the General form', () => {
     expect(resolveOrgBrand({ settings: { brand: { legalName: 'Other Co, Inc.' } } }).legalName).toBe('Other Co, Inc.')
@@ -140,10 +145,11 @@ describe('resolveOrgBrand precedence', () => {
     expect(b.name).toBe('Column Co')
     expect(b.phone).toBe('(111) 222-3333')
     // a column-backed key in settings.brand never fills in, even when the column is empty
-    expect(b.email).toBe(defaults.email)
-    expect(b.address).toBe(defaults.address)
+    // another company never inherits the original company's fallback: blank stays neutral
+    expect(b.email).toBe('')
+    expect(b.address).toBe('')
     expect(b.website).toBe('brand.example')
-    expect(b.serviceArea).toBe(defaults.serviceArea)
+    expect(b.serviceArea).toBe('')
   })
 
   it('accepts the brand selected directly as `brand`', () => {
@@ -151,16 +157,16 @@ describe('resolveOrgBrand precedence', () => {
   })
 
   it('blank and whitespace strings count as missing', () => {
-    const b = resolveOrgBrand({ name: '   ', settings: { brand: { name: '', website: ' \t ', phone: null } } })
+    const b = resolveOrgBrand({ name: '   ', original_brand: true, settings: { brand: { name: '', website: ' \t ', phone: null } } })
     expect(b.name).toBe(defaults.name)
     expect(b.website).toBe(defaults.website)
     expect(b.phone).toBe(defaults.phone)
   })
 
   it('ignores junk brand values', () => {
-    expect(resolveOrgBrand({ settings: { brand: 'nope' } })).toEqual(defaults)
-    expect(resolveOrgBrand({ settings: { brand: [1, 2] } })).toEqual(defaults)
-    expect(resolveOrgBrand({ settings: { brand: { name: 42 } } }).name).toBe(defaults.name)
+    expect(resolveOrgBrand({ original_brand: true, settings: { brand: 'nope' } })).toEqual(defaults)
+    expect(resolveOrgBrand({ original_brand: true, settings: { brand: [1, 2] } })).toEqual(defaults)
+    expect(resolveOrgBrand({ original_brand: true, settings: { brand: { name: 42 } } }).name).toBe(defaults.name)
   })
 
   it('a second company gets its own footer and header', () => {
@@ -181,7 +187,7 @@ describe('resolveOrgBrand precedence', () => {
 
 describe('normalizeReportDoc keeps stored footer values (sent reports never change)', () => {
   it('stored footerLine / footerContact win over brand and rep phone', () => {
-    const stored = JSON.parse(JSON.stringify(seedReportDoc({ repPhone: '(360)485-9413' })))
+    const stored = JSON.parse(JSON.stringify(seedReportDoc({ repPhone: '(360)485-9413' }, defaults)))
     const other = resolveOrgBrand({ settings: { brand: { name: 'Other', website: 'other.test' } } })
     const n = normalizeReportDoc(stored, { repPhone: '9995550000' }, other)
     expect(n.footerLine).toBe(OLD.footerLine)
@@ -189,13 +195,13 @@ describe('normalizeReportDoc keeps stored footer values (sent reports never chan
   })
 
   it('missing footer fields are filled from brand + rep phone', () => {
-    const stored = JSON.parse(JSON.stringify(seedReportDoc()))
+    const stored = JSON.parse(JSON.stringify(seedReportDoc({}, defaults)))
     delete stored.footerLine
     delete stored.cover.footerContact
     const n = normalizeReportDoc(stored, { repPhone: '3604859413' }, defaults)
     expect(n.footerLine).toBe(OLD.footerLine)
     expect(n.cover.footerContact).toBe(OLD.footerContact)
-    expect(normalizeReportDoc(JSON.parse(JSON.stringify(stored))).footerLine).toBe(withPhone(OLD.footerLine, COMPANY_PHONE))
+    expect(normalizeReportDoc(JSON.parse(JSON.stringify(stored)), undefined, defaults).footerLine).toBe(withPhone(OLD.footerLine, COMPANY_PHONE))
   })
 })
 
@@ -310,13 +316,13 @@ describe('getOrgBrand never throws', () => {
         throw new Error('fetch failed')
       },
     ])
-    expect(await getOrgBrandResult(c, 'org-1')).toEqual({ brand: resolveOrgBrand(null), ok: false })
+    expect(await getOrgBrandResult(c, 'org-1')).toEqual({ brand: neutral, ok: false })
     expect(calls()).toBe(2)
     expect(errorSpy.mock.calls.some((args) => args.includes('org-1'))).toBe(true)
   })
   it('a client that returns {error} → defaults without throwing', async () => {
     const { c, calls } = client([{ data: null, error: { message: 'timeout' } }])
-    expect(await getOrgBrand(c, 'org-1')).toEqual(defaults)
+    expect(await getOrgBrand(c, 'org-1')).toEqual(neutral)
     expect(calls()).toBe(2)
   })
   it('a transient error then success → the real row', async () => {
@@ -329,7 +335,7 @@ describe('getOrgBrand never throws', () => {
   it('a missing row or no org id → defaults, not ok', async () => {
     expect((await getOrgBrandResult(client([{ data: null, error: null }]).c, 'org-1')).ok).toBe(false)
     expect(await getOrgBrandResult(client([{ data: ROW, error: null }]).c, null)).toEqual({
-      brand: resolveOrgBrand(null),
+      brand: neutral,
       ok: false,
     })
   })

@@ -1,7 +1,7 @@
 {
-  "name": "ARX CRM - Canvassing",
-  "short_name": "ARX",
-  "description": "ARX Internal CRM - Door-to-door canvassing with offline support",
+  "name": "ARX Capitol - Canvassing",
+  "short_name": "ARX Capitol",
+  "description": "ARX Capitol - Door-to-door canvassing with offline support",
   "start_url": "/canvass",
   "scope": "/",
   "display": "standalone",

@@ -1,5 +1,10 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { notFound } from 'next/navigation'
+import { requireAuth } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgProfile } from '@/lib/org-profile'
+import { getOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
+import { doorDropAvailable } from '@/lib/print-kit'
 import DoorDropClient from './DoorDropClient'
 
 export const dynamic = 'force-dynamic'
@@ -18,16 +23,12 @@ const ADMIN_TOOL_ROLES = [
 ]
 
 export default async function DoorDropPage() {
-  const supabase = createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) redirect('/login')
-
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-  if (!profile || !ADMIN_TOOL_ROLES.includes(profile.role)) redirect('/dashboard')
+  const { profile } = await requireAuth()
+  if (!ADMIN_TOOL_ROLES.includes(profile.role)) redirect('/dashboard')
+  // The letter is roofing copy (roof evaluation, storm, insurance): other companies never get it.
+  // It is also the original company's own artwork, name, site and phone: another roofing company never gets that letter.
+  const admin = createServiceClient()
+  if (!doorDropAvailable(await loadOrgProfile(admin, profile.org_id)) || !usesOriginalCompanyAssets(await getOrgBrand(admin, profile.org_id))) notFound()
 
   return <DoorDropClient />
 }

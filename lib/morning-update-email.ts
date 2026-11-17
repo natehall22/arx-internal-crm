@@ -14,6 +14,8 @@ import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, loadUnpaidInvoicesQueue, unpaidInvoicesFailedQueue, type Queue } from '@/lib/today'
 import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
+import { PRODUCT_NAME } from '@/lib/product'
+import { getOrgBrand } from '@/lib/org-brand'
 import { getAppUrl, tryGetAppUrl } from '@/lib/app-url'
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { formatPhone, telHref } from '@/lib/format'
@@ -306,6 +308,11 @@ function todayHtml(queues: Queue[] | null, base: string): string {
   return `${heading}${blocks}`
 }
 
+/** "<company> Morning Update" (just "Morning Update" when the company has no name yet). */
+export function morningUpdateTitle(companyName?: string | null): string {
+  return `${(companyName ?? '').trim()} Morning Update`.trim()
+}
+
 export function buildMorningUpdateHtml(
   metrics: MorningUpdateMetrics,
   /** `today`: undefined = no Today block; null = it failed to load (says so). */
@@ -316,6 +323,8 @@ export function buildMorningUpdateHtml(
     features?: OrgFeatures
     /** The company's own app address (lib/company-links); unset = NEXT_PUBLIC_APP_URL. */
     appUrl?: string | null
+    /** The recipient company's own name (lib/org-brand): the heading reads "<name> Morning Update". */
+    companyName?: string
   }
 ): string {
   const period = activityLabelPrefix(metrics.activityPeriodKind)
@@ -377,7 +386,7 @@ export function buildMorningUpdateHtml(
   return `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
         ${options?.test ? '<p style="margin: 0 0 16px; padding: 10px 12px; background: #fef3c7; color: #92400e; border-radius: 8px; font-size: 13px; font-weight: 600;">Test email — not sent on the daily schedule.</p>' : ''}
-        <h1 style="margin: 0 0 8px; color: #111827; font-size: 22px;">ARX Morning Update</h1>
+        <h1 style="margin: 0 0 8px; color: #111827; font-size: 22px;">${escapeHtml(morningUpdateTitle(options?.companyName))}</h1>
         <p style="margin: 0 0 4px; color: #111827; font-size: 14px; font-weight: 600;">${escapeHtml(metrics.sentDateLabel)}</p>
         ${options?.today !== undefined ? buildTodayHtml(options.today, options.appUrl) : ''}
         ${metricSection(period, activitySubline, {
@@ -407,7 +416,7 @@ export function buildMorningUpdateHtml(
         ${lastWeekSection}
         ${options?.needsYou ? buildNeedsYouHtml(options.needsYou, options?.appUrl) : ''}
         <p style="color: #6B7280; font-size: 12px; margin-top: 20px;">
-          Automated owner morning update from ARX CRM. Proposals shown is based on unique opportunities with a generated proposal PDF during the period. Revenue reflects signed installation and repair agreements.${show.insurance ? ' Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.' : ''}
+          Automated owner morning update from ${PRODUCT_NAME}. Proposals shown is based on unique opportunities with a generated proposal PDF during the period. Revenue reflects signed installation and repair agreements.${show.insurance ? ' Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.' : ''}
         </p>
         <p style="color: #9CA3AF; font-size: 12px; font-style: italic; margin: 12px 0 0;">
           ${escapeHtml(MORNING_UPDATE_FOOTER_QUOTE)}
@@ -474,7 +483,8 @@ export async function sendMorningUpdateEmail(
   const metrics = params.metrics ?? (await fetchMorningUpdateMetrics(supabase, params.orgId))
   const transporter = getMailTransport(params.orgId)
   const subjectPrefix = isTest ? '[TEST] ' : ''
-  const subject = `${subjectPrefix}ARX Morning Update — ${metrics.sentDateLabel}`
+  const brand = await getOrgBrand(supabase, params.orgId)
+  const subject = `${subjectPrefix}${morningUpdateTitle(brand.name)} — ${metrics.sentDateLabel}`
   // The daily data-health check rides along. It must never stop the update going out.
   let needsYou: DataHealthReport | null = null
   try {
@@ -522,7 +532,7 @@ export async function sendMorningUpdateEmail(
     let shaped = needsYou ? needsYouForEmailRecipient(needsYou, viewerByEmail.get(to.trim().toLowerCase())) : null
     // Crews focus only narrows: an owner on 'crews' gets the operational rows (no dollars), never more than their role allows.
     if (shaped && needsYou && focus === 'crews') shaped = shapeNeedsYou(needsYou, 'ops')
-    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: shaped, today, features, appUrl })
+    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: shaped, today, features, appUrl, companyName: brand.name })
   }
 
   let sent = 0

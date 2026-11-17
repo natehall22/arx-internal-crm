@@ -1,11 +1,12 @@
 import { readFileSync, existsSync } from 'fs'
+import { PRODUCT_NAME } from '@/lib/product'
 import { join } from 'path'
 import { jsPDF } from 'jspdf'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { FILES_BUCKET, buildJobDocumentStoragePath } from '@/lib/files/storage'
 import { newDocumentInsert } from '@/lib/files/documents'
 import { formatPhoneDashed } from '@/lib/format'
-import { getOrgBrand, type OrgBrand } from '@/lib/org-brand'
+import { getOrgBrand, usesOriginalCompanyAssets, type OrgBrand } from '@/lib/org-brand'
 
 export const COMPLETION_CERTIFICATE_CATEGORY = 'completion_certificate'
 export const COMPLETION_CERTIFICATE_TITLE = 'Certificate of Completion'
@@ -197,7 +198,7 @@ export function buildCompletionCertificatePdfBuffer(args: {
 
   doc.setFontSize(9)
   doc.setTextColor(107, 114, 128)
-  doc.text(`${args.companyName} | Certificate generated from ARX CRM`, pageW / 2, pageH - margin - 12, {
+  doc.text(args.companyName, pageW / 2, pageH - margin - 12, {
     align: 'center',
   })
 
@@ -282,10 +283,11 @@ export async function generateCompletionCertificateDocument(
 
   const customer = firstJoin<JoinedCustomer>((job as any).customer)
   const generatedDate = new Date().toISOString()
-  const logoPath = join(process.cwd(), 'public', 'brand', 'arx-shield.png')
+  const brand = await getOrgBrand(supabase, args.orgId)
+  const logoPath = usesOriginalCompanyAssets(brand) ? join(process.cwd(), 'public', 'brand', 'arx-shield.png') : null
 
   const pdfBuffer = buildCompletionCertificatePdfBuffer({
-    ...completionCertificateCompany(await getOrgBrand(supabase, args.orgId)),
+    ...completionCertificateCompany(brand),
     logoAbsolutePath: logoPath,
     jobNumber: (job as any).job_number,
     customerName: customer?.name || 'Customer',

@@ -72,7 +72,7 @@ type ExteriorMeasureClientProps = {
 const defaultReport: Report = {
   measure_kind: 'siding',
   status: 'draft',
-  report_title: 'ARX Exterior Measure Report',
+  report_title: 'Exterior Measure Report',
   waste_percent: 10,
   notes: '',
 }

@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from 'fs'
+import { PRODUCT_NAME } from '@/lib/product'
 import { join } from 'path'
 import { jsPDF } from 'jspdf'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 import { formatPhoneDashed } from '@/lib/format'
-import type { OrgBrand } from '@/lib/org-brand'
+import { usesOriginalCompanyAssets, type OrgBrand } from '@/lib/org-brand'
 import { adjustmentsLabel, formatPayrollMoney } from '@/lib/payroll-format'
 
 const COLORS = {
@@ -19,7 +20,7 @@ const COLORS = {
   alertBg: [254, 242, 242] as const,
 }
 
-const LOGO_PATH = join(process.cwd(), 'public', 'brand', 'arx-shield.png')
+const LOGO_PATH = join(process.cwd(), 'public', 'brand', 'arx-shield.png') // the original company's artwork only (see usesOriginalCompanyAssets)
 
 type Rgb = readonly [number, number, number]
 
@@ -151,7 +152,7 @@ export function buildPayrollStatementPdfBuffer(
     address: opts.brand.address,
     phone: formatPhoneDashed(opts.brand.phone),
     email: opts.brand.email,
-    logoPath: LOGO_PATH,
+    logoPath: usesOriginalCompanyAssets(opts.brand) ? LOGO_PATH : '',
   }
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const pageW = doc.internal.pageSize.getWidth()
@@ -373,7 +374,7 @@ export function buildPayrollStatementPdfBuffer(
   doc.setFontSize(8)
   setTextColor(doc, COLORS.body)
   const detailLines = doc.splitTextToSize(
-    'Customer names, deal-level commission, sit/sale line items, and chargeback detail are available in ARX CRM using the link in your pay statement email.',
+    `Customer names, deal-level commission, sit/sale line items, and chargeback detail are available in ${PRODUCT_NAME} using the link in your pay statement email.`,
     contentW - 24
   )
   doc.text(detailLines, margin + 12, y + 30)

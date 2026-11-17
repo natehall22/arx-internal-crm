@@ -41,8 +41,10 @@ const PROD_ROW = {
   phone: '(704) 313-8834',
   email: 'info@arxroofing.com',
   address: '4101 Woodbury Ter NW\nConcord, NC 28027',
+  original_brand: true,
   settings: { brand: null },
 }
+const NEUTRAL_ROW = { original_brand: false }
 const PROD_ARX = resolveOrgBrand(PROD_ROW)
 const PROD_DOC = brandDocument(PROD_ARX)
 
@@ -63,7 +65,8 @@ const ARX_IDENTITY = [/ARX/, /arxroofing/i, /313-8834/, /Woodbury/, /28027/]
 
 describe('brandDocument (letterhead spellings)', () => {
   it("the prod row and an empty org both give the contract's historical spellings", () => {
-    for (const d of [PROD_DOC, DEFAULT_DOCUMENT_BRAND]) {
+    expect(DEFAULT_DOCUMENT_BRAND.name).toBe('') // no row is neutral
+    for (const d of [PROD_DOC, brandDocument(resolveOrgBrand({ original_brand: true }))]) {
       expect(d).toEqual({
         name: 'ARX Roofing & Exteriors',
         nameUpper: 'ARX ROOFING & EXTERIORS',
@@ -336,7 +339,7 @@ describe('neutral fallback on a fenced deployment (DEPLOYMENT_ORG_ID set)', () =
 
   it('DEFAULT_ORG_BRAND carries no company at all', () => {
     for (const v of Object.values(DEFAULT_ORG_BRAND)) expect(v).toBe('')
-    expect(resolveOrgBrand(null)).toEqual({ ...DEFAULT_ORG_BRAND })
+    expect(resolveOrgBrand(NEUTRAL_ROW)).toEqual({ ...DEFAULT_ORG_BRAND })
   })
 
   it('an org with nothing but its columns prints only its own identity', () => {
@@ -392,11 +395,11 @@ describe('neutral fallback on a fenced deployment (DEPLOYMENT_ORG_ID set)', () =
   })
 
   it('website-estimate errors read the org brand and drop blank parts', () => {
-    expect(misconfiguredMessage(resolveOrgBrand(null).phone)).toBe('Public roof estimate is not configured.')
+    expect(misconfiguredMessage(resolveOrgBrand(NEUTRAL_ROW).phone)).toBe('Public roof estimate is not configured.')
     expect(outOfServiceAreaMessage({ serviceArea: 'Anytown, ST', phone: '555-010-0100' })).toBe(
       'That address looks outside our service area (Anytown and nearby). Call 555-010-0100 and we can still help.'
     )
-    expect(outOfServiceAreaMessage(resolveOrgBrand(null))).toBe('That address looks outside our service area.')
+    expect(outOfServiceAreaMessage(resolveOrgBrand(NEUTRAL_ROW))).toBe('That address looks outside our service area.')
   })
 })
 
@@ -406,7 +409,7 @@ describe('legacy gate (unfenced = ARX prod today) keeps the old strings', () => 
     delete process.env.SMTP_FROM
     expect(await getCrmEmailFrom(null)).toBe('ARX Roofing <info@arxroofing.com>')
     if (saved !== undefined) process.env.SMTP_FROM = saved
-    expect(misconfiguredMessage(resolveOrgBrand(null).phone)).toBe('Public roof estimate is not configured. Please call (704) 313-8834.')
+    expect(misconfiguredMessage(resolveOrgBrand({ original_brand: true }).phone)).toBe('Public roof estimate is not configured. Please call (704) 313-8834.')
   })
   it('out-of-area copy is byte-identical for ARX (serviceRegion "Charlotte metro"), before and after the data fix', () => {
     const OLD = 'That address looks outside our service area (Charlotte metro and nearby). Call (704) 313-8834 and we can still help.'

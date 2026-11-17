@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
@@ -229,6 +230,9 @@ function isEffectiveOnDate(
 }
 
 export default function CompPlansPage() {
+  const orgFeatures = useOrgFeatures()
+  // No door knocking = no setters: one Salesperson lane. Plain words for what a plan is for.
+  const setterLane = orgFeatures.canvassing
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [compPlans, setCompPlans] = useState<CompPlan[]>([])
@@ -306,12 +310,17 @@ export default function CompPlansPage() {
     /** Blank means "keep whatever this plan + lane already pays" (or its base rate, first time). */
     override_percent: '',
   })
+  // Without door knocking there is only the Salesperson lane (stored as 'closer'; the data model is unchanged).
+  useEffect(() => {
+    if (!setterLane) setOverlayForm((previous) => (previous.lane === 'setter' ? { ...previous, lane: 'closer' } : previous))
+  }, [setterLane, showOverlayModal])
 
   // Surfaced live in the builder so an admin never saves a plan that quietly pays $0.
   const planWarnings = getCompPlanPayabilityWarnings({
     plan_type: planForm.plan_type,
     base_percentage: planForm.base_percentage,
     flat_amount: planForm.flat_amount,
+    hourly_rate: planForm.hourly_rate,
     tiers: planForm.tiers,
     volume_bonuses: planForm.volume_bonuses,
     is_manager_plan: planForm.is_manager_plan,
@@ -411,6 +420,11 @@ export default function CompPlansPage() {
       }
     }
 
+    if (planForm.plan_purpose === 'primary' && planForm.plan_type === 'hourly' && !(parseFloat(planForm.hourly_rate) > 0)) {
+      toast.error('Enter the hourly rate.')
+      return
+    }
+
     // Last stop before a plan that pays $0 gets saved and assigned to a rep.
     if (planForm.plan_purpose === 'primary' && hasBlockingCompPlanWarning(planWarnings)) {
       const reasons = planWarnings
@@ -442,7 +456,7 @@ export default function CompPlansPage() {
       unit_rate: planForm.plan_purpose === 'primary' && (planForm.plan_type === 'unit_based' || planForm.hybrid_components.some(c => c.type === 'per_unit'))
         ? parseFloat(planForm.unit_rate) || null 
         : null,
-      weekly_minimum: planForm.plan_purpose === 'primary' && planForm.weekly_minimum_amount.trim() !== ''
+      weekly_minimum: planForm.plan_purpose === 'primary' && planForm.plan_type !== 'hourly' && planForm.weekly_minimum_amount.trim() !== ''
         ? { amount: parseFloat(planForm.weekly_minimum_amount), needsCheck: planForm.weekly_minimum_check, prorate: planForm.weekly_minimum_prorate, basis: planForm.weekly_minimum_basis }
         : null,
       unit_type: planForm.plan_purpose === 'primary' && planForm.plan_type === 'unit_based'
@@ -703,7 +717,7 @@ export default function CompPlansPage() {
       base_percentage: '',
       hourly_rate: '',
       unit_rate: '',
-      unit_type: 'square',
+      unit_type: orgFeatures.squaresPricing ? 'square' : 'custom',
       custom_unit_label: '',
       weekly_minimum_amount: '',
       weekly_minimum_check: true,
@@ -1243,6 +1257,7 @@ export default function CompPlansPage() {
                 {plan.plan_purpose !== 'management_overlay' && (() => {
                   const warnings = getCompPlanPayabilityWarnings({
                     plan_type: plan.plan_type,
+                    hourly_rate: plan.hourly_rate,
                     base_percentage: plan.base_percentage,
                     flat_amount: plan.flat_amount,
                     tiers: plan.tiers,
@@ -1586,8 +1601,8 @@ export default function CompPlansPage() {
                     disabled={Boolean(editingPlan)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100"
                   >
-                    <option value="primary">Primary Sales Plan</option>
-                    <option value="management_overlay">Management Overlay</option>
+                    <option value="primary">{setterLane ? 'Primary Sales Plan' : 'Pay for their own work'}</option>
+                    <option value="management_overlay">{setterLane ? 'Management Overlay' : 'Extra pay for managing a team'}</option>
                   </select>
                   <p className="mt-1 text-xs" style={{ color: INK }}>
                     {planForm.plan_purpose === 'management_overlay'
@@ -1632,14 +1647,16 @@ export default function CompPlansPage() {
                   <p className="mt-1 text-xs" style={{ color: INK }}>
                     {planTypePaysCommission(planForm.plan_type)
                       ? 'Percentage, tiered, and flat-rate plans are calculated automatically on the payroll export.'
-                      : 'This plan type is not calculated by payroll — see the warning below.'}
+                      : planForm.plan_type === 'hourly'
+                        ? 'Pays clock hours × this rate (overtime per your time settings). No commission on sales.'
+                        : 'This plan type is not calculated by payroll — see the warning below.'}
                   </p>
                 </div>
 
                 {planWarnings.length > 0 && <CompPlanWarningList warnings={planWarnings} />}
 
-                {/* Weekly minimum: greater of a fixed amount or the commission */}
-                {planForm.plan_purpose === 'primary' && (
+                {/* Weekly minimum: greater of a fixed amount or the commission (hourly plans have no commission) */}
+                {planForm.plan_purpose === 'primary' && planForm.plan_type !== 'hourly' && (
                   <div className="rounded-lg border border-gray-300 p-3">
                     <label className="block text-sm font-medium mb-1" style={{ color: INK }}>Weekly minimum ($, optional)</label>
                     <input
@@ -1679,9 +1696,12 @@ export default function CompPlansPage() {
                 {/* Hourly Rate */}
                 {planForm.plan_type === 'hourly' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Hourly Rate ($)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Hourly Rate ($) *</label>
                     <input
                       type="number"
+                      inputMode="decimal"
+                      required
+                      min="0.01"
                       value={planForm.hourly_rate}
                       onChange={(e) => setPlanForm(prev => ({ ...prev, hourly_rate: e.target.value }))}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg"
@@ -1702,8 +1722,8 @@ export default function CompPlansPage() {
                           onChange={(e) => setPlanForm(prev => ({ ...prev, unit_type: e.target.value }))}
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                         >
-                          <option value="square">{COMP_PLAN_UNIT_RATE_LABELS.square} (roofing)</option>
-                          <option value="kw">{COMP_PLAN_UNIT_RATE_LABELS.kw} (solar)</option>
+                          {(orgFeatures.squaresPricing || editingPlan?.unit_type === 'square') && <option value="square">{COMP_PLAN_UNIT_RATE_LABELS.square} (roofing)</option>}
+                          {(orgFeatures.squaresPricing || editingPlan?.unit_type === 'kw') && <option value="kw">{COMP_PLAN_UNIT_RATE_LABELS.kw} (solar)</option>}
                           <option value="linear_foot">{COMP_PLAN_UNIT_RATE_LABELS.linear_foot}</option>
                           <option value="panel">{COMP_PLAN_UNIT_RATE_LABELS.panel}</option>
                           <option value="window">{COMP_PLAN_UNIT_RATE_LABELS.window}</option>
@@ -2480,8 +2500,8 @@ export default function CompPlansPage() {
                     }))}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   >
-                    <option value="setter">Setter production</option>
-                    <option value="closer">Closer production</option>
+                    {setterLane && <option value="setter">Setter production</option>}
+                    <option value="closer">{setterLane ? 'Closer production' : 'Salesperson production'}</option>
                   </select>
                   <p className="mt-1 text-xs text-gray-600">Pays on eligible direct-report production and the manager&apos;s own production in this lane.</p>
                 </div>

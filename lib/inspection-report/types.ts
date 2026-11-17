@@ -133,12 +133,12 @@ export function seedReportDoc(prefill: SeedPrefill = {}, brand: OrgBrand = resol
         {
           id: uid(),
           heading: 'Purpose',
-          body: "Following the carrier's initial claim review, ARX Roofing & Exteriors performed a detailed roof inspection focused specifically on hail and wind. This report documents what was found and respectfully requests a full reinspection of the roof.",
+          body: `Following the carrier's initial claim review, ${brand.name} performed a detailed roof inspection focused specifically on hail and wind. This report documents what was found and respectfully requests a full reinspection of the roof.`,
         },
         {
           id: uid(),
           heading: 'Background',
-          body: 'The homeowner reports that the assigned adjuster was professional and courteous, and that the initial visit was a brief overview rather than a detailed hail and wind assessment. ARX is not disputing that review. The purpose of this report is to provide additional, measured documentation that may not have been captured during a short overview inspection, so the carrier can make a fully informed determination.',
+          body: `The homeowner reports that the assigned adjuster was professional and courteous, and that the initial visit was a brief overview rather than a detailed hail and wind assessment. ${brand.shortName} is not disputing that review. The purpose of this report is to provide additional, measured documentation that may not have been captured during a short overview inspection, so the carrier can make a fully informed determination.`,
         },
         {
           id: uid(),
@@ -153,7 +153,7 @@ export function seedReportDoc(prefill: SeedPrefill = {}, brand: OrgBrand = resol
         {
           id: uid(),
           heading: 'Roof Age & Overall Condition',
-          body: "The roof is an older asphalt shingle system showing significant granule loss and general weathering, and is at or near the end of its service life. In ARX's professional opinion, the roof requires full replacement regardless of the claim outcome.",
+          body: `The roof is an older asphalt shingle system showing significant granule loss and general weathering, and is at or near the end of its service life. In ${brand.shortName}'s professional opinion, the roof requires full replacement regardless of the claim outcome.`,
         },
       ],
       requestTitle: 'Request',
@@ -161,12 +161,12 @@ export function seedReportDoc(prefill: SeedPrefill = {}, brand: OrgBrand = resol
         {
           id: uid(),
           subhead: 'Replacement is warranted regardless.',
-          body: "Independent of the claim determination, the roof's age and overall condition place it at or near the end of its serviceable life. ARX recommends full replacement.",
+          body: `Independent of the claim determination, the roof's age and overall condition place it at or near the end of its serviceable life. ${brand.shortName} recommends full replacement.`,
         },
         {
           id: uid(),
           subhead: 'A closer look is warranted.',
-          body: 'ARX respectfully requests that the carrier take a deeper look at the documented hail and wind — either through an on-site reinspection or by reviewing the measured photographs in this report — before finalizing its determination. ARX is available to meet the adjuster on site at the carrier\'s convenience.',
+          body: `${brand.shortName} respectfully requests that the carrier take a deeper look at the documented hail and wind — either through an on-site reinspection or by reviewing the measured photographs in this report — before finalizing its determination. ${brand.shortName} is available to meet the adjuster on site at the carrier's convenience.`,
         },
       ],
     },

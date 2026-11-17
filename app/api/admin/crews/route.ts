@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
+import { loadOrgProfile } from '@/lib/org-profile'
+import { activeTrades, dbCrewType, loadOrgTrades, orderedTrades } from '@/lib/org-trades'
 
 export const dynamic = 'force-dynamic'
 
@@ -93,10 +95,19 @@ export async function GET(request: NextRequest) {
         .order('full_name'),
     ])
 
+    // Crew Type choices: the company's own trades (lawn: Lawn care, Landscaping…) plus General. Roofing keeps its fixed list (null).
+    const admin = createServiceClient()
+    const orgProfile = await loadOrgProfile(admin, profile.org_id)
+    const crewTypes =
+      orgProfile.id === 'roofing'
+        ? null
+        : [...orderedTrades(activeTrades(await loadOrgTrades(admin, profile.org_id))).map((t) => ({ value: t.slug, label: t.label })), { value: 'general', label: 'General' }]
+
     return NextResponse.json({
       crews: crewsRes.data || [],
       users: usersRes.data || [],
       orgId: profile.org_id,
+      crewTypes,
     })
   } catch (error) {
     console.error('Crews API error:', error)
@@ -148,7 +159,7 @@ export async function POST(request: NextRequest) {
     const crewData = {
       org_id: profile.org_id,
       name: body.name,
-      crew_type: body.crew_type || 'roofing',
+      crew_type: dbCrewType(body.crew_type || 'roofing'),
       foreman_user_id: body.foreman_user_id || null,
       members: body.members || [],
       color: body.color || '#3B82F6',
@@ -215,6 +226,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
     // org_id is never client-set (it would move the crew to another company).
     const { id, org_id: _orgId, ...updates } = body
+    if (typeof updates.crew_type === 'string') updates.crew_type = dbCrewType(updates.crew_type)
 
     if (!id) {
       return NextResponse.json({ error: 'Crew ID required' }, { status: 400 })

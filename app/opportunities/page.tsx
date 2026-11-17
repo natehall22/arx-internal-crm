@@ -19,7 +19,8 @@ import {
 } from '@/lib/opportunity-list-filters'
 import { type OpportunityListRow as Opportunity } from '@/components/opportunities/opportunity-list-shared'
 import { formatPhone } from '@/lib/format'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { t } from '@/lib/org-profile'
 import { insideSalesFeatureTabs } from '@/lib/inside-sales-follow-up'
 
 type InsideSalesActivity = {
@@ -59,7 +60,13 @@ type InsideSalesItem = {
 
 export default function OpportunitiesPage() {
   /** Storm alerts switched off (Settings → Features): no Storm filter or count card (same rule as /inside-sales). */
-  const featureTabs = insideSalesFeatureTabs(useOrgFeatures())
+  const orgFeaturesNow = useOrgFeatures()
+  const featureTabs = insideSalesFeatureTabs(orgFeaturesNow)
+  const orgWords = useOrgProfile()
+  const inspectionWord = t(orgWords, 'inspection')
+  // The Project Type filter is roofing-only (the API says; until it answers, the profile does).
+  const [projectTypeFilterApi, setProjectTypeFilterApi] = useState<boolean | null>(null)
+  const showProjectType = projectTypeFilterApi ?? orgWords.id === 'roofing'
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -117,8 +124,9 @@ export default function OpportunitiesPage() {
         return
       }
 
-      const { opportunities: opps } = await response.json()
+      const { opportunities: opps, projectTypeFilter } = await response.json()
       setOpportunities(opps || [])
+      setProjectTypeFilterApi(typeof projectTypeFilter === 'boolean' ? projectTypeFilter : null)
     } catch (err) {
       console.error('Error loading opportunities:', err)
       setError('Failed to load opportunities')
@@ -233,7 +241,7 @@ export default function OpportunitiesPage() {
   const filteredInsideSalesItems = useMemo(() => {
     const query = deferredFilters.q.trim().toLowerCase()
     const status = deferredFilters.status.trim().toLowerCase()
-    const projectType = deferredFilters.project_type.trim().toLowerCase()
+    const projectType = showProjectType ? deferredFilters.project_type.trim().toLowerCase() : ''
     const queueTypeRaw = deferredFilters.inspection_outcome.trim().toLowerCase()
     const queueType =
       queueTypeRaw === 'insurance' ? 'handoff' : queueTypeRaw
@@ -264,7 +272,7 @@ export default function OpportunitiesPage() {
 
       return true
     })
-  }, [deferredFilters, insideSalesItems])
+  }, [deferredFilters, insideSalesItems, showProjectType])
 
   const setFilter = (key: 'status' | 'inspection_outcome' | 'project_type', value: string) => {
     pushFiltersToUrl({ ...filters, [key]: value, q: searchInput })
@@ -286,7 +294,7 @@ export default function OpportunitiesPage() {
   }
 
   const hasActiveFilters =
-    activeFilters.q || activeFilters.status || activeFilters.inspection_outcome || activeFilters.project_type
+    activeFilters.q || activeFilters.status || activeFilters.inspection_outcome || (showProjectType && activeFilters.project_type)
   // Built from the deferred filters, not the live input: these strings go into every
   // row's href, and a new href on each keystroke re-fires next/link prefetch for every
   // visible row. Deferred also keeps them in sync with the list actually on screen.
@@ -406,7 +414,7 @@ export default function OpportunitiesPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                {activeView === 'inside_sales' ? 'Queue Type' : 'Inspection Result'}
+                {activeView === 'inside_sales' ? 'Queue Type' : `${inspectionWord} Result`}
               </label>
               <select
                 value={filters.inspection_outcome}
@@ -419,14 +427,14 @@ export default function OpportunitiesPage() {
                     <option value="callable">Ready for me (past wait)</option>
                     <option value="waiting_rep">Still with rep</option>
                     <option value="didnt_sit">Didn&apos;t sit only</option>
-                    <option value="handoff">Inspection handoff only</option>
-                    <option value="knockback">Knockback only</option>
+                    <option value="handoff">{inspectionWord} handoff only</option>
+                    {orgFeaturesNow.canvassing && <option value="knockback">Knockback only</option>}
                     {featureTabs.showStorm && <option value="storm">Storm only (est.)</option>}
                   </>
                 ) : (
                   <>
                     <option value="">All Results</option>
-                    <option value="none">No Inspection Yet</option>
+                    <option value="none">No {inspectionWord} Yet</option>
                     {filters.inspection_outcome &&
                       filters.inspection_outcome !== 'none' &&
                       !inspectionOutcomeRows.some((o) => o.id === filters.inspection_outcome) && (
@@ -444,6 +452,7 @@ export default function OpportunitiesPage() {
                 )}
               </select>
             </div>
+            {showProjectType && (
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Project Type</label>
               <select
@@ -458,6 +467,7 @@ export default function OpportunitiesPage() {
                 <option value="mixed">Mixed</option>
               </select>
             </div>
+            )}
             <div className="flex items-end">
               {hasActiveFilters && (
                 <button

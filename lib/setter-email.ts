@@ -1,4 +1,5 @@
 import { createGuardedTransport } from '@/lib/demo-org-mail'
+import { PRODUCT_NAME } from '@/lib/product'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
@@ -70,7 +71,7 @@ export async function sendSetterEmail(params: {
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
           ${rowsHtml}
         </table>
-        <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">This is an automated update from ARX CRM.</p>
+        <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">This is an automated update from ${PRODUCT_NAME}.</p>
       </div>
     `,
   })

@@ -24,7 +24,7 @@ interface Measurement {
 
 const sourceLabels: Record<string, { label: string; color: string }> = {
   manual: { label: 'Manual', color: 'bg-gray-100 text-gray-700' },
-  in_house: { label: 'ARX Measure', color: 'bg-indigo-100 text-indigo-700' },
+  in_house: { label: 'In-house measure', color: 'bg-indigo-100 text-indigo-700' },
   eagleview: { label: 'EagleView', color: 'bg-blue-100 text-blue-700' },
   roofr: { label: 'Roofr', color: 'bg-green-100 text-green-700' },
   solo: { label: 'Solo', color: 'bg-yellow-100 text-yellow-700' },
@@ -119,7 +119,7 @@ export default function MeasurementsListPage() {
             <div className="text-2xl font-bold text-indigo-600">
               {measurements.filter(m => m.source === 'in_house').length}
             </div>
-            <div className="text-sm text-gray-700">ARX Measured</div>
+            <div className="text-sm text-gray-700">Measured in-house</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-blue-600">

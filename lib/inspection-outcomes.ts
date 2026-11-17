@@ -195,17 +195,19 @@ export function normalizeInspectionOutcomeRows(
  * Merge any built-in defaults missing from the saved list so API consumers get one catalog (org wins on same id).
  */
 export function mergeOrgInspectionOutcomesWithDefaults(
-  rows: InspectionOutcomeConfigRow[] | null | undefined
+  rows: InspectionOutcomeConfigRow[] | null | undefined,
+  /** The built-ins to fill from — the company's industry profile words (lib/org-profile.ts profileOutcomeRows); roofing = DEFAULT_INSPECTION_OUTCOMES. */
+  defaults: InspectionOutcomeConfigRow[] = DEFAULT_INSPECTION_OUTCOMES
 ): InspectionOutcomeConfigRow[] {
   const raw = Array.isArray(rows) && rows.length > 0 ? rows : []
   if (raw.length === 0) {
-    return DEFAULT_INSPECTION_OUTCOMES.map((row, index) => normalizeInspectionOutcomeRow(row, index))
+    return defaults.map((row, index) => normalizeInspectionOutcomeRow(row, index))
   }
   const seen = new Set(raw.map((r) => normalizeInspectionOutcomeId(r.id)))
   const merged: InspectionOutcomeConfigRow[] = raw.map((row, index) =>
     normalizeInspectionOutcomeRow(row, index)
   )
-  for (const def of DEFAULT_INSPECTION_OUTCOMES) {
+  for (const def of defaults) {
     const id = normalizeInspectionOutcomeId(def.id)
     if (!seen.has(id)) {
       merged.push(normalizeInspectionOutcomeRow(def, merged.length))

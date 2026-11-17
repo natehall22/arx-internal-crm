@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { creditLaneWords } from '@/lib/sale-credit-words'
 import { Button, Card, CardContent, CardHeader, CardTitle, toast } from '@/components/ui'
 
 type Status = {
@@ -31,6 +33,7 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
   const [mode, setMode] = useState('default')
   const [value, setValue] = useState('')
   const [url, setUrl] = useState('')
+  const laneWords = creditLaneWords(useOrgFeatures().canvassing)
   const [credit, setCredit] = useState<{ closerUserId: string; setterUserId: string; isSelfGenerated: boolean } | null>(null)
   const [canChange, setCanChange] = useState(true)
   const [users, setUsers] = useState<Array<{ id: string; full_name: string | null }>>([])
@@ -66,7 +69,7 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
 
   async function act(body: Record<string, unknown>, ok?: string) {
     if ((body.action === 'send' || body.action === 'link')) {
-      if (!credit?.closerUserId) return toast.error('Pick who closed this sale.')
+      if (!credit?.closerUserId) return toast.error(laneWords.pickCloserShort)
       body = { ...body, saleCredit: { closerUserId: credit.closerUserId, setterUserId: credit.isSelfGenerated ? null : credit.setterUserId || null, isSelfGenerated: credit.isSelfGenerated } }
     }
     setBusy(true)
@@ -141,10 +144,12 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
             {credit ? (
               <fieldset className="flex flex-col gap-2">
                 <legend className="font-semibold">Sale credit (what commission is paid on)</legend>
-                <select value={credit.closerUserId} disabled={!canChange} onChange={(e) => setCredit({ ...credit, closerUserId: e.target.value })} aria-label="Closer" className="min-h-tap rounded-ui border border-surface-line px-3 text-base text-ink disabled:bg-gray-100">
-                  <option value="">Pick the closer</option>
+                <select value={credit.closerUserId} disabled={!canChange} onChange={(e) => setCredit({ ...credit, closerUserId: e.target.value })} aria-label={laneWords.closer} className="min-h-tap rounded-ui border border-surface-line px-3 text-base text-ink disabled:bg-gray-100">
+                  <option value="">{laneWords.pickCloser}</option>
                   {users.map((u) => <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>)}
                 </select>
+                {laneWords.showSetter && (
+                  <>
                 <select value={credit.isSelfGenerated ? '' : credit.setterUserId} disabled={!canChange || credit.isSelfGenerated} onChange={(e) => setCredit({ ...credit, setterUserId: e.target.value })} aria-label="Setter" className="min-h-tap rounded-ui border border-surface-line px-3 text-base text-ink disabled:bg-gray-100">
                   <option value="">No setter</option>
                   {users.map((u) => <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>)}
@@ -153,6 +158,8 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
                   <input type="checkbox" className="h-5 w-5" checked={credit.isSelfGenerated} disabled={!canChange} onChange={(e) => setCredit({ ...credit, isSelfGenerated: e.target.checked })} />
                   <span>The closer found this customer themselves</span>
                 </label>
+                  </>
+                )}
               </fieldset>
             ) : null}
             <label className="flex flex-col gap-1">

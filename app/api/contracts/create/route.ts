@@ -4,6 +4,8 @@ import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getOrgBrandResult, usesOriginalCompanyAssets } from '@/lib/org-brand'
+import { builtInContractsAvailable, loadOrgProfileStrict } from '@/lib/org-profile'
 import {
   saveDealSaleCredit,
   loadDealSaleCredit,
@@ -35,6 +37,15 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createServiceClient()
+    // The built-in agreements are roofing-install contracts: another kind of company sends its own from Signatures.
+    // Fail closed: if the company's profile or brand cannot be read we cannot tell whose contract this is, so refuse.
+    const [orgProfile, orgBrand] = await Promise.all([loadOrgProfileStrict(supabase, profile.org_id), getOrgBrandResult(supabase, profile.org_id)])
+    if (!orgProfile.ok || !orgBrand.ok) {
+      return NextResponse.json({ error: 'Could not confirm your company settings. Try again in a moment.' }, { status: 503 })
+    }
+    if (!builtInContractsAvailable(orgProfile.profile, usesOriginalCompanyAssets(orgBrand.brand))) {
+      return NextResponse.json({ error: 'Use Contracts to send your own agreement' }, { status: 403 })
+    }
     const body = await request.json()
 
     const {

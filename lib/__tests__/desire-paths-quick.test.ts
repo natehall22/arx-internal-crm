@@ -17,7 +17,7 @@ describe('company names on the contract screen, subs text and schedule board', (
 
   it('the original company (no fence, nothing stored) keeps the exact words the screen used to print', () => {
     delete process.env.DEPLOYMENT_ORG_ID
-    const names = clientBrandNames(brandDocument(resolveOrgBrand(null)))
+    const names = clientBrandNames(brandDocument(resolveOrgBrand({ original_brand: true })))
     expect(names).toEqual({ name: 'ARX Roofing & Exteriors', legalName: 'ARX Roofing & Exteriors LLC', shortName: 'ARX' })
   })
 

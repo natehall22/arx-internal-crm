@@ -3,32 +3,35 @@
 import { useState } from 'react'
 import Nav from '@/components/Nav'
 import { formatPhone } from '@/lib/format'
+import type { PrintKitBrand } from '@/lib/print-kit'
 
 type MarketerInfo = {
   name: string
   phone: string
 }
 
-const DEFAULT_MARKETER: MarketerInfo = {
+/** The original company's sample marketer; every other company starts blank (never someone else's name and number). */
+const ROOFING_MARKETER: MarketerInfo = {
   name: 'Alex Nunez',
   phone: '704-437-9875',
 }
+const BLANK_MARKETER: MarketerInfo = { name: '', phone: '' }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-function AppointmentCard({ marketer }: { marketer: MarketerInfo }) {
+function AppointmentCard({ marketer, brand }: { marketer: MarketerInfo; brand: PrintKitBrand }) {
   return (
     <div className="appointment-card">
       <div className="card-brand">
-        <img src="/brand/arx-shield.png" alt="" />
+        {brand.useShield ? <img src="/brand/arx-shield.png" alt="" /> : brand.logoHref ? <img src={brand.logoHref} alt="" /> : null}
         <div>
-          <strong>ARX Roofing & Exteriors</strong>
-          <span>Free Inspection</span>
+          <strong>{brand.companyName}</strong>
+          <span>{brand.cardTagline}</span>
         </div>
       </div>
 
       <div className="marketer-block">
-        <p>Roofing Specialist</p>
+        <p>{brand.cardRole}</p>
         <h2>{marketer.name}</h2>
         <h3>{(marketer.phone ? formatPhone(marketer.phone) : '')}</h3>
       </div>
@@ -54,7 +57,8 @@ function AppointmentCard({ marketer }: { marketer: MarketerInfo }) {
   )
 }
 
-export default function AppointmentCardsClient() {
+export default function AppointmentCardsClient({ brand }: { brand: PrintKitBrand }) {
+  const DEFAULT_MARKETER = brand.useShield ? ROOFING_MARKETER : BLANK_MARKETER
   const [draft, setDraft] = useState<MarketerInfo>(DEFAULT_MARKETER)
   const [marketer, setMarketer] = useState<MarketerInfo>(DEFAULT_MARKETER)
 
@@ -127,7 +131,7 @@ export default function AppointmentCardsClient() {
       <main className="appointment-card-kit mx-auto max-w-5xl px-4 pb-10">
         <section className="appointment-sheet bg-white shadow-lg">
           {Array.from({ length: 4 }).map((_, index) => (
-            <AppointmentCard key={index} marketer={marketer} />
+            <AppointmentCard key={index} marketer={marketer} brand={brand} />
           ))}
         </section>
       </main>

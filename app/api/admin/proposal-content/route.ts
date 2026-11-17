@@ -5,7 +5,7 @@ import { crossSiteWrite } from '@/lib/online-payments/access'
 import { resolveOrgProfile } from '@/lib/org-profile'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { defaultProposalContent, parseProposalContentPatch, PROPOSAL_CONTENT_SETTINGS_KEY, resolveProposalContent } from '@/lib/proposal-content'
-import { resolveOrgBrand } from '@/lib/org-brand'
+import { ORG_BRAND_COLUMNS, resolveOrgBrand } from '@/lib/org-brand'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -25,7 +25,7 @@ async function owner(request: Request | null) {
 
 /** What Settings shows: the words in use, the profile's defaults (for "Reset"), and the name `{company}` becomes. */
 async function read(admin: ReturnType<typeof createServiceClient>, orgId: string) {
-  const { data } = await admin.from('orgs').select('name, settings').eq('id', orgId).maybeSingle()
+  const { data } = await admin.from('orgs').select(`${ORG_BRAND_COLUMNS}, settings`).eq('id', orgId).maybeSingle()
   const org = (data ?? null) as { settings?: unknown } | null
   const profile = resolveOrgProfile(org?.settings)
   const brand = data ? resolveOrgBrand(data as never) : null

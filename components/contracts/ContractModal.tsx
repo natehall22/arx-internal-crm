@@ -12,6 +12,7 @@ import SignaturePad from './SignaturePad'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { formatPhone } from '@/lib/format'
 import { useOrgBrandNames, useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { creditLaneWords } from '@/lib/sale-credit-words'
 import type { OrgFeatures } from '@/lib/org-features'
 
 interface ContractModalProps {
@@ -77,6 +78,7 @@ export default function ContractModal({
   const [step, setStep] = useState(1)
   /** Insurance switched off for the company (Settings → Features): no contingency agreement, no insurance payment. */
   const insuranceOn = useOrgFeatures(orgFeatures).insurance
+  const laneWords = creditLaneWords(useOrgFeatures(orgFeatures).canvassing)
   const brandNames = useOrgBrandNames()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -778,7 +780,7 @@ export default function ContractModal({
                     {credit && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>Closer *</label>
+                          <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>{laneWords.closer} *</label>
                           <select
                             value={credit.closerUserId}
                             disabled={!creditCanChange}
@@ -786,12 +788,14 @@ export default function ContractModal({
                             className="w-full px-3 py-2 border border-gray-400 rounded-lg bg-white disabled:bg-gray-100"
                             style={{ color: '#2c2c2a' }}
                           >
-                            <option value="">Pick the closer</option>
+                            <option value="">{laneWords.pickCloser}</option>
                             {creditSelectOptions(creditUsers, credit.closerUserId, creditPeople).map((o) => (
                               <option key={o.id} value={o.id}>{o.label}</option>
                             ))}
                           </select>
                         </div>
+                        {laneWords.showSetter && (
+                          <>
                         <div>
                           <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>Setter</label>
                           <select
@@ -817,6 +821,8 @@ export default function ContractModal({
                           />
                           <span>The closer found this customer themselves (self-generated, no setter)</span>
                         </label>
+                          </>
+                        )}
                         {creditLocked && creditCanChange && (
                           <div className="md:col-span-2">
                             <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>
@@ -905,8 +911,8 @@ export default function ContractModal({
                       <div><span className="text-gray-700">Name:</span> {formData.customerName}</div>
                       {creditApplies && credit && (
                         <div className="col-span-2" style={{ color: '#2c2c2a' }}>
-                          <span className="font-medium">Sale credit:</span> Closer {creditUserName(credit.closerUserId)}
-                          {credit.isSelfGenerated
+                          <span className="font-medium">Sale credit:</span> {laneWords.closer} {creditUserName(credit.closerUserId)}
+                          {!laneWords.showSetter ? '' : credit.isSelfGenerated
                             ? ' · Self-generated'
                             : ` · Setter ${credit.setterUserId ? creditUserName(credit.setterUserId) : 'none'}`}
                         </div>

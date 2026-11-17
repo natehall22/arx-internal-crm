@@ -225,7 +225,7 @@ export function buildMaterialsOrderList(input: MaterialsOrderInput): MaterialsOr
       qty: `${rolls} roll${rolls === 1 ? '' : 's'} if needed`,
       detail: `valleys ${fmtLf(valleysLf)} LF @ ${cov.iceWaterLfPerRoll} LF/roll`,
       status: 'confirm',
-      note: 'ARX runs valley ice & water only on complex valleys — confirm before ordering.',
+      note: 'Valley ice & water is run only on complex valleys — confirm before ordering.',
     })
   }
 

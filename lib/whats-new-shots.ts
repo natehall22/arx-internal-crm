@@ -13,3 +13,12 @@ export const WHATS_NEW_SHOTS: Partial<Record<RoleGroup, Array<{ file: string; ca
   ops: [{ file: 'supplier-orders-default.png', caption: 'Each supplier gets its own purchase order' }],
   closer: [{ file: 'sale-credit-confirm-credit-step.png', caption: 'Confirm setter and closer credit when the contract is signed' }],
 }
+
+/**
+ * The screenshots a person sees on /whats-new. They are the original company's own release screens, so only that company gets them
+ * (`original` = `usesOriginalCompanyAssets` of its brand; a failed org read is not original → none).
+ */
+export function whatsNewShotsFor(group: RoleGroup | null | undefined, original: boolean): Array<{ file: string; caption: string }> {
+  if (!original || !group) return []
+  return WHATS_NEW_SHOTS[group] ?? []
+}

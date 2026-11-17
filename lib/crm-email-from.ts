@@ -1,9 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { legacyBrandFallback } from '@/lib/org-brand'
+import { deploymentOrgId } from '@/lib/company-host'
 import { createServiceClient } from '@/lib/supabase/service'
 
-/** The original company's From (its info@ alias). Legacy only; delete with `legacyBrandFallback`. */
+/** True on the shared app (no per-copy fence). The original company's From rules apply only there. */
+const unfenced = () => !deploymentOrgId()
+
+/** The original company's From (its info@ alias). Legacy only. */
 const LEGACY_FROM = 'ARX Roofing <info@arxroofing.com>'
 const LEGACY_FROM_ADDRESS = /info@arxroofing\.com/i
 
@@ -21,17 +24,17 @@ export function formatFromHeader(name: string, address: string): string {
  */
 function deploymentFrom(): string {
   const configured = process.env.SMTP_FROM?.trim()
-  if (legacyBrandFallback()) {
+  if (unfenced()) {
     if (configured && LEGACY_FROM_ADDRESS.test(configured)) return configured
     return LEGACY_FROM
   }
   return configured || process.env.SMTP_USER?.trim() || ''
 }
 
-async function readOrgIdentity(admin: SupabaseClient, orgId: string): Promise<{ name: string; email: string } | null> {
+async function readOrgIdentity(admin: SupabaseClient, orgId: string): Promise<{ name: string; email: string; original: boolean } | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { data, error } = await admin.from('orgs').select('name, email').eq('id', orgId).maybeSingle()
-    if (!error) return data ? { name: String(data.name ?? '').trim(), email: String(data.email ?? '').trim() } : null
+    const { data, error } = await admin.from('orgs').select('name, email, original_brand').eq('id', orgId).maybeSingle()
+    if (!error) return data ? { name: String(data.name ?? '').trim(), email: String(data.email ?? '').trim(), original: data.original_brand === true } : null
   }
   return null
 }
@@ -42,7 +45,7 @@ async function readOrgIdentity(admin: SupabaseClient, orgId: string): Promise<{ 
  * company's From on the shared app.
  *
  * - `orgId` null (mail that belongs to no company): the deployment's From (`deploymentFrom`).
- * - Shared app (no fence) and the company IS the original company (its email column is the original info@ alias): exactly the
+ * - Shared app (no fence) and the company IS the original company (its server-only `original_brand` flag): exactly the
  *   old From, byte-identical (test-locked). Delete this branch with the legacy brand fallback.
  * - Otherwise the company's name + email. A company with no email on the shared app: '' (callers treat it as "email isn't set
  *   up" — never someone else's From). A fenced copy keeps its env From when the company has no email.
@@ -59,8 +62,8 @@ export async function getCrmEmailFrom(orgId: string | null, admin?: SupabaseClie
     console.error('getCrmEmailFrom: company not readable; not sending under a guessed From', { orgId })
     return ''
   }
-  if (legacyBrandFallback() && new RegExp(`^${LEGACY_FROM_ADDRESS.source}$`, 'i').test(org.email)) return deploymentFrom()
+  if (unfenced() && org.original) return deploymentFrom()
   if (org.email && org.name) return formatFromHeader(org.name, org.email)
   if (org.email) return org.email
-  return legacyBrandFallback() ? '' : deploymentFrom()
+  return unfenced() ? '' : deploymentFrom()
 }

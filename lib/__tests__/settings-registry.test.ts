@@ -26,6 +26,18 @@ describe('settings registry', () => {
     expect(hrefs(visibleSettingsGroups({ ...all, canOwner: true }))).not.toContain('/admin/job-setup')
     expect(hrefs(visibleSettingsGroups({ ...all, canOwner: true, canSuperAdmin: true }))).toContain('/admin/job-setup')
   })
+  it('Contracts & templates is a link to the existing template list, not a second tool', () => {
+    const item = SETTINGS_GROUPS.flatMap((g) => g.items).find((i) => i.title === 'Contracts & templates')
+    expect(item?.href).toBe('/signing#templates')
+    expect(item?.description).toBe('Your agreements and other documents to sign: upload once, place the fields, reuse.')
+  })
+  it('Service plans and E-sign settings are findable (cards that live on /admin)', () => {
+    const g = visibleSettingsGroups({ ...all, canSuperAdmin: true, features: { servicePlans: true } })
+    expect(hrefs(filterSettingsGroups(g, 'mowing biweekly'))).toEqual(['/admin#plan-templates'])
+    expect(hrefs(filterSettingsGroups(g, 'esign'))).toContain('/admin#signing')
+    expect(hrefs(visibleSettingsGroups({ ...all, canSuperAdmin: true, features: { servicePlans: false } }))).not.toContain('/admin#plan-templates')
+    expect(hrefs(visibleSettingsGroups(all))).not.toContain('/admin#plan-templates')
+  })
   it('only leadership roles open the hub', () => {
     expect(canOpenSettingsHub('owner')).toBe(true)
     expect(canOpenSettingsHub('sales_rep')).toBe(false)

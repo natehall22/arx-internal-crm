@@ -1,4 +1,5 @@
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
+import { PRODUCT_NAME } from '@/lib/product'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 
@@ -191,7 +192,7 @@ export async function sendCloserBriefingEmail(params: {
         ${photoGrid(params.photos ?? [])}
 
         <p style="color:#6B7280;font-size:12px;margin-top:24px;">
-          This is an automated briefing from ARX CRM. Do not reply to this email.
+          This is an automated briefing from ${PRODUCT_NAME}. Do not reply to this email.
         </p>
       </div>
     `,

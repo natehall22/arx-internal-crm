@@ -192,7 +192,7 @@ export function getQueueStory(input: StoryInput): QueueStory {
     return {
       story: `Roof inspected${suffix}; going through insurance.${claim}${adjuster}`,
       objective: ctx?.adjuster_meeting_at
-        ? 'Confirm the adjuster meeting and ARX attendance'
+        ? 'Confirm the adjuster meeting and our attendance'
         : ctx?.claim_filed === 'yes'
           ? 'Get the adjuster meeting date'
           : 'Confirm the claim got filed and get the claim number',

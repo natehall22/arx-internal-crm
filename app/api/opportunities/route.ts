@@ -7,6 +7,7 @@ import {
 } from '@/lib/effective-inspection-state'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgProfile } from '@/lib/org-profile'
 
 export const dynamic = 'force-dynamic'
 
@@ -241,7 +242,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ opportunities: enrichedOpportunities })
+    // The Project Type filter (roofing / siding / windows / mixed) only means something to a roofing company; every other
+    // profile gets no filter, so the page never offers choices that match nothing.
+    const orgProfile = await loadOrgProfile(adminClient, profile.org_id)
+    const projectTypeFilter = orgProfile.id === 'roofing'
+    return NextResponse.json({ opportunities: enrichedOpportunities, projectTypeFilter })
   } catch (error) {
     console.error('Opportunities API error:', error)
     return NextResponse.json({ 

@@ -46,6 +46,8 @@ export type CompPlanPayabilityInput = {
   /** Draft strings straight off the form are fine — they are parsed leniently. */
   base_percentage?: string | number | null
   flat_amount?: string | number | null
+  /** Draft hourly rate (hourly plans). Left out = no rate. */
+  hourly_rate?: string | number | null
   tiers?: { rate?: string | number | null }[] | null
   volume_bonuses?: { bonus_value?: string | number | null }[] | null
   is_manager_plan?: boolean
@@ -69,7 +71,14 @@ export function getCompPlanPayabilityWarnings(
   const warnings: CompPlanWarning[] = []
   const planType = input.plan_type
 
-  if (!planTypePaysCommission(planType)) {
+  // Hourly plans ARE paid: clock hours (or hours typed in the pay week) × the plan's rate, with overtime, through
+  // payroll_rep_hours → the pay week (lib/payroll-hours.ts, lib/payroll-hourly-rate.ts). They pay no per-sale commission by
+  // design, so there is no "$0" warning — only a missing rate would leave the hours unpayable.
+  if (planType === 'hourly') {
+    if (num(input.hourly_rate) <= 0) {
+      warnings.push({ level: 'blocking', title: 'Hourly rate is $0', detail: 'Enter the hourly rate: crew hours are paid at this rate.' })
+    }
+  } else if (!planTypePaysCommission(planType)) {
     warnings.push({
       level: 'blocking',
       title: `"${planType.replace('_', ' ')}" plans pay $0 per sale in payroll today`,

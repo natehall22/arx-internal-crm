@@ -17,7 +17,8 @@ jest.mock('@/lib/org-profile', () => ({
   loadOrgProfile: jest.fn(async () => jest.requireActual('@/lib/org-profile').defaultOrgProfile()),
 }))
 jest.mock('@/lib/org-brand', () => ({
-  getDocumentBrand: jest.fn(async (_c: unknown, orgId: string) => ({ name: orgId === 'org-a' ? 'Summit Lawn' : 'Other Co', legalName: 'x', shortName: 'x' })),
+  ...jest.requireActual('@/lib/org-brand'),
+  getOrgBrand: jest.fn(async (_c: unknown, orgId: string) => ({ ...jest.requireActual('@/lib/org-brand').resolveOrgBrand({ name: orgId === 'org-a' ? 'Summit Lawn' : 'Other Co', original_brand: false }) })),
 }))
 let db: ReturnType<typeof createFakeDb>
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => db.client }))

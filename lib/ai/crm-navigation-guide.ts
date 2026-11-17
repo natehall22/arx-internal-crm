@@ -1,4 +1,5 @@
 import { getAiChatRecordUrl } from '@/lib/ai/chat-record-url'
+import { PRODUCT_NAME } from '@/lib/product'
 
 export type AiChatFallbackContext = {
   type: string
@@ -31,7 +32,7 @@ const COMMON_GUIDE = `
 ## Main menu
 Top-level menu: **Today** (your work queue), **Dashboard** (the numbers), **Pipeline** (Leads, Opportunities, Inside Sales, Calendar, Referral Partners), **Jobs** (Job Board, Needs you, Projects), **Customers**, **Money** (Payroll, Job profit, Pricebook), **Reports**, **Sisu** (the setter incentive program). Plus **Canvass**, **Settings**, and Search (Cmd/Ctrl-K).
 
-## ARX CRM — where things go
+## Where things go
 
 ### Sales pipeline
 - **Add a lead**: Leads → **New Lead** (\`/leads/new\`) or Canvass map (\`/canvass\`) — drop a pin and disposition.
@@ -161,7 +162,7 @@ export function buildAiChatSystemPrompt(params: {
     recordContextAppendix || aggregateContextAppendix
       ? '\nWhen a current record URL or aggregate snapshot is present, lead with the deep link path or the number, then one short how-to — no long lectures.'
       : ''
-  return `You are an AI assistant for ARX CRM, used by ARX Roofing & Exteriors (residential storm/insurance roofing).
+  return `You are an AI assistant for ${PRODUCT_NAME}, used by the company's own team.
 
 Your primary job in this version is **navigation and guidance**:
 - Tell users what goes where in the CRM
@@ -197,7 +198,7 @@ export function getNavigationFallbackResponse(
     (/\b(pay|paid)\b/.test(lower) && /\b(sub|labor|job|material|vendor|supplier)\b/.test(lower))
   ) {
     return paveRecordPath(
-      `Job costs in ARX (labor, materials, sub pay) go on the job Materials card:
+      `Job costs in the CRM (labor, materials, sub pay) go on the job Materials card:
 
 1. Open the job (\`/ops/jobs/[id]\`) → **+ Job Cost** (also the **Job Costs** card at the top of the page)
 2. That list is where shingles, siding, and crew labor rows live
@@ -362,7 +363,7 @@ For the full customer Roof Report PDF, use Opportunity → **Roof Report** → \
 
   if (matchesAmbiguousPhotos) {
     return paveRecordPath(
-      `In ARX, photos go to different places:
+      `In the CRM, photos go to different places:
 
 1. **Roof report** (inspection documentation PDF) → Opportunity → **Roof Report** → \`/opportunities/[id]/report\`
 2. **Proposal inspection photos** (max 6 on the PDF) → Proposal → **Inspection Photos** → \`/proposals/[id]\`

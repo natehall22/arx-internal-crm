@@ -8,7 +8,7 @@ import type { TimeTrackingSettings } from '@/lib/time-tracking'
 const inputCls = 'min-h-[48px] w-28 rounded-lg border-2 border-[#2c2c2a] bg-white px-3 text-base text-[#2c2c2a]'
 
 /** Owners: how the crew time clock behaves. Wage-law items are warnings only — nothing here deducts time. */
-export default function TimeClockSettingsCard() {
+export default function TimeClockSettingsCard({ canvassing = true }: { canvassing?: boolean } = {}) {
   const [s, setS] = useState<TimeTrackingSettings | null>(null)
   const [roles, setRoles] = useState<string[]>([])
   const [msg, setMsg] = useState<string | null>(null)
@@ -48,7 +48,7 @@ export default function TimeClockSettingsCard() {
       {roles.length ? (
         <fieldset className="flex flex-col gap-1 text-base">
           <legend className="font-semibold">Who else may clock themselves in on a job page</legend>
-          <span className="text-sm">Crew members always can. Setters and other field sales roles never can.</span>
+          <span className="text-sm">Crew members always can. {canvassing ? 'Setters and other field sales roles never can.' : 'Sales roles never can.'}</span>
           {roles.map((r) => (
             <label key={r} className="flex min-h-[44px] items-center gap-3">
               <input

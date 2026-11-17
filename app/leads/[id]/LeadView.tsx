@@ -40,6 +40,7 @@ import { reconcileStaleFormField } from '@/lib/stale-form-field'
 import { leadSourceEditOptions, leadSourceLabel } from '@/lib/lead-sources'
 import { formatPhone } from '@/lib/format'
 import { mayReadLead } from '@/lib/contact-scope'
+import { dispositionLabel, loadOrgProfile, outcomeLabel, t } from '@/lib/org-profile'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -152,6 +153,8 @@ export default async function LeadView({
     .eq('id', profile.org_id)
     .single()
 
+  // The company's industry profile: its words for statuses, outcomes and dispositions; canvass fields only with door knocking.
+  const orgProfile = await loadOrgProfile(supabase, profile.org_id)
   const inspectionOutcomeRows = orgRow?.settings?.inspection_outcomes as
     | InspectionOutcomeConfigRow[]
     | undefined
@@ -214,7 +217,7 @@ export default async function LeadView({
 
   const canvassDispositions = [
     { id: 'not_home', label: 'Not home (no contact)' },
-    { id: 'bad_roof', label: 'Bad roof (no contact)' },
+    { id: 'bad_roof', label: dispositionLabel(orgProfile, 'bad_roof', 'Bad roof (no contact)') },
     { id: 'renter', label: 'Renter (unqualified conversation)' },
     { id: 'go_back', label: 'Go back (contact)' },
     { id: 'hot_lead', label: 'Hot lead (contact)' },
@@ -852,12 +855,14 @@ export default async function LeadView({
                 <span className="text-gray-700">Closer:</span>
                 <span className="ml-2 text-gray-900">{closerName || 'Unassigned'}</span>
               </div>
+              {orgProfile.features.canvassing && (
               <div>
                 <span className="text-gray-700">Canvass disposition:</span>
                 <span className="ml-2 text-gray-900 capitalize">
                   {lead.canvass_disposition?.replace('_', ' ') || 'Not set'}
                 </span>
               </div>
+              )}
               {effectiveInspection?.inspection_outcome && (
                 <div>
                   <span className="text-gray-700">Inspection outcome:</span>
@@ -950,6 +955,7 @@ export default async function LeadView({
                   ))}
                 </select>
               </div>
+              {orgProfile.features.canvassing ? (
               <div>
                 <label className="text-sm font-medium text-gray-700">Canvass disposition</label>
                 <select
@@ -965,6 +971,9 @@ export default async function LeadView({
                   ))}
                 </select>
               </div>
+              ) : (
+                <input type="hidden" name="canvass_disposition" value={lead.canvass_disposition || ''} />
+              )}
               <div>
                 <label className="text-sm font-medium text-gray-700">Status</label>
                 <select
@@ -974,7 +983,7 @@ export default async function LeadView({
                 >
                   {leadStatuses.map((status) => (
                     <option key={status} value={status}>
-                      {status.replace('_', ' ')}
+                      {status === 'inspection' ? t(orgProfile, 'inspection').toLowerCase() : status.replace('_', ' ')}
                     </option>
                   ))}
                 </select>
@@ -989,6 +998,7 @@ export default async function LeadView({
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                {orgProfile.features.canvassing ? (
                 <div>
                   <label className="text-sm font-medium text-gray-700">
                     Setter {!canEditLeadAttribution && <span className="text-gray-600 font-normal">(ask a manager to change)</span>}
@@ -1012,8 +1022,14 @@ export default async function LeadView({
                     Door-knock / canvass attribution.
                   </p>
                 </div>
+                ) : (
+                  <>
+                    <input type="hidden" name="owner_user_id_baseline" value={lead.owner_user_id || ''} />
+                    <input type="hidden" name="owner_user_id" value={lead.owner_user_id || ''} />
+                  </>
+                )}
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Closer</label>
+                  <label className="text-sm font-medium text-gray-700">{orgProfile.features.canvassing ? 'Closer' : 'Salesperson'}</label>
                   {/* Baseline for reconcileStaleFormField — see effectiveCloserId. */}
                   <input type="hidden" name="closer_user_id_baseline" value={lead.closer_user_id || ''} />
                   <select
@@ -1051,6 +1067,7 @@ export default async function LeadView({
               </div>
             </div>
 
+            {orgProfile.features.canvassing ? (
             <div>
               <label className="text-sm font-medium text-gray-700">Canvass notes</label>
               <textarea
@@ -1060,6 +1077,9 @@ export default async function LeadView({
                 className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
             </div>
+            ) : (
+              <input type="hidden" name="canvass_notes" value={lead.canvass_notes || ''} />
+            )}
             <div className="flex justify-end">
               <button
                 type="submit"
@@ -1089,7 +1109,7 @@ export default async function LeadView({
         {/* Inspection Status Section */}
         {(lead.status === 'inspection' || (appointments && appointments.length > 0) || (inspectionUpdates && inspectionUpdates.length > 0)) && (
           <div className="bg-white shadow rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Inspection Status</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">{t(orgProfile, 'inspection')} Status</h2>
             
             {inspectionUpdates && inspectionUpdates.length > 0 ? (
               <div className="space-y-4">
@@ -1109,12 +1129,12 @@ export default async function LeadView({
                     }`}>
                       {inspectionUpdates[0].outcome === 'sale' ? '✓ Sale' :
                        inspectionUpdates[0].outcome === 'moving_to_close' ? 'Moving to Close' :
-                       inspectionUpdates[0].outcome === 'insurance_follow_up' ? 'Insurance Follow Up' :
+                       inspectionUpdates[0].outcome === 'insurance_follow_up' ? outcomeLabel(orgProfile, 'insurance_follow_up', 'Insurance Follow Up') :
                        inspectionUpdates[0].outcome === 'said_no' ? 'Said No' :
                        inspectionUpdates[0].outcome === 'not_home' ? 'Not Home' :
-                       inspectionUpdates[0].outcome === 'needs_repair' ? 'Needs Repair' :
+                       inspectionUpdates[0].outcome === 'needs_repair' ? outcomeLabel(orgProfile, 'needs_repair', 'Needs Repair') :
                        inspectionUpdates[0].outcome === 'rescheduled' ? 'Rescheduled' :
-                       inspectionUpdates[0].outcome === 'no_problems_found' ? 'No Problems Found' :
+                       inspectionUpdates[0].outcome === 'no_problems_found' ? outcomeLabel(orgProfile, 'no_problems_found', 'No Problems Found') :
                        inspectionUpdates[0].outcome?.replace('_', ' ')}
                     </span>
                     <span className="text-xs text-gray-700">

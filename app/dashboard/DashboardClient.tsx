@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { inspectionsSetLabel, sitsLabel, type ClientOrgProfile } from '@/lib/org-profile'
 import type { OrgFeatures } from '@/lib/org-features'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
@@ -371,6 +372,8 @@ interface DashboardClientProps {
   canViewTeamLeaderboard?: boolean
   badgeCount?: number
   orgFeatures?: OrgFeatures | null
+  /** The server-resolved industry profile, so the first paint has the company's words and hidden cards (no flash). */
+  orgProfile?: ClientOrgProfile | null
 }
 
 // ─── My Goals Widget ──────────────────────────────────────────────────────────
@@ -537,9 +540,11 @@ export default function DashboardClient({
   canViewTeamLeaderboard = false,
   badgeCount = 0,
   orgFeatures: serverOrgFeatures = null,
+  orgProfile: serverOrgProfile = null,
 }: DashboardClientProps) {
   /** Company feature switches (Settings → Features), resolved on the server: hides Start Canvassing / badges when off. */
   const orgFeatures = useOrgFeatures(serverOrgFeatures)
+  const orgProfile = useOrgProfile(serverOrgProfile)
   const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null
@@ -1045,6 +1050,7 @@ export default function DashboardClient({
           </div>
         ) : isSetterLikeRole(profile.role) ? (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {orgFeatures.canvassing && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
@@ -1059,6 +1065,7 @@ export default function DashboardClient({
               </div>
               <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
+            )}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
@@ -1076,7 +1083,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-700 truncate">Inspections Set</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">{inspectionsSetLabel(orgProfile)}</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.inspectionsSet}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1090,7 +1097,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-700 truncate">Sits</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">{sitsLabel(orgProfile)}</p>
                   <p className="text-xl sm:text-2xl font-bold text-cyan-600">{personalStats.sits}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1118,6 +1125,7 @@ export default function DashboardClient({
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {orgFeatures.canvassing && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
@@ -1132,10 +1140,11 @@ export default function DashboardClient({
               </div>
               <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
+            )}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-700 truncate">Inspections Set</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">{inspectionsSetLabel(orgProfile)}</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.inspectionsSet}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1149,7 +1158,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-700 truncate">Sits</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">{sitsLabel(orgProfile)}</p>
                   <p className="text-xl sm:text-2xl font-bold text-cyan-600">{personalStats.sits}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1298,7 +1307,7 @@ export default function DashboardClient({
               </div>
             ) : (
               <>
-                {showSetterStack && filteredSetterStats.length > 0 && (
+                {orgFeatures.canvassing && showSetterStack && filteredSetterStats.length > 0 && (
                   <div className="border-t border-gray-100">
                     <h3 className="px-3 sm:px-4 pt-4 pb-2 text-sm font-semibold text-gray-800">Setter stats</h3>
                     <div className="block sm:hidden divide-y divide-gray-100">
@@ -1358,7 +1367,7 @@ export default function DashboardClient({
                               <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-600'}`}>
                                 {member.sits ?? 0}
                               </p>
-                              <p className="text-xs text-gray-700">Sits</p>
+                              <p className="text-xs text-gray-700">{sitsLabel(orgProfile)}</p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-600'}`}>
@@ -1389,7 +1398,7 @@ export default function DashboardClient({
                               </span>
                             </th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Insp. set</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sits</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">{sitsLabel(orgProfile)}</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sales</th>
                           </tr>
                         </thead>
@@ -1524,7 +1533,7 @@ export default function DashboardClient({
                               <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-600'}`}>
                                 {member.sits ?? 0}
                               </p>
-                              <p className="text-xs text-gray-700">Sits</p>
+                              <p className="text-xs text-gray-700">{sitsLabel(orgProfile)}</p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-600'}`}>
@@ -1577,7 +1586,7 @@ export default function DashboardClient({
                               Insp. recv.
                               <span className="block font-normal normal-case text-gray-600">(assigned closer)</span>
                             </th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sits</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">{sitsLabel(orgProfile)}</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sales</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Close %
@@ -1693,6 +1702,8 @@ export default function DashboardClient({
               <p className="text-xs text-gray-700 mb-3 sm:mb-4 capitalize">
                 Your pace for {timeFrameLabel[timeFrame]} against the goals in settings.
               </p>
+              {orgFeatures.canvassing && (
+                <>
               <ProgressBar
                 label="Doors Knocked"
                 current={progressForTimeFrame.doors_knocked.current}
@@ -1705,8 +1716,10 @@ export default function DashboardClient({
                 goal={progressForTimeFrame.contacts.goal}
                 color="bg-purple-500"
               />
+                </>
+              )}
               <ProgressBar
-                label="Inspections Set"
+                label={inspectionsSetLabel(orgProfile)}
                 current={progressForTimeFrame.inspections.current}
                 goal={progressForTimeFrame.inspections.goal}
                 color="bg-amber-500"

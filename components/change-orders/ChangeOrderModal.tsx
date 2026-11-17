@@ -1,5 +1,6 @@
 'use client'
 
+import { useOrgBrandNames } from '@/hooks/useOrgFeatures'
 import { useState, useEffect } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
 import ConsentBlock from '@/components/signing/ConsentBlock'
@@ -43,6 +44,7 @@ export default function ChangeOrderModal({
   nextCoNumber,
   onSuccess,
 }: ChangeOrderModalProps) {
+  const brandNames = useOrgBrandNames()
   const [description, setDescription] = useState('')
   const [updatedTotal, setUpdatedTotal] = useState(String(originalContractAmount))
   const [updatedRemaining, setUpdatedRemaining] = useState('0')
@@ -491,7 +493,7 @@ export default function ChangeOrderModal({
 
                 {/* Rep Signature */}
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">ARX Representative</h4>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">{brandNames.shortName} Representative</h4>
                   <div className="space-y-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">

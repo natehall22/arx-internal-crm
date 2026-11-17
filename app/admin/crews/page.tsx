@@ -7,6 +7,7 @@ import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import PhoneLink from '@/components/PhoneLink'
+import { dbCrewType } from '@/lib/org-trades'
 
 interface Crew {
   id: string
@@ -56,6 +57,8 @@ export default function CrewsPage() {
   const [editingCrew, setEditingCrew] = useState<Crew | null>(null)
   const [saving, setSaving] = useState(false)
   const [orgId, setOrgId] = useState('')
+  // The company's own trades once loaded (non-roofing); roofing keeps the fixed list.
+  const [crewTypes, setCrewTypes] = useState(crewTypeOptions)
   const [error, setError] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
@@ -98,6 +101,10 @@ export default function CrewsPage() {
       setCrews(data.crews || [])
       setUsers(data.users || [])
       setOrgId(data.orgId)
+      if (Array.isArray(data.crewTypes) && data.crewTypes.length > 0) {
+        setCrewTypes(data.crewTypes)
+        setFormData((prev) => (data.crewTypes.some((o: { value: string }) => o.value === prev.crew_type) ? prev : { ...prev, crew_type: dbCrewType(data.crewTypes[0].value) }))
+      }
       setLoading(false)
     } catch (err) {
       console.error('Crews page error:', err)
@@ -123,7 +130,7 @@ export default function CrewsPage() {
       setEditingCrew(null)
       setFormData({
         name: '',
-        crew_type: 'roofing',
+        crew_type: dbCrewType(crewTypes[0]?.value ?? 'roofing'),
         foreman_user_id: '',
         members: [],
         color: colorOptions[crews.length % colorOptions.length],
@@ -155,7 +162,7 @@ export default function CrewsPage() {
     try {
       const crewData: any = {
         name: formData.name,
-        crew_type: formData.crew_type,
+        crew_type: dbCrewType(formData.crew_type),
         foreman_user_id: formData.foreman_user_id || null,
         members: formData.members,
         color: formData.color,
@@ -452,7 +459,7 @@ export default function CrewsPage() {
                       onChange={(e) => setFormData(prev => ({ ...prev, crew_type: e.target.value }))}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                     >
-                      {crewTypeOptions.map(opt => (
+                      {crewTypes.map(opt => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>

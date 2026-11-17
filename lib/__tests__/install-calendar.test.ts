@@ -47,6 +47,7 @@ describe('buildInstallEvent', () => {
     customerName: 'Jane Homeowner',
     addressText: '123 Main St, Charlotte, NC',
     scheduledDate: '2026-09-10',
+    orgShortName: 'ARX',
   }
 
   it('emits a 1-day install as start=date, end=date+1', () => {

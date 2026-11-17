@@ -8,7 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { formatPhone } from '@/lib/format'
-import { resolveOrgBrand } from '@/lib/org-brand'
+import { ORG_BRAND_COLUMNS, resolveOrgBrand } from '@/lib/org-brand'
 import { invoiceTaxRows } from '@/lib/sales-tax'
 import { invoicePaidCents } from '@/lib/invoice-lines'
 import type { JobInvoice, JobInvoiceItem } from '@/lib/types/invoices'
@@ -163,7 +163,7 @@ export async function loadInvoiceDocument(admin: SupabaseClient, orgId: string, 
   const [itemsRes, appsRes, orgRes, billTo] = await Promise.all([
     admin.from('job_invoice_items').select('*').eq('invoice_id', invoice.id).order('sort_order', { ascending: true }),
     admin.from('invoice_payments').select('applied_cents').eq('invoice_id', invoice.id),
-    admin.from('orgs').select('name, address, phone, email, settings').eq('id', orgId).maybeSingle(),
+    admin.from('orgs').select(`${ORG_BRAND_COLUMNS}, settings`).eq('id', orgId).maybeSingle(),
     invoice.job_id
       ? billToForJob(admin, orgId, invoice.job_id)
       : billToForCustomer(admin, orgId, String(invoice.customer_id), invoice.property_id ?? null),
@@ -171,7 +171,9 @@ export async function loadInvoiceDocument(admin: SupabaseClient, orgId: string, 
   // Paid here + paid before an import (invoicePaidCents is the one rule).
   const appliedCents = invoicePaidCents(invoice, ((appsRes.data ?? []) as Array<{ applied_cents: number }>).reduce((s, a) => s + a.applied_cents, 0))
   const balanceCents = invoice.total_cents - appliedCents
-  const org = orgRes.data as { name?: string | null; address?: string | null; phone?: string | null; email?: string | null; settings?: Record<string, unknown> | null } | null
+  // A failed org read is neutral (no company identity), never another company's.
+  if (orgRes.error) console.error('loadInvoiceDocument: org row not readable, using a neutral company block', orgId, orgRes.error)
+  const org = (orgRes.error ? null : orgRes.data) as { name?: string | null; address?: string | null; phone?: string | null; email?: string | null; settings?: Record<string, unknown> | null } | null
   // Invoices carry the legal entity name: settings.brand.legalName (owners edit it in Settings), else the company name.
   const brand = resolveOrgBrand(org)
   return {

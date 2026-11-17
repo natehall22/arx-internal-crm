@@ -274,7 +274,7 @@ export async function saveExteriorMeasure(args: {
       ? incomingReport.measure_kind
       : 'siding',
     status: ['draft', 'reviewed', 'final'].includes(incomingReport.status) ? incomingReport.status : 'draft',
-    report_title: String(incomingReport.report_title || 'ARX Exterior Measure Report').slice(0, 160),
+    report_title: String(incomingReport.report_title || 'Exterior Measure Report').slice(0, 160),
     waste_percent: numberOrZero(incomingReport.waste_percent ?? 10),
     notes: typeof incomingReport.notes === 'string' ? incomingReport.notes : null,
     updated_by: authUserId,
