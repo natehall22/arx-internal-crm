@@ -217,7 +217,7 @@ describe('runCompanySeed (dry run)', () => {
     const { client, writes } = fakeClient({
       orgs: [{ ...input.org, id, timezone: null, brand: { legalName: 'Example Landscapes & Hardscapes, LLC', shortName: 'Example', website: 'landscapes.example', serviceArea: 'Anytown, ST' }, profile: { id: 'lawn_landscape', version: INDUSTRY_PROFILES.lawn_landscape.version } }],
       users: [{ id: 'u1', org_id: id, email: 'owner@landscapes.example', role: 'admin', is_super_admin: true, active: true }],
-      permission_presets: [{ id: 'p', org_id: id }],
+      permission_presets: [{ id: 'p', org_id: id }, ...['Field Tech', 'Crew Lead', 'Office', 'Bookkeeper'].map((name, i) => ({ id: `pft${i}`, org_id: id, name }))],
       org_trades: trades,
     })
     const report = await runCompanySeed(client, { ...input, org: { ...input.org, id } }, { apply: true })
@@ -228,8 +228,28 @@ describe('runCompanySeed (dry run)', () => {
       'profile: already Lawn & landscape',
       'owner owner@landscapes.example: already the super admin',
       'roles: presets already exist',
+      'roles: service role presets already exist',
       'trades: already match',
     ])
+  })
+
+  it('an existing lawn company with presets but no Field Tech gets just those presets (idempotent SQL function); a roofing one gets none', async () => {
+    const id = '11111111-1111-4111-8111-111111111111'
+    const lawn = fakeClient({
+      orgs: [{ ...input.org, id, timezone: null, profile: { id: 'lawn_landscape', version: INDUSTRY_PROFILES.lawn_landscape.version } }],
+      users: [{ id: 'u1', org_id: id, email: 'owner@landscapes.example', role: 'admin', is_super_admin: true, active: true }],
+      permission_presets: [{ id: 'p', org_id: id, base_role: 'canvasser' }],
+    })
+    const r1 = await runCompanySeed(lawn.client, { ...input, org: { ...input.org, id } }, { apply: true })
+    expect(lawn.writes).toContain('rpc create_service_role_presets')
+    expect(r1.lines).toContain('roles: create the service role presets (Field Tech, Crew Lead, Office, Bookkeeper)')
+    const roofing = fakeClient({
+      orgs: [{ ...input.org, id, timezone: null }],
+      users: [{ id: 'u1', org_id: id, email: 'owner@landscapes.example', role: 'admin', is_super_admin: true, active: true }],
+      permission_presets: [{ id: 'p', org_id: id, base_role: 'canvasser' }],
+    })
+    await runCompanySeed(roofing.client, { ...input, profile: null, org: { ...input.org, id } }, { apply: true })
+    expect(roofing.writes).not.toContain('rpc create_service_role_presets')
   })
 })
 
