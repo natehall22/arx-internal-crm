@@ -2,7 +2,8 @@
  * Switching a user's calendar provider (Google <-> Outlook) is blocked while that user is the org's install-scheduling
  * account and future install events sit on the calendar they have now. Event ids belong to one provider: after a
  * switch we could neither update nor remove those events, and the crews' invites would be orphaned. There is no column
- * recording which provider wrote an event, so the safe rule is "no switch while any future install event exists".
+ * recording which provider (or which user's token) wrote an event, so the safe rule is "no switch while any future install
+ * event exists" for the nominated install account; with no nominated account, only people who can schedule installs are guarded.
  * Self-contained (direct queries) so both connection.ts and google-calendar.ts can use it without an import cycle.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -34,11 +35,18 @@ export async function calendarSwitchBlockReason(
     const current: CalendarProviderId | null = m.data ? 'microsoft' : g.data ? 'google' : null
     if (!current || current === target) return null
 
-    // An unset install account means installs act as whoever is signed in (resolveInstallGoogleToken), so the acting
-    // user is guarded too.
+    // An unset install account means installs act as whoever is signed in (resolveInstallGoogleToken). Nothing records whose token
+    // wrote a given event, so only people who CAN schedule installs (the same `canEditJobs` the assign route checks) are guarded.
     const { data: org } = await admin.from('orgs').select('install_scheduling_user_id').eq('id', orgId).maybeSingle()
     if (!org) return null
-    if (org.install_scheduling_user_id && org.install_scheduling_user_id !== userId) return null
+    const nominated = !!org.install_scheduling_user_id
+    if (nominated && org.install_scheduling_user_id !== userId) return null
+    if (!nominated) {
+      const { data: profile } = await admin.from('users').select('role, custom_role_id').eq('id', userId).eq('org_id', orgId).maybeSingle()
+      if (!profile) return null
+      const { resolveOpsAccess } = await import('@/lib/ops-access')
+      if (!(await resolveOpsAccess(admin, userId, profile as { role: string; custom_role_id?: string | null })).canEditJobs) return null
+    }
 
     const today = formatInTimeZone(new Date(), DEFAULT_TIMEZONE, 'yyyy-MM-dd')
     const { count, error } = await admin
@@ -52,7 +60,10 @@ export async function calendarSwitchBlockReason(
       return null
     }
     if ((count ?? 0) > 0) {
-      return `Your ${NAME[current]} holds ${count} upcoming install${count === 1 ? '' : 's'}. Move or unschedule upcoming installs first, or keep using ${NAME[current]}.`
+      const n = `${count} upcoming install${count === 1 ? '' : 's'}`
+      return nominated
+        ? `Your ${NAME[current]} holds ${n}. Move or unschedule upcoming installs first, or keep using ${NAME[current]}.`
+        : `The company has ${n} scheduled, and installs you schedule are written to your ${NAME[current]}, so they may sit there. Move or unschedule upcoming installs first, or keep using ${NAME[current]}.`
     }
     return null
   } catch (e) {

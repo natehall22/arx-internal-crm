@@ -86,8 +86,11 @@ export function isMissingEventError(error: unknown): boolean {
   return error instanceof CalendarApiError && (error.status === 404 || error.status === 410)
 }
 
-/** Google event ids are base32hex: lowercase a-v and 0-9, 5-1024 chars. Graph ids are long base64 (`AAMk...`, with - _ =). */
-const GOOGLE_ID_FORMAT = /^[a-v0-9]{5,1024}$/
+/**
+ * Google event ids are base32hex: lowercase a-v and 0-9, 5-1024 chars; a recurring-event instance appends `_<YYYYMMDDTHHMMSSZ>`
+ * (all-day: `_<YYYYMMDD>`). Graph ids are long base64 (`AAMk...`, with - _ =).
+ */
+const GOOGLE_ID_FORMAT = /^[a-v0-9]{5,1024}(_\d{8}(T\d{6}Z)?)?$/
 const GRAPH_ID_FORMAT = /^[A-Za-z0-9_\-=]{20,}$/
 
 /** True when `eventId` can only have been minted by the OTHER provider (decided locally, from the id's shape). */

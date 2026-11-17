@@ -341,6 +341,12 @@ describe('Outlook guest mail: sendUpdates none never mails guests', () => {
     expect(isStaleEventIdError(new CalendarApiError('x', 500), GOOGLE, 'google')).toBe(false)
     expect(isStaleEventIdError(new Error('x'), GOOGLE, 'google')).toBe(false)
   })
+  it('a Google recurring-instance id is still a Google id', () => {
+    for (const id of ['abcdefghijklmnop12345_20261120T150000Z', 'abcdefghijklmnop12345_20261120']) {
+      expect(isStaleEventIdError(new CalendarApiError('x', 400), id, 'google')).toBe(false)
+      expect(isStaleEventIdError(new CalendarApiError('x', 400), id, 'microsoft')).toBe(true)
+    }
+  })
 })
 
 describe('Outlook account email', () => {

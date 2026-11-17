@@ -1,9 +1,13 @@
 /** @jest-environment node */
 import { calendarSwitchBlockReason } from '@/lib/calendar/switch-guard'
 
+let canEditJobs = true
+jest.mock('@/lib/ops-access', () => ({ resolveOpsAccess: async () => ({ canEditJobs }) }))
+
 const ENV = ['MICROSOFT_CLIENT_ID', 'MICROSOFT_CLIENT_SECRET', 'SECRETS_ENCRYPTION_KEY'] as const
 const saved: Record<string, string | undefined> = {}
 beforeEach(() => {
+  canEditJobs = true
   for (const k of ENV) saved[k] = process.env[k]
   Object.assign(process.env, { MICROSOFT_CLIENT_ID: 'a', MICROSOFT_CLIENT_SECRET: 'b', SECRETS_ENCRYPTION_KEY: 'k'.repeat(40) })
 })
@@ -21,6 +25,7 @@ function admin(opts: { google?: boolean; microsoft?: boolean; nominated?: string
       maybeSingle: async () => {
         if (table === 'user_google_tokens') return { data: opts.google ? { user_id: 'u1' } : null }
         if (table === 'user_microsoft_tokens') return { data: opts.microsoft ? { user_id: 'u1' } : null }
+        if (table === 'users') return { data: { role: 'sales', custom_role_id: null } }
         return { data: { install_scheduling_user_id: opts.nominated ?? null } }
       },
     }
@@ -47,8 +52,14 @@ describe('calendarSwitchBlockReason', () => {
   it('a failed lookup never blocks; only a confirmed count does', async () => {
     expect(await calendarSwitchBlockReason(admin({ google: true, nominated: 'u1', countError: true }), 'u1', 'o', 'microsoft')).toBeNull()
   })
-  it('with no install account set, the acting user is guarded', async () => {
-    expect(await calendarSwitchBlockReason(admin({ google: true, nominated: null, future: 2 }), 'u1', 'o', 'microsoft')).toMatch(/2 upcoming installs/)
+  it('with no install account set, a user who can schedule installs is guarded, with wording that does not claim the events are on their calendar', async () => {
+    const msg = await calendarSwitchBlockReason(admin({ google: true, nominated: null, future: 2 }), 'u1', 'o', 'microsoft')
+    expect(msg).toMatch(/2 upcoming installs/)
+    expect(msg).toMatch(/may sit there/)
+  })
+  it('with no install account set, a user who cannot schedule installs (a rep) switches freely', async () => {
+    canEditJobs = false
+    expect(await calendarSwitchBlockReason(admin({ google: true, nominated: null, future: 2 }), 'u1', 'o', 'microsoft')).toBeNull()
   })
   it('the message does not suggest another install account', async () => {
     const msg = await calendarSwitchBlockReason(admin({ google: true, nominated: 'u1', future: 1 }), 'u1', 'o', 'microsoft')
