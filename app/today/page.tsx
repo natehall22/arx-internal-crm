@@ -56,6 +56,9 @@ export default async function TodayPage() {
   const canvassOn = kind === 'setter' && orgProfile.features.canvassing
   if (canvassOn && /iPhone|Android|Mobile/i.test(headers().get('user-agent') ?? '')) redirect('/canvass')
 
+  // A new company's owner gets a "Finish setup" checklist until every step is done (never the original company; hides itself).
+  // Started here and awaited with the rest of the page, so it runs in parallel with Today's own load.
+  const finishSetupPromise = isSuperAdmin(profile) ? loadFinishSetup(admin, profile.org_id, { servicePlansOn: orgProfile.features.servicePlans }).catch((e) => { console.error('today: finish setup failed', e); return null }) : Promise.resolve(null)
   const { start, end } = getDateRangeForTimeFrame('week', 'America/New_York')
   const rows = await fetchPeriodMetricRows(admin, { orgId: profile.org_id, startIso: start.toISOString(), endIso: end.toISOString() })
   const opts = { setterLane: kind === 'setter', contactDispositionIdSet: getContactDispositionIdSet(undefined) }
@@ -85,8 +88,6 @@ export default async function TodayPage() {
   const reversals = reversalsOn ? await loadPaymentReversalsQueue(admin, profile.org_id).catch((e) => { console.error('today: payment reversals failed', e); return null }) : null
   // Leads nobody has contacted: owners see them in the owner list (loadOwnerExceptions); everyone else but field roles sees their own.
   const myLeadsWaiting = kind === 'closer' || kind === 'ops' ? await loadLeadsWaitingQueue(admin, profile.org_id, new Date(), { ownerUserId: profile.id }).catch((e) => { console.error('today: leads waiting failed', e); return leadsWaitingFailedQueue() }) : null
-  // A new company's owner gets a "Finish setup" checklist until every step is done (never the original company; hides itself).
-  const finishSetup = isSuperAdmin(profile) ? await loadFinishSetup(admin, profile.org_id, { servicePlansOn: orgProfile.features.servicePlans }).catch((e) => { console.error('today: finish setup failed', e); return null }) : null
   const [visitQueues, closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
     visitsOn ? loadServiceVisitQueues(admin, profile.org_id).catch((e) => { console.error('today: visits failed', e); return [] }) : Promise.resolve([]),
     kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: true }) : Promise.resolve([]),
@@ -127,6 +128,7 @@ export default async function TodayPage() {
             { label: 'Inspections set', value: mine.inspectionsSet },
             { label: 'Appointments', value: mine.calendar },
           ]
+  const finishSetup = await finishSetupPromise
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
   // AI changes waiting for THIS person's Approve (the switch must be on; a failed read just hides the card).
   const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
