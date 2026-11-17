@@ -19,6 +19,8 @@ import {
   isCrewFieldRole, isFieldRoleLike, getRoleDisplayName,
 } from '@/lib/permissions'
 import { todayKindFor } from '@/lib/today'
+import { OWNER_ONLY_MONEY_PERMISSIONS } from '@/lib/effective-permissions'
+import { isMoneyPermissionName } from '@/lib/money-permission-guard'
 import { FIELD_TECH_ROLE, offeredPresets, orgHasFieldCrews, presetDescription, roleOffered, type PresetLike } from '@/lib/role-presets'
 import { canReadMessage, canSeeProduction, writableAudiences, type ThreadViewer } from '@/lib/threads/visibility'
 import { DB_USER_ROLES } from '@/lib/types/database'
@@ -210,6 +212,8 @@ describe('custom role named Field Technician (role custom)', () => {
     const base = { isSuperuser: false, canJobBoard: false }
     expect(todayKindFor({ ...base, role: 'field_tech' })).toBe('crew')
     expect(todayKindFor({ ...base, role: 'custom', customRoleName: 'Field Technician' })).toBe('crew')
+    // owner / admin full access wins over the crew kind (even if a stray custom role name matched)
+    expect(todayKindFor({ role: 'custom', customRoleName: 'Field Tech', isSuperuser: true, canJobBoard: true })).toBe('owner')
     expect(todayKindFor({ ...base, role: 'sales_rep' })).toBe('closer')
     expect(todayKindFor({ ...base, role: 'setter' })).toBe('setter')
   })
@@ -253,5 +257,24 @@ describe('service role presets (SQL)', () => {
     const names = Array.from(sql.matchAll(/'([a-z_]+:[a-z_:]+)'/g)).map((m) => m[1]).filter((n) => !n.startsWith('arx'))
     const allNames = fs.readFileSync(path.resolve(__dirname, '../permissions.ts'), 'utf8')
     for (const n of Array.from(new Set(names))) if (n !== 'field_tech') expect(allNames).toContain(`'${n}'`)
+  })
+})
+
+describe('exact presets, owner-only money, insert-only seeding', () => {
+  it('a Bookkeeper / Office person (role custom, no custom role) holds exactly their grants: no hidden scheduling or canvass', async () => {
+    const r = await resolveEffectivePermissionNames(adminWith({ userGrants: ['money:record', 'reports:financials', 'customers:view'] }), 'bk', { role: 'custom' })
+    expect(Array.from(r.permissionNames).sort()).toEqual(['customers:view', 'money:record', 'referral_partners:view', 'reports:financials'])
+    expect(getPermissions('custom')).toEqual(['referral_partners:view'])
+  })
+  it('jobs:financials:view is owner-only like the other money permissions', () => {
+    expect(OWNER_ONLY_MONEY_PERMISSIONS).toEqual(['reports:financials', 'money:record', 'jobs:financials:view'])
+    expect(isMoneyPermissionName('jobs:financials:view')).toBe(true)
+    expect(isMoneyPermissionName('leads:view')).toBe(false)
+  })
+  it('the preset function is insert-only: permissions only for the row it just inserted', () => {
+    const sql = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202611300020_field_tech_preset_and_field_role.sql'), 'utf8')
+    expect(sql).toMatch(/ON CONFLICT \(org_id, name\) DO NOTHING\s+RETURNING id INTO v_id/)
+    expect(sql).not.toMatch(/SELECT id INTO v_id FROM permission_presets/)
+    expect(sql).not.toMatch(/ON CONFLICT \(preset_id, permission_id\)/)
   })
 })

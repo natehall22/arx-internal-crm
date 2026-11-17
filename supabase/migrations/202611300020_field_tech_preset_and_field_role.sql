@@ -25,13 +25,13 @@ $$;
 --   Field Tech   base role field_tech, no permissions (lockdown role; day / photos / clock via the crew link and crew membership)
 --   Crew Lead    base role field_tech too: the SAME lockdown; "lead" is the flag on the person in Crew setup (crew_members.is_lead),
 --                which is what lets them tap the clock for the whole crew. The card exists so owners find it; no second role.
---   Office       base role custom (the small custom default plus the explicit list): scheduling, jobs (visits), customers, leads,
+--   Office       base role custom (the `custom` role matrix is EMPTY in the app, lib/permissions.ts, so the person holds exactly this list): scheduling, jobs (visits), customers, leads,
 --                quotes (proposals), contracts view, money:record (invoices), price book, people list. NOT the operations role
 --                (a payroll admin): no payroll, no reports:financials, no settings / admin.
---   Bookkeeper   base role custom: money:record (invoices, payments), reports:financials + reports, job financials; the pipeline is
+--   Bookkeeper   base role custom (same: exactly this list, no scheduling / canvass / defaults): money:record (invoices, payments), reports:financials + reports, job financials; the pipeline is
 --                view-only. No scheduling, no settings.
--- money:record and reports:financials can only be handed out by an owner (lib/money-permission-guard.ts), so a manager choosing
--- these cards cannot grant them. A permission name missing from `permissions` is skipped.
+-- money:record, reports:financials and jobs:financials:view can only be handed out by an owner (lib/money-permission-guard.ts), so a manager choosing
+-- these cards creates the person WITHOUT them (the screen says so). A permission name missing from `permissions` is skipped.
 CREATE OR REPLACE FUNCTION public.create_service_role_presets(p_org_id uuid, p_created_by uuid DEFAULT NULL)
 RETURNS void
 LANGUAGE plpgsql
@@ -53,14 +53,16 @@ BEGIN
         ARRAY['money:record','reports:financials','reports:view_all','reports:export','jobs:view','jobs:financials:view','customers:view','leads:view','opportunities:view','proposals:view','contracts:view','pricebook:view','users:view'])
     ) AS t(name, description, base_role, color, sort_order, perms)
   LOOP
+    -- Insert-only: a preset that already has this name (an owner's own, or a system one an owner has since edited) is left exactly
+    -- as it is. Permissions are added only to the row inserted right here, so a re-run never re-adds what an owner removed.
+    v_id := NULL;
     INSERT INTO permission_presets (org_id, name, description, base_role, color, is_system, sort_order, created_by)
     VALUES (p_org_id, r.name, r.description, r.base_role, r.color, true, r.sort_order, p_created_by)
-    ON CONFLICT (org_id, name) DO NOTHING;
-    SELECT id INTO v_id FROM permission_presets WHERE org_id = p_org_id AND name = r.name;
+    ON CONFLICT (org_id, name) DO NOTHING
+    RETURNING id INTO v_id;
     IF v_id IS NOT NULL AND coalesce(array_length(r.perms, 1), 0) > 0 THEN
       INSERT INTO preset_permissions (preset_id, permission_id)
-      SELECT v_id, p.id FROM permissions p WHERE p.name = ANY (r.perms)
-      ON CONFLICT (preset_id, permission_id) DO NOTHING;
+      SELECT v_id, p.id FROM permissions p WHERE p.name = ANY (r.perms);
     END IF;
   END LOOP;
 END;

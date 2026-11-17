@@ -346,16 +346,10 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'users:view',
   ],
 
-  custom: [
-    // Custom roles get minimal permissions by default
-    // Actual permissions should be defined via custom_roles table
-    'canvass:view',
-    'leads:view',
-    'opportunities:view',
-    'teams:view',
-    'users:view',
-    'scheduling:view',
-  ],
+  // A person on the base role `custom` with NO custom role (the service presets Office / Bookkeeper) holds exactly what their
+  // own grants say: no hidden defaults. (A person WITH a custom role never used this list; the live database has no one on
+  // `custom` without a custom role, checked 2026-11-17.)
+  custom: [],
 }
 
 const JOB_BOARD_PERMISSION_NAMES = ['jobs:view', 'jobs:edit'] as const

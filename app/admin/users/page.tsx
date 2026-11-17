@@ -307,6 +307,7 @@ export default function UsersPage() {
       setShowCreateModal(false)
       resetCreateForm()
       await loadData()
+      if (result.moneyAccessRemoved) toast.error('User created without money access. Only the owner can give money access \u2014 ask them to finish this user.')
     } catch {
       setError('Failed to create user')
     }

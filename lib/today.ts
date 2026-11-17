@@ -34,7 +34,7 @@ export type QueueItem = { id: string; title: string; detail: string; href: strin
 export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string }
 
 export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean; customRoleName?: string | null; customRoleDisplayName?: string | null }): TodayKind {
-  if (isCrewFieldRole({ role: args.role, customRoleName: args.customRoleName, customRoleDisplayName: args.customRoleDisplayName })) return 'crew'
+  if (!args.isSuperuser && isCrewFieldRole({ role: args.role, customRoleName: args.customRoleName, customRoleDisplayName: args.customRoleDisplayName })) return 'crew'
   if (isSetterLikeRole(args.role)) return 'setter'
   if (args.role === 'operations') return 'ops'
   if (args.isSuperuser) return 'owner'

@@ -34,6 +34,12 @@ export type EffectivePermissionsResult = {
 export const DENIABLE_PERMISSIONS = ['reports:financials', 'money:record'] as const
 
 /**
+ * The permissions only an owner may hand out (lib/money-permission-guard.ts): the two deniable ones plus job financials, which
+ * shows a job's costs and margin. (The per-user "off" switch stays on DENIABLE_PERMISSIONS only.)
+ */
+export const OWNER_ONLY_MONEY_PERMISSIONS = [...DENIABLE_PERMISSIONS, 'jobs:financials:view'] as const
+
+/**
  * Resolved permission names for RBAC navigation and route guards.
  * - Legacy roles without `custom_role_id`: matrix from {@link getPermissions}.
  * - `custom_role_id` set: only permissions from that role + `user_permissions` extras (not the generic `custom` matrix).
