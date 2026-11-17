@@ -11,6 +11,8 @@ import {
   normalizeReportDocForOrg,
 } from '@/lib/inspection-report/server'
 import { getOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
+import { getOrgFeatures } from '@/lib/org-features-server'
+import { loadOrgProfile, roofSectionsAvailable } from '@/lib/org-profile'
 import ReportBuilder from '@/components/inspection-report/ReportBuilder'
 
 // Full-screen phone-first builder (no CRM nav chrome — the rep is on a roof).
@@ -21,6 +23,11 @@ export default async function OpportunityReportPage({ params }: { params: { id: 
   }
 
   const admin = createServiceClient()
+  // The roof report is a roofing / insurance document: other companies' URLs 404 (an existing report stays reachable).
+  if (!roofSectionsAvailable(await loadOrgProfile(admin, profile.org_id), await getOrgFeatures(profile.org_id)).report) {
+    const { data: existing } = await admin.from('inspection_reports').select('id').eq('opportunity_id', params.id).eq('org_id', profile.org_id).limit(1).maybeSingle()
+    if (!existing) notFound()
+  }
   const result = await getOrCreateReport(admin, {
     opportunityId: params.id,
     profile,

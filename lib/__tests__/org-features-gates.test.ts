@@ -111,7 +111,7 @@ describe('1, 4, 7. UI guards', () => {
     // JobView reads the switches off the industry profile it already loads (same rule: resolveOrgFeatures).
     expect(src('app/ops/jobs/[id]/JobView.tsx')).toContain('orgFeatures={orgProfile.features}')
     expect(src('app/dashboard/page.tsx')).toContain('orgFeatures={orgFeatures}')
-    expect(src('app/opportunities/[id]/OpportunityView.tsx')).toContain('orgFeatures={await getOrgFeatures(profile.org_id)}')
+    expect(src('app/opportunities/[id]/OpportunityView.tsx')).toContain('orgFeatures={orgFeatures}')
     expect(src('components/contracts/ContractModal.tsx')).toContain('useOrgFeatures(orgFeatures)')
   })
 })

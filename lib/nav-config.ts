@@ -67,7 +67,7 @@ const REPORTS = ['reports:view_own', 'reports:view_team', 'reports:view_region',
 export const NAV_SECTIONS: NavSection[] = [
   { id: 'today', label: 'Today', href: '/today', children: [] },
   // Was Insights → Dashboard: same rule (ops-only users have no sales dashboard).
-  { id: 'dashboard', label: 'Dashboard', href: '/dashboard', children: [], moreOnly: true, show: (c) => !c.flags.isOpsOnly },
+  { id: 'dashboard', label: 'Dashboard', href: '/dashboard', children: [], moreOnly: true, show: (c) => !c.flags.isOpsOnly && c.role !== 'field_tech' },
   {
     id: 'pipeline',
     label: 'Pipeline',

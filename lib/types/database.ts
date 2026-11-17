@@ -16,6 +16,8 @@ export type UserRole =
   | 'rep'
   | 'canvasser'
   | 'inside_sales'
+  // Crew member doing the visits / work in the field (non-canvassing companies)
+  | 'field_tech'
   // Operations
   | 'operations'
   // Call center (appointment-setting via phone)
@@ -44,6 +46,7 @@ export const DB_USER_ROLES = [
   'closer',
   'setter',
   'canvasser',
+  'field_tech',
   'operations',
   'sub',
   'custom',
@@ -57,7 +60,7 @@ export type CanvassDisposition = string
 
 export type ProjectStatus = 'open' | 'in_progress' | 'on_hold' | 'complete' | 'collected' | 'cancelled'
 
-export type ProjectType = 'roofing' | 'siding' | 'windows' | 'mixed'
+export type ProjectType = 'roofing' | 'siding' | 'windows' | 'mixed' | 'other'
 
 export type JobSource = 'retail' | 'insurance'
 

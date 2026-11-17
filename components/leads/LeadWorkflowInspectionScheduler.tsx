@@ -10,6 +10,8 @@ type Props = {
   hasActiveInspectionSlot: boolean
   missingFields: string[]
   activeInspectionLabel?: string | null
+  /** The company's lower-case word for the inspection step (profile term; roofing: 'inspection'). */
+  stepWord?: string
 }
 
 /** Opens CRM inspection scheduling (team RR + slots) beside the workflow form. */
@@ -19,6 +21,7 @@ export default function LeadWorkflowInspectionScheduler({
   hasActiveInspectionSlot,
   missingFields,
   activeInspectionLabel,
+  stepWord = 'inspection',
 }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -26,7 +29,7 @@ export default function LeadWorkflowInspectionScheduler({
   const disabledReason = !canScheduleInspection
     ? 'Your role does not include Create Appointments. Ask an admin to add scheduling access.'
     : hasActiveInspectionSlot
-      ? `This lead already has an active inspection${activeInspectionLabel ? ` for ${activeInspectionLabel}` : ''}.`
+      ? `This lead already has an active ${stepWord}${activeInspectionLabel ? ` for ${activeInspectionLabel}` : ''}.`
       : missingFields.length > 0
         ? `Save ${missingFields.join(', ')} before scheduling.`
         : null
@@ -36,7 +39,7 @@ export default function LeadWorkflowInspectionScheduler({
       <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-indigo-950">Schedule inspection</h3>
+            <h3 className="text-sm font-semibold text-indigo-950">{`Schedule ${stepWord}`}</h3>
             <p className="mt-1 text-sm text-indigo-950/80">
               Use pooled availability to assign a <span className="font-medium">team round-robin</span> or pick an
               individual closer without double-booking CRM slots.

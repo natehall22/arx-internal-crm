@@ -43,7 +43,7 @@ function navFor(role: string, payWeek: boolean) {
   return pages
 }
 
-const ROLES = ['owner', 'operations', 'sales_rep', 'closer', 'setter', 'canvasser']
+const ROLES = ['owner', 'operations', 'sales_rep', 'closer', 'setter', 'canvasser', 'field_tech']
 
 describe('nav per role (what each role is shown)', () => {
   it('prints the matrix', () => {
@@ -52,17 +52,23 @@ describe('nav per role (what each role is shown)', () => {
     console.log('\nNAV MATRIX (pay screens ON)\n' + rows.join('\n'))
   })
 
-  it.each(['setter', 'canvasser'])('%s sees no pay admin, profit, pricebook, customers list or reports builder', (r) => {
+  it.each(['setter', 'canvasser', 'field_tech'])('%s sees no pay admin, profit, pricebook, customers list or reports builder', (r) => {
     const pages = navFor(r, true)
     for (const bad of ['/admin/payroll', '/admin/job-profit-tracker', '/pricebook', '/admin', '/ops', '/ops/dashboard', '/ops/schedule', '/projects', '/opportunities']) {
       expect(pages).not.toContain(bad)
     }
   })
 
-  it.each(['closer', 'setter', 'canvasser'])('%s never sees payroll admin or job profit', (r) => {
+  it.each(['closer', 'setter', 'canvasser', 'field_tech'])('%s never sees payroll admin or job profit', (r) => {
     const pages = navFor(r, true)
     expect(pages).not.toContain('/admin/payroll')
     expect(pages).not.toContain('/admin/job-profit-tracker')
+  })
+})
+
+describe('Field Tech', () => {
+  it('sees Today only (a crew member has no sales dashboard, pipeline, customers, jobs board, reports or admin)', () => {
+    expect(navFor('field_tech', true).filter((p) => p !== '/referral-partners')).toEqual(['/today'])
   })
 })
 
@@ -72,7 +78,7 @@ describe('Sisu / Bonuses placement', () => {
     expect(p).toContain('/sisu')
     expect(p.indexOf('/sisu')).toBeGreaterThan(p.indexOf('/dashboard'))
   })
-  it.each(['setter', 'canvasser', 'sales_rep', 'closer'])('%s never sees Money → Bonuses', (r) => {
+  it.each(['setter', 'canvasser', 'sales_rep', 'closer', 'field_tech'])('%s never sees Money → Bonuses', (r) => {
     expect(navFor(r, true)).not.toContain('/admin/bonuses')
   })
   it('owner and operations see Money → Bonuses', () => {
