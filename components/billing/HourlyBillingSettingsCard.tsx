@@ -60,7 +60,7 @@ export default function HourlyBillingSettingsCard() {
 
   const needsTrip = s.travel === 'trip_charge' && !s.tripChargeItemId
   return (
-    <Card id="hourly-billing" className="flex flex-col gap-3 p-4 text-[#2c2c2a]">
+    <Card className="flex flex-col gap-3 p-4 text-[#2c2c2a]">
       <h2 className="text-lg font-bold">Hourly billing</h2>
       <p className="text-base">How crew and machine hours turn into invoice lines. Pay is never changed — payroll keeps the exact minutes.</p>
       <Field label="Rounding">

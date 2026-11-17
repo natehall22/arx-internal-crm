@@ -28,7 +28,7 @@ import { orgTimeZone } from '@/lib/timezone'
 export type SectionCtx = { profile: User; orgProfile: ResolvedOrgProfile; admin: ReturnType<typeof createServiceClient> }
 
 export type SectionCard = { anchor: string; render: (c: SectionCtx) => Promise<React.ReactNode> | React.ReactNode }
-export type SectionPage = { title: string; subtitle: string; cards: SectionCard[] }
+export type SectionPage = { subtitle: string; cards: SectionCard[] }
 
 /**
  * Topic page slug -> the cards on it, in order. WHO sees a card is not decided here: it is the hub entry with href
@@ -37,7 +37,6 @@ export type SectionPage = { title: string; subtitle: string; cards: SectionCard[
  */
 export const SECTION_PAGES: Record<string, SectionPage> = {
   company: {
-    title: 'Company & features',
     subtitle: 'Your type of business, and which parts of the app are on.',
     cards: [
       {
@@ -53,7 +52,6 @@ export const SECTION_PAGES: Record<string, SectionPage> = {
     ],
   },
   payments: {
-    title: 'Payments & tax',
     subtitle: 'Sales tax, online payments, QuickBooks and hourly billing.',
     cards: [
       { anchor: 'sales-tax', render: async ({ admin, profile, orgProfile }) => <SalesTaxCard initial={await loadOrgSalesTax(admin, profile.org_id)} proposalWord={orgProfile.terms.proposal} /> },
@@ -71,7 +69,6 @@ export const SECTION_PAGES: Record<string, SectionPage> = {
     ],
   },
   quotes: {
-    title: 'Quotes & signing',
     subtitle: 'Proposal wording, quote links and deposits, and the e-sign notice and reminders.',
     cards: [
       { anchor: 'proposal-content', render: ({ orgProfile }) => <ProposalContentCard proposalWord={orgProfile.terms.proposal} /> },
@@ -80,7 +77,6 @@ export const SECTION_PAGES: Record<string, SectionPage> = {
     ],
   },
   jobs: {
-    title: 'Jobs & plans',
     subtitle: 'Service plans, job catch-up, customer checkups and crew incentives.',
     cards: [
       { anchor: 'plan-templates', render: () => <ServicePlanTemplatesCard /> },

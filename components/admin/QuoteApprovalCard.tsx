@@ -53,7 +53,7 @@ export default function QuoteApprovalCard() {
   }
 
   return (
-    <Card id="quotes" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Quotes</CardTitle>
       </CardHeader>

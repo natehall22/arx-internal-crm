@@ -487,7 +487,7 @@ describe('ARX sees no setting, and the key has one writer', () => {
   const { visibleSettingsGroups } = jest.requireActual('@/lib/settings-registry') as typeof import('@/lib/settings-registry')
   const { mergeOrgSettings } = jest.requireActual('@/lib/org-settings') as typeof import('@/lib/org-settings')
   const hrefs = (profileId?: 'roofing' | 'lawn_landscape') =>
-    visibleSettingsGroups({ canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true, canOwner: true, canSuperAdmin: true, profileId }).flatMap((g) => g.items.map((i) => i.href))
+    visibleSettingsGroups({ canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true, canOwner: true, canSuperAdmin: true, profileId }).flatMap((g) => g.items.flatMap((i) => [i.href, ...(i.cardLinks ?? []).map((c) => c.href)]))
   it('the Settings entry exists only for lawn_landscape', () => {
     expect(hrefs('roofing')).not.toContain('/admin/s/jobs#crew-incentives')
     expect(hrefs(undefined)).not.toContain('/admin/s/jobs#crew-incentives')

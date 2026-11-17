@@ -78,7 +78,7 @@ const RENDER_PATHS = [
   'lib/pdf', 'lib/inspection-report', 'lib/signing', 'lib/completion-certificate.tsx', 'lib/crew-link.ts',
   'lib/setter-email.ts', 'lib/admin-sale-email.ts', 'lib/closer-briefing-email.ts', 'lib/payroll-statement-email.ts',
   'app/crew', 'app/r', 'app/portal', 'app/c', 'app/signing', 'app/contracts/sign', 'app/change-orders', 'app/comp-agreements',
-  'app/admin/print-kit', 'app/admin/page.tsx', 'app/login', 'app/api/login', 'components/Nav.tsx', 'components/contracts',
+  'app/admin/print-kit', 'app/admin/page.tsx', 'app/admin/s', 'app/login', 'app/api/login', 'components/Nav.tsx', 'components/contracts',
   'components/signing', 'components/customer-file', 'components/employee-agreements', 'components/change-orders',
   'components/inspection-report', 'app/layout.tsx', 'lib/morning-update-email.ts', 'lib/ai/crm-navigation-guide.ts',
 ]

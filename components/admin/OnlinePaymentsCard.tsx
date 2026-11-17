@@ -84,7 +84,7 @@ export default function OnlinePaymentsCard({ initial = null }: { initial?: View 
   const st = acct ? STATUS[acct.status] : null
 
   return (
-    <Card id="online-payments" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Online payments</CardTitle>
         {view?.testMode && view.configured ? <Badge tone="warning">Test mode</Badge> : null}

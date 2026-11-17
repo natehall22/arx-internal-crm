@@ -80,7 +80,7 @@ export default function SalesTaxCard({
   const defaultTotal = combinedTaxPercent(defaults.map((r) => ({ percent: Number(r.percent) || 0 })))
 
   return (
-    <Card id="sales-tax" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Sales tax</CardTitle>
       </CardHeader>

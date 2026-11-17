@@ -82,7 +82,7 @@ export default function CrewIncentivesSettingsCard() {
   const box = 'flex flex-col gap-2 rounded-ui border border-surface-line p-3'
 
   return (
-    <Card id="crew-incentives" className="flex flex-col gap-3 p-4 text-[#2c2c2a]">
+    <Card className="flex flex-col gap-3 p-4 text-[#2c2c2a]">
       <h2 className="text-lg font-bold">Crew incentives</h2>
       <p className="text-base">Bonus rules for your crews. Each one proposes bonuses on its own; every line waits on Bonus approval and nothing is paid until an owner approves it. A rule only pays for work finished after it was turned on; nothing is paid back for earlier work.</p>
       {toggle('enabled', 'Crew incentives are on', 'Off = no bonuses are proposed and crews see no scoreboard.')}

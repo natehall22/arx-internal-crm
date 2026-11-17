@@ -66,7 +66,7 @@ export default function CheckupSettingsCard({ initial, users, timeZone = DEFAULT
   const example = checkupExample(draft, ymdInZone(new Date(), timeZone), terms.job)
 
   return (
-    <Card id="checkups" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Customer checkups</CardTitle>
       </CardHeader>

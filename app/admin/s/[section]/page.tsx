@@ -25,7 +25,8 @@ export default async function SettingsSectionPage({ params }: { params: { sectio
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
   const flags = settingsFlagsFor(profile, orgProfile)
   const shown = page.cards.filter((c) => visibleSettingsItem(`${SETTINGS_SECTION_PREFIX}${params.section}#${c.anchor}`, flags))
-  if (shown.length === 0) notFound()
+  const pageItem = visibleSettingsItem(`${SETTINGS_SECTION_PREFIX}${params.section}`, flags)
+  if (shown.length === 0 || !pageItem) notFound()
 
   const cards = await Promise.all(shown.map(async (c) => ({ anchor: c.anchor, node: await c.render({ profile, orgProfile, admin }) })))
   return (
@@ -33,10 +34,10 @@ export default async function SettingsSectionPage({ params }: { params: { sectio
       <Nav />
       <main className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
         <SettingsBackLink />
-        <PageHeader title={page.title} subtitle={page.subtitle} />
+        <PageHeader title={pageItem.title} subtitle={page.subtitle} />
         <div className="flex flex-col gap-4">
           {cards.map((c) => (
-            <div key={c.anchor} id={c.anchor === 'quickbooks' ? 'quickbooks' : undefined} className="flex scroll-mt-4 flex-col gap-4">
+            <div key={c.anchor} id={c.anchor} className="flex scroll-mt-4 flex-col gap-4">
               {c.node}
             </div>
           ))}

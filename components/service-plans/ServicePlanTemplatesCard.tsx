@@ -98,7 +98,7 @@ export default function ServicePlanTemplatesCard() {
   const d = data
 
   return (
-    <Card id="plan-templates" className="scroll-mt-4">
+    <Card>
       <CardHeader>
         <CardTitle>Plan templates</CardTitle>
         {d.ready ? (
