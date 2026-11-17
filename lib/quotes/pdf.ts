@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { QuoteApprovalPDF, type QuoteApprovalPdfData } from '@/components/QuoteApprovalPDF'
 import { getOrgBrand } from '@/lib/org-brand'
 import type { ApprovalRow } from '@/lib/quotes/approve'
+import { approvalOneTimeCents } from '@/lib/quotes/recurring'
 
 export function approvalPdfData(
   approval: Pick<ApprovalRow, 'snapshot' | 'typed_name' | 'approved_at' | 'approved_ip' | 'subtotal_cents' | 'discount_cents' | 'tax_cents' | 'total_cents' | 'deposit_cents'>,
@@ -31,9 +32,13 @@ export function approvalPdfData(
     discountCents: approval.discount_cents,
     taxLines: s.taxLines,
     taxCents: approval.tax_cents,
-    totalCents: approval.total_cents,
+    // The one-time total: the approval's total_cents is the SALE amount and also holds the recurring first-season value.
+    totalCents: approvalOneTimeCents(approval),
     deposit: { cents: approval.deposit_cents, label: s.deposit.mode === 'percent' ? `Deposit (${s.deposit.percent}%)` : 'Deposit' },
     terms: s.terms,
+    ...(s.recurring && s.recurring.length > 0
+      ? { recurring: s.recurring.map((r) => ({ name: r.name, description: r.description ?? '', detail: r.detail, termsLine: r.termsLine, optional: r.optional, chosen: r.chosen, firstSeasonCents: r.firstSeasonCents })) }
+      : {}),
     approval: { typedName: approval.typed_name, approvedAt: approval.approved_at, ip: approval.approved_ip },
   }
 }

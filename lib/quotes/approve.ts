@@ -12,6 +12,13 @@
  *  3. the deposit (if any) becomes an ordinary deposit invoice on that job and the customer pays it on the existing pay page
  *     (`/pay/<token>`, Stripe Connect). Payment lands through `recordJobPayment` like every other job payment.
  *
+ * RECURRING LINES (service plan templates on the quote): they are not part of the one-time price. The approval row's
+ * `total_cents` is the SALE AMOUNT = one-time total + each approved recurring line's first-season value (`snapshot.recurring`,
+ * existing plan maths); `subtotal/discount/tax_cents` stay one-time. The signed contract's `project_cost` is that sale amount, so
+ * rpt_sales, the job's sale amount and the commission base (contract minus the proposal's sales tax) count it through their
+ * existing writers. The proposal itself is rewritten to the ONE-TIME total (`approvalOneTimeCents`). A recurring-only quote
+ * has no one-time total, so no deposit. On approval one service plan per recurring line is made (`ensureQuotePlans`).
+ *
  * DECISION (documented): for a company using online quotes, an APPROVED QUOTE == the SIGNED SALE AGREEMENT. The legal act is the
  * approval record; the contract row exists so every sales / payroll reader (which all filter `order_form_contracts` on
  * `completed`) counts it, but it carries no roofing terms or PDF — the terms the customer agreed to are in the approval snapshot.
@@ -28,7 +35,8 @@ import { createPaymentLink, tooManyLinks } from '@/lib/online-payments/links'
 import { orgDb } from '@/lib/supabase/org-db'
 import { flagApprovalBlocked, NEEDS_DETAIL_MESSAGE } from '@/lib/quotes/blocked'
 import { isOptionalLine } from '@/lib/quotes/pricing'
-import { fingerprintOf, loadQuoteContext, priceForSelection, quoteDeposit, quoteTerms, type QuoteContext } from '@/lib/quotes/load'
+import { fingerprintOf, loadQuoteContext, priceForSelection, quoteDeposit, quoteTerms, recurringForSelection, saleCentsFor, type QuoteContext } from '@/lib/quotes/load'
+import { approvalOneTimeCents, isRecurringLine } from '@/lib/quotes/recurring'
 import type { QuoteLinkRow } from '@/lib/quotes/links'
 import { newSigningTokenColumns, signingTokenOf } from '@/lib/signing-tokens'
 
@@ -75,6 +83,28 @@ export type ApprovalSnapshot = {
   taxableCents: number
   legacyTax: boolean
   deposit: { mode: string; percent: number; cents: number }
+  /** Recurring lines (service plans) the customer saw, with the terms shown; `chosen` = approved. Absent on a quote with none. */
+  recurring?: Array<{
+    lineId: string
+    name: string
+    description?: string
+    templateId: string
+    templateName: string
+    templateVersion: number
+    startDate: string
+    weekday: number | null
+    priceCents: number
+    billingBasis: string
+    /** "$45 per visit · Apr 1–Oct 31 · about 15 visits" exactly as shown. */
+    detail: string
+    /** The terms line shown ("Billed after each visit. Cancel anytime."). */
+    termsLine: string
+    optional: boolean
+    chosen: boolean
+    estimatedVisits: number
+    /** What this line adds to the sale amount (`total_cents`). */
+    firstSeasonCents: number
+  }>
 }
 
 const APPROVAL_COLS =
@@ -155,20 +185,46 @@ export async function approveQuote(
   if ((signed ?? []).length > 0) return { ok: false, status: 409, error: 'This job already has an approved quote. Please contact us.' }
 
   const price = priceForSelection(ctx, sel.ids)
-  if (price.totalCents <= 0) return { ok: false, status: 400, error: 'The total must be more than $0' }
+  const rec = recurringForSelection(ctx, sel.ids)
+  if (rec.unsupported.length > 0) return { ok: false, status: 409, error: 'This quote can’t be approved online right now. Please contact us.' }
+  const saleCents = saleCentsFor(price.totalCents, rec.chosen)
+  if (saleCents <= 0 || (price.totalCents <= 0 && rec.chosen.length === 0)) return { ok: false, status: 400, error: 'The total must be more than $0' }
+  // No one-time work = no deposit (the deposit is a share of the one-time total only).
   const dep = quoteDeposit(ctx, price.totalCents)
   const picked = new Set(sel.ids)
+  const recurringSnap: NonNullable<ApprovalSnapshot['recurring']> = ctx.lines.filter(isRecurringLine).map((l) => {
+    const info = ctx.recurring[l.id]
+    return {
+      lineId: l.id,
+      name: l.name,
+      description: (l.description ?? '').trim(),
+      templateId: info.template.id,
+      templateName: info.template.name,
+      templateVersion: info.template.version,
+      startDate: String(l.plan_start_date),
+      weekday: l.plan_weekday ?? null,
+      priceCents: info.facts.priceCents,
+      billingBasis: info.facts.basis,
+      detail: info.facts.detail,
+      termsLine: info.facts.termsLine,
+      optional: isOptionalLine(l),
+      chosen: !isOptionalLine(l) || picked.has(l.id),
+      estimatedVisits: info.facts.visits,
+      firstSeasonCents: info.facts.firstSeasonCents,
+    }
+  })
   const snapshot: ApprovalSnapshot = {
     proposalNumber: p.proposal_number,
     title: p.title,
     customer: { name: (p.customer_name ?? '').trim(), address: (p.customer_address ?? '').trim() },
     terms: quoteTerms(ctx),
-    lines: ctx.lines.map((l) => ({ id: l.id, name: l.name, description: (l.description ?? '').trim(), quantity: l.quantity ?? null, unit: l.unit ?? '', optional: isOptionalLine(l), chosen: !isOptionalLine(l) || picked.has(l.id), cents: price.lineCents[l.id] ?? 0 })),
+    lines: ctx.lines.filter((l) => !isRecurringLine(l)).map((l) => ({ id: l.id, name: l.name, description: (l.description ?? '').trim(), quantity: l.quantity ?? null, unit: l.unit ?? '', optional: isOptionalLine(l), chosen: !isOptionalLine(l) || picked.has(l.id), cents: price.lineCents[l.id] ?? 0 })),
     declinedIds: ctx.lines.filter((l) => isOptionalLine(l) && !picked.has(l.id)).map((l) => l.id),
     taxLines: price.taxLines,
     taxableCents: price.taxableCents,
     legacyTax: price.legacy,
     deposit: { mode: dep.mode, percent: dep.percent, cents: dep.cents },
+    ...(recurringSnap.length > 0 ? { recurring: recurringSnap } : {}),
   }
   const { data: row, error } = await orgDb(admin, orgId)
     .from('quote_approvals')
@@ -185,7 +241,7 @@ export async function approveQuote(
       subtotal_cents: price.subtotalCents,
       discount_cents: price.discountCents,
       tax_cents: price.taxCents,
-      total_cents: price.totalCents,
+      total_cents: saleCents,
       deposit_cents: dep.cents,
     })
     .select('id')
@@ -253,7 +309,8 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       const patch: Record<string, unknown> = {
         subtotal: approval.subtotal_cents / 100,
         tax_amount: approval.tax_cents / 100,
-        total: approval.total_cents / 100,
+        // The proposal is what was sold ONE TIME: the sale amount (total_cents) also holds the recurring first-season value.
+        total: approvalOneTimeCents(approval) / 100,
       }
       if (Number(proposal.discount_percent) > 0 || approval.discount_cents > 0) patch.discount_amount = approval.discount_cents / 100
       if (!snap.legacyTax) {
@@ -270,7 +327,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     let contractId = approval.contract_id
     if (!contractId) {
       const { columns: signingTokenColumns } = newSigningTokenColumns('contract')
-      const chosen = snap.lines.filter((l) => l.chosen).map((l) => l.name)
+      const chosen = [...snap.lines.filter((l) => l.chosen).map((l) => l.name), ...(snap.recurring ?? []).filter((r) => r.chosen).map((r) => `${r.name} (recurring)`)]
       const { data: c, error } = await db
         .from('order_form_contracts')
         .insert({
@@ -345,6 +402,18 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       await setApproval(admin, orgId, approvalId, { deposit_invoice_id: invoiceId })
       approval.deposit_invoice_id = invoiceId
     }
+    // 3a. Recurring lines become service plans (idempotent: one plan per quote line, ever). Before the PDF + email, which name the first visit.
+    let plans: Awaited<ReturnType<typeof import('@/lib/quotes/recurring-plans').ensureQuotePlans>> = []
+    if ((snap.recurring ?? []).some((r) => r.chosen)) {
+      const { ensureQuotePlans } = await import('@/lib/quotes/recurring-plans')
+      plans = await ensureQuotePlans(admin, orgId, {
+        snapshot: snap,
+        opportunityId: approval.opportunity_id,
+        customer: { name: proposal.customer_name, email: proposal.customer_email, phone: proposal.customer_phone, address: proposal.customer_address },
+        userId: creator,
+        now,
+      })
+    }
     // 3b. The record of what was agreed, from the snapshot. The sale already stands, so a PDF failure is noted for the office
     // (and the customer still gets the page), never held against the approval.
     let pdfPath: string | null = null
@@ -366,7 +435,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       const { sendApprovalConfirmation } = await import('@/lib/quotes/send')
       // The customer's copy goes through the signing-token download route (never a bucket URL), like a signed contract's.
       const copyUrl = pdfPath ? customerSignedDocUrl('contract', contract.signing_token, await tryOrgAppUrl(orgId, 'quote approval copy')) : null
-      const sent = await sendApprovalConfirmation(admin, orgId, approval, proposal.customer_email, opts.pageUrl ?? null, copyUrl).catch((e) => {
+      const sent = await sendApprovalConfirmation(admin, orgId, approval, proposal.customer_email, opts.pageUrl ?? null, copyUrl, plans).catch((e) => {
         console.error('quote approval confirmation failed', e)
         return false
       })

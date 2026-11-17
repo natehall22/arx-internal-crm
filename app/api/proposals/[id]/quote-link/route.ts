@@ -6,8 +6,10 @@ import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { loadOrgProfile, t } from '@/lib/org-profile'
 import { finalizeApproval, loadApproval } from '@/lib/quotes/approve'
 import { createQuoteLink, revokeQuoteLinks } from '@/lib/quotes/links'
-import { loadQuoteContext, priceForSelection } from '@/lib/quotes/load'
+import { loadQuoteContext, priceForSelection, recurringForSelection } from '@/lib/quotes/load'
 import { defaultSelectedIds } from '@/lib/quotes/pricing'
+import { approvalOneTimeCents, approvalPlanValueCents, isRecurringLine } from '@/lib/quotes/recurring'
+import { plansForQuoteLines } from '@/lib/quotes/recurring-plans'
 import { sendQuoteLinkEmail } from '@/lib/quotes/send'
 import { depositCents, effectiveDeposit, isDepositMode } from '@/lib/quotes/settings'
 import { diffSaleCredit, loadDealSaleCredit, saveDealSaleCredit, SALE_CREDIT_EDIT_ROLES, type SaleCreditChange } from '@/lib/deal-sale-credit'
@@ -51,7 +53,9 @@ async function status(admin: ReturnType<typeof createServiceClient>, orgId: stri
     if (!OPEN.includes(String(p.status))) problems.push('This quote is closed.')
     if (!p.opportunity_id) problems.push('Start the quote from the customer’s deal first.')
     if (!(p.customer_name ?? '').trim() || !(p.customer_address ?? '').trim()) problems.push('Add the customer name and address.')
-    if (ctx.lines.length === 0 || price.totalCents <= 0) problems.push('Add at least one item with a price.')
+    const rec = recurringForSelection(ctx, defaultSelectedIds(ctx.lines))
+    if (ctx.lines.length === 0 || (price.totalCents <= 0 && rec.chosen.length === 0)) problems.push('Add at least one item with a price.')
+    if (rec.unsupported.length > 0) problems.push('A recurring service on this quote can’t be sold (service plans are off, or its plan template was removed). Fix or remove it.')
     if (p.opportunity_id) {
       const { data: signed } = await orgDb(admin, orgId).from('order_form_contracts').select('id').eq('opportunity_id', p.opportunity_id).eq('agreement_type', 'installation').eq('status', 'completed').limit(1)
       if ((signed ?? []).length > 0) problems.push('This deal already has an approved quote. Start a new deal for extra work.')
@@ -62,13 +66,15 @@ async function status(admin: ReturnType<typeof createServiceClient>, orgId: stri
     customerEmail: p.customer_email,
     status: p.status,
     optionalCount: ctx.lines.filter((l) => l.is_optional).length,
+    recurringCount: ctx.lines.filter(isRecurringLine).length,
+    plans: approval ? await plansForQuoteLines(admin, orgId, ctx.lines.filter(isRecurringLine).map((l) => l.id)) : [],
     totalCents: price.totalCents,
     deposit: { mode: d.mode, percent: d.percent, fixedCents: d.fixedCents, overridden: d.overridden, cents: depositCents(price.totalCents, d) },
     company: { depositMode: ctx.settings.depositMode, depositPercent: ctx.settings.depositPercent, depositFixedCents: ctx.settings.depositFixedCents },
     problems,
     link: link ? { active: !link.revoked_at && Date.parse(link.expires_at) > Date.now(), expiresAt: link.expires_at, revoked: !!link.revoked_at, firstOpenedAt: link.first_opened_at, lastOpenedAt: link.last_opened_at, sentTo: link.sent_to, sentAt: link.sent_at } : null,
     approval: approval
-      ? { typedName: approval.typed_name, approvedAt: approval.approved_at, ip: approval.approved_ip, totalCents: approval.total_cents, depositCents: approval.deposit_cents, finalized: !!approval.finalized_at, error: approval.finalize_error, jobId: approval.job_id, chosen: approval.snapshot.lines.filter((l) => l.chosen).map((l) => l.name), declined: approval.snapshot.lines.filter((l) => !l.chosen).map((l) => l.name) }
+      ? { typedName: approval.typed_name, approvedAt: approval.approved_at, ip: approval.approved_ip, totalCents: approvalOneTimeCents(approval), planValueCents: approvalPlanValueCents(approval), saleCents: approval.total_cents, depositCents: approval.deposit_cents, finalized: !!approval.finalized_at, error: approval.finalize_error, jobId: approval.job_id, chosen: [...approval.snapshot.lines.filter((l) => l.chosen).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => r.chosen).map((r) => `${r.name} (recurring)`)], declined: [...approval.snapshot.lines.filter((l) => !l.chosen).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => !r.chosen).map((r) => r.name)] }
       : null,
   }
 }

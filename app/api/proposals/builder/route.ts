@@ -10,6 +10,8 @@ import { itemsForList } from '@/lib/price-list'
 import { ownListIdOrNull, resolveQuotePriceList, stampLineOptions } from '@/lib/price-list-server'
 import { canSeeFinancials } from '@/lib/financials-access'
 import { roundMoney } from '@/lib/money'
+import { builderPlanTemplates, cleanRecurringLines } from '@/lib/quotes/recurring-lines'
+import { isRecurringLine } from '@/lib/quotes/recurring'
 import { readSalesTaxSettings } from '@/lib/sales-tax'
 import { proposalSalesTaxFields } from '@/lib/sales-tax-server'
 
@@ -407,6 +409,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       pricebookItems,
       // Price lists: shown as a dropdown only when the company keeps more than one.
+      // Recurring service (service plan templates) for the quote builder; empty unless Service plans + Online quote approval are on.
+      servicePlanTemplates: await builderPlanTemplates(adminClient, profile.org_id),
       priceLists: priceList.lists,
       priceListId: priceList.id,
       adders: visibleItems.filter((i: any) => i.is_adder),
@@ -457,6 +461,8 @@ function proposalLineItemRow(item: any, index: number, orgId: string, proposalId
     // Size option the rep tapped (stamped from the price book by stampLineOptions, never taken from the browser).
     ...(typeof item.price_option_name === 'string' && item.price_option_name ? { price_option_key: typeof item.price_option_key === 'string' ? item.price_option_key : null, price_option_name: item.price_option_name, price_option_price: roundMoney(Number(item.price_option_price) || 0) } : {}),
     ...(item.is_optional === true ? { is_optional: true, optional_default_on: item.optional_default_on === true } : {}),
+    // Recurring service line (already checked by cleanRecurringLines): written only when set.
+    ...(typeof item.service_plan_template_id === 'string' && item.service_plan_template_id ? { service_plan_template_id: item.service_plan_template_id, plan_start_date: item.plan_start_date, plan_weekday: item.plan_weekday ?? null } : {}),
   }
 }
 
@@ -553,10 +559,14 @@ export async function POST(request: NextRequest) {
     // Price list this quote was built from (only when the browser sent one that is this company's own).
     const quoteListId = await ownListIdOrNull(adminClient, profile.org_id, proposal.pricebook_id)
     if (quoteListId) cleanProposal.pricebook_id = quoteListId
-    const savedLines = Array.isArray(lineItems) ? await stampLineOptions(adminClient, profile.org_id, lineItems as Record<string, unknown>[]) : lineItems
+    const stampedLines = Array.isArray(lineItems) ? await stampLineOptions(adminClient, profile.org_id, lineItems as Record<string, unknown>[]) : lineItems
+    // Recurring (service plan) lines: checked against the template + company switches, saved with no one-time amount.
+    const recurringChecked = Array.isArray(stampedLines) ? await cleanRecurringLines(adminClient, profile.org_id, stampedLines as Record<string, unknown>[]) : null
+    if (recurringChecked && !recurringChecked.ok) return NextResponse.json({ error: recurringChecked.error }, { status: 400 })
+    const savedLines = recurringChecked ? recurringChecked.lines : stampedLines
 
     // Company sales-tax rates: the server recomputes the money fields (lib/sales-tax-server.ts). Legacy quotes: unchanged.
-    const taxFields = await proposalSalesTaxFields(adminClient, profile.org_id, cleanProposal.opportunity_id ? { ...proposal, opportunity_id: cleanProposal.opportunity_id } : proposal, Array.isArray(lineItems) ? (lineItems as Record<string, unknown>[]) : [])
+    const taxFields = await proposalSalesTaxFields(adminClient, profile.org_id, cleanProposal.opportunity_id ? { ...proposal, opportunity_id: cleanProposal.opportunity_id } : proposal, Array.isArray(lineItems) ? (lineItems as Record<string, unknown>[]).filter((li) => !isRecurringLine(li)) : [])
     if (taxFields) Object.assign(cleanProposal, taxFields)
 
     const financingMerged = await mergeFinancingIntoProposal(adminClient, profile.org_id, {
@@ -731,10 +741,14 @@ export async function PUT(request: NextRequest) {
     // Price list this quote was built from (only when the browser sent one that is this company's own).
     const quoteListId = await ownListIdOrNull(adminClient, profile.org_id, proposal.pricebook_id)
     if (quoteListId) cleanProposal.pricebook_id = quoteListId
-    const savedLines = Array.isArray(lineItems) ? await stampLineOptions(adminClient, profile.org_id, lineItems as Record<string, unknown>[]) : lineItems
+    const stampedLines = Array.isArray(lineItems) ? await stampLineOptions(adminClient, profile.org_id, lineItems as Record<string, unknown>[]) : lineItems
+    // Recurring (service plan) lines: checked against the template + company switches, saved with no one-time amount.
+    const recurringChecked = Array.isArray(stampedLines) ? await cleanRecurringLines(adminClient, profile.org_id, stampedLines as Record<string, unknown>[]) : null
+    if (recurringChecked && !recurringChecked.ok) return NextResponse.json({ error: recurringChecked.error }, { status: 400 })
+    const savedLines = recurringChecked ? recurringChecked.lines : stampedLines
 
     // Company sales-tax rates: the server recomputes the money fields (lib/sales-tax-server.ts). Legacy quotes: unchanged.
-    const taxFields = await proposalSalesTaxFields(adminClient, profile.org_id, cleanProposal.opportunity_id ? { ...proposal, opportunity_id: cleanProposal.opportunity_id } : proposal, Array.isArray(lineItems) ? (lineItems as Record<string, unknown>[]) : [])
+    const taxFields = await proposalSalesTaxFields(adminClient, profile.org_id, cleanProposal.opportunity_id ? { ...proposal, opportunity_id: cleanProposal.opportunity_id } : proposal, Array.isArray(lineItems) ? (lineItems as Record<string, unknown>[]).filter((li) => !isRecurringLine(li)) : [])
     if (taxFields) Object.assign(cleanProposal, taxFields)
 
     const financingMerged = await mergeFinancingIntoProposal(adminClient, profile.org_id, {

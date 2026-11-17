@@ -95,6 +95,19 @@ interface LineItem {
   price_option_key?: string | null
   price_option_name?: string | null
   price_option_price?: number | null
+  /** Recurring service line (a service plan template): kept in `recurringLines`, never in the one-time lines or totals. */
+  service_plan_template_id?: string | null
+  plan_start_date?: string | null
+  plan_weekday?: number | null
+}
+
+/** A plan template the quote may sell as a recurring line (server-filtered: active, not hourly, takes a typed price). */
+interface PlanTemplateOption {
+  id: string
+  name: string
+  basisLabel: string
+  schedule: string
+  defaultPrice: number | null
 }
 
 interface ProposalForm {
@@ -199,6 +212,10 @@ export default function ProposalBuilderPage() {
   }, [simple, step])
   const [form, setForm] = useState<ProposalForm>(defaultForm)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
+  /** Recurring service lines (service plans): separate from the one-time lines so no total or tax maths ever sees them. */
+  const [recurringLines, setRecurringLines] = useState<LineItem[]>([])
+  const [planTemplates, setPlanTemplates] = useState<PlanTemplateOption[]>([])
+  const [newPlan, setNewPlan] = useState({ templateId: '', price: '', start: '', weekday: '' })
   /**
    * Sales tax (lib/sales-tax.ts). `taxRateIds === null` = legacy: one rate typed on this quote, every line taxed
    * (company not set up, or an older quote being edited). Otherwise the chosen company rates on the taxable lines.
@@ -298,6 +315,7 @@ export default function ProposalBuilderPage() {
       setPricebookItems(data.pricebookItems || [])
       setAdders(data.adders || [])
       setPriceLists(data.priceLists || [])
+      setPlanTemplates(data.servicePlanTemplates || [])
       setPriceListId(data.priceListId ?? null)
       setTemplates(data.templates || [])
       setRoofingTypes(data.roofingTypes || [])
@@ -452,8 +470,12 @@ export default function ProposalBuilderPage() {
           price_option_key: typeof row.price_option_key === 'string' ? row.price_option_key : null,
           price_option_name: typeof row.price_option_name === 'string' ? row.price_option_name : null,
           price_option_price: row.price_option_price == null ? null : Number(row.price_option_price),
+          service_plan_template_id: typeof row.service_plan_template_id === 'string' ? row.service_plan_template_id : null,
+          plan_start_date: typeof row.plan_start_date === 'string' ? row.plan_start_date : null,
+          plan_weekday: row.plan_weekday == null ? null : Number(row.plan_weekday),
         }))
-        setLineItems(mapped)
+        setLineItems(mapped.filter((li) => !li.service_plan_template_id))
+        setRecurringLines(mapped.filter((li) => li.service_plan_template_id))
         setStep(4)
       } else {
         setEditingProposalId(null)
@@ -991,7 +1013,7 @@ export default function ProposalBuilderPage() {
         ...(priceLists.length > 1 && priceListId ? { pricebook_id: priceListId } : {}),
       }
 
-      const lineItemsData = lineItems.map((item, idx) => ({
+      const lineItemsData = [...lineItems, ...recurringLines].map((item, idx) => ({
         pricebook_item_id: item.pricebook_item_id,
         category: item.category,
         name: item.name,
@@ -1006,6 +1028,7 @@ export default function ProposalBuilderPage() {
         ...(appliedTaxRates ? { taxable: item.taxable ?? null } : {}),
         ...(item.is_optional ? { is_optional: true, optional_default_on: item.optional_default_on === true } : {}),
         ...(item.price_option_key ? { price_option_key: item.price_option_key } : {}),
+        ...(item.service_plan_template_id ? { service_plan_template_id: item.service_plan_template_id, plan_start_date: item.plan_start_date, plan_weekday: item.plan_weekday ?? null } : {}),
       }))
 
       const response = await fetch('/api/proposals/builder', {
@@ -2219,6 +2242,82 @@ export default function ProposalBuilderPage() {
               </div>
               
               <div className="space-y-3">
+                {/* Recurring service (Service plans + Online quote approval): a plan template as a quote line; the plan is made when the customer approves. */}
+                {orgFeatures.servicePlans && orgFeatures.quoteApproval && (planTemplates.length > 0 || recurringLines.length > 0) && (
+                  <fieldset className="pb-3 border-b border-amber-200" data-testid="recurring-lines">
+                    <legend className="text-sm font-medium text-amber-900 mb-1">Recurring service</legend>
+                    <p className="text-sm text-[#2c2c2a] mb-2">Not part of the total above. The customer sees it separately, and a service plan starts when they approve.</p>
+                    {recurringLines.map((item) => {
+                      const tpl = planTemplates.find((t) => t.id === item.service_plan_template_id)
+                      return (
+                        <div key={item.id} className="mb-3 rounded-lg border border-amber-200 bg-white p-3 text-base text-[#2c2c2a]">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="font-semibold">{item.name}</div>
+                              {tpl ? <div className="text-sm">{tpl.schedule}</div> : null}
+                            </div>
+                            <button type="button" className="min-h-[44px] px-3 text-base font-semibold text-red-700 underline" onClick={() => setRecurringLines((prev) => prev.filter((li) => li.id !== item.id))}>Remove</button>
+                          </div>
+                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <label className="block text-sm">Price {tpl ? tpl.basisLabel : ''}
+                              <input type="number" inputMode="decimal" min="0" step="0.01" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={item.unit_price || ''} onChange={(e) => setRecurringLines((prev) => prev.map((li) => (li.id === item.id ? { ...li, unit_price: Number(e.target.value) || 0 } : li)))} />
+                            </label>
+                            <label className="block text-sm">Starts
+                              <input type="date" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={item.plan_start_date ?? ''} onChange={(e) => setRecurringLines((prev) => prev.map((li) => (li.id === item.id ? { ...li, plan_start_date: e.target.value || null } : li)))} />
+                            </label>
+                            <label className="block text-sm">Visit day (optional)
+                              <select className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={item.plan_weekday ?? ''} onChange={(e) => setRecurringLines((prev) => prev.map((li) => (li.id === item.id ? { ...li, plan_weekday: e.target.value === '' ? null : Number(e.target.value) } : li)))}>
+                                <option value="">Same as start date</option>
+                                {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d, i) => <option key={d} value={i}>{d}</option>)}
+                              </select>
+                            </label>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-4">
+                            <label className="flex min-h-[44px] items-center gap-3">
+                              <input type="checkbox" className="h-5 w-5" checked={item.is_optional === true} onChange={(e) => setRecurringLines((prev) => prev.map((li) => (li.id === item.id ? { ...li, is_optional: e.target.checked, optional_default_on: e.target.checked ? li.optional_default_on === true : false } : li)))} />
+                              <span>Optional for the customer</span>
+                            </label>
+                            {item.is_optional ? (
+                              <label className="flex min-h-[44px] items-center gap-2 text-sm">
+                                <input type="checkbox" className="h-5 w-5" checked={item.optional_default_on === true} onChange={(e) => setRecurringLines((prev) => prev.map((li) => (li.id === item.id ? { ...li, optional_default_on: e.target.checked } : li)))} />
+                                <span>Ticked to start</span>
+                              </label>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {planTemplates.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4" data-testid="add-recurring">
+                        <label className="block text-sm">Plan
+                          <select aria-label="Plan template" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={newPlan.templateId} onChange={(e) => { const t = planTemplates.find((x) => x.id === e.target.value); setNewPlan((p) => ({ ...p, templateId: e.target.value, price: t?.defaultPrice != null ? String(t.defaultPrice) : p.price })) }}>
+                            <option value="">Choose a plan…</option>
+                            {planTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                          </select>
+                        </label>
+                        <label className="block text-sm">Price
+                          <input type="number" inputMode="decimal" min="0" step="0.01" aria-label="Plan price" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={newPlan.price} onChange={(e) => setNewPlan((p) => ({ ...p, price: e.target.value }))} />
+                        </label>
+                        <label className="block text-sm">Starts
+                          <input type="date" aria-label="Plan start date" className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-base" value={newPlan.start} onChange={(e) => setNewPlan((p) => ({ ...p, start: e.target.value }))} />
+                        </label>
+                        <div className="flex items-end">
+                          <button
+                            type="button"
+                            className="min-h-[44px] w-full rounded-lg bg-[#1f2937] px-4 text-base font-semibold text-white disabled:opacity-50"
+                            disabled={!newPlan.templateId || !(Number(newPlan.price) > 0) || !newPlan.start}
+                            onClick={() => {
+                              const t = planTemplates.find((x) => x.id === newPlan.templateId)
+                              if (!t) return
+                              setRecurringLines((prev) => [...prev, { id: crypto.randomUUID(), pricebook_item_id: null, category: 'Recurring service', name: t.name, description: '', unit: 'each', quantity: 1, unit_price: Number(newPlan.price), line_total: 0, is_adder: false, show_to_customer: true, service_plan_template_id: t.id, plan_start_date: newPlan.start, plan_weekday: null }])
+                              setNewPlan({ templateId: '', price: '', start: '', weekday: '' })
+                            }}
+                          >Add recurring service</button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </fieldset>
+                )}
                 {/* Sales tax per line (company rates only): starts from the price-book item's Taxable flag. */}
                 {taxRateIds !== null && salesTax?.enabled && !customerTaxExempt && lineItems.length > 0 && (
                   <fieldset className="pb-3 border-b border-amber-200">

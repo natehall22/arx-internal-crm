@@ -10,6 +10,7 @@ import { loadCustomFieldDefinitions, loadCustomFieldValues } from '@/lib/custom-
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
+import { livePlanCountForProposal } from '@/lib/quotes/recurring-plans'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
 import { buildJobSoldScope, type JobSoldScope } from '@/lib/job-sold-scope'
@@ -639,6 +640,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
     <JobDetailClient
       detailsSlot={detailsSlot}
       orgFeatures={orgProfile.features}
+      quotePlanCount={orgProfile.features.servicePlans ? await livePlanCountForProposal(admin, profile.org_id, jobRow.accepted_proposal_id ?? null) : 0}
       orgProfile={clientOrgProfile(orgProfile)}
       catchUp={catchUp}
       embedded={embedded}

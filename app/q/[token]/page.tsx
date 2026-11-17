@@ -6,6 +6,7 @@ import { customerSignedDocPath } from '@/lib/files/files-object'
 import { loadOrgFeatures } from '@/lib/org-features'
 import { depositStateFor, finalizeApproval, loadApproval } from '@/lib/quotes/approve'
 import { resolvePublicQuoteLink, touchQuoteLink } from '@/lib/quotes/links'
+import { approvalOneTimeCents } from '@/lib/quotes/recurring'
 import { buildQuoteView, companyForQuote, loadQuoteContext, type QuoteView } from '@/lib/quotes/load'
 import { orgDb } from '@/lib/supabase/org-db'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -52,10 +53,11 @@ export default async function QuotePage({ params }: { params: { token: string } 
     approvalView = {
       typedName: approval.typed_name,
       approvedAt: approval.approved_at,
-      totalCents: approval.total_cents,
+      // The one-time total the customer sees; the approval's total_cents is the sale amount (it also holds the recurring first-season value).
+      totalCents: approvalOneTimeCents(approval),
       depositCents: approval.deposit_cents,
       taxCents: approval.tax_cents,
-      chosenNames: approval.snapshot.lines.filter((l) => l.chosen && l.optional).map((l) => l.name),
+      chosenNames: [...approval.snapshot.lines.filter((l) => l.chosen && l.optional).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => r.chosen && r.optional).map((r) => r.name)],
       depositState: !dep ? 'pending' : dep.state,
       canPayOnline: dep?.canPayOnline ?? false,
       copyHref,

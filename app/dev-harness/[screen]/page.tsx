@@ -305,6 +305,20 @@ const HARNESS_QUOTE_VIEW: QuoteView = {
   terms: 'Work is scheduled within two weeks of approval. Weather may move a visit.',
   fingerprint: 'harness0',
   approval: null,
+  recurring: [],
+  recurringTerms: [],
+  hasOneTime: true,
+}
+
+/** Same quote with a recurring service line (a plan template) shown apart from the one-time total, one of them optional. */
+const HARNESS_QUOTE_RECURRING_VIEW: QuoteView = {
+  ...HARNESS_QUOTE_VIEW,
+  recurring: [
+    { id: 'p1', name: 'Bi-weekly mowing', description: 'Mow, edge and blow', detail: '$45 per visit · Apr 1–Oct 31 · about 15 visits', optional: false, defaultOn: false },
+    { id: 'p2', name: 'Monthly shrub trimming', description: '', detail: '$60 per visit · Apr 1–Oct 31 · about 7 visits', optional: true, defaultOn: false },
+  ],
+  recurringTerms: ['Billed after each visit. Cancel anytime.'],
+  lines: [...HARNESS_QUOTE_VIEW.lines, { id: 'p1', line_total: 0, unit_price: 45, unit: 'visit', price_type: null, taxable: null, service_plan_template_id: 'tpl-1' }, { id: 'p2', line_total: 0, unit_price: 60, unit: 'visit', price_type: null, taxable: null, is_optional: true, optional_default_on: false, service_plan_template_id: 'tpl-2' }],
 }
 
 export default function Harness({ params }: { params: { screen: string } }) {
@@ -818,6 +832,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><OnlinePaymentsCard /></div>
     case 'quote-page':
       return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={HARNESS_QUOTE_VIEW} />
+    case 'quote-page-recurring':
+      return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={HARNESS_QUOTE_RECURRING_VIEW} />
+    case 'quote-page-recurring-only':
+      return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={{ ...HARNESS_QUOTE_RECURRING_VIEW, required: [], options: [], hasOneTime: false, lines: HARNESS_QUOTE_RECURRING_VIEW.lines.filter((l) => l.service_plan_template_id) }} />
     case 'quote-page-approved':
       return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={{ ...HARNESS_QUOTE_VIEW, state: 'approved', approval: { typedName: 'Pat Doe', approvedAt: '2026-11-11T15:00:00.000Z', totalCents: 180000, depositCents: 45000, taxCents: 11800, chosenNames: ['Mulch refresh (6 yards)'], depositState: 'due', canPayOnline: true, copyHref: '/api/files/signed/contract/harness' } }} />
     case 'quote-send-card':
