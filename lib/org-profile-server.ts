@@ -168,6 +168,11 @@ export async function applyIndustryProfile(
   }
   const { error } = await mergeOrgSettings(client, orgId, { id: to, version: INDUSTRY_PROFILES[to].version }, { path: [ORG_PROFILE_SETTINGS_KEY] })
   if (error) throw new Error(`profile: ${error}`)
-  await ensureProfileAppointmentType(client, orgId, to)
+  // Best effort: a failure here must never undo or fail the switch (the profile is already recorded).
+  try {
+    await ensureProfileAppointmentType(client, orgId, to)
+  } catch (e) {
+    console.error('applyIndustryProfile: appointment type not added', e)
+  }
   return { plan }
 }
