@@ -231,7 +231,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     for (const s of shapes) make(s.type, s.points, s.id === selectedId, false, () => setSelectedId(s.id))
     if (draft) make(draft.type, draft.points, true, true)
     // Where an outline crosses itself: the two edges and a red square on the spot.
-    const showCrossing = (pts: LatLngPoint[], list: Crossing[]) => {
+    const showCrossing = (pts: LatLngPoint[], list: readonly Crossing[]) => {
       for (const c of list) {
         for (const e of [c.edgeA, c.edgeB]) {
           keep(new g.Polyline({ map, path: [pts[e], pts[(e + 1) % pts.length]], strokeColor: CROSS_COLOR, strokeWeight: 7, clickable: false, zIndex: 6 }))

@@ -141,7 +141,18 @@ export type Crossing = { edgeA: number; edgeB: number; at: LatLngPoint }
  * Works in a flat local frame (metres around the shape), which is exact enough for a yard. A repeated point or a touching vertex
  * counts: a self-crossing outline has no single area, and Google's number for it is not the yard's. `at` is where, for the screen.
  */
-export function polygonCrossings(points: readonly LatLngPoint[]): Crossing[] {
+export function polygonCrossings(points: readonly LatLngPoint[]): readonly Crossing[] {
+  // O(n^2) per outline and asked several times for the same points (parse, cookie cutter, the screen's map / status / save checks).
+  // Points arrays are never changed in place (a drag makes a new array), so the answer is kept per array.
+  const hit = crossingsCache.get(points)
+  if (hit) return hit
+  const found = findCrossings(points)
+  crossingsCache.set(points, found)
+  return found
+}
+const crossingsCache = new WeakMap<readonly LatLngPoint[], readonly Crossing[]>()
+
+function findCrossings(points: readonly LatLngPoint[]): Crossing[] {
   const n = points.length
   if (n < 4) return []
   const lat0 = points.reduce((a, p) => a + p.lat, 0) / n
