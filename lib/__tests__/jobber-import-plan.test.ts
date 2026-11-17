@@ -198,3 +198,14 @@ describe('quarterly and yearly from Jobber', () => {
     expect(frequencyFromWords('Monthly mow')).toBe('monthly')
   })
 })
+
+describe('seasonsFromVisits odd gaps / bi-yearly', () => {
+  it('does not turn gaps outside the known bands into monthly', () => {
+    expect(seasonsFromVisits(['2026-01-01', '2026-04-20', '2026-08-30'])).toBeNull()
+  })
+  it('does not read bi-yearly as yearly', () => {
+    expect(frequencyFromWords('Bi-yearly gutter clean')).toBeNull()
+    expect(frequencyFromWords('Yearly gutter clean')).toBe('yearly')
+  })
+})
+

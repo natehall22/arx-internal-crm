@@ -1316,6 +1316,11 @@ export async function ensureServiceVisits(
         ...(addresses.get(plan.property_id) ?? {}),
       }))
     if (!rows.length) continue
+    // A one-off makes exactly one visit, ever: once it has one (moved, done, skipped or cancelled) nothing is made again.
+    if (plan.one_off) {
+      const { data: anyVisit } = await db.from('work_orders').select('id').eq('service_plan_id', plan.id).eq('visit_step', SERVICE_STEP).limit(1)
+      if ((anyVisit ?? []).length) continue
+    }
     const { data, error } = await admin.rpc('service_plan_add_visits', {
       p_org_id: orgId,
       p_plan_id: plan.id,
@@ -1595,6 +1600,34 @@ export function sortVisits<T extends Pick<VisitView, 'scheduledDate' | 'routePos
   )
 }
 
+/**
+ * A one-off visit is a plan that makes one visit, so when the visit moves the plan's start and end move with it: otherwise
+ * the plan ends on the old day (the nightly end sweep) and the visit drops off the customer's "upcoming one-off visits" list
+ * before it is done. The visit's planned slot follows too, and the generator never makes a second visit for a one-off.
+ * Recurring plans are untouched (a moved visit keeps its planned slot so the generator never puts it back).
+ */
+export async function syncOneOffPlansAfterMove(admin: SupabaseClient, orgId: string, visitIds: string[]): Promise<void> {
+  if (!visitIds.length) return
+  const db = orgDb(admin, orgId)
+  for (let i = 0; i < visitIds.length; i += 200) {
+    const { data: wos } = await db
+      .from('work_orders')
+      .select('id, service_plan_id, scheduled_date, status')
+      .in('id', visitIds.slice(i, i + 200))
+      .eq('work_order_type', SERVICE_VISIT_TYPE)
+      .eq('visit_step', SERVICE_STEP)
+    const rows = ((wos ?? []) as Array<{ id: string; service_plan_id: string | null; scheduled_date: string | null; status: string }>).filter((r) => r.service_plan_id && r.scheduled_date && r.status === 'scheduled')
+    if (!rows.length) continue
+    const { data: plans } = await db.from('service_plans').select('id').in('id', Array.from(new Set(rows.map((r) => r.service_plan_id as string)))).eq('one_off', true)
+    const oneOff = new Set(((plans ?? []) as Array<{ id: string }>).map((p) => p.id))
+    for (const r of rows.filter((x) => oneOff.has(x.service_plan_id as string))) {
+      const day = r.scheduled_date as string
+      await db.from('service_plans').update({ start_date: day, end_date: day, status: 'active', ended_at: null }).eq('id', r.service_plan_id as string)
+      await db.from('work_orders').update({ service_planned_date: day }).eq('id', r.id)
+    }
+  }
+}
+
 export type VisitActResult = { ok: true } | { ok: false; status: 400 | 404 | 409; error: string }
 
 /**
@@ -1669,6 +1702,7 @@ export async function applyVisitAction(
     const { queueVisitDone } = await import('@/lib/customer-messages-db')
     await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
   }
+  if (a.action === 'move') await syncOneOffPlansAfterMove(admin, orgId, [visitId])
   return { ok: true }
 }
 
@@ -1830,6 +1864,7 @@ export async function bulkShiftVisits(
         .select('id')
       if (uErr) throw uErr
       moved += (done ?? []).length
+      await syncOneOffPlansAfterMove(admin, orgId, ((done ?? []) as Array<{ id: string }>).map((d) => d.id))
     }
   }
   return { moved }

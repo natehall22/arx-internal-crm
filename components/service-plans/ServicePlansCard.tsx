@@ -8,7 +8,7 @@ import { formatDateShort, formatDateTime, formatMoney } from '@/lib/format'
 import OneOffVisit from '@/components/service-plans/OneOffVisit'
 import { BILLING_BASIS_LABELS, WEEKDAY_LABELS, isOneOffPlan, planWeekday, seasonLabel } from '@/lib/service-plans'
 
-type OneOff = { planId: string; visitId: string; name: string; date: string; crew: string | null; workOrderNumber: string | null }
+type OneOff = { planId: string; visitId: string; name: string; date: string; crew: string | null; subId: string | null; workOrderNumber: string | null }
 type Load = PlanEditorOptions & { ready: boolean; plans: PlanRow[]; canEdit: boolean; oneOffs?: OneOff[] }
 
 type Preview = { body: Record<string, unknown>; plan: PlanRow; summary: string; lines: string[] }
@@ -149,13 +149,13 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
                       <Button size="sm" variant="secondary" loading={saving} disabled={!moving[o.visitId] || moving[o.visitId] === o.date} onClick={async () => { const out = await send(`/api/ops/visits/${o.visitId}`, 'POST', { action: 'move', date: moving[o.visitId] }); if (out) { toast.success('Visit moved'); await load() } }}>
                         Move
                       </Button>
-                      <Select aria-label={`Crew for ${o.name}`} className="max-w-[12rem] text-base" value={d.crews.find((c) => c.name === o.crew)?.id ?? ''} onChange={async (e) => { const out = await send(`/api/ops/visits/${o.visitId}`, 'POST', { action: 'assign', subId: e.target.value || null }); if (out) { toast.success('Crew changed'); await load() } }}>
+                      <Select aria-label={`Crew for ${o.name}`} className="max-w-[12rem] text-base" value={o.subId ?? ''} onChange={async (e) => { const out = await send(`/api/ops/visits/${o.visitId}`, 'POST', { action: 'assign', subId: e.target.value || null }); if (out) { toast.success('Crew changed'); await load() } }}>
                         <option value="">No crew yet</option>
                         {d.crews.map((c) => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </Select>
-                      <Button size="sm" variant="secondary" loading={saving} onClick={async () => { if (await confirmDialog({ title: `Cancel this visit?`, description: `${o.name} on ${formatDateShort(o.date)} comes off the calendar.`, confirmLabel: 'Cancel visit', destructive: true })) { const out = await send(`/api/service-plans/${o.planId}`, 'PATCH', { action: 'end' }); if (out) { toast.success('Visit cancelled'); await load() } } }}>
+                      <Button size="sm" variant="secondary" loading={saving} onClick={async () => { if (await confirmDialog({ title: `Cancel this visit?`, description: `${o.name} on ${formatDateShort(o.date)} comes off the calendar.`, confirmLabel: 'Cancel visit', destructive: true })) { const skipped = await send(`/api/ops/visits/${o.visitId}`, 'POST', { action: 'skip', reason: 'customer', notes: 'Visit cancelled' }); if (skipped) { const out = await send(`/api/service-plans/${o.planId}`, 'PATCH', { action: 'end', on: o.date }); if (out) toast.success('Visit cancelled'); await load() } } }}>
                         Cancel visit
                       </Button>
                     </div>

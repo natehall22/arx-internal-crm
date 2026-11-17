@@ -3,7 +3,7 @@
 -- portal's plan list can tell it from a regular plan that happens to end the same day it starts.
 -- one_off_key: the client-made key of the request that created it, so a double tap or a retried request returns the same visit
 -- instead of making a second one (unique per company when set).
--- Additive only: one new column with a default; existing rows are false. Apply BEFORE the code that reads it.
+-- Additive only: one new column with a default; existing rows are false. APPLY BEFORE DEPLOY: the code reads these columns.
 -- Rollback: the column is harmless to leave in place; older code never reads it.
 ALTER TABLE public.service_plans ADD COLUMN IF NOT EXISTS one_off boolean NOT NULL DEFAULT false;
 ALTER TABLE public.service_plans ADD COLUMN IF NOT EXISTS one_off_key text NULL;

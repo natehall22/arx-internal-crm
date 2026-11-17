@@ -1115,7 +1115,7 @@ export default function JobDetailClient({
   const unpaidForTabs = canViewJobBilling && paymentSummary ? unpaidContractCents : null
   const v2Attention = useMemo(
     () => tabsNeedingAttention({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, materialsStep: orgFeatures.materialOrdering }).filter((t) => v2Tabs.includes(t)),
-    [job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs]
+    [job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs, orgFeatures.materialOrdering]
   )
   // Until the person picks a tab (or arrives by a deep link), follow the next thing that needs doing as the data arrives.
   useEffect(() => {
@@ -1127,7 +1127,7 @@ export default function JobDetailClient({
     setJobTabState(
       pickDefaultJobTab({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, allowed: v2Tabs.filter((t) => t !== 'notes'), lastTab: last, materialsStep: orgFeatures.materialOrdering })
     )
-  }, [v2, job.status, materialsState.key, jobTrades, tradesLoaded, canViewJobBilling, paymentSummary, todayYmd, unpaidForTabs, v2Tabs])
+  }, [v2, job.status, materialsState.key, jobTrades, tradesLoaded, canViewJobBilling, paymentSummary, todayYmd, unpaidForTabs, v2Tabs, orgFeatures.materialOrdering])
 
   const handleCompleteClick = () => {
     // Warn, don't block: crews finish out one at a time, and ops may know a
