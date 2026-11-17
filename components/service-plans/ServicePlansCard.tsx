@@ -8,7 +8,7 @@ import { formatDateShort, formatDateTime, formatMoney } from '@/lib/format'
 import OneOffVisit from '@/components/service-plans/OneOffVisit'
 import { BILLING_BASIS_LABELS, WEEKDAY_LABELS, isOneOffPlan, planWeekday, seasonLabel } from '@/lib/service-plans'
 
-type OneOff = { planId: string; visitId: string; name: string; date: string; crew: string | null; subId: string | null; workOrderNumber: string | null }
+type OneOff = { planId: string; visitId: string; name: string; date: string; crew: string | null; subId: string | null; workOrderNumber: string | null; planStart?: string | null }
 type Load = PlanEditorOptions & { ready: boolean; plans: PlanRow[]; canEdit: boolean; oneOffs?: OneOff[] }
 
 type Preview = { body: Record<string, unknown>; plan: PlanRow; summary: string; lines: string[] }
@@ -62,13 +62,13 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
   const d = { ...data, plans: data.plans.filter((p) => !isOneOffPlan(p)) }
   const oneOffs = data.oneOffs ?? []
 
-  async function send(url: string, method: string, body: unknown): Promise<Record<string, unknown> | null> {
+  async function send(url: string, method: string, body: unknown, quiet = false): Promise<Record<string, unknown> | null> {
     setSaving(true)
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
     const out = (res ? await res.json().catch(() => ({})) : {}) as Record<string, unknown>
     setSaving(false)
     if (!res || !res.ok) {
-      toast.error(typeof out.error === 'string' ? out.error : 'Could not save')
+      if (!quiet) toast.error(typeof out.error === 'string' ? out.error : 'Could not save')
       return null
     }
     return out
@@ -155,7 +155,7 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </Select>
-                      <Button size="sm" variant="secondary" loading={saving} onClick={async () => { if (await confirmDialog({ title: `Cancel this visit?`, description: `${o.name} on ${formatDateShort(o.date)} comes off the calendar.`, confirmLabel: 'Cancel visit', destructive: true })) { const skipped = await send(`/api/ops/visits/${o.visitId}`, 'POST', { action: 'skip', reason: 'customer', notes: 'Visit cancelled' }); if (skipped) { const out = await send(`/api/service-plans/${o.planId}`, 'PATCH', { action: 'end', on: o.date }); if (out) toast.success('Visit cancelled'); await load() } } }}>
+                      <Button size="sm" variant="secondary" loading={saving} onClick={async () => { if (await confirmDialog({ title: `Cancel this visit?`, description: `${o.name} on ${formatDateShort(o.date)} comes off the calendar.`, confirmLabel: 'Cancel visit', destructive: true })) { const skipped = await send(`/api/ops/visits/${o.visitId}`, 'POST', { action: 'skip', reason: 'customer', notes: 'Visit cancelled' }); if (skipped) { const endOn = o.planStart && o.planStart > o.date ? o.planStart : o.date; const out = await send(`/api/service-plans/${o.planId}`, 'PATCH', { action: 'end', on: endOn }, true); if (!out) console.error('[service-plans] visit cancelled but plan end failed', o.planId); toast.success('Visit cancelled'); await load() } } }}>
                         Cancel visit
                       </Button>
                     </div>

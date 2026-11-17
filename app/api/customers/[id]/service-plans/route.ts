@@ -28,7 +28,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   // Upcoming one-off visits (a one-off is a plan that makes one visit): listed apart from the recurring plans, each with its visit
   // so the card can move it, change its crew or cancel it.
   const oneOffPlans = plans.plans.filter((p) => isOneOffPlan(p) && p.status === 'active')
-  let oneOffs: Array<{ planId: string; visitId: string; name: string; date: string; crew: string | null; subId: string | null; workOrderNumber: string | null }> = []
+  let oneOffs: Array<{ planId: string; visitId: string; name: string; date: string; crew: string | null; subId: string | null; workOrderNumber: string | null; planStart: string | null }> = []
   if (oneOffPlans.length) {
     const today = ymdInZone(new Date(), await loadOrgTimeZone(ctx.admin, ctx.orgId))
     const { from, to } = visitHorizon(today)
@@ -36,7 +36,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const visits = await loadVisits(ctx.admin, ctx.orgId, { from, to, customerId: params.id, accessNotes: false })
     oneOffs = visits
       .filter((v) => v.status === 'scheduled' && byPlan.has(v.planId))
-      .map((v) => ({ planId: v.planId, visitId: v.id, name: v.planName, date: v.scheduledDate, crew: v.subName, subId: v.subId, workOrderNumber: v.workOrderNumber }))
+      .map((v) => ({ planId: v.planId, visitId: v.id, name: v.planName, date: v.scheduledDate, crew: v.subName, subId: v.subId, workOrderNumber: v.workOrderNumber, planStart: byPlan.get(v.planId)?.start_date ?? null }))
   }
   return NextResponse.json({
     ready: plans.ready,

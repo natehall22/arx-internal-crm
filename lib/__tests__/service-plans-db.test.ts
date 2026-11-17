@@ -606,4 +606,34 @@ describe('one-off visits', () => {
     expect(await createOneOffVisit(db.client, ORG, 'u1', 'c1', { ...body, date: '2026-11-09' }, NOW)).toMatchObject({ ok: false, status: 400 })
     expect((await createOneOffVisit(db.client, ORG, 'u1', 'c1', { ...body, property_id: 'p2' }, NOW)).ok).toBe(false)
   })
+  describe('moving a one-off visit and its plan status', () => {
+    async function makeVisit() {
+      const db = seed()
+      const r = await createOneOffVisit(db.client, ORG, 'u1', 'c1', body, NOW)
+      expect(r.ok).toBe(true)
+      const visit = (db.tables.work_orders as Array<Record<string, unknown>>)[0]
+      return { db, visitId: visit.id as string }
+    }
+    const plan = (db: ReturnType<typeof seed>) => (db.tables.service_plans as Array<Record<string, unknown>>)[0]
+    it('brings back a plan the nightly sweep ended, with history', async () => {
+      const { db, visitId } = await makeVisit()
+      Object.assign(plan(db), { status: 'ended', ended_at: NOW.toISOString() })
+      ;(db.tables.service_plan_changes ??= []).push({ org_id: ORG, plan_id: plan(db).id, action: 'auto_ended', changed_at: NOW.toISOString() })
+      const res = await applyVisitAction(db.client, ORG, visitId, { action: 'move', date: '2026-11-25' }, { userId: 'u1', subId: null }, { now: NOW })
+      expect(res).toEqual({ ok: true })
+      expect(plan(db)).toMatchObject({ status: 'active', start_date: '2026-11-25', end_date: '2026-11-25', ended_at: null })
+      expect((db.tables.service_plan_changes as Array<Record<string, unknown>>).some((c) => c.action === 'auto_resumed')).toBe(true)
+    })
+    it('refuses to move the visit of a plan a person ended or paused, and leaves the plan alone', async () => {
+      for (const status of ['ended', 'paused']) {
+        const { db, visitId } = await makeVisit()
+        Object.assign(plan(db), { status })
+        ;(db.tables.service_plan_changes ??= []).push({ org_id: ORG, plan_id: plan(db).id, action: status === 'ended' ? 'ended' : 'paused', changed_at: NOW.toISOString() })
+        const res = await applyVisitAction(db.client, ORG, visitId, { action: 'move', date: '2026-11-25' }, { userId: 'u1', subId: null }, { now: NOW })
+        expect(res).toMatchObject({ ok: false, status: 409 })
+        expect(plan(db)).toMatchObject({ status, start_date: '2026-11-18' })
+        expect((db.tables.work_orders as Array<Record<string, unknown>>)[0].scheduled_date).toBe('2026-11-18')
+      }
+    })
+  })
 })

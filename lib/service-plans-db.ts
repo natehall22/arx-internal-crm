@@ -1606,26 +1606,87 @@ export function sortVisits<T extends Pick<VisitView, 'scheduledDate' | 'routePos
  * before it is done. The visit's planned slot follows too, and the generator never makes a second visit for a one-off.
  * Recurring plans are untouched (a moved visit keeps its planned slot so the generator never puts it back).
  */
-export async function syncOneOffPlansAfterMove(admin: SupabaseClient, orgId: string, visitIds: string[]): Promise<void> {
-  if (!visitIds.length) return
+export async function syncOneOffPlansAfterMove(admin: SupabaseClient, orgId: string, visitIds: string[]): Promise<string[]> {
+  const errors: string[] = []
+  if (!visitIds.length) return errors
   const db = orgDb(admin, orgId)
   for (let i = 0; i < visitIds.length; i += 200) {
-    const { data: wos } = await db
+    const { data: wos, error: wErr } = await db
       .from('work_orders')
       .select('id, service_plan_id, scheduled_date, status')
       .in('id', visitIds.slice(i, i + 200))
       .eq('work_order_type', SERVICE_VISIT_TYPE)
       .eq('visit_step', SERVICE_STEP)
+    if (wErr) {
+      errors.push('Could not read the moved visits')
+      continue
+    }
     const rows = ((wos ?? []) as Array<{ id: string; service_plan_id: string | null; scheduled_date: string | null; status: string }>).filter((r) => r.service_plan_id && r.scheduled_date && r.status === 'scheduled')
     if (!rows.length) continue
-    const { data: plans } = await db.from('service_plans').select('id').in('id', Array.from(new Set(rows.map((r) => r.service_plan_id as string)))).eq('one_off', true)
-    const oneOff = new Set(((plans ?? []) as Array<{ id: string }>).map((p) => p.id))
-    for (const r of rows.filter((x) => oneOff.has(x.service_plan_id as string))) {
+    const states = await oneOffMoveStates(admin, orgId, rows.map((r) => r.service_plan_id as string))
+    for (const r of rows) {
+      const st = states.get(r.service_plan_id as string)
+      if (!st || st.kind === 'recurring') continue
       const day = r.scheduled_date as string
-      await db.from('service_plans').update({ start_date: day, end_date: day, status: 'active', ended_at: null }).eq('id', r.service_plan_id as string)
-      await db.from('work_orders').update({ service_planned_date: day }).eq('id', r.id)
+      if (st.kind === 'blocked') {
+        errors.push(`The plan for this visit is ${st.status} — the visit moved but the plan was left as it is`)
+        continue
+      }
+      // One update carries the dates and (only for a plan the nightly sweep ended) the reactivation.
+      const patch: Record<string, unknown> = { start_date: day, end_date: day }
+      if (st.kind === 'reactivate') Object.assign(patch, { status: 'active', ended_at: null, paused_until: null })
+      const { data: upd, error: pErr } = await db.from('service_plans').update(patch).eq('id', r.service_plan_id as string).eq('status', st.status).select('id')
+      if (pErr || !(upd ?? []).length) {
+        errors.push('The visit moved but its plan could not be updated — check the plan')
+        continue
+      }
+      if (st.kind === 'reactivate')
+        await writeChange(admin, orgId, {
+          plan_id: r.service_plan_id as string,
+          action: 'auto_resumed',
+          changed_by: null,
+          changes: [{ field: 'status', label: PLAN_FIELD_LABELS.status, old: 'ended', new: 'active' }],
+        })
+      const { error: vErr } = await db.from('work_orders').update({ service_planned_date: day }).eq('id', r.id)
+      if (vErr) errors.push('The visit moved but its planned slot could not be updated')
     }
   }
+  return errors
+}
+
+type OneOffMoveState = { kind: 'recurring' } | { kind: 'ok'; status: string } | { kind: 'reactivate'; status: string } | { kind: 'blocked'; status: string }
+
+/**
+ * Per plan: may a moved visit pull its one-off plan along? Active: yes. Ended by the nightly sweep (latest history row is
+ * auto_ended): yes, and the plan comes back. Ended or paused by a person: no (blocked). Recurring: not touched.
+ */
+async function oneOffMoveStates(admin: SupabaseClient, orgId: string, planIds: string[]): Promise<Map<string, OneOffMoveState>> {
+  const db = orgDb(admin, orgId)
+  const out = new Map<string, OneOffMoveState>()
+  const ids = Array.from(new Set(planIds))
+  for (let i = 0; i < ids.length; i += 200) {
+    const slice = ids.slice(i, i + 200)
+    const { data: plans } = await db.from('service_plans').select('id, one_off, status').in('id', slice)
+    const list = (plans ?? []) as Array<{ id: string; one_off: boolean | null; status: string }>
+    const ended = list.filter((p) => p.one_off && p.status === 'ended').map((p) => p.id)
+    const autoEnded = new Set<string>()
+    if (ended.length) {
+      const { data: ch } = await db.from('service_plan_changes').select('plan_id, action, changed_at').in('plan_id', ended).order('changed_at', { ascending: false }).limit(2000)
+      const seen = new Set<string>()
+      for (const c of (ch ?? []) as Array<{ plan_id: string; action: string }>) {
+        if (seen.has(c.plan_id)) continue
+        seen.add(c.plan_id)
+        if (c.action === 'auto_ended') autoEnded.add(c.plan_id)
+      }
+    }
+    for (const p of list) {
+      if (!p.one_off) out.set(p.id, { kind: 'recurring' })
+      else if (p.status === 'active') out.set(p.id, { kind: 'ok', status: p.status })
+      else if (p.status === 'ended' && autoEnded.has(p.id)) out.set(p.id, { kind: 'reactivate', status: p.status })
+      else out.set(p.id, { kind: 'blocked', status: p.status })
+    }
+  }
+  return out
 }
 
 export type VisitActResult = { ok: true } | { ok: false; status: 400 | 404 | 409; error: string }
@@ -1677,6 +1738,10 @@ export async function applyVisitAction(
     const plan = await loadServicePlan(admin, orgId, r.service_plan_id)
     results = stepResultKeys(plan?.steps ?? [], r.visit_step)
   }
+  if (a.action === 'move') {
+    const st = (await oneOffMoveStates(admin, orgId, [r.service_plan_id])).get(r.service_plan_id)
+    if (st?.kind === 'blocked') return { ok: false, status: 409, error: `This one-time plan is ${st.status} — resume or re-open the plan before moving its visit` }
+  }
   const patch = visitPatch({ ...r, results }, a, by, opts.now ?? new Date())
   if ('error' in patch) return { ok: false, status: 400, error: patch.error as string }
   // Done: keep the whole list as it stood (checked AND not), in the same save, so the office sees what was left undone and a
@@ -1702,7 +1767,10 @@ export async function applyVisitAction(
     const { queueVisitDone } = await import('@/lib/customer-messages-db')
     await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
   }
-  if (a.action === 'move') await syncOneOffPlansAfterMove(admin, orgId, [visitId])
+  if (a.action === 'move') {
+    const errs = await syncOneOffPlansAfterMove(admin, orgId, [visitId])
+    if (errs.length) return { ok: false, status: 409, error: errs[0] }
+  }
   return { ok: true }
 }
 
@@ -1747,7 +1815,7 @@ async function selectShiftVisits(admin: SupabaseClient, orgId: string, s: BulkSh
   const db = orgDb(admin, orgId)
   let q = db
     .from('work_orders')
-    .select('id, scheduled_date, title, address, assigned_sub_id, customer_id')
+    .select('id, scheduled_date, title, address, assigned_sub_id, customer_id, service_plan_id')
     .eq('work_order_type', SERVICE_VISIT_TYPE)
     .eq('status', 'scheduled')
     .gte('scheduled_date', s.from)
@@ -1756,7 +1824,10 @@ async function selectShiftVisits(admin: SupabaseClient, orgId: string, s: BulkSh
   else if (s.subId !== 'all') q = q.eq('assigned_sub_id', s.subId)
   const { data, error } = await q.order('scheduled_date').order('id').limit(5000)
   if (error) throw error
-  return (data ?? []) as Array<{ id: string; scheduled_date: string; title: string | null; address: string | null; assigned_sub_id: string | null; customer_id: string | null }>
+  const all = (data ?? []) as Array<{ id: string; scheduled_date: string; title: string | null; address: string | null; assigned_sub_id: string | null; customer_id: string | null; service_plan_id: string | null }>
+  // A one-time plan a person ended or paused keeps its visit where it is (the single-visit move refuses it too).
+  const states = await oneOffMoveStates(admin, orgId, all.map((r) => r.service_plan_id).filter((x): x is string => !!x))
+  return all.filter((r) => !(r.service_plan_id && states.get(r.service_plan_id)?.kind === 'blocked'))
 }
 
 export type ShiftPreview = {
@@ -1849,6 +1920,7 @@ export async function bulkShiftVisits(
   const byDay = new Map<string, string[]>()
   for (const r of rows) byDay.set(r.scheduled_date, [...(byDay.get(r.scheduled_date) ?? []), r.id])
   let moved = 0
+  const syncErrors: string[] = []
   // One update per source day. Every row in it moves to the same new day; status re-checked at write time.
   for (const [day, ids] of Array.from(byDay.entries())) {
     const to = addDaysYmd(day, s.days)
@@ -1864,9 +1936,10 @@ export async function bulkShiftVisits(
         .select('id')
       if (uErr) throw uErr
       moved += (done ?? []).length
-      await syncOneOffPlansAfterMove(admin, orgId, ((done ?? []) as Array<{ id: string }>).map((d) => d.id))
+      syncErrors.push(...(await syncOneOffPlansAfterMove(admin, orgId, ((done ?? []) as Array<{ id: string }>).map((d) => d.id))))
     }
   }
+  if (syncErrors.length) return { error: `Moved ${moved} visits, but ${syncErrors.length} one-time plan update(s) failed: ${syncErrors[0]}`, status: 409 }
   return { moved }
 }
 
