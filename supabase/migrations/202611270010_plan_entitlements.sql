@@ -75,6 +75,7 @@ COMMENT ON TABLE public.plan_entitlement_log IS
 CREATE OR REPLACE FUNCTION public.plan_entitlement_log_append_only()
 RETURNS trigger
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 BEGIN
   RAISE EXCEPTION 'plan_entitlement_log is append-only' USING ERRCODE = '42501';
