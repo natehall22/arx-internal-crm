@@ -214,10 +214,17 @@ export function parseOrgFeaturesPatch(body: unknown): { set: Partial<OrgFeatures
  * the resolvers as their second argument: it is never read from inside the settings object. Before migration
  * 202611270010 the column is missing and the plan is NULL (everything allowed). Throws on any other read error.
  */
+let warnedNoPlanColumn = false
 export async function readOrgFeatureSettings(client: SupabaseClient, orgId: string): Promise<{ features: unknown; profile?: unknown; entitlements: unknown }> {
   const base = 'features:settings->features, profile:settings->profile'
   let res = await client.from('orgs').select(`${base}, entitlements:plan_entitlements`).eq('id', orgId).maybeSingle()
-  if (isMissingColumn(res.error, 'plan_entitlements')) res = await client.from('orgs').select(base).eq('id', orgId).maybeSingle()
+  if (isMissingColumn(res.error, 'plan_entitlements')) {
+    if (!warnedNoPlanColumn) {
+      warnedNoPlanColumn = true
+      console.warn('[PLAN] orgs.plan_entitlements does not exist yet (migration 202611270010 not applied): plans are not enforced, every module allowed')
+    }
+    res = await client.from('orgs').select(base).eq('id', orgId).maybeSingle()
+  }
   if (res.error) throw res.error
   const row = (res.data ?? {}) as { features?: unknown; profile?: unknown; entitlements?: unknown }
   const entitlements = row.entitlements ?? null
@@ -230,8 +237,10 @@ export async function loadOrgEntitlements(client: SupabaseClient, orgId: string)
 }
 
 /**
- * Load an org's features. Never throws: a failed read is logged and every feature is at its default (fail open for the
- * original features — what an org with nothing stored gets; this only hides UI and never guards money or private data).
+ * Load an org's features. Never throws: a failed read is logged loudly and every module is OFF (fail closed: the plan could not
+ * be checked). Exception, by design: the plan column not existing yet (migration 202611270010 not applied; Postgres 42703) is
+ * "no plan system yet" = plan NULL = everything allowed, so the original company keeps every module on deploy. This repo has no
+ * `orgs.original_brand` marker, so there is no way to tell "the original company" from any other on a missing column.
  */
 export async function loadOrgFeatures(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgFeatures> {
   if (!orgId) return { ...DEFAULT_ORG_FEATURES }
@@ -239,8 +248,11 @@ export async function loadOrgFeatures(client: SupabaseClient, orgId: string | nu
     const s = await readOrgFeatureSettings(client, orgId)
     return resolveOrgFeatures(s, s.entitlements)
   } catch (e) {
-    console.error('loadOrgFeatures: org features not readable, using defaults', orgId, e)
-    return { ...DEFAULT_ORG_FEATURES }
+    // FAIL CLOSED: if the plan cannot be read we cannot know what the company is entitled to, so every plan-governed module is
+    // treated as not entitled (a transient error must never hand out paid modules). A missing column is NOT an error here: it is
+    // the pre-migration state and `readOrgFeatureSettings` already returns the plan as NULL (= today's behavior).
+    console.error('[PLAN] loadOrgFeatures: org features/plan not readable, treating every module as NOT entitled', orgId, e)
+    return resolveOrgFeatures({}, {})
   }
 }
 

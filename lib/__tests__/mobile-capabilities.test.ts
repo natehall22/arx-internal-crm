@@ -28,6 +28,12 @@ jest.mock('@/lib/effective-permissions', () => ({
   ) => result.fullAccess || result.permissionNames.has(name),
 }))
 
+// no database here; an unreadable plan fails closed by design, so the feature read is stubbed to the defaults for these tests
+jest.mock('@/lib/org-features', () => ({
+  ...jest.requireActual('@/lib/org-features'),
+  loadOrgFeatures: async () => ({ ...jest.requireActual('@/lib/org-features').DEFAULT_ORG_FEATURES }),
+}))
+
 import { requireAuthApi } from '@/lib/auth'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { GET as territoriesGET } from '@/app/api/mobile/territories/route'

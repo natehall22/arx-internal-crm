@@ -93,13 +93,13 @@ describe('insuranceFieldsSetInPatch', () => {
 })
 
 describe('loadOrgFeatures / orgFeatureOffResponse', () => {
-  it('reads settings->features; a failed read fails open (every feature on)', async () => {
+  it('reads settings->features; a failed read fails closed (every module off)', async () => {
     const client = jest.requireMock('@/lib/supabase/service').createServiceClient()
     storedFeatures = { roofMeasure: false }
     expect((await loadOrgFeatures(client, 'org-1')).roofMeasure).toBe(false)
     readError = { message: 'boom' }
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
-    expect(await loadOrgFeatures(client, 'org-1')).toEqual(DEFAULT_ORG_FEATURES)
+    expect(Object.values(await loadOrgFeatures(client, 'org-1')).some(Boolean)).toBe(false)
     spy.mockRestore()
     expect(await loadOrgFeatures(client, null)).toEqual(DEFAULT_ORG_FEATURES)
   })

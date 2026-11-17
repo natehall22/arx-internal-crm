@@ -92,15 +92,16 @@ export function t(profile: Pick<ResolvedOrgProfile, 'terms'> | null | undefined,
   return profile?.terms[key] ?? BASE_TERMS[key]
 }
 
-/** Load and resolve a company's profile. Never throws: a failed read logs and returns roofing defaults (fail open, like features). */
+/** Load and resolve a company's profile. Never throws: a failed read logs and returns roofing defaults (features fail closed: every module off). */
 export async function loadOrgProfile(client: SupabaseClient, orgId: string | null | undefined): Promise<ResolvedOrgProfile> {
   if (!orgId) return defaultOrgProfile()
   try {
     const s = await readOrgFeatureSettings(client, orgId)
     return resolveOrgProfile(s, s.entitlements)
   } catch (e) {
-    console.error('loadOrgProfile: profile not readable, using defaults', orgId, e)
-    return defaultOrgProfile()
+    // Fail closed on the plan: unreadable = no module entitled (profile words/nav stay the roofing defaults).
+    console.error('[PLAN] loadOrgProfile: profile/plan not readable, using defaults with every module OFF', orgId, e)
+    return resolveOrgProfile({}, {})
   }
 }
 

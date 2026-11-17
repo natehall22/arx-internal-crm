@@ -212,6 +212,23 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
   }
 }
 
+/** The nil uuid stands for "the seed script" in plan_entitlement_log.staff_user_id (source = 'seed'); no user has it. */
+export const SEED_ACTOR_ID = '00000000-0000-0000-0000-000000000000'
+
+/**
+ * Write a plan THROUGH set_plan_entitlement() (migration 202611270010) so every change has its plan_entitlement_log row
+ * (actor = SEED_ACTOR_ID, source 'seed'). `have` = the plan now (null = NULL column = everything allowed); a key already at
+ * its wanted value is skipped, except that a NULL plan writes every key so the stored map is explicit.
+ */
+async function writePlan(client: SupabaseClient, orgId: string, want: OrgFeatures, have: OrgFeatures | null): Promise<void> {
+  const base = Object.fromEntries(ORG_FEATURE_KEYS.map((k) => [k, true]))
+  for (const k of ORG_FEATURE_KEYS) {
+    if (have && have[k] === want[k]) continue
+    const { error } = await client.rpc('set_plan_entitlement', { p_org: orgId, p_staff: SEED_ACTOR_ID, p_feature: k, p_entitled: want[k], p_base: base, p_source: 'seed' })
+    if (error) throw new Error(`plan ${k}: ${error.message}`)
+  }
+}
+
 /**
  * Pure: the plan a seeded company gets. Default = everything its industry profile turns on (roofing / no profile = the
  * original features); a demo company also gets every module its sample data uses (DEMO_FEATURES); the seed file's
@@ -416,7 +433,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
       // same check as the owner save); before that the company is left not set up and the owner saves Settings ->
       // Sales tax after the migration.
       const settings = taxReady ? { [SALES_TAX_SETTINGS_KEY]: { ...NEW_COMPANY_SALES_TAX } } : {}
-      const created = await must(client.from('orgs').insert({ ...wantColumns, settings, plan_entitlements: seedEntitlements(input), ...(input.demo ? { is_demo: true } : {}) }).select('id').single(), 'create org')
+      const created = await must(client.from('orgs').insert({ ...wantColumns, settings, plan_entitlements: {}, ...(input.demo ? { is_demo: true } : {}) }).select('id').single(), 'create org')
       orgId = (created as { id: string }).id
       say(`org id ${orgId} — put it in org.id for every re-run`)
     }
@@ -465,13 +482,16 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   // seed file names `entitlements` (or it is the demo company); otherwise its plan (NULL = everything allowed) is left alone.
   const wantPlan = seedEntitlements(input)
   if (!org) {
+    // The company row was created with an EMPTY plan ({} = nothing entitled), so a seed that stops half way can never leave it
+    // with everything allowed; the real plan is written below through set_plan_entitlement(), one log row per module.
+    if (opts.apply) await writePlan(client, orgId, wantPlan, null)
     say(`plan: entitled to ${ORG_FEATURE_KEYS.filter((k) => wantPlan[k]).length} of ${ORG_FEATURE_KEYS.length} modules (${INDUSTRY_PROFILES[input.profile ?? 'roofing'].label} profile${input.entitlements ? ' + overrides' : ''})`)
   } else if (input.entitlements || input.demo) {
     const have = org.plan_entitlements == null ? null : resolveOrgEntitlements(org.plan_entitlements)
     if (have && ORG_FEATURE_KEYS.every((k) => have[k] === wantPlan[k])) say('plan: already matches')
     else {
       say(`plan: set ${ORG_FEATURE_KEYS.filter((k) => wantPlan[k]).length} of ${ORG_FEATURE_KEYS.length} modules`)
-      if (opts.apply) await must(client.from('orgs').update({ plan_entitlements: wantPlan }).eq('id', orgId), 'update plan')
+      if (opts.apply) await writePlan(client, orgId, wantPlan, have)
     }
   }
 

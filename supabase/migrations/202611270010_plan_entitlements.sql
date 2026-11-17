@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS public.plan_entitlement_log (
   feature        text NOT NULL,
   was_entitled   boolean NOT NULL,
   entitled       boolean NOT NULL,
+  source         text NOT NULL DEFAULT 'support',  -- 'support' (the /support screen) or 'seed' (npm run seed:company; staff_user_id is then the nil uuid)
   at             timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS plan_entitlement_log_org_idx ON public.plan_entitlement_log (org_id, at DESC);
@@ -95,7 +96,7 @@ $$;
 -- 3. The one atomic change -----------------------------------------------------------------------------------------------
 -- p_base is the full map to start from when the company has no plan yet (NULL = all allowed, so the caller passes every
 -- feature key as true); the caller (the /support route) validates the feature key against the code's list.
-CREATE OR REPLACE FUNCTION public.set_plan_entitlement(p_org uuid, p_staff uuid, p_feature text, p_entitled boolean, p_base jsonb)
+CREATE OR REPLACE FUNCTION public.set_plan_entitlement(p_org uuid, p_staff uuid, p_feature text, p_entitled boolean, p_base jsonb, p_source text DEFAULT 'support')
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -116,12 +117,12 @@ BEGIN
   v_was := CASE WHEN v_old IS NULL THEN true ELSE COALESCE((v_old ->> p_feature)::boolean, false) END;
   v_new := COALESCE(v_old, p_base, '{}'::jsonb) || jsonb_build_object(p_feature, p_entitled);
   UPDATE public.orgs SET plan_entitlements = v_new WHERE id = p_org;
-  INSERT INTO public.plan_entitlement_log (org_id, staff_user_id, feature, was_entitled, entitled)
-  VALUES (p_org, p_staff, p_feature, v_was, p_entitled);
+  INSERT INTO public.plan_entitlement_log (org_id, staff_user_id, feature, was_entitled, entitled, source)
+  VALUES (p_org, p_staff, p_feature, v_was, p_entitled, COALESCE(NULLIF(p_source, ''), 'support'));
   RETURN v_new;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.set_plan_entitlement(uuid, uuid, text, boolean, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.set_plan_entitlement(uuid, uuid, text, boolean, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.set_plan_entitlement(uuid, uuid, text, boolean, jsonb, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.set_plan_entitlement(uuid, uuid, text, boolean, jsonb, text) TO service_role;
 
 COMMIT;

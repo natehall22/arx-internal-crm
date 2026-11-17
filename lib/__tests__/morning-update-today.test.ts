@@ -135,6 +135,8 @@ describe('Storm hits call list', () => {
       from(table: string) {
         const q: any = {
           select: () => q, eq: () => q, gte: () => q, lt: () => q, is: () => q, order: () => q, limit: () => q, in: () => q, not: () => q, lte: () => q, neq: () => q,
+          // the org's features/plan read must succeed (an unreadable plan = every module off, by design)
+          maybeSingle: async () => ({ data: { features: {}, entitlements: null }, error: null }),
           then: (resolve: (v: unknown) => void) =>
             resolve(
               table === 'storm_opportunity_alerts'

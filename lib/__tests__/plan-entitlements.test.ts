@@ -17,6 +17,7 @@ const read = (f: string) => fs.readFileSync(join(ROOT, f), 'utf8')
 
 let plan: unknown = null // orgs.plan_entitlements of org-1
 let planColumnMissing = false
+let planReadError = false
 let storedSwitches: Record<string, boolean> = {}
 let isStaff = true
 let staffId = 'staff-1'
@@ -55,6 +56,7 @@ jest.mock('@/lib/supabase/service', () => ({
         eq: () => q,
         single: async () => (table === 'users' ? { data: { org_id: 'org-1', role: 'admin', is_super_admin: superAdmin, active: true }, error: null } : { data: { settings: {} }, error: null }),
         maybeSingle: async () => {
+          if (planReadError) return { data: null, error: { code: '57014', message: 'statement timeout' } }
           if (String(q._cols).includes('plan_entitlements') && planColumnMissing) return { data: null, error: { code: '42703', message: 'column orgs.plan_entitlements does not exist' } }
           const row: Record<string, unknown> = { features: storedSwitches, profile: null }
           if (String(q._cols).includes('plan_entitlements')) row.entitlements = plan
@@ -80,6 +82,7 @@ const staffPatch = (body: unknown) =>
 beforeEach(() => {
   plan = null
   planColumnMissing = false
+  planReadError = false
   storedSwitches = {}
   isStaff = true
   staffId = 'staff-1'
@@ -123,7 +126,55 @@ describe('the reader', () => {
     const { createServiceClient } = jest.requireMock('@/lib/supabase/service') as { createServiceClient: () => never }
     expect((await loadOrgFeatures(createServiceClient(), 'org-1')).servicePlans).toBe(false)
     planColumnMissing = true
+    const w = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
     expect((await loadOrgFeatures(createServiceClient(), 'org-1')).servicePlans).toBe(true)
+    w.mockRestore()
+  })
+})
+
+describe('plan read failures', () => {
+  const svc = () => (jest.requireMock('@/lib/supabase/service') as { createServiceClient: () => never }).createServiceClient()
+
+  it('a plan read ERROR fails closed: every module is off (and it is logged loudly)', async () => {
+    storedSwitches = { canvassing: true, servicePlans: true }
+    plan = null
+    planReadError = true
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const f = await loadOrgFeatures(svc(), 'org-1')
+    expect(Object.values(f).some(Boolean)).toBe(false)
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('[PLAN]'))).toBe(true)
+    const { loadOrgProfile } = await import('@/lib/org-profile')
+    expect(Object.values((await loadOrgProfile(svc(), 'org-1')).features).some(Boolean)).toBe(false)
+    spy.mockRestore()
+  })
+
+  it('a MISSING plan column (migration not applied) is not an error: no plan system yet = today\'s behavior for every company', async () => {
+    storedSwitches = {}
+    plan = null
+    planColumnMissing = true
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const err = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const f = await loadOrgFeatures(svc(), 'org-1')
+    expect(f).toEqual(resolveOrgFeatures({}, null))
+    expect(f.canvassing).toBe(true)
+    expect(err).not.toHaveBeenCalled()
+    warn.mockRestore()
+    err.mockRestore()
+  })
+
+  it('the QuickBooks SQL enqueue is gated on the plan, with NULL plan = allowed (ARX unchanged)', () => {
+    const sql = read('supabase/migrations/202611270020_record_job_payment_plan.sql')
+    expect(sql).toMatch(/plan_entitlements'->>'quickbooks'\) = 'true'/)
+    expect(sql).toMatch(/plan_entitlements' is null/)
+    expect(sql).not.toMatch(/\b(drop|delete)\b/i)
+  })
+
+  it('the seed writes the plan through set_plan_entitlement (log row per change, source seed), never a bare column write', () => {
+    const seed = read('lib/company-seed.ts')
+    expect(seed).toContain("rpc('set_plan_entitlement'")
+    expect(seed).not.toMatch(/update\(\{ plan_entitlements/)
+    expect(seed).not.toMatch(/plan_entitlements: seedEntitlements/)
+    expect(read('supabase/migrations/202611270010_plan_entitlements.sql')).toMatch(/source\s+text NOT NULL DEFAULT 'support'/)
   })
 })
 

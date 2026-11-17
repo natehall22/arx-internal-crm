@@ -18,6 +18,9 @@ jest.mock('next/server', () => ({
   },
 }))
 
+// the features read has no database here; an unreadable plan fails closed by design, so the gate is stubbed open for these auth tests
+jest.mock('@/lib/org-features-server', () => ({ orgFeatureOffResponse: async () => null }))
+
 import { requireAuthApi } from '@/lib/auth'
 import { POST as leaderboardPOST } from '@/app/api/sisu/leaderboard/route'
 import { GET as badgesGET } from '@/app/api/sisu/badges/route'

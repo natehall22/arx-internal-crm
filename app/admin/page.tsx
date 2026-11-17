@@ -45,7 +45,7 @@ export default async function SettingsPage() {
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
   const features = orgProfile.features
   // The plan (set by the platform owner): features it leaves out show as "Not in your plan" on the Features card.
-  const entitled = await loadOrgEntitlements(admin, profile.org_id).catch(() => resolveOrgEntitlements(null))
+  const entitled = await loadOrgEntitlements(admin, profile.org_id).catch(() => resolveOrgEntitlements({}))
   const canEditFeatures = isSuperAdmin(profile)
   const groups = visibleSettingsGroups({
     features,
