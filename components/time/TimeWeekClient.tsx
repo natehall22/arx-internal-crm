@@ -125,7 +125,7 @@ export default function TimeWeekClient({ initial }: { initial?: TimeWeek | null 
                   >
                     <span className="font-semibold">
                       {`${dayLabel(e.startedAt, tz)} · ${hm12(e.startedAt, tz)} – ${e.endedAt ? hm12(e.endedAt, tz) : 'still clocked in'}`}
-                      {e.kind === 'break' ? ' · lunch' : ''}
+                      {e.kind === 'break' ? ' · break' : e.kind === 'shift' ? ' · whole day' : ''}
                     </span>
                     <span>{`${e.where}${e.endedAt ? ` · ${formatDuration((Date.parse(e.endedAt) - Date.parse(e.startedAt)) / 1000)}` : ''} · ${SOURCE_WORDS[e.source] ?? e.source}${e.tappedBy ? ` (${e.tappedBy})` : ''}`}</span>
                     {e.needsReview && e.reviewNote ? <span className="font-semibold text-red-800">{e.reviewNote}</span> : null}
@@ -176,7 +176,7 @@ function EntrySheet({ target, week, onClose, onSaved }: { target: EditTarget; we
   const [start, setStart] = useState(e ? localHm(Date.parse(e.startedAt), tz) : '07:00')
   const [endDate, setEndDate] = useState(e?.endedAt ? localYmd(Date.parse(e.endedAt), tz) : e ? '' : week.weekEnd)
   const [end, setEnd] = useState(e?.endedAt ? localHm(Date.parse(e.endedAt), tz) : e ? '' : '15:00')
-  const [kind, setKind] = useState<'work' | 'break'>(e?.kind === 'break' ? 'break' : 'work')
+  const [kind, setKind] = useState<'work' | 'break' | 'shift'>(e?.kind === 'break' ? 'break' : e?.kind === 'shift' ? 'shift' : 'work')
   // Places this person (or anyone this week) worked: the stops / jobs to pick for added time.
   const places = useMemo(() => {
     const seen = new Map<string, { label: string; workOrderId: string | null; jobId: string | null }>()
@@ -246,8 +246,9 @@ function EntrySheet({ target, week, onClose, onSaved }: { target: EditTarget; we
           </label>
           <label className="flex flex-col gap-1 text-base font-semibold">
             Type
-            <Select className={inputCls} value={kind} disabled={!editable || e?.kind === 'equipment'} onChange={(ev) => setKind(ev.target.value as 'work' | 'break')}>
-              <option value="work">Work</option>
+            <Select className={inputCls} value={kind} disabled={!editable || e?.kind === 'equipment'} onChange={(ev) => setKind(ev.target.value as 'work' | 'break' | 'shift')}>
+              <option value="work">Stop time</option>
+              <option value="shift">Whole day (day clock)</option>
               <option value="break">Lunch / break</option>
             </Select>
           </label>

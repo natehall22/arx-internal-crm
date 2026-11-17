@@ -20,8 +20,9 @@ import CheckupList from '@/components/checkups/CheckupList'
 import MoveFromJobber from '@/components/jobber-import/MoveFromJobber'
 import MoveSignedDocuments from '@/components/signed-import/MoveSignedDocuments'
 import { HARNESS_CHECKUPS } from '@/e2e/fixtures'
-import { HARNESS_CREW_DAY, HARNESS_CREW_DAY_MONEY, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
+import { HARNESS_CREW_DAY, HARNESS_CREW_DAY_MONEY, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_DAY, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
 import JobClockCard from '@/components/time/JobClockCard'
+import MyDayClock from '@/components/time/MyDayClock'
 import TimeWeekClient from '@/components/time/TimeWeekClient'
 import TimeClockSettingsCard from '@/components/time/TimeClockSettingsCard'
 import CrewTimeSetup from '@/components/time/CrewTimeSetup'
@@ -849,6 +850,11 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <CrewDayList token="harness-token-harness-token-harness-2" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} clock={HARNESS_CLOCK_STATE as unknown as ClockState} />
     case 'crew-day-clocked-in':
       return <CrewDayList token="harness-token-harness-token-harness-3" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} clock={HARNESS_CLOCK_STATE_IN as unknown as ClockState} />
+    case 'my-day-clock':
+      // Today / My day: the day clock card on its own, as Today places it (mocked /api/time/clock).
+      return <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-4"><MyDayClock /></div>
+    case 'crew-day-shift':
+      return <CrewDayList token="harness-token-harness-token-harness-4" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} clock={HARNESS_CLOCK_STATE_DAY as unknown as ClockState} />
     case 'job-clock':
       return <div className="mx-auto max-w-md p-4"><JobClockCard jobId="dddddddd-0000-4000-8000-000000000001" jobLabel="job 26-0141" /></div>
     case 'time-week':

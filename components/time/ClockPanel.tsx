@@ -26,15 +26,21 @@ export function ClockPanel({
   setSelected,
   placeLabel,
   title = 'Time clock',
+  notices = true,
+  hidePicker = false,
 }: {
   clock: Clock
   selected: string[]
   setSelected: (ids: string[]) => void
+  /** Failed / waiting taps, who is tapping, finish-time questions. Off when the day clock card above already shows them. */
+  notices?: boolean
+  /** The day clock card owns "who's here today" (one picker per screen). */
+  hidePicker?: boolean
   /** Where an open clock is ("Stop 2 — 12 Oak St"); null = unknown here. */
   placeLabel: (open: NonNullable<ClockPerson['open']>) => string | null
   title?: string
 }) {
-  const { state, pending, failed, dismissFailed, tap, tappedBy, setTapper, leads, latestOpen } = clock
+  const { state, tap, latestOpen } = clock
   // Right before a clock-out, re-read who is clocked in (a stale screen must not miss or invent anyone).
   const clockOut = async (forTravel: boolean) => {
     const ids = await latestOpen()
@@ -42,7 +48,6 @@ export function ClockPanel({
   }
   const [confirmOut, setConfirmOut] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
   if (!state || state.people.length === 0) return null
   if (!state.ready) return <p className="rounded-lg border-2 border-[#2c2c2a] bg-white p-3 text-base">The time clock isn’t ready yet — ask the office.</p>
   const tz = state.timeZone
@@ -51,60 +56,19 @@ export function ClockPanel({
   const first = open.reduce<ClockPerson | null>((a, p) => (!a || (p.open!.startedAt < a.open!.startedAt) ? p : a), null)
   const where = first?.open ? placeLabel(first.open) : null
   const multi = state.people.length > 1
-  const needTapper = leads.length > 1 && !tappedBy
+  // With the day clock running the stop clock only says "done at this stop" — the day itself ends on the day clock.
+  const dayOn = state.people.some((p) => !!p.shift)
 
   return (
     <section aria-label={title} className="flex flex-col gap-3 rounded-xl border-2 border-[#2c2c2a] bg-white p-4 text-[#2c2c2a]">
       <h2 className="text-lg font-bold">{title}</h2>
 
-      {failed.map((f) => (
-        <div key={f.id} role="alert" className="flex flex-col gap-2 rounded-lg border-2 border-red-700 bg-white p-3 text-base">
-          <p className="font-semibold text-red-800">A tap didn’t go through: {f.error}</p>
-          <button type="button" className={outline} onClick={() => dismissFailed(f.id)}>
-            OK
-          </button>
-        </div>
-      ))}
-      {pending > 0 ? <p className="rounded-lg bg-[#fff4cc] px-3 py-2 text-base">{`${pending} tap${pending === 1 ? '' : 's'} waiting for signal — they’ll send on their own. Times are kept.`}</p> : null}
-
-      {needTapper ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-base font-semibold">Who’s using this phone?</p>
-          <div className="grid grid-cols-2 gap-2">
-            {leads.map((l) => (
-              <button key={l.userId} type="button" className={outline} onClick={() => setTapper(l.userId)}>
-                {l.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {state.finishQuestions.map((q) => (
-        <form
-          key={q.entryId}
-          className="flex flex-col gap-2 rounded-lg bg-[#fff4cc] p-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const t = answers[q.entryId]
-            if (t) void tap('finish_answer', { entryId: q.entryId, finishTime: t })
-          }}
-        >
-          <label className="flex flex-col gap-1 text-base font-semibold">
-            {`What time did ${q.name} finish on ${new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long', month: 'short', day: 'numeric' }).format(new Date(q.startedAt))}?`}
-            <span className="text-sm font-normal">{`The clock was left running, so it stopped at ${clockTime(q.stoppedAt, tz)}.`}</span>
-            <input type="time" required className="min-h-[48px] rounded-lg border-2 border-[#2c2c2a] bg-white px-3 text-base" value={answers[q.entryId] ?? ''} onChange={(e) => setAnswers({ ...answers, [q.entryId]: e.target.value })} />
-          </label>
-          <button type="submit" className={primary} disabled={!answers[q.entryId]}>
-            Save finish time
-          </button>
-        </form>
-      ))}
+      {notices ? <ClockNotices clock={clock} /> : null}
 
       {open.length === 0 ? (
         <>
           <p className="text-base">{state.people.some((p) => p.travelling) ? 'On the road to the next stop (drive time is paid). Clock in when you get there.' : multi ? 'Not clocked in. Who’s here today?' : 'Not clocked in.'}</p>
-          {multi ? (
+          {multi && !hidePicker ? (
             <div className="flex flex-wrap gap-2">
               {state.people.map((p) => {
                 const on = selected.includes(p.userId)
@@ -133,16 +97,18 @@ export function ClockPanel({
             {first?.open && first.open.entryId !== 'pending' ? ` since ${clockTime(first.open.startedAt, tz)}` : ''}
           </p>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className={outline} onClick={() => void tap(onBreak ? 'break_end' : 'break_start', { userIds: open.map((p) => p.userId) })}>
-              {onBreak ? 'Back from lunch' : 'Lunch'}
-            </button>
-            <button type="button" className={primary} onClick={() => setConfirmOut(true)}>
-              {multi ? 'Clock out crew' : 'Clock out'}
+            {dayOn ? null : (
+              <button type="button" className={outline} onClick={() => void tap(onBreak ? 'break_end' : 'break_start', { userIds: open.map((p) => p.userId) })}>
+                {onBreak ? 'Back from lunch' : 'Lunch'}
+              </button>
+            )}
+            <button type="button" className={`${primary} ${dayOn ? 'col-span-2' : ''}`} onClick={() => setConfirmOut(true)}>
+              {dayOn ? 'Done at this stop' : multi ? 'Clock out crew' : 'Clock out'}
             </button>
           </div>
           {confirmOut ? (
             <div className="flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3">
-              <p className="text-base font-bold">{multi ? 'Clock out the crew?' : 'Clock out?'}</p>
+              <p className="text-base font-bold">{dayOn ? 'Done at this stop?' : multi ? 'Clock out the crew?' : 'Clock out?'}</p>
               <button
                 type="button"
                 className={primary}
@@ -151,7 +117,7 @@ export function ClockPanel({
                   void clockOut(false)
                 }}
               >
-                Yes — done for the day
+                {dayOn ? 'Yes — done here (the day clock keeps running)' : 'Yes — done for the day'}
               </button>
               <button
                 type="button"
@@ -212,6 +178,65 @@ export function ClockPanel({
         </div>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * The notes at the top of any clock screen: taps that didn’t go through, taps waiting for signal, who is using a shared
+ * crew phone, and “what time did you finish?” for a clock left running. One component for the stop clock and the day clock.
+ */
+export function ClockNotices({ clock }: { clock: Clock }) {
+  const { state, pending, failed, dismissFailed, tap, setTapper, tappedBy, leads } = clock
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  if (!state || state.people.length === 0 || !state.ready) return null
+  const tz = state.timeZone
+  const needTapper = leads.length > 1 && !tappedBy
+  return (
+    <>
+      {failed.map((f) => (
+        <div key={f.id} role="alert" className="flex flex-col gap-2 rounded-lg border-2 border-red-700 bg-white p-3 text-base">
+          <p className="font-semibold text-red-800">A tap didn’t go through: {f.error}</p>
+          <button type="button" className={outline} onClick={() => dismissFailed(f.id)}>
+            OK
+          </button>
+        </div>
+      ))}
+      {pending > 0 ? <p className="rounded-lg bg-[#fff4cc] px-3 py-2 text-base">{`${pending} tap${pending === 1 ? '' : 's'} waiting for signal — they’ll send on their own. Times are kept.`}</p> : null}
+
+      {needTapper ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-base font-semibold">Who’s using this phone?</p>
+          <div className="grid grid-cols-2 gap-2">
+            {leads.map((l) => (
+              <button key={l.userId} type="button" className={outline} onClick={() => setTapper(l.userId)}>
+                {l.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {state.finishQuestions.map((q) => (
+        <form
+          key={q.entryId}
+          className="flex flex-col gap-2 rounded-lg bg-[#fff4cc] p-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const t = answers[q.entryId]
+            if (t) void tap('finish_answer', { entryId: q.entryId, finishTime: t })
+          }}
+        >
+          <label className="flex flex-col gap-1 text-base font-semibold">
+            {`What time did ${q.name} finish on ${new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long', month: 'short', day: 'numeric' }).format(new Date(q.startedAt))}?`}
+            <span className="text-sm font-normal">{`The clock was left running, so it stopped at ${clockTime(q.stoppedAt, tz)}.`}</span>
+            <input type="time" required className="min-h-[48px] rounded-lg border-2 border-[#2c2c2a] bg-white px-3 text-base" value={answers[q.entryId] ?? ''} onChange={(e) => setAnswers({ ...answers, [q.entryId]: e.target.value })} />
+          </label>
+          <button type="submit" className={primary} disabled={!answers[q.entryId]}>
+            Save finish time
+          </button>
+        </form>
+      ))}
+    </>
   )
 }
 

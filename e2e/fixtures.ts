@@ -770,9 +770,9 @@ export const HARNESS_CUSTOMER_INVOICES = {
 
 // ---- Time clock (lib/time-tracking-db.ts ClockState / TimeWeek shapes) ----
 const CLOCK_PEOPLE = [
-  { userId: 'aaaaaaaa-0000-4000-8000-000000000001', name: 'Marcus Lead', isLead: true, open: null, onBreak: false, travelling: false },
-  { userId: 'aaaaaaaa-0000-4000-8000-000000000002', name: 'Dee Crew', isLead: false, open: null, onBreak: false, travelling: false },
-  { userId: 'aaaaaaaa-0000-4000-8000-000000000003', name: 'Tony Crew', isLead: false, open: null, onBreak: false, travelling: false },
+  { userId: 'aaaaaaaa-0000-4000-8000-000000000001', name: 'Marcus Lead', isLead: true, open: null, onBreak: false, travelling: false, shift: null, shiftLate: false },
+  { userId: 'aaaaaaaa-0000-4000-8000-000000000002', name: 'Dee Crew', isLead: false, open: null, onBreak: false, travelling: false, shift: null, shiftLate: false },
+  { userId: 'aaaaaaaa-0000-4000-8000-000000000003', name: 'Tony Crew', isLead: false, open: null, onBreak: false, travelling: false, shift: null, shiftLate: false },
 ]
 export const HARNESS_CLOCK_STATE = {
   ready: true,
@@ -789,11 +789,21 @@ export const HARNESS_CLOCK_STATE_IN = {
   people: CLOCK_PEOPLE.map((p, i) => ({ ...p, open: { entryId: `bbbbbbbb-0000-4000-8000-00000000001${i}`, workOrderId: 'v1', jobId: null, startedAt: '2026-11-10T12:02:00.000Z' } })),
   equipment: [{ entryId: 'bbbbbbbb-0000-4000-8000-000000000020', name: 'Compact tractor', workOrderId: 'v1', startedAt: '2026-11-10T13:00:00.000Z' }],
 }
+// The day clock running for the whole crew since 6:02 (one person not started yet), and one running late.
+export const HARNESS_CLOCK_STATE_DAY = {
+  ...HARNESS_CLOCK_STATE,
+  finishQuestions: [],
+  people: CLOCK_PEOPLE.map((p, i) => (i === 2 ? p : { ...p, shift: { entryId: `bbbbbbbb-0000-4000-8000-00000000003${i}`, startedAt: '2026-11-10T11:02:00.000Z' } })),
+}
+export const HARNESS_CLOCK_STATE_DAY_LATE = {
+  ...HARNESS_CLOCK_STATE_DAY,
+  people: HARNESS_CLOCK_STATE_DAY.people.map((p) => (p.shift ? { ...p, shiftLate: true } : p)),
+}
 export const HARNESS_JOB_CLOCK_SELF = {
   ...HARNESS_CLOCK_STATE,
   finishQuestions: [],
   equipmentChoices: [],
-  people: [{ userId: 'aaaaaaaa-0000-4000-8000-000000000009', name: 'Pat Office', isLead: false, open: null, onBreak: false, travelling: false }],
+  people: [{ userId: 'aaaaaaaa-0000-4000-8000-000000000009', name: 'Pat Office', isLead: false, open: null, onBreak: false, travelling: false, shift: null, shiftLate: false }],
 }
 export const HARNESS_TIME_WEEK = {
   ready: true,
