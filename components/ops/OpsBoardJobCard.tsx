@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { memo } from 'react'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
 import { hasOperationsSnapshotData } from '@/components/ops/OperationsSnapshotCard'
 import {
@@ -29,6 +28,8 @@ export interface OpsBoardJobCardProps {
   onStartMaterials: (jobId: string) => void
   onMarkOrdered: (jobId: string) => void
   onJobStatus: (jobId: string, status: JobStatus) => void
+  /** The company's squaresPricing switch, read once by the board (roof squares are a roofing idea). */
+  squaresOn?: boolean
 }
 
 function OpsBoardJobCardInner({
@@ -39,6 +40,7 @@ function OpsBoardJobCardInner({
   onStartMaterials,
   onMarkOrdered,
   onJobStatus,
+  squaresOn = true,
 }: OpsBoardJobCardProps) {
   const priority = priorityConfig[job.priority] || priorityConfig.normal
   const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
@@ -52,7 +54,6 @@ function OpsBoardJobCardInner({
   const projectLegacyTotal = positiveNum(job.project?.sold_roof_squares)
   const displayTotal = enrichedTotal ?? projectLegacyTotal
   // Roof squares are a roofing-company idea: off (lawn, cleaning) the card never shows a roof-squares block, whatever the job_type says.
-  const squaresOn = useOrgFeatures().squaresPricing
   const roofSoldSquaresTotal = squaresOn && job.job_type === 'roofing' ? displayTotal : null
   const measuredSquares = positiveNum(job.measured_squares)
   const soldWastePercent = positiveNum(job.sold_waste_percent)

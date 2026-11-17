@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
-import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
 import type { ClientOrgProfile } from '@/lib/org-profile'
 import Link from 'next/link'
 import { jobDirectCost } from '@/lib/job-cost-ledger'
@@ -129,6 +129,7 @@ function formatJobTypeLabel(jobType: string): string {
 export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp, orgProfile, categories = [] }: OpsClientProps) {
   // The company's words (industry profile, lib/org-profile.ts; server-resolved by the page so the first paint is right).
   const terms = useOrgProfile(orgProfile).terms
+  const squaresOn = useOrgFeatures().squaresPricing
   const catchUpOn = catchUp?.enabled === true
   const viewerId = catchUp?.viewerId ?? null
   // Same notice as the first render when a refresh couldn't build the lines.
@@ -634,6 +635,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                   onStartMaterials={onBoardStartMaterials}
                   onMarkOrdered={onBoardMarkOrdered}
                   onJobStatus={updateJobStatus}
+                  squaresOn={squaresOn}
                 />
               ))}
             </div>
@@ -675,6 +677,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                           onStartMaterials={onBoardStartMaterials}
                           onMarkOrdered={onBoardMarkOrdered}
                           onJobStatus={updateJobStatus}
+                  squaresOn={squaresOn}
                         />
                       ))
                     )}
