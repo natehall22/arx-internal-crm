@@ -84,3 +84,14 @@ describe('email', () => {
     expect(sendMail).not.toHaveBeenCalled()
   })
 })
+
+describe('email send failure', () => {
+  test('a mail error becomes a clear sentence, not a 500', async () => {
+    const d = db()
+    const s = (await loadCustomerStatement(d.client as never, ORG, 'c1'))!
+    sendMail.mockRejectedValueOnce(new Error('smtp down'))
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    expect(await emailCustomerStatement(d.client as never, ORG, s)).toMatchObject({ ok: false, status: 502, error: expect.stringContaining('could not be sent') })
+    spy.mockRestore()
+  })
+})

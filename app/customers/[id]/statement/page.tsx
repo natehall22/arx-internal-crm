@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import PrintButton from '@/app/invoices/[invoiceId]/print/PrintButton'
 import { requireAuth } from '@/lib/auth'
 import { loadCustomerStatement } from '@/lib/customer-statement'
-import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { canBillService } from '@/lib/service-billing-access'
 import { companyIdentity } from '@/lib/customer-messages-db'
 import { invoiceItemDateLabel } from '@/lib/invoice-lines'
 import { formatCurrency } from '@/lib/job-payments'
@@ -16,7 +16,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 export default async function CustomerStatementPage({ params }: { params: { id: string } }) {
   const { profile } = await requireAuth()
   const admin = createServiceClient()
-  if (!(await callerCanAccessJobBilling(admin, profile))) redirect('/dashboard')
+  if (!(await canBillService(admin, profile)).bill) redirect('/dashboard')
   const statement = await loadCustomerStatement(admin, profile.org_id, params.id)
   if (!statement) return <div className="p-8 text-center text-ink">Customer not found</div>
   const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings').eq('id', profile.org_id).maybeSingle()

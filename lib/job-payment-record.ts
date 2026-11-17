@@ -26,6 +26,8 @@ export type RecordJobPaymentInput = {
   /** A processor's payment / refund id: a retry with the same key returns the first row instead of a second one. */
   idempotencyKey?: string | null
   /** QuickBooks outbox event: money in (default), or money back out by a refund / a lost dispute. */
+  /** False when the caller sends the customer's receipt itself (after applying the payment to an invoice, or once for a split collection). Default true. */
+  sendReceipt?: boolean
   eventType?: 'payment.recorded' | 'payment.refunded' | 'payment.disputed' | 'payment.voided'
 }
 
@@ -127,10 +129,11 @@ export async function recordJobPayment(admin: SupabaseClient, p: RecordJobPaymen
 
   // The customer's receipt (lib/payment-receipt.ts: the one receipt, shared with recordCustomerInvoicePayment): money in only
   // (a refund is negative), awaited so it is sent before the request ends; it never fails the payment.
-  if (p.amountCents > 0) {
+  if (p.amountCents > 0 && p.sendReceipt !== false && (p.eventType ?? 'payment.recorded') === 'payment.recorded') {
     const summary = await summaryP.catch(() => null)
     await sendPaymentReceipt(admin, p.orgId, {
       paymentId: payment.id,
+      payer: String(p.payer),
       amountCents: p.amountCents,
       paidAt: String(p.paidAt),
       method: String(p.method),

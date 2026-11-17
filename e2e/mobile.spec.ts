@@ -504,22 +504,22 @@ const SCREENS: Screen[] = [
   },
     states: [
       { name: 'mark-paid', run: async (p) => { await p.getByRole('button', { name: 'Mark paid' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Amount paid') } },
-      { name: 'new-invoice', run: async (p) => { await p.getByRole('button', { name: 'New invoice' }).click(); await p.waitForSelector('[role=dialog] >> text=Make invoice'); await p.waitForSelector('[role=dialog] >> text=Standard yard mowing') } },
+      { name: 'new-invoice', run: async (p) => { await p.getByRole('button', { name: 'New invoice' }).click(); await p.waitForSelector('[role=dialog] >> text=Make invoice'); await p.waitForSelector('[role=dialog] >> select >> visible=true') } },
       { name: 'new-invoice-sized-line', run: async (p) => {
         await p.getByRole('button', { name: 'New invoice' }).click()
-        await p.waitForSelector('[role=dialog] >> text=Standard yard mowing')
+        await p.waitForSelector('[role=dialog] >> select >> visible=true')
         await p.getByRole('dialog').getByLabel('Item').selectOption('mow')
         await p.getByRole('dialog').getByLabel('Size').selectOption('l')
         await p.getByRole('dialog').getByRole('button', { name: 'Add a line' }).click()
         await p.waitForSelector('[role=dialog] >> text=Line 2')
       } },
     ] },
-  { name: 'all-invoices', path: '/dev-harness/all-invoices', ready: 'text=INV-26-00012', mock: async (p) => {
+  { name: 'all-invoices', path: '/dev-harness/all-invoices', ready: 'button:visible:has-text("INV-26-00012")', mock: async (p) => {
     await p.route('**/api/invoices', (route) => route.fulfill(json(HARNESS_ALL_INVOICES)))
     await p.route('**/api/invoices/*', (route) => route.fulfill(json({ success: true, invoice: { ...HARNESS_CUSTOMER_INVOICES.invoices[0], items: [], payments: [] } })))
   },
     states: [
-      { name: 'overdue-only', run: async (p) => { await p.getByLabel('Status').first().selectOption('overdue'); await p.waitForSelector('text=Overdue 10 days') } },
+      { name: 'overdue-only', run: async (p) => { await p.getByLabel('Status').first().selectOption('overdue'); await p.waitForSelector('span:visible:has-text("Overdue 10 days")') } },
       { name: 'open-invoice', run: async (p) => { await p.getByRole('button', { name: 'Open' }).first().click(); await p.waitForSelector('[role=dialog], .fixed') } },
     ] },
   { name: 'crew-day', path: '/dev-harness/crew-day', ready: 'text=Gate code 4421. Dog in back yard.',

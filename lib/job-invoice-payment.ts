@@ -8,6 +8,7 @@ import { paymentTypeForInvoice } from '@/lib/online-payments/record'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { applyPaymentToInvoice, computeInvoiceBalance, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from '@/lib/invoices'
+import { sendPaymentReceipt } from '@/lib/payment-receipt'
 import { recordJobPayment } from '@/lib/job-payment-record'
 
 export type JobInvoicePaymentInput = {
@@ -17,6 +18,8 @@ export type JobInvoicePaymentInput = {
   note?: string | null
   createdBy: string | null
   idempotencyKey?: string | null
+  /** False when the caller sends the receipt (a split collection). Default true. */
+  sendReceipt?: boolean
 }
 
 export type JobInvoicePaymentResult =
@@ -54,6 +57,7 @@ export async function recordJobInvoicePayment(
     note: p.note?.trim().slice(0, 500) || null,
     createdBy: p.createdBy,
     idempotencyKey: p.idempotencyKey ?? null,
+    sendReceipt: false, // sent below, once the payment is on the invoice, so it can name the invoice and what is left
   })
   if (!rec.ok) return { ok: false, status: rec.status, error: rec.error }
   try {
@@ -63,5 +67,6 @@ export async function recordJobInvoicePayment(
     return { ok: false, status: 500, error: 'The payment was saved on the job but could not be applied to this invoice. Apply it from the invoice.' }
   }
   const after = await computeInvoiceBalance(admin, invoice.id)
+  if (!rec.duplicate && p.sendReceipt !== false) await sendPaymentReceipt(admin, orgId, { paymentId: rec.payment.id, payer: 'homeowner', amountCents: p.amountCents, paidAt: p.paidAt, method: p.method, invoiceId: invoice.id })
   return { ok: true, paymentId: rec.payment.id, balanceCents: after.balance_cents }
 }

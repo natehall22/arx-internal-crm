@@ -3,7 +3,9 @@
  * writer: the lines become `ServiceInvoiceLine`s and go to `createServiceInvoiceFromLines` (lib/invoices.ts, SQL
  * create_service_invoice — the one way an invoice without a job is made, with the one tax calculation). The invoice is born a
  * draft; the office reviews it, then emails it or marks it paid like any other. Price-book lines are priced HERE from the price
- * book (the customer's own list; an option's price), never from what the browser sent; a typed line is the office's own price.
+ * book (the customer's own list; an option's price), never from what the browser sent. The office may still type a different price on a
+ * price-book line: that is allowed, kept as typed, and tagged "manual price" (with the list price) in the invoice's internal note, which
+ * only staff see. A fully typed line is simply the office's own price.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -80,27 +82,34 @@ export async function loadCustomerCatalog(admin: SupabaseClient, orgId: string, 
 }
 
 /** The lines as `create_service_invoice` takes them. Throws a sentence for a price-book line that cannot be priced. */
-export async function buildOneOffLines(admin: SupabaseClient, orgId: string, customerId: string, inputs: OneOffLineInput[]): Promise<ServiceInvoiceLine[]> {
+export async function buildOneOffLines(admin: SupabaseClient, orgId: string, customerId: string, inputs: OneOffLineInput[]): Promise<{ lines: ServiceInvoiceLine[]; manualNotes: string[] }> {
   const itemIds = Array.from(new Set(inputs.filter((l): l is Extract<OneOffLineInput, { kind: 'item' }> => l.kind === 'item').map((l) => l.itemId)))
   const byId = new Map<string, Record<string, unknown>>()
   if (itemIds.length) {
     const allowed = new Set((await loadCustomerCatalog(admin, orgId, customerId)).map((i) => i.id))
     for (const r of await readItems(admin, orgId, itemIds)) if (allowed.has(String(r.id))) byId.set(String(r.id), r)
   }
-  return inputs.map((l): ServiceInvoiceLine => {
+  const manualNotes: string[] = []
+  const lines = inputs.map((l): ServiceInvoiceLine => {
     if (l.kind === 'typed') return { description: l.description, qty: l.qty, unit_price_cents: l.priceCents, taxable: l.taxable }
     const item = byId.get(l.itemId)
     if (!item) throw new Error('A price-book item on this invoice is no longer available')
     const priced = resolveLinePrice({ item: { unit_price: item.unit_price as number, price_options: item.price_options }, optionKey: l.optionKey, manualPrice: l.priceCents == null ? null : l.priceCents / 100 })
     if (!priced.ok) throw new Error(priced.error === 'choose_option' ? `Pick a size for ${String(item.name)}` : `That size is not offered for ${String(item.name)}`)
+    const description = lineNameWithOption(String(item.name ?? 'Item'), priced.line.optionName)
+    if (priced.line.source === 'manual') {
+      const list = priced.line.optionPrice ?? (Number(item.unit_price) || 0)
+      manualNotes.push(`Manual price: ${description} at $${priced.line.unitPrice.toFixed(2)} (price book $${list.toFixed(2)})`)
+    }
     return {
-      description: lineNameWithOption(String(item.name ?? 'Item'), priced.line.optionName),
+      description,
       qty: l.qty,
       unit_price_cents: Math.round(priced.line.unitPrice * 100),
       taxable: item.is_taxable !== false,
       ...(String(item.unit) === 'hour' ? { unit: 'hour' as const } : {}),
     }
   })
+  return { lines, manualNotes }
 }
 
 /** Make the draft invoice (the one writer) and say which one it is. */
@@ -109,8 +118,8 @@ export async function createOneOffInvoice(admin: SupabaseClient, orgId: string, 
     const { data } = await orgDb(admin, orgId).from('properties').select('id').eq('id', body.propertyId).eq('customer_id', customerId).maybeSingle()
     if (!data) throw new Error('That property is not this customer’s')
   }
-  const lines = await buildOneOffLines(admin, orgId, customerId, body.lines)
-  const made = await createServiceInvoiceFromLines(admin, orgId, { customerId, propertyId: body.propertyId, createdBy: userId, lines, publicNote: body.publicNote })
+  const { lines, manualNotes } = await buildOneOffLines(admin, orgId, customerId, body.lines)
+  const made = await createServiceInvoiceFromLines(admin, orgId, { customerId, propertyId: body.propertyId, createdBy: userId, lines, publicNote: body.publicNote, internalNote: manualNotes.length ? manualNotes.join('\n') : null })
   if (!made.invoiceId) throw new Error('Could not make the invoice')
   return { invoiceId: made.invoiceId }
 }

@@ -61,7 +61,7 @@ describe('buildOneOffLines', () => {
   const build = (lines: Parameters<typeof buildOneOffLines>[3]) => buildOneOffLines(db().client as never, ORG, 'c1', lines)
 
   test('price-book lines are priced from the book (option, item, hour unit); typed lines as typed', async () => {
-    const out = await build([
+    const { lines: out, manualNotes } = await build([
       { kind: 'item', itemId: 'mow', optionKey: 'l', qty: 2, priceCents: null },
       { kind: 'item', itemId: 'edge', optionKey: null, qty: 1, priceCents: null },
       { kind: 'item', itemId: 'labor', optionKey: null, qty: 1.5, priceCents: null },
@@ -73,9 +73,12 @@ describe('buildOneOffLines', () => {
       { description: 'Crew hour', qty: 1.5, unit_price_cents: 5500, taxable: false, unit: 'hour' },
       { description: 'Gate repair', qty: 1, unit_price_cents: 8000, taxable: true },
     ])
+    expect(manualNotes).toEqual([])
   })
-  test('a typed price on a price-book line overrides it (as in quotes)', async () => {
-    expect((await build([{ kind: 'item', itemId: 'edge', optionKey: null, qty: 1, priceCents: 2000 }]))[0].unit_price_cents).toBe(2000)
+  test('a typed price on a price-book line overrides it and is tagged manual for staff', async () => {
+    const r = await build([{ kind: 'item', itemId: 'edge', optionKey: null, qty: 1, priceCents: 2000 }])
+    expect(r.lines[0].unit_price_cents).toBe(2000)
+    expect(r.manualNotes).toEqual(['Manual price: Edging at $20.00 (price book $15.50)'])
   })
   test('an item with sizes needs one; an unknown size, another list’s item, a retired or another company’s item are refused', async () => {
     await expect(build([{ kind: 'item', itemId: 'mow', optionKey: null, qty: 1, priceCents: null }])).rejects.toThrow('Pick a size')
@@ -96,5 +99,12 @@ describe('createOneOffInvoice', () => {
   test('another customer’s property is refused and nothing is made', async () => {
     await expect(createOneOffInvoice(db().client as never, ORG, 'u1', 'c1', { lines: [{ kind: 'typed', description: 'x', qty: 1, priceCents: 100, taxable: false }], propertyId: 'p2', publicNote: null })).rejects.toThrow('not this customer')
     expect(created).toHaveLength(0)
+  })
+})
+
+describe('manual price shows on the staff view', () => {
+  test('the invoice\'s internal note carries the manual-price line (customer copy untouched)', async () => {
+    await createOneOffInvoice(db().client as never, ORG, 'u1', 'c1', { lines: [{ kind: 'item', itemId: 'edge', optionKey: null, qty: 1, priceCents: 2000 }], propertyId: null, publicNote: 'Thanks' })
+    expect(created[0]).toMatchObject({ internalNote: 'Manual price: Edging at $20.00 (price book $15.50)', publicNote: 'Thanks' })
   })
 })

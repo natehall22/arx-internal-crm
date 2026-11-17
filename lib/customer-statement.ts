@@ -98,13 +98,18 @@ export function renderStatementEmail(company: EmailCompany, s: CustomerStatement
   return { subject: `Account statement${company.name ? ` from ${company.name}` : ''}`, html, text }
 }
 
-export type SendStatementResult = { ok: true; to: string } | { ok: false; status: 400 | 409 | 503; error: string }
+export type SendStatementResult = { ok: true; to: string } | { ok: false; status: 400 | 409 | 502 | 503; error: string }
 
 export async function emailCustomerStatement(admin: SupabaseClient, orgId: string, s: CustomerStatement): Promise<SendStatementResult> {
   if (!s.customer.email) return { ok: false, status: 400, error: 'This customer has no email address' }
   const sender = await resolveInvoiceSender(admin, orgId, s.customer.email)
   if (!sender.ok) return sender
   const mail = renderStatementEmail(sender.company, s)
-  await getMailTransport(orgId).sendMail({ from: sender.from, to: s.customer.email, replyTo: sender.replyTo, subject: mail.subject, html: mail.html, text: mail.text })
+  try {
+    await getMailTransport(orgId).sendMail({ from: sender.from, to: s.customer.email, replyTo: sender.replyTo, subject: mail.subject, html: mail.html, text: mail.text })
+  } catch (e) {
+    console.error('statement email failed', e)
+    return { ok: false, status: 502, error: 'The statement could not be sent. Check the email settings and try again.' }
+  }
   return { ok: true, to: s.customer.email }
 }

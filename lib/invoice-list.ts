@@ -38,8 +38,8 @@ export function invoiceStandingLabel(r: Pick<InvoiceListRow, 'status' | 'balance
 }
 
 /** Which issue-date bucket a row is in, by the company's `today` (a draft uses the day it was made). */
-export function invoicePeriodOf(r: Pick<InvoiceListRow, 'issuedAt' | 'createdAt'>, today: string): string {
-  const day = (r.issuedAt ?? r.createdAt).slice(0, 10)
+export function invoicePeriodOf(r: Pick<InvoiceListRow, 'issuedAt' | 'createdDay'>, today: string): string {
+  const day = (r.issuedAt ?? r.createdDay).slice(0, 10)
   const month = today.slice(0, 7)
   const lastMonth = addDaysYmd(`${month}-01`, -1).slice(0, 7)
   if (day.slice(0, 7) === month) return 'this_month'
@@ -47,10 +47,14 @@ export function invoicePeriodOf(r: Pick<InvoiceListRow, 'issuedAt' | 'createdAt'
   return day.slice(0, 4) === today.slice(0, 4) && day < `${month}-01` ? 'earlier_this_year' : 'older'
 }
 
+/** The ONE text a search looks in (the screen's search box and the CSV's `q` both use it). */
+export function invoiceSearchText(r: Pick<InvoiceListRow, 'invoiceNumber' | 'customerName' | 'jobNumber'>): string {
+  return `${r.invoiceNumber} ${r.customerName} ${r.jobNumber ?? ''}`
+}
+
 export function invoiceMatchesSearch(r: InvoiceListRow, q: string): boolean {
   const n = q.trim().toLowerCase()
-  if (!n) return true
-  return [r.invoiceNumber, r.customerName, r.jobNumber ?? ''].some((v) => v.toLowerCase().includes(n))
+  return !n || invoiceSearchText(r).toLowerCase().includes(n)
 }
 
 /** The rows that pass every chosen filter (an empty / missing value means "all"). */

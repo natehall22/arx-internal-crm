@@ -12,6 +12,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { CUSTOMER_MESSAGES_SETTINGS_KEY, readCustomerMessageSettings } from '@/lib/customer-messages'
 import { renderCustomerEmail } from '@/lib/customer-email-layout'
 import type { EmailCompany } from '@/lib/customer-email-layout'
 import { loadInvoiceDocument, isUsableCustomerEmail } from '@/lib/invoice-document'
@@ -31,6 +32,10 @@ export type ReceiptInput = {
   method: string
   /** Paid on this invoice (the receipt names it and what is still owed on it). */
   invoiceId?: string | null
+  /** Who paid: only the customer (homeowner) gets a receipt, never an insurance company or lender. Unknown / missing = no receipt. */
+  payer: string | null | undefined
+  /** Else: a payment split over several of this customer's invoices (one receipt for the whole collection). */
+  customerId?: string | null
   /** Else: paid on this job (the receipt names the address and what the job still owes). */
   jobId?: string | null
   /** What the job still owes after this payment, when the writer knows it (job payments). */
@@ -85,6 +90,11 @@ async function loadTarget(admin: SupabaseClient, orgId: string, r: ReceiptInput)
     const doc = await loadInvoiceDocument(admin, orgId, data as JobInvoice)
     return { to: (doc.billTo.email ?? '').trim(), name: doc.billTo.name, invoiceNumber: doc.invoice.invoice_number, address: null, remainingCents: Math.max(0, doc.balanceCents) }
   }
+  if (r.customerId && !r.jobId) {
+    const { data: customer } = await orgDb(admin, orgId).from('customers').select('name, email').eq('id', r.customerId).maybeSingle()
+    const c = customer as { name?: string | null; email?: string | null } | null
+    return c ? { to: (c.email ?? '').trim(), name: c.name ?? null, invoiceNumber: null, address: null, remainingCents: null } : null
+  }
   if (!r.jobId) return null
   const { data: job } = await orgDb(admin, orgId).from('production_jobs').select('customer_id, address_text').eq('id', r.jobId).maybeSingle()
   const customerId = (job as { customer_id?: string | null } | null)?.customer_id
@@ -98,8 +108,13 @@ async function loadTarget(admin: SupabaseClient, orgId: string, r: ReceiptInput)
 export async function sendPaymentReceipt(admin: SupabaseClient, orgId: string, r: ReceiptInput): Promise<'sent' | 'skipped' | 'failed'> {
   try {
     if (!(r.amountCents > 0)) return 'skipped'
+    if (r.payer !== 'homeowner') return 'skipped'
     const { isOrgFeatureOn } = await import('@/lib/org-features-server')
     if (!(await isOrgFeatureOn(orgId, 'customerMessages'))) return 'skipped'
+    // Its own switch under Settings → Customer messages (default OFF, like every automatic email).
+    const { data: org } = await admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
+    const settings = (org as { settings?: Record<string, unknown> } | null)?.settings
+    if (!readCustomerMessageSettings(settings?.[CUSTOMER_MESSAGES_SETTINGS_KEY]).paymentReceipt) return 'skipped'
     const target = await loadTarget(admin, orgId, r)
     if (!target || !isUsableCustomerEmail(target.to)) return 'skipped'
     const sender = await resolveInvoiceSender(admin, orgId, target.to)

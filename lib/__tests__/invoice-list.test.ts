@@ -7,7 +7,7 @@ jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { loadAllInvoices } from '@/lib/service-billing-db'
-import { filterInvoiceRows, invoicePeriodOf, invoiceRowsToResult, invoiceStanding, invoiceStandingLabel } from '@/lib/invoice-list'
+import { filterInvoiceRows, invoiceSearchText, invoicePeriodOf, invoiceRowsToResult, invoiceStanding, invoiceStandingLabel } from '@/lib/invoice-list'
 import { resultToCsv } from '@/lib/reporting/run'
 
 const ORG = 'org-a'
@@ -97,12 +97,12 @@ describe('filters shared by the screen and the CSV', () => {
     expect(filterInvoiceRows(r, { q: 'sam' }, TODAY).map((x) => x.id)).toEqual(['5'])
     expect(filterInvoiceRows(r, { q: '26-0030' }, TODAY).map((x) => x.id)).toEqual(['5'])
     expect(filterInvoiceRows(r, { period: 'last_month' }, TODAY).length).toBeGreaterThan(0)
-    expect(invoicePeriodOf({ issuedAt: '2026-11-02', createdAt: '2026-11-02T00:00:00Z' }, TODAY)).toBe('this_month')
-    expect(invoicePeriodOf({ issuedAt: '2026-10-31', createdAt: '' }, TODAY)).toBe('last_month')
-    expect(invoicePeriodOf({ issuedAt: '2026-03-01', createdAt: '' }, TODAY)).toBe('earlier_this_year')
-    expect(invoicePeriodOf({ issuedAt: '2025-12-31', createdAt: '' }, TODAY)).toBe('older')
-    expect(invoicePeriodOf({ issuedAt: '2026-01-15', createdAt: '' }, '2026-01-20')).toBe('this_month')
-    expect(invoicePeriodOf({ issuedAt: '2025-12-15', createdAt: '' }, '2026-01-20')).toBe('last_month') // year boundary
+    expect(invoicePeriodOf({ issuedAt: '2026-11-02', createdDay: '2026-11-02' }, TODAY)).toBe('this_month')
+    expect(invoicePeriodOf({ issuedAt: '2026-10-31', createdDay: '' }, TODAY)).toBe('last_month')
+    expect(invoicePeriodOf({ issuedAt: '2026-03-01', createdDay: '' }, TODAY)).toBe('earlier_this_year')
+    expect(invoicePeriodOf({ issuedAt: '2025-12-31', createdDay: '' }, TODAY)).toBe('older')
+    expect(invoicePeriodOf({ issuedAt: '2026-01-15', createdDay: '' }, '2026-01-20')).toBe('this_month')
+    expect(invoicePeriodOf({ issuedAt: '2025-12-15', createdDay: '' }, '2026-01-20')).toBe('last_month') // year boundary
   })
 
   test('a settled job invoice that is still "sent" reads paid', () => {
@@ -155,5 +155,26 @@ describe('routes', () => {
     finance = true
     canExport = false
     expect((await exp(req())).status).toBe(403)
+  })
+})
+
+describe('a draft belongs to the company day it was made, not the UTC day', () => {
+  test('made 9pm Oct 31 in New York (UTC Nov 1) is last month', async () => {
+    const d = db()
+    ;(d.tables.job_invoices as Array<Record<string, unknown>>).find((i) => i.id === '2')!.created_at = '2026-11-01T01:00:00Z'
+    const r = (await loadAllInvoices(d.client as never, ORG, { today: TODAY }))!.rows.find((x) => x.id === '2')!
+    expect(r.createdDay).toBe('2026-10-31')
+    expect(invoicePeriodOf(r, TODAY)).toBe('last_month')
+  })
+})
+
+describe('the CSV search is the screen search', () => {
+  test('invoice number, customer and job number all match, in both', async () => {
+    const rows = (await loadAllInvoices(db().client as never, ORG, { today: TODAY }))!.rows
+    for (const q of ['INV-1', 'pat', '26-0030']) {
+      expect(filterInvoiceRows(rows, { status: '', period: '', customer: '', q }, TODAY).map((r) => r.id)).toEqual(
+        rows.filter((r) => invoiceSearchText(r).toLowerCase().includes(q.toLowerCase())).map((r) => r.id)
+      )
+    }
   })
 })

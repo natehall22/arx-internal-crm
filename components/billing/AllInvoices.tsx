@@ -11,6 +11,7 @@ import {
   INVOICE_PERIOD_FILTERS,
   INVOICE_STATUS_FILTERS,
   invoicePeriodOf,
+  invoiceSearchText,
   invoiceStanding,
   invoiceStandingLabel,
 } from '@/lib/invoice-list'
@@ -19,7 +20,7 @@ import type { InvoiceListRow } from '@/lib/service-billing-db'
 
 const TONE = { overdue: 'danger', open: 'info', paid: 'success', draft: 'neutral', void: 'neutral' } as const
 
-type Load = { rows: InvoiceListRow[]; capped: boolean; today: string; canExport: boolean }
+type Load = { rows: InvoiceListRow[]; capped: boolean; today: string; canExport: boolean; fullHistory?: boolean }
 
 const SYSTEM_VIEWS: TableView[] = [
   { id: 'sys-overdue', name: 'Overdue', state: { sorting: [{ id: 'due', desc: false }], search: '', filters: { status: 'overdue' } } },
@@ -50,11 +51,12 @@ export default function AllInvoices() {
 
   const today = data?.today ?? ''
   const rows = React.useMemo(() => data?.rows ?? [], [data])
+  // Someone without reports:financials sees open invoices only (no paid / draft / void history): the same people, the same numbers as the Unpaid list.
   const filters = React.useMemo<TableFilter<InvoiceListRow>[]>(() => {
     const customers = new Map<string, string>()
     for (const r of rows) if (r.customerId) customers.set(r.customerId, r.customerName)
     return [
-      { key: 'status', label: 'Status', options: INVOICE_STATUS_FILTERS, accessor: (r) => invoiceStanding(r) },
+      { key: 'status', label: 'Status', options: data?.fullHistory === false ? INVOICE_STATUS_FILTERS.filter((o) => o.value === 'overdue' || o.value === 'open') : INVOICE_STATUS_FILTERS, accessor: (r) => invoiceStanding(r) },
       { key: 'period', label: 'Issued', options: INVOICE_PERIOD_FILTERS, accessor: (r) => (today ? invoicePeriodOf(r, today) : '') },
       {
         key: 'customer',
@@ -63,14 +65,14 @@ export default function AllInvoices() {
         accessor: (r) => r.customerId,
       },
     ]
-  }, [rows, today])
+  }, [rows, today, data?.fullHistory])
 
   const columns = React.useMemo<ColumnDef<InvoiceListRow, any>[]>(
     () => [
       {
         id: 'invoice',
         header: 'Invoice',
-        accessorFn: (r) => `${r.invoiceNumber} ${r.customerName} ${r.jobNumber ?? ''}`,
+        accessorFn: (r) => invoiceSearchText(r), // the only searchable column: the CSV's search uses the same text
         cell: ({ row }) => (
           <button type="button" className="min-h-tap text-left font-semibold underline" onClick={() => setOpenId(row.original.id)}>
             {row.original.invoiceNumber}
@@ -78,17 +80,18 @@ export default function AllInvoices() {
         ),
         meta: { mobile: 'title' },
       },
-      { id: 'customer', header: 'Customer', accessorFn: (r) => r.customerName, cell: ({ row }) => <span>{row.original.customerName}{row.original.jobNumber ? ` · Job ${row.original.jobNumber}` : ''}</span> },
-      { id: 'issued', header: 'Issued', accessorFn: (r) => r.issuedAt ?? r.createdAt, cell: ({ row }) => (row.original.issuedAt ? invoiceItemDateLabel(row.original.issuedAt) : '—') },
-      { id: 'due', header: 'Due', accessorFn: (r) => r.dueAt ?? '9999', cell: ({ row }) => (row.original.dueAt ? invoiceItemDateLabel(row.original.dueAt) : '—') },
+      { id: 'customer', header: 'Customer', enableGlobalFilter: false, accessorFn: (r) => r.customerName, cell: ({ row }) => <span>{row.original.customerName}{row.original.jobNumber ? ` · Job ${row.original.jobNumber}` : ''}</span> },
+      { id: 'issued', header: 'Issued', enableGlobalFilter: false, accessorFn: (r) => r.issuedAt ?? r.createdAt, cell: ({ row }) => (row.original.issuedAt ? invoiceItemDateLabel(row.original.issuedAt) : '—') },
+      { id: 'due', header: 'Due', enableGlobalFilter: false, accessorFn: (r) => r.dueAt ?? '9999', cell: ({ row }) => (row.original.dueAt ? invoiceItemDateLabel(row.original.dueAt) : '—') },
       {
         id: 'status',
         header: 'Status',
+        enableGlobalFilter: false,
         accessorFn: (r) => invoiceStanding(r),
         cell: ({ row }) => <Badge tone={TONE[invoiceStanding(row.original)]}>{invoiceStandingLabel(row.original)}</Badge>,
       },
-      { id: 'total', header: 'Total', accessorFn: (r) => r.totalCents, cell: ({ row }) => formatCurrency(row.original.totalCents), meta: { align: 'right' } },
-      { id: 'owed', header: 'Owed', accessorFn: (r) => r.balanceCents, cell: ({ row }) => (row.original.balanceCents > 0 ? formatCurrency(row.original.balanceCents) : '—'), meta: { align: 'right' } },
+      { id: 'total', header: 'Total', enableGlobalFilter: false, accessorFn: (r) => r.totalCents, cell: ({ row }) => formatCurrency(row.original.totalCents), meta: { align: 'right' } },
+      { id: 'owed', header: 'Owed', enableGlobalFilter: false, accessorFn: (r) => r.balanceCents, cell: ({ row }) => (row.original.balanceCents > 0 ? formatCurrency(row.original.balanceCents) : '—'), meta: { align: 'right' } },
     ],
     []
   )

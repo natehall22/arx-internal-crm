@@ -774,7 +774,7 @@ export const HARNESS_ALL_INVOICES = {
   capped: false,
   canExport: true,
   rows: [
-    { id: 'inv-1', invoiceNumber: 'INV-26-00012', customerId: 'c1', customerName: 'Pat Lee', jobId: null, jobNumber: null, status: 'sent', createdAt: '2026-11-01T14:00:00Z', issuedAt: '2026-11-01', dueAt: '2026-11-01', totalCents: 19700, paidCents: 0, balanceCents: 19700, daysOverdue: 10 },
+    { id: 'inv-1', invoiceNumber: 'INV-26-00012', customerId: 'c1', customerName: 'Pat Lee', jobId: null, jobNumber: null, status: 'sent', createdAt: '2026-11-01T14:00:00Z', createdDay: '2026-11-01', issuedAt: '2026-11-01', dueAt: '2026-11-01', totalCents: 19700, paidCents: 0, balanceCents: 19700, daysOverdue: 10 },
     { id: 'inv-2', invoiceNumber: 'INV-26-00004', customerId: 'c1', customerName: 'Pat Lee', jobId: null, jobNumber: null, status: 'paid', createdAt: '2026-10-01T14:00:00Z', issuedAt: '2026-10-01', dueAt: '2026-10-31', totalCents: 18000, paidCents: 18000, balanceCents: 0, daysOverdue: 0 },
     { id: 'inv-3', invoiceNumber: 'INV-26-00015', customerId: 'c2', customerName: 'Sam Ortiz', jobId: null, jobNumber: null, status: 'draft', createdAt: '2026-11-10T14:00:00Z', issuedAt: null, dueAt: null, totalCents: 4500, paidCents: 0, balanceCents: 0, daysOverdue: 0 },
     { id: 'inv-4', invoiceNumber: 'INV-26-00016', customerId: 'c3', customerName: 'Hollis Property Management LLC', jobId: 'j1', jobNumber: '26-0030', status: 'sent', createdAt: '2026-11-05T14:00:00Z', issuedAt: '2026-11-05', dueAt: '2026-12-05', totalCents: 1632500, paidCents: 816250, balanceCents: 816250, daysOverdue: 0 },

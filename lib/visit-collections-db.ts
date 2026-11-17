@@ -10,6 +10,7 @@
  *  - The split across invoices is decided once and stored on the row before anything is written, so a retry after a partial
  *    failure finishes the same split instead of recomputing it from balances that already moved.
  */
+import { sendPaymentReceipt } from '@/lib/payment-receipt'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
@@ -211,6 +212,8 @@ export async function confirmCollection(admin: SupabaseClient, orgId: string, us
     .eq('status', 'pending')
     .select('id')
   if (!done || done.length === 0) return { ok: false, status: 409, error: 'This one was already handled.' }
+  // ONE receipt for the whole collection, however many invoices it was split over (the parts above send none).
+  await sendPaymentReceipt(admin, orgId, { paymentId: row.id, payer: 'homeowner', amountCents: row.amount_cents, paidAt: day, method: row.method, ...(parts.length === 1 ? { invoiceId: parts[0].invoice_id } : { customerId: row.customer_id }) })
   return { ok: true }
 }
 
@@ -224,7 +227,7 @@ async function payPart(
   c: { day: string; method: 'cash' | 'check'; note: string; userId: string; key: string }
 ): Promise<PartResult> {
   if (!part.job_id) {
-    const r = await recordCustomerInvoicePayment(admin, orgId, part.invoice_id, { amountCents: part.cents, paidAt: c.day, method: c.method, note: c.note, createdBy: c.userId, idempotencyKey: c.key })
+    const r = await recordCustomerInvoicePayment(admin, orgId, part.invoice_id, { amountCents: part.cents, paidAt: c.day, method: c.method, note: c.note, createdBy: c.userId, idempotencyKey: c.key, sendReceipt: false })
     return r.ok ? { ok: true, paymentId: r.paymentId } : { ok: false, status: r.status, error: r.error }
   }
   const invoice = await findOrgInvoice(admin, part.invoice_id, orgId)
@@ -253,6 +256,7 @@ async function payPart(
     note: c.note,
     createdBy: c.userId,
     idempotencyKey: c.key,
+    sendReceipt: false,
   })
   return r.ok ? { ok: true, paymentId: r.paymentId } : { ok: false, status: r.status, error: r.error }
 }

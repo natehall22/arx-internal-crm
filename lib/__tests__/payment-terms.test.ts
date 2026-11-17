@@ -10,7 +10,8 @@ jest.mock('@/lib/integrations', () => ({ ...jest.requireActual('@/lib/integratio
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { finalizeAndSendInvoice, duplicateInvoiceAsDraft } from '@/lib/invoices'
-import { renderInvoiceEmail } from '@/lib/invoice-email'
+import { renderInvoiceEmail, sendCustomerInvoice } from '@/lib/invoice-email'
+import { issueDatesFor } from '@/lib/invoices'
 import {
   dueDayFor,
   dueLabel,
@@ -146,5 +147,34 @@ describe('the invoice email', () => {
     expect(renderInvoiceEmail(doc('2026-11-03', '2026-12-03')).text).toContain('Net 30')
     expect(renderInvoiceEmail(doc('2026-11-03', '2026-11-03')).text).toContain('Due on receipt')
     expect(renderInvoiceEmail(doc(null, null)).text).toContain('Due on receipt')
+  })
+})
+
+describe('the FIRST email already names the terms (rendered before the draft is issued)', () => {
+  afterEach(() => jest.useRealTimers())
+  test('Net 30 draft: the mail says Net 30 and the stored due day is the one it named', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-04T15:00:00Z'))
+    process.env.SMTP_HOST = 'smtp.example'
+    sendMail.mockClear()
+    const d = world({ customerTerms: 'net_30' })
+    const draft = (d.tables.job_invoices as Row[])[0]
+    const r = await sendCustomerInvoice(d.client as never, ORG, draft as never, 'pat@example.com')
+    expect(r.ok).toBe(true)
+    const sent = (sendMail.mock.calls[0] as unknown as [Record<string, string>])[0]
+    expect(sent.text).toContain('Net 30')
+    expect(sent.text).not.toContain('Due on receipt')
+    expect(draft.due_at).toBe('2026-12-04')
+  })
+})
+
+describe('deposit invoices (quote approval) are always due on receipt', () => {
+  test('whatever the customer or company terms', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-04T15:00:00Z'))
+    const d = world({ orgTerms: 'net_30', customerTerms: 'net_30' })
+    const dates = await issueDatesFor(d.client as never, { org_id: ORG, customer_id: 'c1', due_at: null, invoice_kind: 'deposit' })
+    expect(dates.dueAt).toBe(dates.issuedAt)
+    const svc = await issueDatesFor(d.client as never, { org_id: ORG, customer_id: 'c1', due_at: null, invoice_kind: 'service' })
+    expect(svc.dueAt).toBe('2026-12-04')
+    jest.useRealTimers()
   })
 })

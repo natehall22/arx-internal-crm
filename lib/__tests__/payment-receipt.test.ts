@@ -19,13 +19,14 @@ import { recordJobPayment } from '@/lib/job-payment-record'
 import { renderPaymentReceipt, sendPaymentReceipt } from '@/lib/payment-receipt'
 
 const ORG = 'org-a'
+let receiptOn = true
 type Row = Record<string, unknown>
 const company = { name: 'Acme Lawn', phone: '(704) 555-1234', email: 'office@acme.example', website: '', addressLine: '1 Main St', logoUrl: null }
 
 function world(customerEmail: string | null = 'pat@example.com', extra: Record<string, Row[]> = {}) {
   return createFakeDb(
     {
-      orgs: [{ id: ORG, name: 'Acme Lawn', phone: '7045551234', email: 'office@acme.example', address: '1 Main St', settings: {}, timezone: 'America/New_York' }],
+      orgs: [{ id: ORG, name: 'Acme Lawn', phone: '7045551234', email: 'office@acme.example', address: '1 Main St', settings: { customerMessages: { paymentReceipt: receiptOn } }, timezone: 'America/New_York' }],
       customers: [{ id: 'c1', org_id: ORG, name: 'Pat Doe', email: customerEmail, messages_off_at: null }],
       production_jobs: [{ id: 'job1', org_id: ORG, customer_id: 'c1', job_number: '26-1', address_text: '9 Elm St', sale_amount: 1000 }],
       job_invoices: [{ id: 'inv1', org_id: ORG, job_id: null, customer_id: 'c1', invoice_number: 'INV-1', invoice_kind: 'service', status: 'sent', total_cents: 10000, tax_cents: 0, subtotal_cents: 10000, due_at: '2026-11-10', issued_at: '2026-11-01' }],
@@ -61,6 +62,7 @@ function world(customerEmail: string | null = 'pat@example.com', extra: Record<s
 beforeEach(() => {
   sendMail.mockClear()
   featureOn = true
+  receiptOn = true
   process.env.SMTP_HOST = 'smtp.example'
 })
 
@@ -106,6 +108,11 @@ describe('invoice without a job (Mark paid, door cash/check, online)', () => {
     await pay(world())
     expect(sendMail).not.toHaveBeenCalled()
   })
+  test('off unless the company turned the Payment receipt switch on (default off)', async () => {
+    receiptOn = false
+    await pay(world())
+    expect(sendMail).not.toHaveBeenCalled()
+  })
   test('opted-out address, customer who turned messages off, no email: no receipt, payment still recorded', async () => {
     const off = world('pat@example.com', { customer_message_suppressions: [{ org_id: ORG, channel: 'email', address: 'pat@example.com', reason: 'unsubscribed' }] })
     expect((await pay(off)).ok).toBe(true)
@@ -145,8 +152,23 @@ describe('job payment (office Add payment, online on a job invoice)', () => {
   })
 })
 
+describe('only the homeowner gets a receipt', () => {
+  const recPayer = (payer: 'homeowner' | 'insurance' | 'financing') =>
+    recordJobPayment(world().client as never, { orgId: ORG, jobId: 'job1', paidAt: '2026-11-11', amountCents: 25000, paymentType: 'deposit', method: 'check', payer, createdBy: 'u1' })
+  test('insurance and lender payments send nothing, homeowner does', async () => {
+    await recPayer('insurance')
+    await recPayer('financing')
+    expect(sendMail).not.toHaveBeenCalled()
+    await recPayer('homeowner')
+    expect(sendMail).toHaveBeenCalledTimes(1)
+  })
+  test('an unknown payer is skipped', async () => {
+    expect(await sendPaymentReceipt(world().client as never, ORG, { paymentId: 'x', amountCents: 100, paidAt: '2026-11-11', method: 'cash', invoiceId: 'inv1', payer: undefined })).toBe('skipped')
+  })
+})
+
 describe('sendPaymentReceipt', () => {
   test('skips what is not money in', async () => {
-    expect(await sendPaymentReceipt(world().client as never, ORG, { paymentId: 'x', amountCents: 0, paidAt: '2026-11-11', method: 'cash', invoiceId: 'inv1' })).toBe('skipped')
+    expect(await sendPaymentReceipt(world().client as never, ORG, { paymentId: 'x', amountCents: 0, paidAt: '2026-11-11', method: 'cash', invoiceId: 'inv1', payer: 'homeowner' })).toBe('skipped')
   })
 })

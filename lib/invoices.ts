@@ -741,7 +741,8 @@ async function queueInvoiceForQuickBooks(supabase: SupabaseClient, invoice: { id
 export async function finalizeAndSendInvoice(
   supabase: SupabaseClient,
   invoiceId: string,
-  email: string
+  email: string,
+  opts: { dates?: { issuedAt: string; dueAt: string } } = {}
 ): Promise<JobInvoice> {
   // Verify invoice exists and is draft
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
@@ -768,23 +769,15 @@ export async function finalizeAndSendInvoice(
   }
 
   const now = new Date().toISOString()
-  // The issue day and the due day are the COMPANY's calendar days (its time zone), never the server's UTC day; the due day
-  // follows the customer's payment terms (lib/payment-terms.ts) unless one was already set on the draft.
-  const orgId = (invoice.org_id as string | null) ?? (await orgIdOfInvoice(supabase, invoice))
-  const today = orgId ? ymdInZone(new Date(now), await loadOrgTimeZone(supabase, orgId)) : now.split('T')[0]
-  let dueDay: string = invoice.due_at ? String(invoice.due_at).slice(0, 10) : today
-  if (!invoice.due_at && orgId) {
-    const customerId = (invoice.customer_id as string | null) ?? (await customerIdOfJob(supabase, orgId, invoice.job_id as string | null))
-    dueDay = dueDayFor(today, await loadPaymentTerms(supabase, orgId, customerId))
-  }
+  const dates = opts.dates ?? (await issueDatesFor(supabase, invoice))
 
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: updated, error } = await supabase
     .from('job_invoices')
     .update({
       status: 'sent',
-      issued_at: today,
-      due_at: dueDay,
+      issued_at: dates.issuedAt,
+      due_at: dates.dueAt,
       sent_at: now,
       sent_to_email: email,
     })
@@ -799,6 +792,25 @@ export async function finalizeAndSendInvoice(
   await queueInvoiceForQuickBooks(supabase, updated, 'invoice.upserted')
 
   return updated as JobInvoice
+}
+
+/**
+ * The issue day and due day an invoice gets when it is issued: the COMPANY's calendar day (its time zone, never the server's UTC
+ * day) and the customer's payment terms (lib/payment-terms.ts) unless a due day is already set on the draft. A deposit invoice
+ * (quote approval) is always due on receipt, whatever the customer's terms. The invoice email renders these BEFORE it is sent,
+ * and finalizeAndSendInvoice stores the same pair, so what the customer reads is what is saved.
+ */
+export async function issueDatesFor(
+  supabase: SupabaseClient,
+  invoice: { org_id?: string | null; job_id?: string | null; customer_id?: string | null; due_at?: string | null; invoice_kind?: string | null }
+): Promise<{ issuedAt: string; dueAt: string }> {
+  const now = new Date()
+  const orgId = (invoice.org_id as string | null) ?? (await orgIdOfInvoice(supabase, invoice))
+  const today = orgId ? ymdInZone(now, await loadOrgTimeZone(supabase, orgId)) : now.toISOString().slice(0, 10)
+  if (invoice.due_at) return { issuedAt: today, dueAt: String(invoice.due_at).slice(0, 10) }
+  if (!orgId || invoice.invoice_kind === 'deposit') return { issuedAt: today, dueAt: today }
+  const customerId = (invoice.customer_id as string | null) ?? (await customerIdOfJob(supabase, orgId, invoice.job_id ?? null))
+  return { issuedAt: today, dueAt: dueDayFor(today, await loadPaymentTerms(supabase, orgId, customerId)) }
 }
 
 /** The company of an invoice read before its org_id column exists: through its job (null when it has none). */
@@ -1274,6 +1286,8 @@ export type CustomerInvoicePayment = {
   createdBy: string | null
   /** A processor's payment id (online payments): a retry with the same key returns the first payment, writes nothing. */
   idempotencyKey?: string | null
+  /** False when the caller sends one receipt for several payments (a door collection split over invoices). Default true. */
+  sendReceipt?: boolean
 }
 
 export type RecordPaymentResult =
@@ -1318,9 +1332,9 @@ export async function recordCustomerInvoicePayment(
   await enqueuePaymentRecorded(supabase, orgId, String(r.payment_id), { amount_cents: p.amountCents, paid_at: p.paidAt, payment_type: 'other', method: p.method, payer: 'other' }).catch((e) => console.error('queue payment for QuickBooks failed', e))
   // The customer's receipt (lib/payment-receipt.ts: the one receipt, shared with recordJobPayment): money in only, never a repeat.
   // Dynamic import: the receipt reaches back into this module through the invoice email.
-  if (!r.duplicate) {
+  if (!r.duplicate && p.sendReceipt !== false) {
     const { sendPaymentReceipt } = await import('@/lib/payment-receipt')
-    await sendPaymentReceipt(supabase, orgId, { paymentId: String(r.payment_id), amountCents: p.amountCents, paidAt: p.paidAt, method: p.method, invoiceId })
+    await sendPaymentReceipt(supabase, orgId, { paymentId: String(r.payment_id), payer: 'homeowner', amountCents: p.amountCents, paidAt: p.paidAt, method: p.method, invoiceId })
   }
   return { ok: true, paymentId: String(r.payment_id), status: (r.status ?? 'partially_paid') as InvoiceStatus, balanceCents: Number(r.balance_cents ?? 0), duplicate: !!r.duplicate }
 }

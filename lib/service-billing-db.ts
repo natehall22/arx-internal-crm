@@ -455,6 +455,8 @@ export type InvoiceListRow = {
   jobNumber: string | null
   status: InvoiceStatus
   createdAt: string
+  /** The company's calendar day it was made (a draft's "date"), not the UTC day of created_at. */
+  createdDay: string
   issuedAt: string | null
   dueAt: string | null
   totalCents: number
@@ -505,16 +507,20 @@ export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts
   const isOpen = (i: JobInvoice) => i.status === 'sent' || i.status === 'partially_paid'
   const openJobInvoices = invoices.filter((i) => isOpen(i) && i.job_id)
   const owedByJob = new Map<string, number>()
+  // The unpaid list reads at most UNPAID_INVOICES_MAX_PAGES pages: past that an open job invoice missing from it is UNKNOWN, not paid.
+  let unpaidCapped = false
   if (openJobInvoices.length > 0) {
     const unpaid = await loadUnpaidInvoices(admin, orgId)
+    unpaidCapped = unpaid?.capped === true
     for (const r of unpaid?.rows ?? []) owedByJob.set(r.id, r.balanceCents)
   }
+  const tz = await loadOrgTimeZone(admin, orgId)
   const jobFacts = await loadInvoiceJobFacts(admin, orgId, invoices.map((i) => i.job_id))
   const customerOf = (i: JobInvoice) => (i.job_id ? jobFacts.get(i.job_id)?.customerId : i.customer_id) ?? null
   const names = await loadCustomers(admin, orgId, Array.from(new Set(invoices.map(customerOf).filter((id): id is string => !!id))))
   const rows = invoices.map((i): InvoiceListRow => {
     const own = i.total_cents - invoicePaidCents(i, applied.get(i.id) ?? 0)
-    const balance = !isOpen(i) ? 0 : i.job_id ? owedByJob.get(i.id) ?? 0 : Math.max(0, own)
+    const balance = !isOpen(i) ? 0 : i.job_id ? owedByJob.get(i.id) ?? (unpaidCapped ? Math.max(0, own) : 0) : Math.max(0, own)
     const paid = i.status === 'void' || i.status === 'draft' ? 0 : Math.max(0, i.total_cents - balance)
     const dueAt = i.due_at ? String(i.due_at).slice(0, 10) : null
     return {
@@ -526,6 +532,7 @@ export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts
       jobNumber: i.job_id ? jobFacts.get(i.job_id)?.jobNumber ?? null : null,
       status: i.status,
       createdAt: i.created_at,
+      createdDay: ymdInZone(new Date(i.created_at), tz),
       issuedAt: i.issued_at ? String(i.issued_at).slice(0, 10) : null,
       dueAt,
       totalCents: i.total_cents,

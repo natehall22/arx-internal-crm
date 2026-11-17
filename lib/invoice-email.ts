@@ -9,7 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { escapeHtml } from '@/lib/html'
 import { formatCurrency } from '@/lib/job-payments'
-import { finalizeAndSendInvoice } from '@/lib/invoices'
+import { finalizeAndSendInvoice, issueDatesFor } from '@/lib/invoices'
 import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
 import { isUsableCustomerEmail, loadInvoiceDocument, type InvoiceDocument } from '@/lib/invoice-document'
 import { dueLabel } from '@/lib/payment-terms'
@@ -140,7 +140,9 @@ export async function sendCustomerInvoice(
   if (doc.items.length === 0 || invoice.total_cents <= 0) return { ok: false, status: 400, error: 'This invoice has nothing to bill' }
   const sender = await resolveInvoiceSender(admin, orgId, address)
   if (!sender.ok) return sender
-  const mail = renderInvoiceEmail(doc, { payUrl: doc.isPaid ? null : opts.payUrl ?? null })
+  // A draft is issued AFTER the email goes out: render the issue / due day it is about to get, so the first email names the terms.
+  const dates = invoice.status === 'draft' ? await issueDatesFor(admin, doc.invoice) : null
+  const mail = renderInvoiceEmail(dates ? { ...doc, invoice: { ...doc.invoice, issued_at: dates.issuedAt, due_at: dates.dueAt } } : doc, { payUrl: doc.isPaid ? null : opts.payUrl ?? null })
   await getMailTransport(orgId).sendMail({
     from: sender.from,
     to: address,
@@ -150,7 +152,7 @@ export async function sendCustomerInvoice(
     text: mail.text,
   })
   if (invoice.status === 'draft') {
-    return { ok: true, invoice: await finalizeAndSendInvoice(admin, invoice.id, address) }
+    return { ok: true, invoice: await finalizeAndSendInvoice(admin, invoice.id, address, dates ? { dates } : {}) }
   }
   // org-scope-ok: invoice was found in orgId by the caller (findOrgInvoice); job_invoices.org_id is set on every row (trigger, migration 202611100040)
   const { data, error } = await admin
