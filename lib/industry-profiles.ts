@@ -148,6 +148,13 @@ export type IndustryProfile = {
   reportsOverview?: ReportsOverviewProfile
   /** `MANUAL_LEAD_SOURCES` values this profile never offers when a person picks a lead source by hand; left out = all of them (roofing). */
   hiddenLeadSources?: readonly string[]
+  /**
+   * Settings entries (lib/settings-registry.ts, by href) with their own description for this profile — roofing-shaped
+   * words ("Price per square", "Ventilation, gutters, skylights") replaced. Left out = the registry's own text (roofing).
+   */
+  /** Settings hub entries (by href) this profile never shows. Left out = none (roofing). */
+  settingsHidden?: readonly string[]
+  settingsText?: Readonly<Record<string, string>>
   /** Schedule stage templates a job can start from (project tools, lib/job-schedule.ts). Left out = none. */
   scheduleTemplates?: readonly ScheduleTemplate[]
   /** The words on the customer proposal PDF's cover, process and why-us pages (lib/industry-profiles-proposal.ts). Left out = neutral text. */
@@ -239,10 +246,23 @@ const SERVICE_OWNER_TILES: readonly TodayTileKey[] = ['visits-left-today', 'unpa
 const SERVICE_NAV_ORDER: readonly NavSectionId[] = ['today', 'dashboard', 'pipeline', 'customers', 'jobs', 'money', 'reports', 'sisu']
 const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
+/**
+ * Lawn: Settings entries that only make sense with door knocking, closers, lender financing or the Sisu setter program.
+ * A hidden entry leaves the Settings hub only; the page keeps its own permission gate. (Cleaning keeps door knocking.)
+ */
+const LAWN_SETTINGS_HIDDEN = [
+  '/admin/print-kit',
+  '/admin/door-drop',
+  '/admin/inspection-feedback',
+  '/admin/financing-programs',
+  '/admin/sisu/incentives',
+  '/admin#checkups',
+]
+
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
   proposalContent: LAWN_LANDSCAPE_PROPOSAL_CONTENT,
-  version: 6,
+  version: 7,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
   features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, areaMeasure: true, ...ROOF_ONLY_OFF },
@@ -264,7 +284,18 @@ const lawnLandscape: IndustryProfile = {
     install: 'Work',
     installed: 'Done',
   },
-  nav: { order: SERVICE_NAV_ORDER, hidden: SERVICE_NAV_HIDDEN },
+  // Referral partners are roofing-shaped (agents, builders): no menu entry, no "+ Partner" shortcut, no dashboard card.
+  nav: { order: SERVICE_NAV_ORDER, hidden: [...SERVICE_NAV_HIDDEN, '/referral-partners'] },
+  settingsHidden: LAWN_SETTINGS_HIDDEN,
+  settingsText: {
+    '/admin/pricing': 'Service prices, overhead and price book items',
+    '/admin/proposals': 'Price book add-ons, price visibility and quote templates',
+    '/admin/scheduling': 'Who takes estimate visits and your calendar settings',
+    '/admin/teams': 'Groups of people in your company',
+    '/admin/regions': 'The areas your company works in',
+    '/admin/crews': 'In-house crews',
+    '/admin/email-blasts': 'Who gets sale and payment emails, and the owner morning update',
+  },
   today: {
     order: ['todays-visits', 'skipped-visits', 'leads-waiting', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'door-collections', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],

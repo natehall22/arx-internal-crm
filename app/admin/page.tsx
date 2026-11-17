@@ -48,6 +48,8 @@ export default async function SettingsPage() {
     features,
     terms: orgProfile.terms,
     profileId: orgProfile.id,
+    hiddenHrefs: [...orgProfile.nav.hidden, ...orgProfile.settingsHidden],
+    text: orgProfile.settingsText,
     canCost: ['admin', 'operations'].includes(profile.role),
     canPayroll: ['admin', 'owner', 'operations'].includes(profile.role),
     canSuperuser: ['admin', 'owner'].includes(profile.role),
@@ -88,7 +90,9 @@ export default async function SettingsPage() {
           {canEditFeatures && features.quickbooks ? <QuickBooksSetup /> : null}
           {canEditFeatures && features.quickbooks ? <QuickBooksActivityCard /> : null}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
-          <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} timeZone={orgTimeZone(orgRow?.timezone)} terms={{ job: orgProfile.terms.job, jobs: orgProfile.terms.jobs }} />
+          {!orgProfile.settingsHidden.includes('/admin#checkups') && (
+            <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} timeZone={orgTimeZone(orgRow?.timezone)} terms={{ job: orgProfile.terms.job, jobs: orgProfile.terms.jobs }} />
+          )}
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}
           {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
           {/* Owners of a lawn_landscape company: automatic crew bonus rules (lib/crew-incentives.ts). Nobody else sees it. */}

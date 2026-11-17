@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { pageHidden } from '@/lib/org-profile'
 import type { OrgFeatures } from '@/lib/org-features'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
@@ -540,6 +541,7 @@ export default function DashboardClient({
 }: DashboardClientProps) {
   /** Company feature switches (Settings → Features), resolved on the server: hides Start Canvassing / badges when off. */
   const orgFeatures = useOrgFeatures(serverOrgFeatures)
+  const orgProfile = useOrgProfile()
   const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null
@@ -959,7 +961,7 @@ export default function DashboardClient({
         {/* Unpaid Referrals Alert */}
         <UnpaidReferralsAlert />
 
-        <MyPartnersCard />
+        {!pageHidden(orgProfile, '/referral-partners') && <MyPartnersCard />}
 
 
         {/* Header */}
@@ -1045,6 +1047,7 @@ export default function DashboardClient({
           </div>
         ) : isSetterLikeRole(profile.role) ? (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {orgFeatures.canvassing && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
@@ -1059,6 +1062,7 @@ export default function DashboardClient({
               </div>
               <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
+            )}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
@@ -1118,6 +1122,7 @@ export default function DashboardClient({
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {orgFeatures.canvassing && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
@@ -1132,6 +1137,7 @@ export default function DashboardClient({
               </div>
               <p className="text-xs text-gray-600 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
+            )}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">

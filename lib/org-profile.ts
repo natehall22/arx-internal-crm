@@ -50,6 +50,8 @@ export type ResolvedOrgProfile = {
   starterReports: readonly string[] | null
   reportsOverview: ReportsOverviewProfile | null
   hiddenLeadSources: readonly string[]
+  settingsHidden: readonly string[]
+  settingsText: Readonly<Record<string, string>>
 }
 
 function asObject(v: unknown): Record<string, unknown> {
@@ -79,7 +81,14 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
     starterReports: p.starterReports,
     reportsOverview: p.reportsOverview ?? null,
     hiddenLeadSources: p.hiddenLeadSources ?? [],
+    settingsHidden: p.settingsHidden ?? [],
+    settingsText: p.settingsText ?? {},
   }
+}
+
+/** The company's profile hides this page / Settings entry (menu, hub, header shortcut). Roofing hides none. */
+export function pageHidden(profile: Pick<ResolvedOrgProfile, 'nav'> | Pick<ClientOrgProfile, 'nav'> | null | undefined, href: string): boolean {
+  return profile?.nav.hidden.includes(href) ?? false
 }
 
 /** Roofing with nothing stored — what a failed read or a missing org gets (today's app). */
