@@ -1,4 +1,4 @@
-import { loadOrgProfile, newDealProjectType } from '@/lib/org-profile'
+import { insertOpportunityRow } from '@/lib/new-deal'
 import { requireAuthApi } from '@/lib/auth'
 import { orgAppUrl } from '@/lib/company-links'
 import { NextResponse } from 'next/server'
@@ -991,18 +991,13 @@ export async function POST(request: Request) {
           owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
           setter_user_id: profile.id,
           status: 'open',
-          project_type: newDealProjectType(await loadOrgProfile(supabase, profile.org_id)),
           address_text: leadRow.address_text || null,
           lat: leadRow.lat ?? null,
           lng: leadRow.lng ?? null,
           notes: leadRow.notes || null,
         }
 
-        const { data: newOpportunity, error: newOpportunityError } = await supabase
-          .from('opportunities')
-          .insert(opportunityInsertPayload)
-          .select('id')
-          .single()
+        const { data: newOpportunity, error: newOpportunityError } = await insertOpportunityRow(supabase, profile.org_id, opportunityInsertPayload, 'id')
 
         if (newOpportunityError) {
           console.error('Failed to create opportunity during inspection scheduling:', newOpportunityError)
@@ -1142,17 +1137,12 @@ export async function POST(request: Request) {
             owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
             setter_user_id: profile.id,
             status: 'open' as const,
-            project_type: newDealProjectType(await loadOrgProfile(supabase, profile.org_id)),
             address_text: leadRow.address_text || null,
             lat: leadRow.lat ?? null,
             lng: leadRow.lng ?? null,
             notes: leadRow.notes || null,
           }
-          const { data: recovered, error: recoveryError } = await supabase
-            .from('opportunities')
-            .insert(recoveryPayload)
-            .select('id')
-            .single()
+          const { data: recovered, error: recoveryError } = await insertOpportunityRow(supabase, profile.org_id, recoveryPayload, 'id')
 
           if (recoveryError) {
             console.error('Failed to recover opportunity after inspection scheduling:', recoveryError)

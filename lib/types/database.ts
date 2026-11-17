@@ -57,7 +57,7 @@ export type CanvassDisposition = string
 
 export type ProjectStatus = 'open' | 'in_progress' | 'on_hold' | 'complete' | 'collected' | 'cancelled'
 
-export type ProjectType = 'roofing' | 'siding' | 'windows' | 'mixed'
+export type ProjectType = 'roofing' | 'siding' | 'windows' | 'mixed' | 'other'
 
 export type JobSource = 'retail' | 'insurance'
 

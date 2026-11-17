@@ -123,6 +123,17 @@ export function newDealProjectType(profile: Pick<ResolvedOrgProfile, 'id'> | Pic
 }
 
 /**
+ * A deal's type as people read it. Roofing: the stored value, as always. Any other profile: deals created before 'other'
+ * existed hold 'roofing' (the column default) and new ones hold 'other' — both read as the company's own trade (profile
+ * label); a real specific type (siding, windows …) is shown as is.
+ */
+export function dealTypeLabel(profile: Pick<ResolvedOrgProfile, 'id' | 'label'> | Pick<ClientOrgProfile, 'id' | 'label'> | null | undefined, type: string | null | undefined): string {
+  const v = type || ''
+  if ((profile?.id ?? DEFAULT_INDUSTRY_PROFILE) === 'roofing') return v
+  return !v || v === 'roofing' || v === 'other' ? profile?.label ?? v : v
+}
+
+/**
  * Roof-only SECTIONS (opportunity / lead / customer pages). The roofing profile (the original company) always shows them,
  * exactly as before; any other profile shows one only when its feature says so (roof report ← insurance, roof measurements
  * ← roofMeasure) — and callers still show a section that already holds data, so history is never hidden.

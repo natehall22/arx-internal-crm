@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { dealTypeLabel, loadOrgProfile } from '@/lib/org-profile'
 import { isValidAiContextId } from '@/lib/ai/chat-constants'
 import {
   canAccessJobBoardFromPermissionNames,
@@ -167,7 +168,7 @@ export async function getAiChatRecordContextAppendix(
         'Current Project Context:',
         `- Address: ${project.address_text || 'Not set'}
 - Status: ${project.status}
-- Project type: ${project.project_type || 'Not set'}
+- Project type: ${dealTypeLabel(await loadOrgProfile(supabase, orgId), project.project_type) || 'Not set'}
 - Install date: ${project.install_date || 'Not set'}
 - Permits status: ${project.permits_status || 'Not set'}
 - Sold roof squares: ${project.sold_roof_squares ?? 'Not set'}`

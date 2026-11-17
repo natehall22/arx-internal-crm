@@ -8,8 +8,9 @@ import path from 'path'
 
 import { INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { resolveOrgFeatures } from '@/lib/org-features'
-import { clientOrgProfile, defaultOrgProfile, newDealProjectType, pageHidden, profileOutcomeRows, resolveOrgProfile, roofSectionsAvailable, t } from '@/lib/org-profile'
+import { clientOrgProfile, dealTypeLabel, defaultOrgProfile, newDealProjectType, pageHidden, profileOutcomeRows, resolveOrgProfile, roofSectionsAvailable, t } from '@/lib/org-profile'
 import { visibleNav, type NavContext } from '@/lib/nav-config'
+import { insertOpportunityRow } from '@/lib/new-deal'
 import { DEFAULT_CLOSE_OUTCOMES } from '@/lib/close-outcomes'
 import { creditLaneWords } from '@/lib/sale-credit-words'
 
@@ -133,7 +134,7 @@ describe('Customer File Sales tab and deal type follow the profile', () => {
     expect(newDealProjectType(lawn)).toBe('other')
     for (const f of ['app/api/inspections/status/route.ts', 'app/api/leads/[id]/opportunity/route.ts', 'app/api/canvass/lead/route.ts']) {
       expect(read(f)).not.toContain("project_type: 'roofing'")
-      expect(read(f)).toContain('newDealProjectType(')
+      expect(read(f)).toContain('insertOpportunityRow(')
     }
   })
   it('the Roofing pill is only shown to roofing, or when the deal has a real type', () => {
@@ -148,5 +149,44 @@ describe('Customer File Sales tab and deal type follow the profile', () => {
     expect(sales).toContain('creditLaneWords(features.canvassing)')
     expect(sales).toContain('markOpportunityLost(')
     expect(sales.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')).not.toMatch(/Roof|Insurance|Canvass/)
+  })
+})
+
+describe('deal project type vs the database enum', () => {
+  const enumValues = (/export type ProjectType = ([^\n]+)/.exec(read('lib/types/database.ts'))![1].match(/'([a-z_]+)'/g) ?? []).map((v) => v.replace(/'/g, ''))
+  it('everything newDealProjectType returns is a ProjectType; the migration adds the new value', () => {
+    for (const p of [roof, lawn, resolveOrgProfile({ profile: { id: 'exterior_cleaning', version: 4 } }), resolveOrgProfile({ profile: { id: 'home_builder', version: 1 } })]) {
+      expect(enumValues).toContain(newDealProjectType(p))
+    }
+    expect(read('supabase/migrations/202611300010_project_type_other.sql')).toContain("ADD VALUE IF NOT EXISTS 'other'")
+    expect(read('supabase/data-fixes/2026-11-30_retype_non_roofing_deals.sql')).toContain('undo_retype_non_roofing_deals')
+  })
+  it('a database without the new value: the insert is retried once as roofing, never fails', async () => {
+    const calls: string[] = []
+    const client = {
+      from: (table: string) => {
+        if (table === 'orgs') return { select: () => ({ eq: () => ({ single: async () => ({ data: { profile: lawnSettings.profile, features: {}, entitlements: null }, error: null }), maybeSingle: async () => ({ data: { profile: lawnSettings.profile, features: {}, entitlements: null }, error: null }) }) }) }
+        return {
+          insert: (row: { project_type: string }) => ({
+            select: () => ({
+              single: async () => {
+                calls.push(row.project_type)
+                return row.project_type === 'other' ? { data: null, error: { code: '22P02', message: 'invalid input value for enum project_type: "other"' } } : { data: { id: 'o1' }, error: null }
+              },
+            }),
+          }),
+        }
+      },
+    }
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await insertOpportunityRow(client as never, 'org-1', { org_id: 'org-1' })
+    expect(res.error).toBeNull()
+    expect(calls).toEqual(['other', 'roofing'])
+  })
+  it('non-roofing deals read as the company trade, roofing as stored', () => {
+    expect(dealTypeLabel(lawn, 'roofing')).toBe('Lawn & landscape')
+    expect(dealTypeLabel(lawn, 'other')).toBe('Lawn & landscape')
+    expect(dealTypeLabel(lawn, 'siding')).toBe('siding')
+    expect(dealTypeLabel(roof, 'roofing')).toBe('roofing')
   })
 })

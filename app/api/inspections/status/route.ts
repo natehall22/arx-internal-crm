@@ -1,4 +1,4 @@
-import { loadOrgProfile, newDealProjectType } from '@/lib/org-profile'
+import { insertOpportunityRow } from '@/lib/new-deal'
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { PRODUCT_NAME } from '@/lib/product'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
@@ -528,9 +528,7 @@ export async function POST(request: NextRequest) {
       // setter = canvasser who set the appointment; fall back to lead owner
       const setterForOpp = appointment?.canvasser_user_id || lead?.owner_user_id || null
 
-      const { data: newOpportunity, error: oppError } = await supabase
-        .from('opportunities')
-        .insert({
+      const { data: newOpportunity, error: oppError } = await insertOpportunityRow(supabase, profile.org_id, {
           org_id: profile.org_id,
           lead_id: leadId,
           customer_id: await customerIdForLead(supabase, profile.org_id, lead),
@@ -538,7 +536,6 @@ export async function POST(request: NextRequest) {
           setter_user_id: setterForOpp,
           status: newStatus,
           source: lead?.source || 'inspection',
-          project_type: newDealProjectType(await loadOrgProfile(supabase, profile.org_id)),
           inspection_outcome: outcome,
           inspection_outcome_at: outcomeAt,
           inspection_notes: notes || null,
@@ -564,8 +561,6 @@ export async function POST(request: NextRequest) {
                 ? followUpAtFromDelayDays(insideSalesHandoffConfig.delayDays || 0)
                 : null,
         })
-        .select()
-        .single()
 
       if (oppError) {
         console.error('Failed to create opportunity:', oppError)
