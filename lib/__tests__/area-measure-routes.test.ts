@@ -156,7 +156,8 @@ describe('saving', () => {
     const row = saved()[0]
     expect(row).toMatchObject({ org_id: ORG, customer_id: 'c1', property_id: 'p1', opportunity_id: 'd1', lead_id: null, created_by: 'u-me', address_text: 'typed addr', lat: 30.15, lng: -84.15 })
     const want = [r1(r1(lawn.sqft) - r1(house.sqft)), r1(bed.sqft), r1(house.sqft), r1(edge.feet)]
-    ;[row.lawn_sqft, row.bed_sqft, row.cutout_sqft, row.line_feet].forEach((v, i) => expect(v).toBeCloseTo(want[i], 5))
+    // cookie cutter: the house sits fully on the lawn, so the removed area is the house; the clipped rings are re-measured (rounding only)
+    ;[row.lawn_sqft, row.bed_sqft, row.cutout_sqft, row.line_feet].forEach((v, i) => expect(Math.abs((v as number) - want[i])).toBeLessThanOrEqual(0.5))
     expect(row.lawn_sqft as number).toBeCloseTo(7500, -1)
     expect(row.line_feet as number).toBeCloseTo(120, 0)
     // ~540 sq ft at 4 in = ~6.67 cu yd; ~540 / 40 = ~13.5 -> 14 bales (the company's numbers, saved with the row)

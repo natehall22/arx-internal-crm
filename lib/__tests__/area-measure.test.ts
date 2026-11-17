@@ -12,6 +12,7 @@ import {
   EARTH_RADIUS_M,
   bedMaterials,
   computeTotals,
+  cookieCutter,
   distanceMeters,
   formatAcres,
   formatCuYd,
@@ -25,7 +26,9 @@ import {
   pineStrawBales,
   polygonAreaSqft,
   polygonAreaSqm,
+  polygonCrossings,
   polygonSelfIntersects,
+  regionsAreaSqft,
   resolveAreaMeasureSettings,
   shapeLabel,
   sqftToAcres,
@@ -33,16 +36,6 @@ import {
   type AreaShape,
 } from '@/lib/area-measure'
 import { isAreaMeasureNotReady } from '@/lib/area-measure-db'
-
-const sq = (id: string, type: AreaShape['type'], sqft: number, extra: Partial<AreaShape> = {}): AreaShape => ({
-  id,
-  type,
-  name: null,
-  points: [{ lat: 30, lng: -84 }, { lat: 30, lng: -83.999 }, { lat: 30.001, lng: -83.999 }],
-  sqft,
-  ...extra,
-})
-const line = (id: string, feet: number): AreaShape => ({ id, type: 'line', name: null, points: [{ lat: 30, lng: -84 }, { lat: 30, lng: -83.999 }], feet })
 
 describe('units', () => {
   it('square metres to square feet and acres', () => {
@@ -86,54 +79,143 @@ describe('materials ("est.")', () => {
   })
 })
 
-describe('totals and cut-outs', () => {
+// Real yard geometry: boxes placed in feet from a fixed corner, stored to 7 decimals like the save route does.
+const FT_LAT = 0.3048 / 111_320
+const ORIGIN = { lat: 30.1, lng: -84.2 }
+const r7 = (n: number) => Math.round(n * 1e7) / 1e7
+const at = (xFt: number, yFt: number) => ({ lat: r7(ORIGIN.lat + yFt * FT_LAT), lng: r7(ORIGIN.lng + (xFt * FT_LAT) / Math.cos((ORIGIN.lat * Math.PI) / 180)) })
+const box = (id: string, type: AreaShape['type'], x: number, y: number, w: number, h: number, extra: Partial<AreaShape> = {}): AreaShape => {
+  const points = [at(x, y), at(x + w, y), at(x + w, y + h), at(x, y + h)]
+  return { id, type, name: null, points, sqft: polygonAreaSqft(points), ...extra }
+}
+const line = (id: string, feet: number): AreaShape => ({ id, type: 'line', name: null, points: [{ lat: 30, lng: -84 }, { lat: 30, lng: -83.999 }], feet })
+const near = (got: number, want: number, tol = 4) => expect(Math.abs(got - want)).toBeLessThanOrEqual(tol)
+
+describe('totals and cut-outs (cookie cutter)', () => {
   it('sums lawn, beds and lines separately; counts shapes', () => {
-    const t = computeTotals([sq('a', 'lawn', 10000), sq('b', 'lawn', 5000), sq('c', 'bed', 800), line('d', 120), line('e', 80.5)])
-    expect(t.lawnSqft).toBe(15000)
-    expect(t.bedSqft).toBe(800)
+    const t = computeTotals([box('a', 'lawn', 0, 0, 100, 100), box('b', 'lawn', 200, 0, 50, 100), box('c', 'bed', 0, 300, 20, 40), line('d', 120), line('e', 80.5)])
+    near(t.lawnSqft, 15000)
+    near(t.bedSqft, 800)
     expect(t.lineFeet).toBe(200.5)
     expect(t.counts).toEqual({ lawn: 2, bed: 1, cutout: 0, line: 2 })
     expect(t.cutoutSqft).toBe(0)
   })
-  it('a cut-out comes out of the lawn total by default', () => {
-    const t = computeTotals([sq('a', 'lawn', 10000), sq('house', 'cutout', 2500)])
-    expect(t.lawnGrossSqft).toBe(10000)
-    expect(t.lawnSqft).toBe(7500)
-    expect(t.cutoutLawnSqft).toBe(2500)
+  it('a cut-out fully on the lawn comes out of it (the lawn is the default)', () => {
+    const t = computeTotals([box('a', 'lawn', 0, 0, 100, 100), box('house', 'cutout', 20, 20, 50, 50)])
+    near(t.lawnGrossSqft, 10000)
+    near(t.lawnSqft, 7500)
+    near(t.cutoutLawnSqft, 2500)
     expect(t.bedSqft).toBe(0)
   })
-  it('a cut-out can come out of the beds instead (a pool in a bed area)', () => {
-    const t = computeTotals([sq('a', 'lawn', 10000), sq('b', 'bed', 1000), sq('pool', 'cutout', 300, { takesFrom: 'bed' })])
-    expect(t.lawnSqft).toBe(10000)
-    expect(t.bedSqft).toBe(700)
-    expect(t.cutoutBedSqft).toBe(300)
-    expect(t.cutoutSqft).toBe(300)
+  it('a cut-out half off the lawn removes only the half on the lawn', () => {
+    // house 50 x 50 whose left half (25 ft) sits off the lawn's left edge
+    const t = computeTotals([box('a', 'lawn', 0, 0, 100, 100), box('house', 'cutout', -25, 20, 50, 50)])
+    near(t.lawnSqft, 10000 - 25 * 50)
+    near(t.cutoutLawnSqft, 1250)
+    near(t.cutoutSqft, 1250)
   })
-  it('several cut-outs add up; the net never goes below zero', () => {
-    const t = computeTotals([sq('a', 'lawn', 1000), sq('h', 'cutout', 800), sq('d', 'cutout', 700)])
+  it('a cut-out fully outside the lawn removes 0', () => {
+    const t = computeTotals([box('a', 'lawn', 0, 0, 100, 100), box('shed', 'cutout', 300, 300, 40, 40)])
+    near(t.lawnSqft, 10000)
+    expect(t.cutoutSqft).toBe(0)
+    expect(t.cutoutLawnSqft).toBe(0)
+  })
+  it('a cut-out with no lawn at all removes nothing and the lawn is 0', () => {
+    const t = computeTotals([box('h', 'cutout', 0, 0, 40, 40)])
     expect(t.lawnSqft).toBe(0)
-    expect(t.cutoutSqft).toBe(1500)
-    const none = computeTotals([sq('h', 'cutout', 800)])
-    expect(none.lawnSqft).toBe(0)
+    expect(t.cutoutSqft).toBe(0)
+  })
+  it('overlapping lawns are not counted twice', () => {
+    // two 100 x 100 lawns overlapping by 50 x 100 = 15,000 together, not 20,000
+    const t = computeTotals([box('a', 'lawn', 0, 0, 100, 100), box('b', 'lawn', 50, 0, 100, 100)])
+    near(t.lawnSqft, 15000)
+    near(t.lawnGrossSqft, 15000)
+  })
+  it('overlapping cut-outs are not counted twice', () => {
+    // two 40 x 40 cut-outs overlapping by 20 x 40: 2,400 removed, not 3,200
+    const t = computeTotals([box('a', 'lawn', 0, 0, 100, 100), box('h1', 'cutout', 10, 10, 40, 40), box('h2', 'cutout', 30, 10, 40, 40)])
+    near(t.cutoutLawnSqft, 2400)
+    near(t.lawnSqft, 7600)
+  })
+  it('a cut-out on an overlap of two lawns removes it once', () => {
+    const t = computeTotals([box('a', 'lawn', 0, 0, 100, 100), box('b', 'lawn', 50, 0, 100, 100), box('h', 'cutout', 40, 10, 30, 30)])
+    near(t.lawnSqft, 15000 - 900)
+  })
+  it('a cut-out can come out of the beds instead, and only the part on a bed', () => {
+    const t = computeTotals([box('a', 'lawn', 0, 0, 100, 100), box('b', 'bed', 200, 0, 20, 50), box('pool', 'cutout', 190, 10, 20, 20, { takesFrom: 'bed' })])
+    near(t.lawnSqft, 10000)
+    near(t.bedSqft, 1000 - 10 * 20)
+    near(t.cutoutBedSqft, 200)
+    near(t.cutoutSqft, 200)
+    expect(t.cutoutLawnSqft).toBe(0)
+  })
+  it('beds work the same: overlapping beds once, a cut-out fully outside removes 0', () => {
+    const t = computeTotals([box('b1', 'bed', 0, 0, 20, 50), box('b2', 'bed', 10, 0, 20, 50), box('far', 'cutout', 500, 500, 30, 30, { takesFrom: 'bed' })])
+    near(t.bedSqft, 30 * 50)
+    expect(t.cutoutBedSqft).toBe(0)
+  })
+  it('a cut-out takes from its own type only: a lawn-cutout over a bed removes nothing from the bed', () => {
+    const t = computeTotals([box('b', 'bed', 0, 0, 40, 40), box('h', 'cutout', 0, 0, 40, 40)])
+    near(t.bedSqft, 1600)
+    expect(t.cutoutSqft).toBe(0)
+  })
+  it('a cut-out inside the lawn leaves a real hole in the map fill (outer ring + hole ring)', () => {
+    const cc = cookieCutter([box('a', 'lawn', 0, 0, 100, 100), box('house', 'cutout', 20, 20, 50, 50)])
+    expect(cc.lawnNet).toHaveLength(1)
+    expect(cc.lawnNet[0]).toHaveLength(2)
+    near(regionsAreaSqft(cc.lawnNet), 7500)
+    near(regionsAreaSqft(cc.lawnGross), 10000)
+    // half off the edge: a notch, no hole
+    const notch = cookieCutter([box('a', 'lawn', 0, 0, 100, 100), box('house', 'cutout', -25, 20, 50, 50)])
+    expect(notch.lawnNet[0]).toHaveLength(1)
+  })
+  it('screen and server agree: totals are the same function over the same points, and the saved shapes give the same numbers', () => {
+    const shapes = [box('a', 'lawn', 0, 0, 100, 100), box('b', 'lawn', 60, 40, 100, 100), box('house', 'cutout', -25, 20, 50, 50), box('bed', 'bed', 300, 0, 30, 30), box('pool', 'cutout', 290, 5, 20, 20, { takesFrom: 'bed' })]
+    const screen = computeTotals(shapes)
+    // the browser sends points (+ its own sqft); the server re-measures and totals from the parsed shapes
+    const parsed = parseShapesInput(shapes.map((s) => ({ id: s.id, type: s.type, name: s.name, points: s.points, sqft: s.sqft, takesFrom: s.takesFrom })))
+    if (!('shapes' in parsed)) throw new Error(parsed.error)
+    expect(computeTotals(parsed.shapes)).toEqual(screen)
+    // and it is the spherical formula: a lone lawn with nothing cut out matches polygonAreaSqft within rounding
+    const lone = box('x', 'lawn', 0, 0, 120, 80)
+    near(computeTotals([lone]).lawnSqft, polygonAreaSqft(lone.points), 0.1)
+  })
+  it("a measurement's totals do not depend on the shapes' stored sqft or their order (old rows re-open and recompute live)", () => {
+    const shapes = [box('a', 'lawn', 0, 0, 100, 100), box('house', 'cutout', -25, 20, 50, 50)]
+    const stripped = shapes.map((s) => ({ ...s, sqft: 1 }))
+    expect(computeTotals(stripped)).toEqual(computeTotals(shapes))
+    expect(computeTotals([...shapes].reverse())).toEqual(computeTotals(shapes))
+  })
+  it('a shape that crosses itself is left out of the geometry, never a crash', () => {
+    const a = box('a', 'lawn', 0, 0, 100, 100)
+    const bow: AreaShape = { ...a, id: 'bow', points: [a.points[0], a.points[2], a.points[1], a.points[3]] }
+    expect(() => computeTotals([bow])).not.toThrow()
+    expect(computeTotals([bow]).lawnSqft).toBe(0)
+    near(computeTotals([bow, box('ok', 'lawn', 200, 0, 10, 10)]).lawnSqft, 100)
   })
   it('bed materials are worked from the NET bed area', () => {
-    const t = computeTotals([sq('b', 'bed', 1080), sq('c', 'cutout', 540, { takesFrom: 'bed' })], { mulchDepthIn: 3, strawSqftPerBale: 50 })
-    expect(t.bedSqft).toBe(540)
-    expect(t.materials).toEqual({ mulchCuYd: 5, strawBales: 11, mulchDepthIn: 3, strawSqftPerBale: 50 })
+    const t = computeTotals([box('b', 'bed', 0, 0, 36, 30), box('c', 'cutout', 0, 0, 18, 30, { takesFrom: 'bed' })], { mulchDepthIn: 3, strawSqftPerBale: 50 })
+    near(t.bedSqft, 540)
+    expect(t.materials.mulchDepthIn).toBe(3)
+    near(t.materials.mulchCuYd, 5, 0.05)
+    expect(t.materials.strawBales).toBeGreaterThanOrEqual(10)
+    expect(t.materials.strawBales).toBeLessThanOrEqual(12)
   })
   it('acres follow the net area; empty list is all zeros', () => {
-    expect(computeTotals([sq('a', 'lawn', 43560)]).lawnAcres).toBe(1)
     const z = computeTotals([])
     expect([z.lawnSqft, z.bedSqft, z.lineFeet, z.materials.mulchCuYd, z.materials.strawBales]).toEqual([0, 0, 0, 0, 0])
+    const acre = computeTotals([box('a', 'lawn', 0, 0, 208.71, 208.71)])
+    expect(acre.lawnAcres).toBeCloseTo(1, 2)
   })
-  it('junk measured values count as 0, never NaN', () => {
-    const t = computeTotals([sq('a', 'lawn', NaN as number), sq('b', 'lawn', -5), { ...sq('c', 'lawn', 0), sqft: undefined }])
+  it('junk line values count as 0, never NaN', () => {
+    const t = computeTotals([{ ...line('a', NaN), feet: NaN }, { ...line('b', -5) }, { ...line('c', 0), feet: undefined }])
+    expect(t.lineFeet).toBe(0)
     expect(t.lawnSqft).toBe(0)
   })
   it('default names count per type', () => {
-    const a = sq('a', 'lawn', 1)
-    const b = sq('b', 'lawn', 1)
-    const c = sq('c', 'bed', 1, { name: ' Rose bed ' })
+    const a = box('a', 'lawn', 0, 0, 1, 1)
+    const b = box('b', 'lawn', 0, 0, 1, 1)
+    const c = box('c', 'bed', 0, 0, 1, 1, { name: ' Rose bed ' })
     expect([shapeLabel(a, [a, b, c]), shapeLabel(b, [a, b, c]), shapeLabel(c, [a, b, c])]).toEqual(['Lawn 1', 'Lawn 2', 'Rose bed'])
   })
 })
@@ -213,6 +295,33 @@ describe('self-crossing outlines', () => {
     const touching = [...l.slice(0, 5), { lat: 30, lng: -84 + 0.0003 }, ...l.slice(5)]
     expect(polygonSelfIntersects(touching)).toBe(true)
   })
+  it('says where the lines cross and which two edges, so the screen can show it', () => {
+    const bow = [sq[0], sq[2], sq[1], sq[3]]
+    const found = polygonCrossings(bow)
+    expect(found).toHaveLength(1)
+    expect(found[0].at.lat).toBeCloseTo(30.1005, 4)
+    expect(found[0].at.lng).toBeCloseTo(-84.1995, 4)
+    expect([found[0].edgeA, found[0].edgeB]).toEqual([0, 2])
+    expect(polygonCrossings(sq)).toEqual([])
+  })
+  it('the points are kept: undoing the last point or dragging any point clears the crossing, and nothing is dropped', () => {
+    const drawn = [sq[0], sq[2], sq[1], sq[3]] // the fourth tap crossed
+    expect(polygonSelfIntersects(drawn)).toBe(true)
+    // undo the last point: the first three still stand
+    expect(polygonSelfIntersects(drawn.slice(0, -1))).toBe(false)
+    // or drag one point: same number of points, no crossing
+    const fixed = drawn.map((p, i) => (i === 1 ? { ...sq[1] } : i === 2 ? { ...sq[2] } : p))
+    expect(fixed).toHaveLength(drawn.length)
+    expect(polygonSelfIntersects(fixed)).toBe(false)
+  })
+  it('the save refusal names the shape and says the points are kept; a crossing cut-out is named too', () => {
+    const ok = { type: 'lawn', name: 'Front', points: sq }
+    const bad = { type: 'cutout', name: 'House', points: [sq[0], sq[2], sq[1], sq[3]] }
+    const r = parseShapesInput([ok, bad])
+    expect('error' in r && r.error).toBe('House (shape 2): Lines cross — drag a point to fix it. Nothing was lost: drag its points on the map, then save again.')
+    const unnamed = parseShapesInput([ok, { type: 'lawn', points: sq }, { type: 'lawn', points: [sq[0], sq[2], sq[1], sq[3]] }])
+    expect('error' in unnamed && unnamed.error).toMatch(/^Lawn 3 \(shape 3\): Lines cross/)
+  })
 })
 
 describe('what the save accepts', () => {
@@ -241,7 +350,7 @@ describe('what the save accepts', () => {
     expect(parseShapesInput([{ type: 'line', points: linePts, feet: pathLengthFeet(linePts) * 1.05 }])).toEqual({ error: 'Shape 1: the length does not match the line, measure it again' })
   })
   it('refuses an outline that crosses itself, in plain words', () => {
-    expect(parseShapesInput([{ type: 'lawn', points: [pts[0], pts[2], pts[1], pts[3]] }])).toEqual({ error: 'Shape 1: Lines cross — redraw' })
+    expect(parseShapesInput([{ type: 'lawn', points: [pts[0], pts[2], pts[1], pts[3]] }])).toEqual({ error: 'Lawn 1 (shape 1): Lines cross — drag a point to fix it. Nothing was lost: drag its points on the map, then save again.' })
   })
   it('takesFrom is kept only on cut-outs', () => {
     const r = parseShapesInput([{ ...good, takesFrom: 'bed' }, { type: 'cutout', points: pts, sqft: area, takesFrom: 'bed' }])
