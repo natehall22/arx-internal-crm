@@ -109,6 +109,23 @@ function files(rel: string): string[] {
 }
 const codeLines = (src: string) => src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
 
+describe('ARX artwork is not applied through the Next file convention', () => {
+  it('no app/icon or app/apple-icon file: it would put the shield on every company\'s pages', () => {
+    const found = fs.readdirSync(path.join(ROOT, 'app')).filter((f) => /^(icon|apple-icon|favicon)\d*\.(png|ico|jpg|jpeg|svg|gif)$/.test(f))
+    expect(found).toEqual([])
+  })
+
+  it('the shield is reachable only through the legacy metadata; company addresses get the company logo or nothing', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'app/layout.tsx'), 'utf8')
+    const legacy = src.slice(src.indexOf('const LEGACY_METADATA'), src.indexOf('export async function generateMetadata'))
+    expect(legacy).toContain("url: '/icon.png'")
+    expect(legacy).toContain("url: '/apple-icon.png'")
+    const rest = src.slice(src.indexOf('export async function generateMetadata'))
+    expect(rest).not.toMatch(/\/(apple-)?icon\.png|icon-192/)
+    expect(rest).toContain('/api/company-logo')
+  })
+})
+
 describe('render paths carry no ARX literal', () => {
   it.each(RENDER_PATHS)('%s', (rel) => {
     const hits = files(rel).flatMap((f) => codeLines(fs.readFileSync(f, 'utf8')).filter((l) => mentionsArx(l)).map((l) => `${path.relative(ROOT, f)}: ${l.trim().slice(0, 100)}`))

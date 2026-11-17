@@ -237,7 +237,7 @@ export default async function CustomerDetailPage({
                             href={`/leads/${lead.id}`}
                             className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
                           >
-                            View lead ({formatLeadSource(lead.source) || 'canvass'})
+                            {formatLeadSource(lead.source) ? `View lead (${formatLeadSource(lead.source)})` : 'View lead'}
                           </Link>
                         </li>
                       ))}

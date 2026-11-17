@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { memo } from 'react'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
 import { hasOperationsSnapshotData } from '@/components/ops/OperationsSnapshotCard'
 import {
@@ -50,7 +51,9 @@ function OpsBoardJobCardInner({
   const enrichedTotal = positiveNum(job.sold_squares)
   const projectLegacyTotal = positiveNum(job.project?.sold_roof_squares)
   const displayTotal = enrichedTotal ?? projectLegacyTotal
-  const roofSoldSquaresTotal = job.job_type === 'roofing' ? displayTotal : null
+  // Roof squares are a roofing-company idea: off (lawn, cleaning) the card never shows a roof-squares block, whatever the job_type says.
+  const squaresOn = useOrgFeatures().squaresPricing
+  const roofSoldSquaresTotal = squaresOn && job.job_type === 'roofing' ? displayTotal : null
   const measuredSquares = positiveNum(job.measured_squares)
   const soldWastePercent = positiveNum(job.sold_waste_percent)
   const soldSquaresFromMeasure = job.sold_squares_from_measure === true

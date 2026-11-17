@@ -1,9 +1,11 @@
+import { PRODUCT_NAME } from '@/lib/product'
 import type { WeatherBbox } from '@/lib/weather-footprint'
 import type { WeatherGeoFeature } from '@/lib/weather-storage'
 
 const NWS_ALERTS_URL =
   'https://api.weather.gov/alerts/active?status=actual&message_type=alert'
-const NWS_USER_AGENT = 'ARX-CRM (nathan@arxroofing.com)'
+// NWS asks for a contact in the User-Agent: the product name, plus a contact address from env when one is set (never a company's).
+const NWS_USER_AGENT = process.env.NWS_CONTACT_EMAIL ? `${PRODUCT_NAME} (${process.env.NWS_CONTACT_EMAIL})` : PRODUCT_NAME
 
 function bboxesOverlap(a: WeatherBbox, b: WeatherBbox) {
   return a.n >= b.s && a.s <= b.n && a.e >= b.w && a.w <= b.e

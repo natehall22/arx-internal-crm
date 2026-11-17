@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ORG_BRAND_COLUMNS, resolveOrgBrand } from '@/lib/org-brand'
+import { ORG_BRAND_COLUMNS, resolveOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import { resolveOrgProfile } from '@/lib/org-profile'
 import { resolveProposalContent } from '@/lib/proposal-content'
 import { createClient } from '@supabase/supabase-js'
@@ -185,7 +185,7 @@ export async function GET(
       // `settings` is read only to find an older logo value; never send it to the browser.
       // orgs has no website column: the website comes from the org brand (lib/org-brand, settings.brand → default).
       company: company
-        ? { ...omitSettings(company), website: companyBrand?.website, short_name: companyBrand?.shortName, logo_url: orgLogoHref(profile.org_id, company), logo_dark_url: orgLogoHref(profile.org_id, company, { variant: 'dark' }) }
+        ? { ...omitSettings(company), website: companyBrand?.website, short_name: companyBrand?.shortName, original: companyBrand ? usesOriginalCompanyAssets(companyBrand) : false, logo_url: orgLogoHref(profile.org_id, company), logo_dark_url: orgLogoHref(profile.org_id, company, { variant: 'dark' }) }
         : company,
       rep: proposalForClient.users,
       measurement,

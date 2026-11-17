@@ -2079,7 +2079,7 @@ export default function JobDetailClient({
           jobId={job.id}
           jobNumber={job.job_number}
           roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
-          showOrderSheet={Boolean(job.sold_scope && job.job_type === 'roofing')}
+          showOrderSheet={Boolean(job.sold_scope && job.job_type === 'roofing' && orgFeatures.squaresPricing)}
           materialsStatus={job.materials_status}
           materialsOrderedAt={job.materials_ordered_at}
           onMarkMaterialsOrdered={job.status === 'cancelled' ? undefined : () => void setMaterialsOrdered(true)}
@@ -2213,7 +2213,7 @@ export default function JobDetailClient({
                   under the address and pushed the customer's phone number to y=1540 — two screens
                   down, on the card ops opens specifically to call someone. It is reference detail
                   for ordering and installing, so it belongs beside the sold scope. */}
-              {job.job_type === 'roofing' && job.sold_scope ? (
+              {job.job_type === 'roofing' && orgFeatures.squaresPricing && job.sold_scope ? (
                 <JobRoofingBrief
                   scope={job.sold_scope}
                   jobId={job.id}
@@ -2264,7 +2264,7 @@ export default function JobDetailClient({
                   )}
                 </div>
               )}
-              {job.sold_scope && job.job_type === 'roofing' ? (
+              {job.sold_scope && job.job_type === 'roofing' && orgFeatures.squaresPricing ? (
                 <MaterialsOrderCard
                   scope={job.sold_scope}
                   jobId={job.id}
@@ -2390,7 +2390,7 @@ export default function JobDetailClient({
                         >
                           <option value="cash">Cash</option>
                           <option value="finance">Finance</option>
-                          <option value="insurance">Insurance</option>
+                          {(orgFeatures.insurance || financialSourceDraft.paymentMethod === 'insurance') && <option value="insurance">Insurance</option>}
                           <option value="other">Other</option>
                         </select>
                       </label>

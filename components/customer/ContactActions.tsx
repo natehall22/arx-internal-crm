@@ -204,7 +204,7 @@ export default function ContactActions({
                 maxLength={1000}
                 rows={2}
                 className="mt-1 block w-full rounded-lg border border-gray-300 p-2 text-base text-[#2c2c2a]"
-                placeholder="e.g. Happy with the roof, call back in spring"
+                placeholder="e.g. Asked us to call back next month"
               />
             </label>
             <div className="grid gap-2">

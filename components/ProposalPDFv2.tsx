@@ -121,6 +121,8 @@ export interface ProposalPDFData {
     website?: string
     /** Wordmark from the org brand (short name), used in "Why Homeowners Choose …". */
     short_name?: string
+    /** True only for the original company (`orgs.original_brand`, via usesOriginalCompanyAssets). Warranty, financing and insurance copy below is that company's own and prints only for it. Absent on a snapshot made before this existed = printed, as it always did. */
+    original?: boolean
   }
   rep?: {
     full_name: string
@@ -830,7 +832,9 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
     ...lineItems.filter(i => i.show_to_customer && i.is_adder),
   ]
 
-  const totalPages = 7
+  // The warranties list, Ways to Pay page and insurance line are the original company's own promises: another company never prints them.
+  const showOriginalCopy = company?.original !== false
+  const totalPages = showOriginalCopy ? 7 : 6
   // A longer or wordier step list (a company's own) gets tighter cards so the Process page still holds it; today's six short steps keep the full layout.
   const denseProcess = content.processSteps.length > 6 || content.processSteps.some((st) => st.body.length > 110)
   const coverTitle = legacy ? 'ROOFING PROPOSAL' : proposalCoverTitle(proposal.title, content)
@@ -1076,25 +1080,29 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           ================================================================ */}
       <Page size="LETTER" style={styles.page}>
         <View style={styles.pageContent}>
+          {showOriginalCopy && (
+            <>
           {/* Warranties */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Our Warranties</Text>
-            <Text style={styles.sectionSubtitle}>Your investment is protected</Text>
-          </View>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Our Warranties</Text>
+              <Text style={styles.sectionSubtitle}>Your investment is protected</Text>
+            </View>
 
-          <View style={styles.warrantyCard}>
-            {warranties.map((warranty, index) => (
-              <View key={index} style={styles.warrantyItem}>
-                <View style={styles.warrantyIcon}>
-                  <Text style={styles.warrantyIconText}>✓</Text>
+            <View style={styles.warrantyCard}>
+              {warranties.map((warranty, index) => (
+                <View key={index} style={styles.warrantyItem}>
+                  <View style={styles.warrantyIcon}>
+                    <Text style={styles.warrantyIconText}>✓</Text>
+                  </View>
+                  <Text style={styles.warrantyText}>{warranty.text}</Text>
                 </View>
-                <Text style={styles.warrantyText}>{warranty.text}</Text>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+            </>
+          )}
 
           {/* Why us */}
-          <View style={[styles.sectionHeader, { marginTop: tokens.spacing.xl }]}>
+          <View style={showOriginalCopy ? [styles.sectionHeader, { marginTop: tokens.spacing.xl }] : styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{fillCompanyToken(content.whyUsTitle, brandShortName)}</Text>
           </View>
 
@@ -1106,11 +1114,13 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           ))}
 
           {/* Disclaimer */}
-          <View style={styles.disclaimer}>
-            <Text style={styles.disclaimerText}>
-              {`Insurance coverage decisions are made by the carrier. ${brandShortName} can assist throughout the process.`}
-            </Text>
-          </View>
+          {showOriginalCopy && (
+            <View style={styles.disclaimer}>
+              <Text style={styles.disclaimerText}>
+                {`Insurance coverage decisions are made by the carrier. ${brandShortName} can assist throughout the process.`}
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.footer}>
@@ -1120,6 +1130,8 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
         </View>
       </Page>
 
+      {showOriginalCopy && (
+        <>
       {/* ================================================================
           PAGE 6: WAYS TO PAY
           ================================================================ */}
@@ -1167,6 +1179,8 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           <Text style={styles.footerText}>Page 6 of {totalPages}</Text>
         </View>
       </Page>
+        </>
+      )}
 
       {/* ================================================================
           PAGE 7: YOUR INVESTMENT

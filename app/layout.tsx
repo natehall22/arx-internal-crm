@@ -19,8 +19,16 @@ const LEGACY_METADATA: Metadata = {
   description: 'CRM and estimating system for field service companies',
   manifest: '/manifest.json',
   icons: {
-    icon: [{ url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
-    apple: [{ url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    // The original company's shield. These used to be app/icon.png + app/apple-icon.png (Next file convention), which put the
+    // shield on EVERY company's pages; as plain public files they are served only through this legacy metadata.
+    icon: [
+      { url: '/icon.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/apple-icon.png', sizes: '180x180', type: 'image/png' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
   },
   appleWebApp: {
     capable: true,

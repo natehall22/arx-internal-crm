@@ -259,7 +259,7 @@ export function PlanFields({
   return (
     <>
       {isNew ? (
-        <Field label="Plan type">
+        <Field label="Plan template">
           {(a) => (
             <Select {...a} className="text-base" value={f.template_id} onChange={(e) => onTemplate?.(d.templates.find((x) => x.id === e.target.value) ?? null)}>
               {d.templates.map((t) => (

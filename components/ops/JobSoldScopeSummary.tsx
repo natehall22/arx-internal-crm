@@ -30,7 +30,7 @@ const SOLD_SCOPE_LINE_PREVIEW = 14
 
 const ROOF_MEASURE_SOURCE_LABEL: Record<string, string> = {
   manual: 'Manual',
-  in_house: 'ARX Measure',
+  in_house: 'In-house measure',
   eagleview: 'EagleView',
   roofr: 'Roofr',
   solo: 'Solo',

@@ -148,9 +148,6 @@
   "app/today/page.tsx": {
     "timezone": 1
   },
-  "app/trial/page.tsx": {
-    "brand": 4
-  },
   "app/work-orders/[id]/WorkOrderDetailClient.tsx": {
     "timezone": 1
   },
@@ -192,9 +189,6 @@
   },
   "components/ops/JobPaymentsCard.tsx": {
     "timezone": 2
-  },
-  "components/ops/JobSoldScopeSummary.tsx": {
-    "brand": 1
   },
   "components/ops/OpsBoardJobCard.tsx": {
     "timezone": 1
@@ -363,9 +357,6 @@
   },
   "lib/today.ts": {
     "timezone": 1
-  },
-  "lib/weather-nws.ts": {
-    "brand": 2
   },
   "lib/weekly-payroll/cutoff.ts": {
     "timezone": 2

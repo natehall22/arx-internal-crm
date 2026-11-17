@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { PRODUCT_NAME } from '@/lib/product'
 
 export default function TrialSignupPage() {
   const [formData, setFormData] = useState({
@@ -79,7 +80,7 @@ export default function TrialSignupPage() {
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-xl flex items-center justify-center">
               <span className="text-white font-bold text-lg">A</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">ARX CRM</span>
+            <span className="text-xl font-bold text-gray-900">{PRODUCT_NAME}</span>
           </Link>
           <Link
             href="/login"
@@ -98,7 +99,7 @@ export default function TrialSignupPage() {
               Start Your Free 14-Day Trial
             </h1>
             <p className="text-lg text-gray-600 mb-8">
-              No credit card required. Get full access to ARX CRM and see why hundreds of roofing companies trust us to manage their sales.
+              No credit card required. Get full access to {PRODUCT_NAME} and see how it fits the way your team works.
             </p>
 
             <div className="space-y-6">
@@ -110,7 +111,7 @@ export default function TrialSignupPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900">Full Feature Access</h3>
-                  <p className="text-gray-600 text-sm">Try everything ARX CRM has to offer—GPS canvassing, scheduling, commissions, and more.</p>
+                  <p className="text-gray-600 text-sm">Try everything {PRODUCT_NAME} has to offer—GPS canvassing, scheduling, commissions, and more.</p>
                 </div>
               </div>
 
@@ -135,20 +136,6 @@ export default function TrialSignupPage() {
                 <div>
                   <h3 className="font-semibold text-gray-900">Setup in Under 5 Minutes</h3>
                   <p className="text-gray-600 text-sm">We'll reach out within 24 hours to get your account configured and ready to go.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-10 p-6 bg-slate-900 rounded-2xl">
-              <div className="flex items-start gap-4">
-                <svg className="w-8 h-8 text-indigo-400 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z" />
-                </svg>
-                <div>
-                  <p className="text-white text-sm leading-relaxed">
-                    "ARX CRM transformed how we run our sales team. We went from chaos to closing 40% more deals in 90 days."
-                  </p>
-                  <p className="text-indigo-300 text-sm mt-3 font-medium">Mike Richardson, Richardson Roofing</p>
                 </div>
               </div>
             </div>
