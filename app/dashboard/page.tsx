@@ -18,6 +18,11 @@ import { isOrgSuperuserRoleSlug, isRepLikeCustomerRecordRole } from '@/lib/permi
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import CardDashboard from '@/components/dashboard/CardDashboard'
+import { CLASSIC_SECTIONS, cardsForViewer, resolveDashboard, type ClassicSection } from '@/lib/dashboard-cards'
+import { loadDashboardCardData, resolveDashboardViewer } from '@/lib/dashboard-cards-server'
+import { resolveOrgProfile } from '@/lib/org-profile'
+import { isOwnerProfile } from '@/lib/super-admin'
 
 export default async function DashboardPage() {
   const { authUser, profile } = await requireAuth()
@@ -46,6 +51,29 @@ export default async function DashboardPage() {
   if (profile.role === 'operations') {
     redirect('/ops/dashboard')
   }
+
+  // Which dashboard this company has (lib/dashboard-cards.ts): the classic field-sales one — rendered exactly as it always was
+  // when nothing is saved and the profile has no card list (roofing) — or an ordered list of cards.
+  const { data: orgRow } = await createServiceClient().from('orgs').select('settings').eq('id', profile.org_id).single()
+  const orgSettings = (orgRow as { settings?: unknown } | null)?.settings
+  const orgProfile = resolveOrgProfile(orgSettings)
+  const dashboard = resolveDashboard(orgSettings, orgProfile.dashboard.cards)
+  if (dashboard.mode === 'cards') {
+    const admin = createServiceClient()
+    const viewer = await resolveDashboardViewer(admin, profile)
+    const visible = cardsForViewer(dashboard.cards, viewer, orgProfile.features)
+    const cards = await loadDashboardCardData(admin, { profile, viewer, cards: visible, features: orgProfile.features })
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Nav />
+        <CardDashboard firstName={profile.full_name?.split(' ')[0] || ''} cards={cards} canEdit={isOrgSuperuserRoleSlug(profile.role) || isOwnerProfile(profile)} />
+      </div>
+    )
+  }
+  // A saved classic list only switches sections off; nothing saved = every section (the same props as before).
+  const classicSections: ClassicSection[] | undefined = dashboard.custom
+    ? CLASSIC_SECTIONS.filter((section) => dashboard.cards.some((c) => c.key === `classic-${section}`))
+    : undefined
 
   const isAdmin = isOrgSuperuserRoleSlug(profile.role)
   const isRegionalManager = profile.role === 'regional_manager'
@@ -403,6 +431,7 @@ export default async function DashboardPage() {
         closerTeamStats={closerTeamStats}
         canViewTeamLeaderboard={canViewTeamLeaderboard}
         badgeCount={badgeCount ?? 0}
+        sections={classicSections}
       />
     </div>
   )

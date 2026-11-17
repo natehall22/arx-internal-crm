@@ -30,6 +30,8 @@ import {
   getCompPlanUnitHint,
 } from '@/lib/comp-plan-unit-types'
 import { previewNumber } from '@/lib/numeric-input-draft'
+import GoalBar from '@/components/dashboard/GoalBar'
+import { CLASSIC_SECTIONS, type ClassicSection } from '@/lib/dashboard-cards'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -371,6 +373,8 @@ interface DashboardClientProps {
   canViewTeamLeaderboard?: boolean
   badgeCount?: number
   orgFeatures?: OrgFeatures | null
+  /** Which classic sections to draw (lib/dashboard-cards.ts). Left out = all of them: the dashboard exactly as it always was. */
+  sections?: readonly ClassicSection[]
 }
 
 // ─── My Goals Widget ──────────────────────────────────────────────────────────
@@ -537,7 +541,9 @@ export default function DashboardClient({
   canViewTeamLeaderboard = false,
   badgeCount = 0,
   orgFeatures: serverOrgFeatures = null,
+  sections = CLASSIC_SECTIONS,
 }: DashboardClientProps) {
+  const show = (section: ClassicSection) => sections.includes(section)
   /** Company feature switches (Settings → Features), resolved on the server: hides Start Canvassing / badges when off. */
   const orgFeatures = useOrgFeatures(serverOrgFeatures)
   const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
@@ -899,44 +905,6 @@ export default function DashboardClient({
     }
   }
 
-  const ProgressBar = ({ 
-    label, 
-    current, 
-    goal, 
-    color 
-  }: { 
-    label: string
-    current: number
-    goal: number
-    color: string 
-  }) => {
-    const percentage = Math.min((current / goal) * 100, 100)
-    const isComplete = current >= goal
-    
-    return (
-      <div className="mb-4">
-        <div className="flex justify-between items-center mb-1">
-          <span className="text-sm font-medium text-gray-700">{label}</span>
-          <span className={`text-sm font-bold ${isComplete ? 'text-green-600' : 'text-gray-600'}`}>
-            {current} / {goal}
-            {isComplete && ' ✓'}
-          </span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${color} ${
-              isComplete ? 'ring-2 ring-green-400/80 ring-offset-1 ring-offset-white' : ''
-            }`}
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-        <p className="text-xs text-gray-700 mt-1">
-          {percentage.toFixed(0)}% of weekly goal
-        </p>
-      </div>
-    )
-  }
-
   return (
     <>
       {/* Status Update Modal */}
@@ -1032,6 +1000,8 @@ export default function DashboardClient({
           </div>
         </div>
 
+        {show('quick-stats') && (
+          <>
         {/* Quick Stats — setters vs closers */}
         {loadingPersonalStats ? (
           <div className={`grid ${isSetterLikeRole(profile.role) ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'} gap-3 sm:gap-4 mb-6 sm:mb-8`}>
@@ -1217,6 +1187,10 @@ export default function DashboardClient({
 
         <AttachedSalesTracker timeFrame={timeFrame} />
 
+          </>
+        )}
+        {show('pay') && (
+          <>
         {/* Estimated pay - prominent display for reps */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 text-white">
           <div className="flex items-center justify-between">
@@ -1262,11 +1236,13 @@ export default function DashboardClient({
           </div>
         </div>
 
+          </>
+        )}
         {/* My Goals widget */}
-        <MyGoalsWidget currentUserId={profile?.id} />
+        {show('my-goals') && <MyGoalsWidget currentUserId={profile?.id} />}
 
         {/* Team leaderboard — setter vs closer stacks */}
-        {canViewTeamLeaderboard && (
+        {show('team-scoreboard') && canViewTeamLeaderboard && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6 sm:mb-8 overflow-hidden">
             <div className="p-3 sm:p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900">Team scoreboard</h2>
@@ -1687,31 +1663,33 @@ export default function DashboardClient({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Progress Section */}
           <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+        {show('progress') && (
+          <>
             {/* Weekly Progress */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Progress vs goals</h2>
               <p className="text-xs text-gray-700 mb-3 sm:mb-4 capitalize">
                 Your pace for {timeFrameLabel[timeFrame]} against the goals in settings.
               </p>
-              <ProgressBar
+              <GoalBar
                 label="Doors Knocked"
                 current={progressForTimeFrame.doors_knocked.current}
                 goal={progressForTimeFrame.doors_knocked.goal}
                 color="bg-blue-500"
               />
-              <ProgressBar
+              <GoalBar
                 label="Contacts Made"
                 current={progressForTimeFrame.contacts.current}
                 goal={progressForTimeFrame.contacts.goal}
                 color="bg-purple-500"
               />
-              <ProgressBar
+              <GoalBar
                 label="Inspections Set"
                 current={progressForTimeFrame.inspections.current}
                 goal={progressForTimeFrame.inspections.goal}
                 color="bg-amber-500"
               />
-              <ProgressBar
+              <GoalBar
                 label="Sales Closed"
                 current={progressForTimeFrame.sales.current}
                 goal={progressForTimeFrame.sales.goal}
@@ -1719,6 +1697,10 @@ export default function DashboardClient({
               />
             </div>
 
+          </>
+        )}
+        {show('account-overview') && (
+          <>
             {/* Account Overview - show different content for canvassers */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
@@ -1757,6 +1739,8 @@ export default function DashboardClient({
               </div>
             </div>
 
+          </>
+        )}
           </div>
 
           {/* Sidebar */}
