@@ -351,7 +351,7 @@ async function timeStep(ctx: Ctx) {
   const dayWork = async (ymd: string, jobId: string | null) => {
     let workOrderId: string | null = null
     if (!jobId) {
-      const { data: wo } = await db.from('work_orders').select('id').eq('scheduled_date', ymd).limit(1).maybeSingle()
+      const { data: wo } = await db.from('work_orders').select('id').eq('scheduled_date', ymd).is('skip_reason', null).limit(1).maybeSingle()
       workOrderId = (wo as { id?: string } | null)?.id ?? null
       if (!workOrderId) return false
     }
@@ -515,6 +515,8 @@ async function quotesStep(ctx: Ctx) {
     if (!paid.ok) throw new Error(paid.error)
     // A payment can only go on an issued invoice: send the deposit invoice first (marks it sent; demo mail is suppressed anyway).
     await finalizeAndSendInvoice(admin, inv.id, `billing@${DEMO_MAIL_DOMAIN}`)
+    // Date the sample invoice with its deposit, not today, so the timeline reads in order.
+    await db.from('job_invoices').update({ issued_at: addDaysYmd(ctx.today, -q.daysAgo + 1), sent_at: `${addDaysYmd(ctx.today, -q.daysAgo + 1)}T12:00:00Z` }).eq('id', inv.id)
     await applyPaymentToInvoice(admin, orgId, inv.id, paid.payment.id, depositCents, ownerId)
     const addressText = `${p.address_line1}, ${p.city}, ${p.state} ${p.zip}`
     const snapLines = q.lines.map((l, i) => ({ id: `demo-${q.key}-${i}`, name: l.name, quantity: l.qty, unit: l.unit, optional: l.optional === true, chosen: !l.optional || l.defaultOn === true, cents: Math.round(l.qty * l.price * 100) }))
