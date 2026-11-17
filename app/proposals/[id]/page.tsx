@@ -13,7 +13,8 @@ import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import { isCountedLine } from '@/lib/quotes/pricing'
 import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { builtInContractsAvailable } from '@/lib/org-profile'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/proposal-pricing-visibility'
 import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
@@ -98,6 +99,7 @@ export default function ProposalDetailPage() {
   const router = useRouter()
   const params = useParams()
   const orgFeatures = useOrgFeatures()
+  const builtInContracts = builtInContractsAvailable(useOrgProfile())
   const proposalId = params.id as string
   
   const [loading, setLoading] = useState(true)
@@ -1125,7 +1127,11 @@ export default function ProposalDetailPage() {
               <div className="mt-8 pt-8 border-t">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Next Step</h3>
                 <div className="flex gap-4 items-center">
-                  {proposal.opportunity_id ? (
+                  {!builtInContracts ? (
+                    <Link href="/signing" className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+                      Send an agreement (Signatures)
+                    </Link>
+                  ) : proposal.opportunity_id ? (
                     <CreateContractButton
                       opportunityId={proposal.opportunity_id}
                       proposalId={proposal.id}

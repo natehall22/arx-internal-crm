@@ -90,6 +90,15 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
   }
 }
 
+/**
+ * The built-in installation / repair / contingency agreements (lib/contracts/terms.ts) are roofing-install contracts:
+ * only the roofing profile offers them. Every other company sends its own agreement from Customers → Signatures (/signing).
+ * Existing signed contracts stay viewable and links already sent keep signing — this only gates creating a new one.
+ */
+export function builtInContractsAvailable(profile: Pick<ResolvedOrgProfile, 'id'> | Pick<ClientOrgProfile, 'id'> | null | undefined): boolean {
+  return (profile?.id ?? DEFAULT_INDUSTRY_PROFILE) === 'roofing'
+}
+
 /** The company's word for an outcome (profile wording, else the one given). Roofing has none: unchanged. */
 export function outcomeLabel(profile: Pick<ResolvedOrgProfile, 'outcomeText'> | null | undefined, id: string | null | undefined, fallback: string): string {
   return (id && profile?.outcomeText[id]?.label) || fallback

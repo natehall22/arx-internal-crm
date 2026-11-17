@@ -2,6 +2,7 @@ import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import { getOrgFeatures, isOrgFeatureOn } from '@/lib/org-features-server'
+import { builtInContractsAvailable, loadOrgProfile } from '@/lib/org-profile'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
@@ -382,6 +383,7 @@ export default async function OpportunityView({
 
   // The company's Roof measuring switch (Settings → Features) — the one answer (the old measure_tool_enabled is retired).
   const measureToolEnabled = await isOrgFeatureOn(profile.org_id, 'roofMeasure')
+  const builtInContracts = builtInContractsAvailable(await loadOrgProfile(createServiceClient(), profile.org_id))
 
   // Fetch the most recent inspection appointment linked to this opportunity
   const { data: inspectionAppointment } = await supabase
@@ -1340,6 +1342,7 @@ export default async function OpportunityView({
         <div id="contract-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Contract</h2>
+            {builtInContracts ? (
             <CreateContractButton
               opportunityId={params.id}
               proposalId={acceptedProposal?.id}
@@ -1357,6 +1360,11 @@ export default async function OpportunityView({
               scopeOfWork={acceptedProposal?.scope_of_work || ''}
               orgFeatures={await getOrgFeatures(profile.org_id)}
             />
+            ) : (
+              <Link href="/signing" className="inline-flex min-h-[44px] items-center rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">
+                Send an agreement (Signatures)
+              </Link>
+            )}
           </div>
 
           {orderFormContracts && orderFormContracts.length > 0 ? (

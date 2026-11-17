@@ -4,6 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
+import { builtInContractsAvailable, loadOrgProfile } from '@/lib/org-profile'
 import {
   saveDealSaleCredit,
   loadDealSaleCredit,
@@ -35,6 +36,10 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createServiceClient()
+    // The built-in agreements are roofing-install contracts: another kind of company sends its own from Signatures.
+    if (!builtInContractsAvailable(await loadOrgProfile(supabase, profile.org_id))) {
+      return NextResponse.json({ error: 'Use Signatures to send your own agreement' }, { status: 403 })
+    }
     const body = await request.json()
 
     const {
