@@ -7,6 +7,9 @@ import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import { formatParticipantRoleLabel } from '@/lib/payroll-format'
 import InspectionCommissionRateCard from './InspectionCommissionRateCard'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { bonusLinkLabel } from '@/lib/bonus-programs'
+import type { OrgFeatures } from '@/lib/org-features'
 
 type PayrollRow = {
   job_number: string
@@ -40,7 +43,8 @@ function defaultDateRange() {
   return { from, to }
 }
 
-export default function AdminPayrollPage() {
+export default function AdminPayrollPage({ features: serverFeatures = null }: { features?: OrgFeatures | null } = {}) {
+  const features = useOrgFeatures(serverFeatures)
   const router = useRouter()
   const defaults = useMemo(() => defaultDateRange(), [])
   const [from, setFrom] = useState(defaults.from)
@@ -136,7 +140,7 @@ export default function AdminPayrollPage() {
               href="/admin/bonuses"
               className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800"
             >
-              Bonuses (444, setter ramp, manual) →
+              {bonusLinkLabel(features)} →
               {pendingBonusCount != null && pendingBonusCount > 0 && (
                 <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                   {pendingBonusCount} pending

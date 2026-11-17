@@ -16,6 +16,7 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 jest.mock('@/lib/auth', () => ({ requireAuth: async () => ({ profile: { id: 'u1', org_id: 'org-1', role } }) }))
+jest.mock('@/lib/org-features-server', () => ({ getOrgFeatures: async () => ({ incentives: true, canvassing: true }) }))
 jest.mock('@/components/Nav', () => ({ __esModule: true, default: () => <nav data-testid="nav" /> }))
 jest.mock('@/app/admin/bonuses/BonusApprovalClient', () => ({
   __esModule: true,
@@ -53,11 +54,11 @@ describe('/admin/bonuses (Money → Bonuses): same access as the old Sisu tab', 
     role = r
     await expect(BonusesPage()).rejects.toThrow('NEXT_REDIRECT:/dashboard')
   })
-  it('works with incentives OFF: the page never reads the incentives switch and is not under the Sisu layout', () => {
+  it('works with incentives OFF: no switch gates the page (the features only pick the words in the intro) and it is not under the Sisu layout', () => {
     const src = read('app/admin/bonuses/page.tsx').replace(/\/\*[\s\S]*?\*\//g, '') // code only, not the explaining comment
-    expect(src).not.toMatch(/incentives|isOrgFeatureOn|requireOrgFeaturePage|getOrgFeatures/)
+    expect(src).not.toMatch(/isOrgFeatureOn|requireOrgFeaturePage|notFound|features\.incentives|features\.canvassing/)
     expect(src).not.toMatch(/admin\/sisu/)
-    expect(read('app/admin/bonuses/BonusApprovalClient.tsx')).not.toMatch(/orgFeatures|useOrgFeatures/)
+    expect(read('app/admin/bonuses/BonusApprovalClient.tsx')).not.toMatch(/requireOrgFeaturePage|notFound|redirect/)
   })
   it('is reachable from the menu (Money → Bonuses) with incentives off', () => {
     const flags = { isOpsOnly: false, canSeeOpsDashboard: false, canSeeJobBoard: false, canSeeInsideSales: false, projectsBarred: false, salesDocBarred: false, customerRecords: false, reports: false, isPayrollAdmin: true, earnsPay: false, payWeek: true }

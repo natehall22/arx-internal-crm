@@ -1,6 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { bonusIntro } from '@/lib/bonus-programs'
+import type { OrgFeatures } from '@/lib/org-features'
 
 type BonusUser = { id: string; full_name: string; role: string }
 type BonusPeriod = {
@@ -340,7 +343,8 @@ function BonusLineCard({
   )
 }
 
-export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: boolean }) {
+export default function BonusApprovalClient({ isFullAdmin, features: serverFeatures = null }: { isFullAdmin: boolean; features?: OrgFeatures | null }) {
+  const features = useOrgFeatures(serverFeatures)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending_approval')
   const [lines, setLines] = useState<BonusLine[]>([])
   const [pendingCount, setPendingCount] = useState(0)
@@ -526,7 +530,7 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
           )}
         </div>
         <p className="mt-2 max-w-2xl text-sm text-gray-800">
-          Review and approve every bonus line before payroll locks: Sisu 444, setter ramp and manual bonuses.
+          {bonusIntro(features)}
         </p>
       </div>
 

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
+import { getOrgFeatures } from '@/lib/org-features-server'
 import { isPayrollAdminRole, isRegionalBonusApproverRole } from '@/lib/payroll-admin-access'
 import BonusApprovalClient from './BonusApprovalClient'
 
@@ -19,6 +20,9 @@ export default async function BonusesPage() {
   const canAccess = isPayrollAdminRole(profile.role) || isRegionalBonusApproverRole(profile.role)
   if (!canAccess) redirect('/dashboard')
 
+  // The company's own switches decide which bonus programs the intro names (lib/bonus-programs.ts).
+  const features = await getOrgFeatures(profile.org_id)
+
   return (
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
@@ -28,7 +32,7 @@ export default async function BonusesPage() {
             ← Payroll
           </Link>
         )}
-        <BonusApprovalClient isFullAdmin={isPayrollAdminRole(profile.role)} />
+        <BonusApprovalClient isFullAdmin={isPayrollAdminRole(profile.role)} features={features} />
       </main>
     </div>
   )
