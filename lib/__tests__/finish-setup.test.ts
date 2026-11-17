@@ -22,7 +22,7 @@ function fakeAdmin(org: unknown, counts: Record<string, number>, orgError: unkno
   return {
     seen,
     from: (table: string) => {
-      const q: any = { // eslint-disable-line @typescript-eslint/no-explicit-any
+      const q: any = {
         select: () => q,
         eq: (c: string, v: string) => { seen.push([table, `${c}=${v}`]); return q },
         maybeSingle: async () => ({ data: org, error: orgError }),

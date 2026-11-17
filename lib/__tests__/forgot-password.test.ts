@@ -15,7 +15,7 @@ jest.mock('@/lib/company-host', () => ({
   fenceAllowsOrg: (f: { kind: string; orgId?: string }, o: string) => f.kind === 'open' || (f.kind === 'org' && f.orgId === o),
 }))
 jest.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({ from: () => { let org: unknown = null; const q: any = { select: () => q, ilike: () => q, eq: (_c: string, v: unknown) => { org = v; return q }, limit: async () => ({ data: org == null ? users : users.filter((u) => u.org_id === org) }) }; return q } }), // eslint-disable-line @typescript-eslint/no-explicit-any
+  createServiceClient: () => ({ from: () => { let org: unknown = null; const q: any = { select: () => q, ilike: () => q, eq: (_c: string, v: unknown) => { org = v; return q }, limit: async () => ({ data: org == null ? users : users.filter((u) => u.org_id === org) }) }; return q } }),
 }))
 import { POST } from '@/app/api/auth/forgot-password/route'
 import { resetPublicEstimateRateLimitForTests } from '@/lib/public-estimate-rate-limit'

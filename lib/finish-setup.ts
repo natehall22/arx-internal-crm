@@ -48,7 +48,7 @@ export async function loadFinishSetup(
   // Once every step was done it is remembered (orgs.settings.finishSetupDone): no counts are read again.
   if ((row.settings as { finishSetupDone?: unknown } | null | undefined)?.finishSetupDone === true) return null
 
-  const count = async (table: string, filter: (q: any) => any): Promise<number | null> => { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const count = async (table: string, filter: (q: any) => any): Promise<number | null> => {
     const { count: n, error } = await filter(admin.from(table).select('id', { count: 'exact', head: true }).eq('org_id', orgId))
     return error ? null : n ?? 0
   }
