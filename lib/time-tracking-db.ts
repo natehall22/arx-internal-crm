@@ -27,6 +27,8 @@ import { orgDb } from '@/lib/supabase/org-db'
 import {
   ENTRY_FIELD_LABELS,
   PEOPLE_ACTIONS,
+  allocateShiftTime,
+  shiftReminderAfterHours,
   TIME_ENTRY_COLUMNS,
   clipIntervals,
   entryFromRow,
@@ -59,6 +61,11 @@ export function isTimeTrackingNotReadyError(error: { code?: string; message?: st
   return isMissingTable(error) || isMissingColumn(error, 'tracks_time') || isMissingColumn(error, 'time_week_ending') || /time_entr|crew_members/.test(String(error.message ?? '')) && /does not exist|could not find/i.test(String(error.message ?? ''))
 }
 export const TIME_TRACKING_NOT_READY = 'The time clock turns on once the database update for it is applied.'
+/** The day clock needs migration 202611300040 (a 'shift' row is refused by the older kind / where checks). */
+export const DAY_CLOCK_NOT_READY = 'The day clock turns on once its database update is applied — ask the office.'
+export function isDayClockNotReadyError(error: { code?: string; message?: string } | null | undefined): boolean {
+  return !!error && error.code === '23514' && /time_entries_(kind|where)/.test(String(error.message ?? ''))
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Company settings + time zone (one read)
@@ -360,7 +367,9 @@ export async function allowedPeople(admin: SupabaseClient, actor: ClockActor, op
   for (const c of crews) for (const m of c.members) if (!people.has(m.userId)) people.set(m.userId, { name: m.name, subId: c.subId, isLead: m.isLead })
   if (!people.has(actor.userId)) {
     const memberOf = await loadCrewMembership(admin, actor.orgId, actor.userId)
-    const allowedRole = (opts.settings?.selfClockRoles ?? []).includes(String(meRow.role ?? '').toLowerCase())
+    const roleSlug = String(meRow.role ?? '').toLowerCase()
+    // A Field Tech (isCrewFieldRole, incl. a custom role of that name) clocks only as a member of a time-tracked crew: on no crew, no clock.
+    const allowedRole = !isCrewFieldRole(roleInput) && (opts.settings?.selfClockRoles ?? []).includes(roleSlug)
     if (memberOf || allowedRole) people.set(actor.userId, { name: meRow.full_name || 'Me', subId: memberOf, isLead: false })
   }
   return { people, crews }
@@ -437,7 +446,7 @@ async function resolveWhere(admin: SupabaseClient, actor: ClockActor, tap: Pick<
   return { ok: false, status: 400, error: 'Which stop or job?' }
 }
 
-async function loadOpen(admin: SupabaseClient, orgId: string, userIds: string[], kind: 'work' | 'break'): Promise<Map<string, TimeEntry>> {
+async function loadOpen(admin: SupabaseClient, orgId: string, userIds: string[], kind: 'work' | 'break' | 'shift'): Promise<Map<string, TimeEntry>> {
   const out = new Map<string, TimeEntry>()
   if (userIds.length === 0) return out
   const { data, error } = await orgDb(admin, orgId)
@@ -630,12 +639,67 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
         break
       }
       case 'break_start': {
-        const [openWork, openBreak] = await Promise.all([loadOpen(admin, actor.orgId, picked, 'work'), loadOpen(admin, actor.orgId, picked, 'break')])
+        const [openWork, openBreak, openShift] = await Promise.all([loadOpen(admin, actor.orgId, picked, 'work'), loadOpen(admin, actor.orgId, picked, 'break'), loadOpen(admin, actor.orgId, picked, 'shift')])
         for (const userId of picked) {
+          // A break is taken from a stop OR from the day clock (nothing to take a break from = nothing happens).
           const w = openWork.get(userId)
-          if (!w || openBreak.has(userId)) continue
-          const r = await insertEntry(ctx, { user_id: userId, sub_id: w.subId, work_order_id: w.workOrderId, production_job_id: w.jobId, kind: 'break' }, tap.tapId)
+          const sh = openShift.get(userId)
+          if ((!w && !sh) || openBreak.has(userId)) continue
+          const r = await insertEntry(ctx, { user_id: userId, sub_id: w?.subId ?? sh?.subId ?? null, work_order_id: w?.workOrderId ?? null, production_job_id: w?.jobId ?? null, kind: 'break' }, tap.tapId)
           if (r === 'inserted') done++
+        }
+        break
+      }
+      case 'day_start': {
+        // The day clock: no stop needed. One open shift per person (a second tap, a second phone or a replayed queue
+        // changes nothing); a break left open is closed first.
+        const [openShift, openBreak] = await Promise.all([loadOpen(admin, actor.orgId, picked, 'shift'), loadOpen(admin, actor.orgId, picked, 'break')])
+        // A day left open from an earlier date (org time zone) was forgotten: stop it first, flagged like any forgotten clock.
+        const tapDay = localYmd(time.at.getTime(), config.timeZone)
+        const forgotten = Array.from(openShift.values()).filter((sh) => localYmd(Date.parse(sh.startedAt), config.timeZone) < tapDay)
+        if (forgotten.length) {
+          await closeAsForgotten(admin, actor.orgId, forgotten, time.at)
+          for (const sh of forgotten) if (sh.userId) openShift.delete(sh.userId)
+        }
+        // Filed under the crew of today's first stop, else the person's first crew (a tech on two crews has one day).
+        const todaysStops = await orgDb(admin, actor.orgId)
+          .from('time_entries')
+          .select('user_id, sub_id, started_at')
+          .in('user_id', picked)
+          .eq('kind', 'work')
+          .is('removed_at', null)
+          .not('sub_id', 'is', null)
+          .gte('started_at', new Date(time.at.getTime() - 36 * 3_600_000).toISOString())
+          .order('started_at', { ascending: true })
+        const firstStopCrew = new Map<string, string>()
+        for (const r of (todaysStops.data ?? []) as Array<{ user_id: string; sub_id: string; started_at: string }>) {
+          if (localYmd(Date.parse(r.started_at), config.timeZone) === tapDay && !firstStopCrew.has(r.user_id)) firstStopCrew.set(r.user_id, r.sub_id)
+        }
+        for (const userId of picked) {
+          if (openShift.has(userId)) continue // already started
+          const b = openBreak.get(userId)
+          if (b) await closeEntry(ctx, b)
+          const r = await insertEntry(ctx, { user_id: userId, sub_id: firstStopCrew.get(userId) ?? people.get(userId)?.subId ?? null, kind: 'shift' }, tap.tapId)
+          if (r === 'inserted') done++
+        }
+        break
+      }
+      case 'day_end': {
+        // End the day: the break, the stop clock and the shift all stop at this tap (per person: only those named).
+        const [openWork, openBreak, openShift] = await Promise.all([loadOpen(admin, actor.orgId, picked, 'work'), loadOpen(admin, actor.orgId, picked, 'break'), loadOpen(admin, actor.orgId, picked, 'shift')])
+        for (const userId of picked) {
+          const b = openBreak.get(userId)
+          if (b) await closeEntry(ctx, b)
+          const w = openWork.get(userId)
+          if (w) await closeEntry(ctx, w)
+          const sh = openShift.get(userId)
+          if (sh) {
+            await closeEntry(ctx, sh)
+            done++
+          } else if (w) done++
+        }
+        if ((await loadOpen(admin, actor.orgId, allIds, 'work')).size === 0) {
+          for (const e of await loadOpenEquipment(admin, actor.orgId, crewSubIds, actor.via === 'signed_in' ? actor.userId : null)) await closeEntry(ctx, e)
         }
         break
       }
@@ -691,6 +755,7 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
   } catch (e) {
     const err = e as { code?: string; message?: string }
     if (isTimeTrackingNotReadyError(err)) return { ok: false, status: 503, error: TIME_TRACKING_NOT_READY }
+    if (isDayClockNotReadyError(err)) return { ok: false, status: 503, error: DAY_CLOCK_NOT_READY }
     throw e
   }
   await syncTimeFeeds(admin, actor.orgId, { userIds: Array.from(ctx.touched.users), instants: Array.from(ctx.touched.instants), jobIds: Array.from(ctx.touched.jobs), actorUserId: tappedBy }).catch((e) =>
@@ -740,6 +805,16 @@ export async function autoCloseForgotten(admin: SupabaseClient, orgId: string, o
     stale.push(...((data ?? []) as Array<Record<string, unknown>>).map(entryFromRow))
   }
   if (stale.length === 0) return 0
+  return closeAsForgotten(admin, orgId, stale, now)
+}
+
+/**
+ * Stop these open entries as forgotten: at the person's last tap (never past `now`, never before the start), flagged for the
+ * crew lead's next-morning question, then refresh the feeds. The one close path for the limit sweep and for a Start day that
+ * finds yesterday's day clock still open. Returns entries closed.
+ */
+async function closeAsForgotten(admin: SupabaseClient, orgId: string, stale: TimeEntry[], now: Date): Promise<number> {
+  const db = orgDb(admin, orgId)
   const touched = { users: new Set<string>(), instants: new Set<string>(), jobs: new Set<string>() }
   let closed = 0
   for (const e of stale) {
@@ -791,7 +866,7 @@ export async function loadFinishQuestions(admin: SupabaseClient, orgId: string, 
     .from('time_entries')
     .select(TIME_ENTRY_COLUMNS)
     .in('user_id', ids)
-    .eq('kind', 'work')
+    .in('kind', ['work', 'shift'])
     .eq('end_source', 'auto_closed')
     .eq('needs_review', true)
     .is('removed_at', null)
@@ -800,8 +875,11 @@ export async function loadFinishQuestions(admin: SupabaseClient, orgId: string, 
     if (isTimeTrackingNotReadyError(error)) return []
     throw error
   }
-  return ((data ?? []) as Array<Record<string, unknown>>)
-    .map(entryFromRow)
+  const rows = ((data ?? []) as Array<Record<string, unknown>>).map(entryFromRow)
+  // One question per forgotten day: a stop clock left running inside a forgotten SHIFT is covered by the shift's answer.
+  const shifts = rows.filter((e) => e.kind === 'shift')
+  return rows
+    .filter((e) => e.kind === 'shift' || !shifts.some((s) => s.userId === e.userId && Date.parse(e.startedAt) >= Date.parse(s.startedAt) && Date.parse(e.startedAt) <= Date.parse(s.endedAt ?? s.startedAt) + 3_600_000))
     .map((e) => ({ entryId: e.id, userId: e.userId!, name: people.get(e.userId!)?.name ?? '', day: localYmd(Date.parse(e.startedAt), timeZone), startedAt: e.startedAt, stoppedAt: e.endedAt! }))
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
 }
@@ -830,7 +908,7 @@ async function answerFinishTime(
   const periodStart = await findWeekNear(admin, orgId, await clockWeekCutoff(admin, orgId, new Date(startMs), pw), pw)
   if (!periodIsEditable(period) || !periodIsEditable(periodStart)) return { ok: false, status: 409, error: 'That week is already approved — ask the office' }
   const endedAt = end.toISOString()
-  const overlap = await overlapRefusal(admin, orgId, { userId: e.userId, kind: 'work', startedAt: e.startedAt, endedAt, excludeId: e.id, timeZone: input.config.timeZone })
+  const overlap = await overlapRefusal(admin, orgId, { userId: e.userId, kind: e.kind, startedAt: e.startedAt, endedAt, excludeId: e.id, timeZone: input.config.timeZone })
   if (overlap) return { ok: false, status: 409, error: `${overlap} Ask the office.` }
   const { error } = await db
     .from('time_entries')
@@ -838,6 +916,21 @@ async function answerFinishTime(
     .eq('id', e.id)
   if (error) throw error
   await logChange(admin, orgId, e.id, 'finish_answered', input.answeredBy, 'Asked next morning', [{ field: 'ended_at', label: 'End', old: e.endedAt, new: endedAt }])
+  if (e.kind === 'shift') {
+    // The stop clocks the system also stopped inside this day are answered by the same finish time: no second question.
+    const { data: covered } = await db
+      .from('time_entries')
+      .update({ needs_review: false, review_note: 'Covered by the day clock finish time' })
+      .eq('user_id', e.userId)
+      .eq('kind', 'work')
+      .eq('end_source', 'auto_closed')
+      .eq('needs_review', true)
+      .is('removed_at', null)
+      .gte('started_at', e.startedAt)
+      .lte('started_at', endedAt)
+      .select('id')
+    for (const r of (covered ?? []) as Array<{ id: string }>) await logChange(admin, orgId, r.id, 'finish_answered', input.answeredBy, 'Day clock finish time given', [])
+  }
   return { ok: true, userId: e.userId, jobId: e.jobId, startedAt: e.startedAt, endedAt }
 }
 
@@ -854,6 +947,12 @@ export type ClockPerson = {
   onBreak: boolean
   /** Left a stop "going to the next one" today and not clocked in since. */
   travelling: boolean
+  /** The day clock: started and not ended (no stop needed). */
+  shift: { entryId: string; startedAt: string } | null
+  /** The day clock has run long enough that the phone asks "still working?" (shortly before the system stops it). */
+  shiftLate: boolean
+  /** Paid seconds today so far (company time zone): day clock ∪ stops ∪ travel, minus breaks, an open clock counted to now. Optional: older servers omit it. */
+  paidTodaySeconds?: number
 }
 
 export type ClockState = {
@@ -875,9 +974,10 @@ export async function loadClockState(admin: SupabaseClient, actor: ClockActor, n
   const ids = Array.from(people.keys())
   try {
     await autoCloseForgotten(admin, actor.orgId, { now, userIds: ids, config })
-    const [openWork, openBreak, recent, finishQuestions, equipment, items] = await Promise.all([
+    const [openWork, openBreak, openShift, recent, finishQuestions, equipment, items] = await Promise.all([
       loadOpen(admin, actor.orgId, ids, 'work'),
       loadOpen(admin, actor.orgId, ids, 'break'),
+      loadOpen(admin, actor.orgId, ids, 'shift'),
       orgDb(admin, actor.orgId)
         .from('time_entries')
         .select('user_id, ended_at, closed_for_travel')
@@ -896,11 +996,27 @@ export async function loadClockState(admin: SupabaseClient, actor: ClockActor, n
       if (!prev || r.ended_at > prev.at) lastEnd.set(r.user_id, { at: r.ended_at, travel: r.closed_for_travel === true })
     }
     const itemName = new Map(items.map((i) => [i.id, i.name]))
+    // Paid so far today: the same paidTime rule payroll uses, clipped to the local day (DST-safe: the day start is a zoned instant).
+    const dayStartMs = (localTimeToInstant(today, '00:00', config.timeZone) ?? new Date(now.getTime() - 24 * 3_600_000)).getTime()
+    const { data: todayRows } = await orgDb(admin, actor.orgId)
+      .from('time_entries')
+      .select(TIME_ENTRY_COLUMNS)
+      .in('user_id', ids)
+      .in('kind', ['work', 'shift', 'break'])
+      .is('removed_at', null)
+      .gte('started_at', new Date(now.getTime() - 36 * 3_600_000).toISOString())
+    const byUser = new Map<string, TimeEntry[]>()
+    for (const r of (todayRows ?? []) as Array<Record<string, unknown>>) {
+      const e = entryFromRow(r)
+      if (e.userId) byUser.set(e.userId, [...(byUser.get(e.userId) ?? []), e])
+    }
+    const paidToday = (userId: string) => Math.round(totalSeconds(clipIntervals(paidTime(byUser.get(userId) ?? [], { timeZone: config.timeZone, now: now.getTime() }).paid, dayStartMs, now.getTime())))
     return {
       ...empty,
       people: ids.map((userId) => {
         const p = people.get(userId)!
         const w = openWork.get(userId)
+        const sh = openShift.get(userId)
         const last = lastEnd.get(userId)
         return {
           userId,
@@ -909,6 +1025,9 @@ export async function loadClockState(admin: SupabaseClient, actor: ClockActor, n
           open: w ? { entryId: w.id, workOrderId: w.workOrderId, jobId: w.jobId, startedAt: w.startedAt } : null,
           onBreak: openBreak.has(userId),
           travelling: !w && !!last && last.travel && localYmd(Date.parse(last.at), config.timeZone) === today,
+          shift: sh ? { entryId: sh.id, startedAt: sh.startedAt } : null,
+          paidTodaySeconds: paidToday(userId),
+          shiftLate: !!sh && now.getTime() - Date.parse(sh.startedAt) >= shiftReminderAfterHours(config.settings) * 3_600_000,
         }
       }),
       equipment: equipment.map((e) => ({ entryId: e.id, name: itemName.get(e.pricebookItemId ?? '') ?? 'Equipment', workOrderId: e.workOrderId, startedAt: e.startedAt })),
@@ -1051,7 +1170,7 @@ export async function loadTimeWeek(admin: SupabaseClient, orgId: string, ref: st
     kind: e.kind,
     startedAt: e.startedAt,
     endedAt: e.endedAt,
-    where: labels.get(e.workOrderId ?? '') ?? labels.get(`job:${e.jobId ?? ''}`) ?? '—',
+    where: e.kind === 'shift' ? 'Day clock' : labels.get(e.workOrderId ?? '') ?? labels.get(`job:${e.jobId ?? ''}`) ?? '—',
     workOrderId: e.workOrderId,
     jobId: e.jobId,
     source: e.source,
@@ -1209,6 +1328,7 @@ export async function addTimeEntry(admin: SupabaseClient, orgId: string, actorUs
   const { data, error } = await db.from('time_entries').insert(row).select('id').single()
   if (error) {
     if (isTimeTrackingNotReadyError(error)) return { ok: false, status: 503, error: TIME_TRACKING_NOT_READY }
+    if (isDayClockNotReadyError(error)) return { ok: false, status: 503, error: DAY_CLOCK_NOT_READY }
     if (error.code === '42501') return { ok: false, status: 400, error: 'That isn’t in your company' }
     throw error
   }
@@ -1235,6 +1355,8 @@ export async function editTimeEntry(admin: SupabaseClient, orgId: string, actorU
   if (!(await weekIsOpen(admin, orgId, [e.startedAt, e.endedAt, startedAt, endedAt]))) return { ok: false, status: 409, error: LOCKED }
   const where = await checkWhere(admin, orgId, edit)
   if (where && 'ok' in where) return where
+  // Stop time must name its stop or job (the day clock and breaks need not).
+  if ((edit.kind ?? e.kind) === 'work' && !(where ? where.workOrderId || where.jobId : e.workOrderId || e.jobId)) return { ok: false, status: 400, error: 'Which job or visit?' }
   const { timeZone } = await loadClockConfig(admin, orgId)
   const overlap = await overlapRefusal(admin, orgId, { userId: e.userId, kind: edit.kind ?? e.kind, startedAt, endedAt, excludeId: e.id, timeZone })
   if (overlap) return { ok: false, status: 409, error: overlap }
@@ -1263,6 +1385,7 @@ export async function editTimeEntry(admin: SupabaseClient, orgId: string, actorU
   const { error } = await db.from('time_entries').update(patch).eq('id', entryId)
   if (error) {
     if (error.code === '23505') return { ok: false, status: 409, error: 'They already have a clock running — stop that one first' }
+    if (isDayClockNotReadyError(error)) return { ok: false, status: 503, error: DAY_CLOCK_NOT_READY }
     if (error.code === '42501') return { ok: false, status: 400, error: 'That isn’t in your company' }
     throw error
   }
@@ -1366,9 +1489,13 @@ export async function syncTimeFeeds(
           let paid = totalSeconds(clipIntervals(t.paid, from, to))
           let carried = 0
           if (Number.isFinite(prevApprovedAt)) {
-            // Split at the cutoff: the part of a shift that sat in the approved week but was recorded after approval.
-            const late = entries.filter((e) => e.endedRecordedAt && Date.parse(e.endedRecordedAt) > prevApprovedAt)
-            carried = totalSeconds(clipIntervals(paidTime(late, { timeZone: config.timeZone }).paid, prevFrom, from))
+            // Split at the cutoff: what the approved week should have paid (union over ALL its entries) minus what it did pay
+            // (the entries finished and recorded by approval; a day still open then paid nothing for itself). A day clock that
+            // ends after approval therefore carries only the time no stop already paid, never the whole day twice.
+            const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > prevApprovedAt))
+            const owed = clipIntervals(paidTime(entries, { timeZone: config.timeZone }).paid, prevFrom, from)
+            const paidThen = clipIntervals(paidTime(knownThen, { timeZone: config.timeZone }).paid, prevFrom, from)
+            carried = totalSeconds(subtractIntervals(owed, paidThen))
             paid += carried
           }
           const split = splitOvertime(paid, config.settings.overtimeAfterHours)
@@ -1390,7 +1517,39 @@ export async function syncTimeFeeds(
     }
 
     // ---- job labor cost
-    for (const jobId of input.jobIds) {
+    // Day-clock time no stop tap covers is shared over that day's stops (allocateShiftTime): per person, cached for the
+    // week, with each stop's job expected hours as the weights when every stop has them.
+    const entriesCache = new Map<string, TimeEntry[]>()
+    const personEntries = async (userId: string) => {
+      if (!entriesCache.has(userId)) entriesCache.set(userId, await loadPersonEntries(admin, orgId, userId, from - 86_400_000, to + 86_400_000))
+      return entriesCache.get(userId)!
+    }
+    const allocCache = new Map<string, Map<string, number>>()
+    const allocationFor = async (userId: string): Promise<Map<string, number>> => {
+      const hit = allocCache.get(userId)
+      if (hit) return hit
+      const entries = await personEntries(userId)
+      const jobIdsOf = Array.from(new Set(entries.filter((e) => e.kind === 'work' && e.jobId).map((e) => e.jobId!)))
+      const expected = new Map<string, number>()
+      if (jobIdsOf.length && entries.some((e) => e.kind === 'shift')) {
+        const { data: jobs } = await orgDb(admin, orgId).from('production_jobs').select('id, estimated_duration_hours').in('id', jobIdsOf)
+        for (const j of (jobs ?? []) as Array<{ id: string; estimated_duration_hours: number | null }>) if (Number(j.estimated_duration_hours) > 0) expected.set(j.id, Number(j.estimated_duration_hours))
+      }
+      const { stops } = allocateShiftTime(entries, { from, to, expectedHours: (st) => (st.jobId ? expected.get(st.jobId) ?? null : null) })
+      const byJob = new Map<string, number>()
+      for (const st of stops) if (st.jobId) byJob.set(st.jobId, (byJob.get(st.jobId) ?? 0) + st.allocatedSeconds)
+      allocCache.set(userId, byJob)
+      return byJob
+    }
+    // A shift ended (or edited) touches the jobs of the stops inside it, even when no stop was tapped just now.
+    const weekJobIds = new Set(input.jobIds)
+    for (const userId of input.userIds) {
+      for (const jobId of Array.from((await allocationFor(userId)).keys())) weekJobIds.add(jobId)
+      // ...and so does REMOVING or editing one: every job this person has stop time on this week is re-costed, including a
+      // job whose share just went to zero (its old allocated line must drop, not stay).
+      for (const e of await personEntries(userId)) if (e.kind === 'work' && e.jobId && Date.parse(e.startedAt) >= from && Date.parse(e.startedAt) <= to) weekJobIds.add(e.jobId)
+    }
+    for (const jobId of Array.from(weekJobIds)) {
       const { data: rows, error } = await orgDb(admin, orgId)
         .from('time_entries')
         .select(TIME_ENTRY_COLUMNS)
@@ -1404,12 +1563,15 @@ export async function syncTimeFeeds(
       const users = Array.from(new Set(work.map((e) => e.userId!)))
       let amount = 0
       let seconds = 0
+      let allocatedSeconds = 0
       let unpricedSeconds = 0
       for (const userId of users) {
-        const breaks = (await loadPersonEntries(admin, orgId, userId, from - 86_400_000, to + 86_400_000)).filter((e) => e.kind === 'break' && e.endedAt)
+        const breaks = (await personEntries(userId)).filter((e) => e.kind === 'break' && e.endedAt)
         const mine: Interval[] = mergeIntervals(work.filter((e) => e.userId === userId).map((e) => ({ start: Date.parse(e.startedAt), end: Date.parse(e.endedAt!) })))
         const net = clipIntervals(subtractIntervals(mine, breaks.map((b) => ({ start: Date.parse(b.startedAt), end: Date.parse(b.endedAt!) }))), from, to)
-        const s = totalSeconds(net)
+        const measured = totalSeconds(net)
+        const shared = Math.round((await allocationFor(userId)).get(jobId) ?? 0)
+        const s = measured + shared
         if (s === 0) continue
         const rate = await rateFor(userId)
         if (rate == null) {
@@ -1417,6 +1579,7 @@ export async function syncTimeFeeds(
           continue
         }
         seconds += s
+        allocatedSeconds += shared
         amount += (s / 3600) * rate
       }
       const written = await upsertJobLaborLine(admin, orgId, {
@@ -1424,6 +1587,7 @@ export async function syncTimeFeeds(
         weekEnding: cutoffYmd(cutoff, config.payWeek),
         amount: Math.round(amount * 100) / 100,
         seconds,
+        allocatedSeconds,
         unpricedSeconds,
         actorUserId: input.actorUserId,
       })
@@ -1488,7 +1652,7 @@ async function loadPersonEntries(admin: SupabaseClient, orgId: string, userId: s
 async function upsertJobLaborLine(
   admin: SupabaseClient,
   orgId: string,
-  l: { jobId: string; weekEnding: string; amount: number; seconds: number; unpricedSeconds: number; actorUserId: string | null }
+  l: { jobId: string; weekEnding: string; amount: number; seconds: number; allocatedSeconds?: number; unpricedSeconds: number; actorUserId: string | null }
 ): Promise<boolean> {
   const db = orgDb(admin, orgId)
   const { data: job } = await db.from('production_jobs').select('id').eq('id', l.jobId).maybeSingle()
@@ -1511,7 +1675,9 @@ async function upsertJobLaborLine(
     .gte('incurred_on', weekStart)
     .lte('incurred_on', l.weekEnding)
   const typedTwice = ((typed ?? []) as Array<{ source: string | null }>).some((r) => r.source !== 'dealer_fee_sync')
-  const description = `Crew time — week ending ${l.weekEnding} (${formatDuration(l.seconds)})${l.unpricedSeconds ? `; ${formatDuration(l.unpricedSeconds)} not counted: no pay rate` : ''}${typedTwice ? `; CHECK: a typed labor line is also on this week — remove it if it is the same work` : ''}`
+  // Measured = this job's own stop taps; allocated = its share of day-clock time no stop covers (drive, load, fuel, dump).
+  const split = l.allocatedSeconds && l.allocatedSeconds > 0 ? `${formatDuration(l.seconds)}: ${formatDuration(l.seconds - l.allocatedSeconds)} measured + ${formatDuration(l.allocatedSeconds)} allocated from the day clock` : formatDuration(l.seconds)
+  const description = `Crew time — week ending ${l.weekEnding} (${split})${l.unpricedSeconds ? `; ${formatDuration(l.unpricedSeconds)} not counted: no pay rate` : ''}${typedTwice ? `; CHECK: a typed labor line is also on this week — remove it if it is the same work` : ''}`
   const live = l.amount > 0 || l.seconds > 0
   const row = existing as { id: string; amount: number; deleted_at: string | null; description: string; approved: boolean | null } | null
   if (row) {
@@ -1559,7 +1725,7 @@ export async function loadOpenShiftsQueue(admin: SupabaseClient, orgId: string, 
   const { data, error } = await orgDb(admin, orgId)
     .from('time_entries')
     .select('id, user_id, started_at, ended_at, review_note')
-    .eq('kind', 'work')
+    .in('kind', ['work', 'shift'])
     .eq('end_source', 'auto_closed')
     .eq('needs_review', true)
     .is('removed_at', null)

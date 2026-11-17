@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { HARNESS_CATEGORIES, JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CREW_INCENTIVES, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS, HARNESS_DASHBOARD_CARDS_API } from './fixtures'
+import { HARNESS_CATEGORIES, JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CREW_INCENTIVES, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_DAY, HARNESS_CLOCK_STATE_DAY_LATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS, HARNESS_DASHBOARD_CARDS_API } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -641,6 +641,36 @@ const SCREENS: Screen[] = [
       { name: 'done-clock-out', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).first().click(); await p.waitForSelector('text=Driving to the next stop') } },
       { name: 'clock-out', run: async (p) => { await p.getByRole('button', { name: 'Clock out crew' }).click(); await p.waitForSelector('text=Yes — done for the day') } },
     ] },
+  { name: 'crew-day-shift', path: '/dev-harness/crew-day-shift', ready: 'text=End day',
+    mock: async (p) => {
+      await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
+      // Stateful like the server: after the Break tap the re-read shows both on break.
+      let onBreak = false
+      await p.route('**/api/crew/day/*/clock', (route) => {
+        if (route.request().method() !== 'GET') { onBreak = true; return route.fulfill(json({ ok: true, done: 2 })) }
+        return route.fulfill(json(onBreak ? { ...HARNESS_CLOCK_STATE_DAY, people: HARNESS_CLOCK_STATE_DAY.people.map((x) => (x.shift ? { ...x, onBreak: true } : x)) } : HARNESS_CLOCK_STATE_DAY))
+      })
+      await p.route('**/api/crew/day/*/visits/*', (route) => route.fulfill(json({ ok: true })))
+    },
+    states: [
+      { name: 'end-day-confirm', run: async (p) => { await p.getByRole('button', { name: /^End day, running/ }).click(); await p.waitForSelector('text=End the day for everyone on the clock?') } },
+      { name: 'break', run: async (p) => { await p.getByRole('button', { name: 'Break', exact: true }).click(); await p.waitForSelector('text=Back from break') } },
+      { name: 'one-person', run: async (p) => { await p.getByRole('button', { name: 'End day for one person' }).click(); await p.waitForSelector('text=End day: Dee Crew') } },
+    ] },
+  { name: 'crew-day-start-day', path: '/dev-harness/crew-day-clock', ready: 'text=Start day',
+    mock: async (p) => {
+      await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
+      await p.route('**/api/crew/day/*/clock', (route) => route.fulfill(route.request().method() === 'GET' ? json(HARNESS_CLOCK_STATE) : json({ ok: true, done: 3 })))
+    },
+    states: [
+      { name: 'untick-absent', run: async (p) => { await p.getByRole('button', { name: /Tony Crew/ }).first().click(); await p.waitForSelector('text=2 on the crew') } },
+      { name: 'started', run: async (p) => { await p.getByRole('button', { name: /^Start day/ }).click(); await p.waitForSelector('text=End day') } },
+    ] },
+  { name: 'my-day-clock', path: '/dev-harness/my-day-clock', ready: 'text=End day',
+    mock: async (p) => {
+      await p.route('**/api/time/clock', (route) => route.fulfill(route.request().method() === 'GET' ? json(HARNESS_CLOCK_STATE_DAY_LATE) : json({ ok: true, done: 2 })))
+    },
+    states: [{ name: 'late-reminder', run: async (p) => { await p.waitForSelector('text=Done for the day?') } }] },
   { name: 'job-clock', path: '/dev-harness/job-clock', ready: 'text=My time',
     // Stateful like the server: after the tap, the re-read shows the person clocked in on this job.
     mock: async (p) => {

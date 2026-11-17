@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
+import MyDayClock from '@/components/time/MyDayClock'
 import WaitingOnYou from '@/components/threads/WaitingOnYou'
 import NeedsYouList from '@/components/ops/NeedsYouList'
 import { KpiTiles, QueueCard } from '@/components/today/QueueCard'
@@ -156,6 +157,8 @@ export default async function TodayPage() {
           subtitle={`Hi ${profile.full_name?.split(' ')[0] ?? 'there'} — here's what needs you.`}
           actions={canvassOn ? <Button asChild><Link href="/canvass">Open Canvass</Link></Button> : undefined}
         />
+        {/* The day clock: only for someone on a time-tracked crew (or leading one) and only when the company uses the clock. */}
+        {orgProfile.features.timeTracking ? <MyDayClock /> : null}
         {finishSetup ? <FinishSetupCard items={finishSetup} /> : null}
         {myDay.length > 0 ? <CardGrid cards={myDay} /> : null}
         <WaitingOnYou items={waiting} />

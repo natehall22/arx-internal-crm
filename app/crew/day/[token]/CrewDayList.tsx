@@ -11,6 +11,7 @@ import { QrCode } from '@/components/ui/QrCode'
 import type { CrewMoney } from '@/lib/visit-collections'
 import { CrewPhotoButtons } from './CrewPhotoButtons'
 import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
+import { DayClockCard } from '@/components/time/DayClockCard'
 import { useClock, usePresence, type ClockState } from '@/components/time/useClock'
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
 import type { Scoreboard } from '@/lib/crew-incentives-db'
@@ -333,7 +334,8 @@ export default function CrewDayList({
             {error}
           </p>
         ) : null}
-        {clockOn ? <ClockPanel clock={clock} selected={present} setSelected={setPresent} placeLabel={(o) => stopLabel(o.workOrderId)} title="Crew time" /> : null}
+        {clockOn ? <DayClockCard clock={clock} selected={present} setSelected={setPresent} title="Crew day" /> : null}
+        {clockOn ? <ClockPanel clock={clock} selected={present} setSelected={setPresent} placeLabel={(o) => stopLabel(o.workOrderId)} title="Crew time" notices={false} hidePicker /> : null}
         <ol className="flex flex-col gap-3">
           {visits.map((v, i) => {
             const closed = v.status !== 'scheduled'

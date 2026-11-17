@@ -2,16 +2,18 @@
  * Crew time clock — the rules (pure, client-safe). ONE writer is lib/time-tracking-db.ts; this file decides what a tap
  * means, what counts as paid time, how a week splits into regular / overtime, and which wage-law items to warn about.
  *
- * Paid time for one person = (work ∪ travel) − breaks, where travel is the gap between a work entry closed with "going
- * to the next stop" and that person's next work entry the SAME local day. Breaks never auto-deduct anything: a break
- * is only what someone tapped (Lunch) or the office typed. Wage-law items are warnings only.
+ * Paid time for one person = (shift ∪ work ∪ travel) − breaks, where travel is the gap between a work entry closed with
+ * "going to the next stop" and that person's next work entry the SAME local day, and a SHIFT is the day clock (Start day
+ * → End day: driving, loading, fuel, dump runs — no stop needed). Taking the union means nobody is underpaid when they
+ * also tap stops, or forget the day clock. Breaks never auto-deduct anything: a break is only what someone tapped
+ * (Break / Lunch) or the office typed. Wage-law items are warnings only.
  *
  * Every time is an instant (ms since epoch / ISO with offset). Local days come from the company's time zone, through
  * Intl / date-fns-tz, so a clock change never adds or loses an hour.
  */
 import { fromZonedTime } from 'date-fns-tz'
 
-export const TIME_KINDS = ['work', 'break', 'equipment'] as const
+export const TIME_KINDS = ['work', 'break', 'equipment', 'shift'] as const
 export type TimeKind = (typeof TIME_KINDS)[number]
 export const TIME_SOURCES = ['lead_tap', 'self_tap', 'typed', 'auto_closed'] as const
 export type TimeSource = (typeof TIME_SOURCES)[number]
@@ -231,11 +233,13 @@ export function totalSeconds(list: Interval[]): number {
 }
 
 export type PaidTime = {
+  /** The day clock (shift) minus breaks. */
+  shift: Interval[]
   /** Work minus breaks (job time). */
   work: Interval[]
   /** Paid drive time between stops (minus any break taken on the way). */
   travel: Interval[]
-  /** Work ∪ travel − breaks: what payroll pays. */
+  /** Shift ∪ work ∪ travel − breaks: what payroll pays. */
   paid: Interval[]
   breaks: Interval[]
 }
@@ -247,11 +251,13 @@ export type PaidTime = {
 export function paidTime(entries: TimeEntry[], opts: { timeZone: string; now?: number }): PaidTime {
   const end = (e: TimeEntry) => (e.endedAt ? ms(e.endedAt) : opts.now ?? null)
   const work: Interval[] = []
+  const shifts: Interval[] = []
   const breaks: Interval[] = []
   for (const e of entries) {
     const stop = end(e)
     if (stop == null) continue
     if (e.kind === 'work') work.push({ start: ms(e.startedAt), end: stop })
+    else if (e.kind === 'shift') shifts.push({ start: ms(e.startedAt), end: stop })
     else if (e.kind === 'break') breaks.push({ start: ms(e.startedAt), end: stop })
   }
   const works = entries.filter((e) => e.kind === 'work' && end(e) != null).sort((a, b) => ms(a.startedAt) - ms(b.startedAt))
@@ -267,8 +273,73 @@ export function paidTime(entries: TimeEntry[], opts: { timeZone: string; now?: n
     travel.push({ start: from, end: to })
   }
   const workNet = subtractIntervals(work, breaks)
+  const shiftNet = subtractIntervals(shifts, breaks)
   const travelNet = subtractIntervals(subtractIntervals(travel, work), breaks)
-  return { work: workNet, travel: travelNet, paid: mergeIntervals([...workNet, ...travelNet]), breaks: mergeIntervals(breaks) }
+  return { shift: shiftNet, work: workNet, travel: travelNet, paid: mergeIntervals([...shiftNet, ...workNet, ...travelNet]), breaks: mergeIntervals(breaks) }
+}
+
+/** Hours an open day clock may run before the phone asks "still working?": 2 h before the system stops it (never under 1 h). */
+export function shiftReminderAfterHours(settings: Pick<TimeTrackingSettings, 'autoCloseHours'>): number {
+  return Math.max(1, settings.autoCloseHours - 2)
+}
+
+export type StopShare = {
+  /** The visit, else `job:<id>` — one share per stop. */
+  key: string
+  workOrderId: string | null
+  jobId: string | null
+  /** Day-clock time not covered by any stop tap, given to this stop for its labor cost. */
+  allocatedSeconds: number
+}
+
+/**
+ * Job costing for the day clock. One person's paid shift time that NO stop tap covers (driving, loading, fuel, dump
+ * runs) is spread over the completed stops they worked inside that same shift: by each stop's expected hours when every
+ * stop has one, else evenly. Pay never reads this (pay = paidTime); a shift with no completed stop gives nothing to any
+ * job. The result is the ALLOCATED part — a stop's measured time is its own taps (paidTime.work), kept separate.
+ * `from`/`to` clip the uncovered time to a pay week (the stops are still the whole shift's).
+ */
+export function allocateShiftTime(
+  entries: TimeEntry[],
+  opts: { expectedHours?: (stop: { workOrderId: string | null; jobId: string | null }) => number | null | undefined; from?: number; to?: number; now?: number }
+): { stops: StopShare[]; unallocatedSeconds: number } {
+  const t = paidTime(entries, { timeZone: 'UTC', now: opts.now })
+  const from = opts.from ?? -Infinity
+  const to = opts.to ?? Infinity
+  const done = (e: TimeEntry) => (e.endedAt ? ms(e.endedAt) : opts.now ?? null)
+  const shiftRaw = mergeIntervals(entries.filter((e) => e.kind === 'shift').flatMap((e) => (done(e) == null ? [] : [{ start: ms(e.startedAt), end: done(e)! }])))
+  // Everything inside a shift that is not a stop tap: drive time between stops included (one rule inside a shift).
+  const uncovered = subtractIntervals(subtractIntervals(shiftRaw, t.breaks), t.work)
+  const stopEntries = entries.filter((e) => e.kind === 'work' && e.endedAt && (e.workOrderId || e.jobId))
+  const shares = new Map<string, StopShare>()
+  let unallocated = 0
+  for (const win of shiftRaw) {
+    const mine = clipIntervals(clipIntervals(uncovered, win.start, win.end), from, to)
+    const seconds = totalSeconds(mine)
+    if (seconds <= 0) continue
+    const inWin = new Map<string, { workOrderId: string | null; jobId: string | null }>()
+    for (const e of stopEntries) {
+      if (ms(e.endedAt!) <= win.start || ms(e.startedAt) >= win.end) continue
+      inWin.set(e.workOrderId ?? `job:${e.jobId}`, { workOrderId: e.workOrderId, jobId: e.jobId })
+    }
+    if (inWin.size === 0) {
+      unallocated += seconds
+      continue
+    }
+    const list = Array.from(inWin.entries()).sort(([a], [b]) => (a < b ? -1 : 1))
+    const expected = list.map(([, s]) => opts.expectedHours?.(s) ?? null)
+    const weights = expected.every((x) => typeof x === 'number' && x > 0) ? (expected as number[]) : list.map(() => 1)
+    const sum = weights.reduce((a, b) => a + b, 0)
+    let given = 0
+    list.forEach(([key, s], i) => {
+      const part = i === list.length - 1 ? seconds - given : Math.round((seconds * weights[i]) / sum)
+      given += part
+      const row = shares.get(key) ?? { key, workOrderId: s.workOrderId, jobId: s.jobId, allocatedSeconds: 0 }
+      row.allocatedSeconds += part
+      shares.set(key, row)
+    })
+  }
+  return { stops: Array.from(shares.values()), unallocatedSeconds: unallocated }
 }
 
 /** Regular / overtime hours for a week's paid seconds. Exact (no rounding to quarter hours): hours = seconds / 3600. */
@@ -311,7 +382,7 @@ export function weekWarnings(entries: TimeEntry[], opts: { timeZone: string; set
   const split = splitOvertime(week, opts.settings.overtimeAfterHours)
   if (split.overtimeHours > 0) out.push({ code: 'overtime', day: null, text: `Overtime: ${formatDuration(split.overtimeHours * 3600)}` })
   for (const e of entries) {
-    if (!e.endedAt && e.kind === 'work' && ms(e.startedAt) < opts.weekTo) out.push({ code: 'open_clock', day: localYmd(ms(e.startedAt), opts.timeZone), text: 'Still clocked in' })
+    if (!e.endedAt && (e.kind === 'work' || e.kind === 'shift') && ms(e.startedAt) < opts.weekTo) out.push({ code: 'open_clock', day: localYmd(ms(e.startedAt), opts.timeZone), text: 'Still clocked in' })
     if (e.needsReview && ms(e.startedAt) >= opts.weekFrom && ms(e.startedAt) <= opts.weekTo) out.push({ code: 'needs_review', day: localYmd(ms(e.startedAt), opts.timeZone), text: e.reviewNote || 'Check this time' })
   }
   return out
@@ -330,10 +401,10 @@ export function formatDuration(seconds: number): string {
 // Taps (from a phone, possibly queued offline)
 // ---------------------------------------------------------------------------------------------------------------------
 
-export const CLOCK_ACTIONS = ['clock_in', 'clock_out', 'break_start', 'break_end', 'equipment_start', 'equipment_stop', 'finish_answer'] as const
+export const CLOCK_ACTIONS = ['clock_in', 'clock_out', 'break_start', 'break_end', 'equipment_start', 'equipment_stop', 'finish_answer', 'day_start', 'day_end'] as const
 export type ClockAction = (typeof CLOCK_ACTIONS)[number]
 /** Actions that act on people: each names them (`userIds`), never "everyone". */
-export const PEOPLE_ACTIONS: readonly ClockAction[] = ['clock_in', 'clock_out', 'break_start', 'break_end']
+export const PEOPLE_ACTIONS: readonly ClockAction[] = ['clock_in', 'clock_out', 'break_start', 'break_end', 'day_start', 'day_end']
 
 export type ClockTap = {
   tapId: string
@@ -344,7 +415,7 @@ export type ClockTap = {
   deviceNow: string
   workOrderId: string | null
   jobId: string | null
-  /** Who (crew members ticked). Required for clock in / out / lunch; never empty for those. */
+  /** Who (crew members ticked). Required for clock in / out / break / start day / end day; never empty for those. */
   userIds: string[]
   /** clock_out: leaving for the next stop (the drive is paid). */
   forTravel: boolean
@@ -473,7 +544,7 @@ export function parseEntryEdit(body: unknown, opts: { adding: boolean }): { edit
     else edit.endedAt = new Date(b.endedAt).toISOString()
   }
   if ('kind' in b) {
-    if (b.kind !== 'work' && b.kind !== 'break') return { error: 'Type must be work or break' }
+    if (b.kind !== 'work' && b.kind !== 'break' && b.kind !== 'shift') return { error: 'Type must be stop time, break or day' }
     edit.kind = b.kind
   }
   for (const [k, key] of [['workOrderId', 'workOrderId'], ['jobId', 'jobId']] as const) {

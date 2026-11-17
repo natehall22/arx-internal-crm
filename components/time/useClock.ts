@@ -131,7 +131,23 @@ export function useClock(endpoint: string, opts: { tapperKey?: string; initial?:
     [endpoint, state]
   )
 
-  return { state, loadError, pending, failed, dismissFailed, tap, refresh, tappedBy, setTapper, leads, latestOpen }
+  /**
+   * Who is on the clock right now (a day clock running or a stop clock open), read fresh from the server unless taps are
+   * still queued. Used right before End day so a stale screen can't leave anyone's day running.
+   */
+  const latestOnClock = useCallback(async (): Promise<string[]> => {
+    let s = state
+    if (!useTimeClockQueue.getState().pending.some((t) => t.endpoint === endpoint)) {
+      const res = await fetch(endpoint, { cache: 'no-store', credentials: 'include' }).catch(() => null)
+      if (res && res.ok) {
+        s = (await res.json()) as ClockState
+        setState(s)
+      }
+    }
+    return (s?.people ?? []).filter((p) => p.open || p.shift).map((p) => p.userId)
+  }, [endpoint, state])
+
+  return { state, loadError, pending, failed, dismissFailed, tap, refresh, tappedBy, setTapper, leads, latestOpen, latestOnClock }
 }
 
 /** What the screen shows right after a tap, before the server answers. */
@@ -143,7 +159,13 @@ export function optimistic(s: ClockState, action: ClockAction, extra: Where & { 
     case 'clock_out':
       return { ...s, people: s.people.map((p) => (picked(p) && p.open ? { ...p, open: null, onBreak: false, travelling: extra.forTravel === true } : p)), equipment: [] }
     case 'break_start':
-      return { ...s, people: s.people.map((p) => (picked(p) && p.open ? { ...p, onBreak: true } : p)) }
+      return { ...s, people: s.people.map((p) => (picked(p) && (p.open || p.shift) ? { ...p, onBreak: true } : p)) }
+    case 'day_start':
+      return { ...s, people: s.people.map((p) => (picked(p) && !p.shift ? { ...p, shift: { entryId: 'pending', startedAt: at }, shiftLate: false, onBreak: false } : p)) }
+    case 'day_end': {
+      const people = s.people.map((p) => (picked(p) ? { ...p, shift: null, shiftLate: false, open: null, onBreak: false, travelling: false } : p))
+      return { ...s, people, equipment: people.some((p) => p.open) ? s.equipment : [] }
+    }
     case 'break_end':
       return { ...s, people: s.people.map((p) => (picked(p) ? { ...p, onBreak: false } : p)) }
     case 'equipment_start': {
