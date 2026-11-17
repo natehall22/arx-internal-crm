@@ -53,14 +53,22 @@ async function labels(admin: SupabaseClient, orgId: string, rows: OutboxRow[]): 
   const db = orgDb(admin, orgId)
   const ids = (table: string) => Array.from(new Set(rows.filter((r) => r.entity_table === table).map((r) => r.entity_id)))
   const out = new Map<string, string>()
+  // Id lists go to the database in chunks of 50 so the request URL stays short however many rows are shown.
+  const inChunks = async (list: string[], run: (chunk: string[]) => PromiseLike<{ data: unknown[] | null }>): Promise<{ data: unknown[] }> => {
+    if (!list.length) return { data: [] }
+    const chunks: string[][] = []
+    for (let i = 0; i < list.length; i += 50) chunks.push(list.slice(i, i + 50))
+    const parts = await Promise.all(chunks.map((c) => run(c)))
+    return { data: parts.flatMap((p) => p.data ?? []) }
+  }
   const [customers, jobs, invoices, bills, payments] = await Promise.all([
-    ids('customers').length ? db.from('customers').select('id, name').in('id', ids('customers')) : { data: [] },
-    ids('production_jobs').length ? db.from('production_jobs').select('id, job_number').in('id', ids('production_jobs')) : { data: [] },
-    ids('job_invoices').length ? db.from('job_invoices').select('id, invoice_number').in('id', ids('job_invoices')) : { data: [] },
-    ids('purchase_order_bills').length ? db.from('purchase_order_bills').select('id, bill_number, amount').in('id', ids('purchase_order_bills')) : { data: [] },
+    inChunks(ids('customers'), (c) => db.from('customers').select('id, name').in('id', c)),
+    inChunks(ids('production_jobs'), (c) => db.from('production_jobs').select('id, job_number').in('id', c)),
+    inChunks(ids('job_invoices'), (c) => db.from('job_invoices').select('id, invoice_number').in('id', c)),
+    inChunks(ids('purchase_order_bills'), (c) => db.from('purchase_order_bills').select('id, bill_number, amount').in('id', c)),
     // job_payments has no org_id for job payments; only ids that came from THIS company's outbox rows are asked for.
     // org-scope-ok: ids come from this company's own outbox rows; read-only labels
-    ids('job_payments').length ? admin.from('job_payments').select('id, amount_cents').in('id', ids('job_payments')) : { data: [] },
+    inChunks(ids('job_payments'), (c) => admin.from('job_payments').select('id, amount_cents').in('id', c)),
   ])
   for (const c of (customers.data ?? []) as Array<{ id: string; name: string | null }>) out.set(`customers:${c.id}`, c.name || 'Customer')
   for (const j of (jobs.data ?? []) as Array<{ id: string; job_number: string }>) out.set(`production_jobs:${j.id}`, `Job ${j.job_number}`)
@@ -97,8 +105,8 @@ export async function loadActivity(
   const names = await labels(admin, orgId, shown)
   const whoIds = Array.from(new Set(shown.map((r) => r.skipped_by).filter((x): x is string => !!x)))
   const who = new Map<string, string>()
-  if (whoIds.length) {
-    const { data: us } = await orgDb(admin, orgId).from('users').select('id, full_name').in('id', whoIds)
+  for (let k = 0; k < whoIds.length; k += 50) {
+    const { data: us } = await orgDb(admin, orgId).from('users').select('id, full_name').in('id', whoIds.slice(k, k + 50))
     for (const u of (us ?? []) as Array<{ id: string; full_name: string | null }>) who.set(u.id, u.full_name || 'An owner')
   }
   const items = shown.map<ActivityItem>((r) => {
