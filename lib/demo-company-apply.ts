@@ -142,7 +142,7 @@ async function usersStep(ctx: Ctx) {
     if (p.login) ctx.report.logins.push({ role: 'crew lead', email: p.email, password: pw })
   }
   // Pay: two hourly crew leads and one commission salesperson (crew members clock time but are not on the payroll preview).
-  const hourly = unwrap(await db.from('comp_plans').insert({ name: 'Hourly crew lead', plan_type: 'flat_rate', flat_amount: 0, hourly_rate: 23, is_active: true, applicable_roles: ['sales_rep'] }).select('id').single(), 'comp plan') as Row
+  const hourly = unwrap(await db.from('comp_plans').insert({ name: 'Hourly crew lead', plan_type: 'hourly', hourly_rate: 23, is_active: true, applicable_roles: ['sales_rep'] }).select('id').single(), 'comp plan') as Row
   const commission = unwrap(await db.from('comp_plans').insert({ name: 'Salesperson 8%', plan_type: 'percentage', base_percentage: 8, is_active: true, applicable_roles: ['sales_rep'] }).select('id').single(), 'comp plan') as Row
   for (const p of DEMO_PEOPLE) {
     const userId = ctx.userIds.get(p.key)!
