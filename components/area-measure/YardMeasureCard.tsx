@@ -7,7 +7,7 @@ import { formatDate } from '@/lib/format'
 
 /**
  * Yard measurement on the Customer File (lawn & landscape companies; the switch decides whether this renders at all).
- * Shows the newest measurement of each property with "Re-measure", and keeps the older ones under "Older measurements".
+ * Shows the newest measurement of each property with "Open measure", and keeps the older ones under "Older measurements".
  * Server component: plain links, no script. Materials are estimates ("est.") at the company numbers saved with the row.
  */
 export default function YardMeasureCard({
@@ -69,7 +69,7 @@ export default function YardMeasureCard({
               {canMeasure ? (
                 <div className="flex flex-wrap gap-x-4">
                   <Link href={base(g.propertyId, g.latest.id)} className={linkClass}>
-                    Re-measure
+                    Open measure
                   </Link>
                   <Link href={base(g.propertyId)} className={textLink}>
                     Start from scratch

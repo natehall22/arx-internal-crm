@@ -4,6 +4,8 @@
  * Measure yard — the screen. Satellite map at the property, the crew lead taps points to draw shapes (lawn, bed, cut-out,
  * line), sees live square feet / acres / feet, a mulch / pine straw estimate for beds ("est."), and saves.
  *
+ * Layout: wide screens = big map + right side panel (tools, details, Save), Full screen / Esc; phones + tablets = the map takes the
+ * whole screen, tools + Save in a bottom bar, details in a sheet. Crosshair cursor while a tool is active.
  * Phone rules: every control is a normal button / input OUTSIDE the map (opaque cards — no text is ever drawn on the
  * satellite photo), 44 px taps, 16 px inputs, Save in a bar at the bottom of the screen. Points are tapped on the map
  * (a tap that did not drag); round 28 px handles are dragged to adjust. The map never gets a control of ours on top of it.
@@ -18,7 +20,7 @@
 import Link from 'next/link'
 import * as React from 'react'
 
-import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/components/ui'
+import { Button, Input } from '@/components/ui'
 import {
   AREA_MEASURE_DEFAULTS,
   AREA_MEASURE_SETTING_FIELDS,
@@ -77,6 +79,33 @@ const COLORS: Record<ShapeType, string> = { lawn: '#2e7d32', bed: '#a65e00', cut
 /** A line that crosses itself: solid red, brighter than the cut-out outline. */
 const CROSS_COLOR = '#d50000'
 
+/** Closest useful satellite zoom: a house fills the screen. Google's imagery is often missing past 20, so never ask for more. */
+const PROPERTY_ZOOM = 20
+const COMPACT_QUERY = '(max-width: 1023px)'
+
+/** Centre on a point at the closest zoom the satellite photo really has there (MaxZoomService), never past PROPERTY_ZOOM. */
+function zoomToProperty(g: any, map: any, center: any) {
+  map.setCenter(center)
+  map.setZoom(PROPERTY_ZOOM)
+  if (typeof g.MaxZoomService !== 'function') return
+  new g.MaxZoomService().getMaxZoomAtLatLng(center, (r: any) => {
+    if (r?.status === 'OK' && typeof r.zoom === 'number' && r.zoom < PROPERTY_ZOOM) map.setZoom(r.zoom)
+  })
+}
+
+/** True below 1024 px (phones and tablets): the map takes the whole screen with a bottom tool bar instead of a side panel. */
+function useCompactLayout(): boolean {
+  const [compact, setCompact] = React.useState(false)
+  React.useEffect(() => {
+    const q = window.matchMedia(COMPACT_QUERY)
+    const on = () => setCompact(q.matches)
+    on()
+    q.addEventListener('change', on)
+    return () => q.removeEventListener('change', on)
+  }, [])
+  return compact
+}
+
 type Draft = { type: ShapeType; takesFrom: TakesFrom; name: string; points: LatLngPoint[] }
 
 let idCounter = 0
@@ -97,7 +126,7 @@ function valueText(s: Pick<AreaShape, 'type' | 'sqft' | 'feet'>): string {
 }
 
 const chip = (active: boolean) =>
-  `min-h-tap rounded-ui border px-3 py-2 text-ui-base font-semibold ${active ? 'border-brand-700 bg-brand-700 text-white' : 'border-surface-line bg-surface text-ink'}`
+  `min-h-tap rounded-ui border px-1 py-2 text-ui-sm font-semibold lg:px-3 lg:text-ui-base ${active ? 'border-brand-700 bg-brand-700 text-white' : 'border-surface-line bg-surface text-ink'}`
 
 export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   const { refs, canSave, cannotSaveReason, canEditSettings, backHref, mapsApiKey } = props
@@ -120,6 +149,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   const [saveMsg, setSaveMsg] = React.useState<{ ok: boolean; text: string } | null>(null)
   const [savedSig, setSavedSig] = React.useState<string | null>(null)
 
+  const fitCapped = React.useRef(false)
   const draftRef = React.useRef<Draft | null>(null)
   draftRef.current = draft
 
@@ -136,7 +166,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
         const hasCenter = props.lat !== null && props.lng !== null
         const map = new g.Map(mapDivRef.current, {
           center: hasCenter ? { lat: props.lat, lng: props.lng } : { lat: 39.5, lng: -98.35 },
-          zoom: hasCenter ? 19 : 4,
+          zoom: hasCenter ? PROPERTY_ZOOM : 4,
           mapTypeId: 'satellite',
           tilt: 0,
           disableDefaultUI: true,
@@ -159,10 +189,17 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
           setDraft((d) => (d ? { ...d, points: [...d.points, p] } : d))
         })
         if (shapes.length > 0) {
+          // Re-opened measurement: fit the drawn shapes (with a margin), but never closer than the photo goes.
           const b = new g.LatLngBounds()
           for (const s of shapes) for (const p of s.points) b.extend(p)
-          map.fitBounds(b)
-        } else if (!hasCenter && addressText.trim()) {
+          map.fitBounds(b, 48)
+          map.addListener('idle', () => {
+            if (!fitCapped.current && typeof map.getZoom === 'function' && map.getZoom() > PROPERTY_ZOOM) map.setZoom(PROPERTY_ZOOM)
+            fitCapped.current = true
+          })
+        } else if (hasCenter) {
+          zoomToProperty(g, map, { lat: props.lat, lng: props.lng })
+        } else if (addressText.trim()) {
           findAddress(addressText)
         }
         setMapReady(true)
@@ -181,8 +218,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     if (!g || !map || !text.trim()) return
     new g.Geocoder().geocode({ address: text.trim() }, (results: any[], status: string) => {
       if (status === 'OK' && results?.[0]?.geometry?.location) {
-        map.setCenter(results[0].geometry.location)
-        map.setZoom(19)
+        zoomToProperty(g, map, results[0].geometry.location)
         setHint(null)
       } else {
         setHint('Could not find that address. Check it and try again.')
@@ -267,6 +303,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
         map,
         position: p,
         draggable: true,
+        cursor: 'move',
         optimized: false,
         zIndex: 10,
         title: `Point ${i + 1}`,
@@ -284,6 +321,14 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     })
     return () => markers.forEach((m: any) => m.setMap(null))
   }, [editKey, editType, editPoints.length, mapReady])
+
+  // A tool is active: crosshair instead of the hand (the grab hand while panning is Google's default and stays).
+  const toolActive = !!draft
+  React.useEffect(() => {
+    const map = mapRef.current
+    if (!mapReady || !map || typeof map.setOptions !== 'function') return
+    map.setOptions({ draggableCursor: toolActive ? 'crosshair' : null })
+  }, [toolActive, mapReady])
 
   // Warn before leaving with an unsaved measurement.
   React.useEffect(() => {
@@ -365,23 +410,38 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     if (!draft && !selectedId && crossingIds.length > 0) setSelectedId(crossingIds[0])
   }, [draft, selectedId, crossingIds])
 
-  // The Save bar is fixed to the bottom; keep the page padded by its real height so a wrapped message is never hidden behind it.
-  const barRef = React.useRef<HTMLDivElement>(null)
-  const [barHeight, setBarHeight] = React.useState(112)
+  // ---- room to measure ----
+  // Wide screens: map beside a side panel, "Full screen" and Esc. Phones / tablets: the map takes the whole screen with a bottom tool bar
+  // and the details (name, shapes, totals) in a sheet. The map element is the same one in every mode (never remounted), so drawing survives.
+  const compact = useCompactLayout()
+  const [full, setFull] = React.useState(false)
+  const [sheetOpen, setSheetOpen] = React.useState(false)
+  const takesScreen = full || compact
   React.useEffect(() => {
-    const el = barRef.current
-    if (!el) return
-    const measure = () => setBarHeight(el.getBoundingClientRect().height)
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  // A message that wraps to more lines makes the bar taller: re-measure in the same frame, before paint.
-  React.useLayoutEffect(() => {
-    if (barRef.current) setBarHeight(barRef.current.getBoundingClientRect().height)
-  }, [saveMsg, saveBlocked, canSave, cannotSaveReason])
+    if (!full) return
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFull(false)
+    }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [full])
+  // While the map owns the screen the page behind it must not scroll under a drawing finger.
+  React.useEffect(() => {
+    if (!takesScreen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [takesScreen])
+  // Tell the map its box changed (full screen, sheet, rotation) so it redraws the tiles.
+  React.useEffect(() => {
+    const map = mapRef.current
+    const g = (window as any).google?.maps
+    if (!mapReady || !map || !g?.event?.trigger) return
+    const t = window.setTimeout(() => g.event.trigger(map, 'resize'), 50)
+    return () => window.clearTimeout(t)
+  }, [full, compact, mapReady])
 
   // ---- save ----
   async function save() {
@@ -445,241 +505,270 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
         ? 'Pick what you are measuring, then tap points around it on the map.'
         : 'Pick another shape to add, or tap one on the map or in the list.'
 
+  const summaryBtn = shapes.length > 0 ? `Totals · ${shapes.length} shape${shapes.length === 1 ? '' : 's'}` : 'Totals'
+
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-3 px-3 pt-3 text-ink" style={{ paddingBottom: barHeight + 16 }}>
-      <Card>
-        <CardHeader>
-          <div className="min-w-0">
-            <CardTitle>Measure yard</CardTitle>
-            {props.forLabel ? <p className="mt-1 break-words text-ui-base text-ink">For {props.forLabel}</p> : null}
-          </div>
-          <Link href={backHref} className="inline-flex min-h-tap items-center text-ui-base font-semibold text-brand-800 underline">
-            Back
-          </Link>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              findAddress(addressText)
-            }}
-          >
-            <Input aria-label="Address to show on the map" placeholder="Type an address" value={addressText} onChange={(e) => setAddressText(e.target.value)} />
-            <Button type="submit" variant="secondary" disabled={!mapReady}>
-              Find
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+    <div
+      data-testid="yard-workspace"
+      className={`flex flex-col overflow-hidden overscroll-contain bg-surface-subtle text-ink ${
+        full ? 'fixed inset-0 z-50' : 'max-lg:fixed max-lg:inset-0 max-lg:z-50 lg:m-3 lg:h-[calc(100dvh-3.5rem-1.5rem)] lg:min-h-[480px] lg:rounded-ui lg:border lg:border-surface-line'
+      }`}
+    >
+      <header className="flex shrink-0 items-center gap-2 border-b border-surface-line bg-surface px-2 py-1.5 lg:gap-3 lg:px-3">
+        <Link href={backHref} className="inline-flex min-h-tap shrink-0 items-center px-2 text-ui-base font-semibold text-brand-800 underline">
+          Back
+        </Link>
+        <div className="min-w-0 max-lg:sr-only">
+          <h1 className="text-ui-base font-semibold text-ink">Measure yard</h1>
+          {props.forLabel ? <p className="truncate text-ui-sm text-ink">For {props.forLabel}</p> : null}
+        </div>
+        <form
+          className="flex min-w-0 flex-1 gap-2 lg:ml-auto lg:max-w-xl"
+          onSubmit={(e) => {
+            e.preventDefault()
+            findAddress(addressText)
+          }}
+        >
+          <Input aria-label="Address to show on the map" placeholder="Type an address" value={addressText} onChange={(e) => setAddressText(e.target.value)} />
+          <Button type="submit" variant="secondary" disabled={!mapReady}>
+            Find
+          </Button>
+        </form>
+        <button
+          type="button"
+          aria-pressed={full}
+          onClick={() => setFull((v) => !v)}
+          className="hidden min-h-tap shrink-0 items-center rounded-ui border border-surface-line bg-surface px-3 text-ui-base font-semibold text-ink lg:inline-flex"
+        >
+          {full ? 'Exit full screen (Esc)' : 'Full screen'}
+        </button>
+      </header>
 
-      {/* The map has nothing on top of it: every label and button lives in the cards around it. */}
-      <div className="overflow-hidden rounded-ui border border-surface-line bg-surface-subtle">
-        {mapError ? (
-          <div className="flex h-64 items-center justify-center p-4 text-center text-ui-base text-ink">{mapError}</div>
-        ) : (
-          <div ref={mapDivRef} data-testid="yard-map" className="w-full" style={{ height: '52dvh', minHeight: 300 }} />
-        )}
-      </div>
+      {/* Phones / tablets: the map fills the whole body and the tool bar overlays its bottom edge, so picking a tool (rows appearing in the
+          bar) never resizes the map or moves the drawing under a finger. Wide screens: map and side panel sit side by side. */}
+      <div className="relative min-h-0 flex-1 lg:flex lg:flex-row">
+        {/* The map has no text or buttons of ours on it: every label and button lives in the panel / bar (solid backgrounds). */}
+        <div className="absolute inset-0 bg-surface-subtle lg:relative lg:min-h-0 lg:flex-1">
+          {mapError ? (
+            <div className="flex h-full items-center justify-center p-4 text-center text-ui-base text-ink">{mapError}</div>
+          ) : (
+            <div ref={mapDivRef} data-testid="yard-map" className="absolute inset-0" style={{ touchAction: 'none' }} />
+          )}
+        </div>
 
-      <Card>
-        <CardContent className="flex flex-col gap-3 pt-4">
-          <p className={`text-ui-base font-semibold ${hasCrossing ? 'text-danger' : 'text-ink'}`} role="status" data-testid="yard-status">
-            {hint ?? status}
-          </p>
-          <div className="grid grid-cols-2 gap-2" role="group" aria-label="What are you measuring">
-            {SHAPE_TYPES.map((t) => (
-              <button key={t} type="button" aria-pressed={editType === t} className={chip(editType === t && !!draft)} onClick={() => pickType(t)}>
-                {draft ? SHAPE_TYPE_LABELS[t] : `+ ${SHAPE_TYPE_LABELS[t]}`}
-              </button>
-            ))}
-          </div>
-          {editType ? <p className="text-ui-sm text-ink">{SHAPE_TYPE_HELP[editType]}</p> : null}
-
-          {draft ? (
-            <>
-              {draftMeasure ? (
-                <p className="text-ui-base font-semibold text-ink" data-testid="yard-live">
-                  {valueText(draftMeasure)}
-                </p>
-              ) : null}
-              <div className="grid grid-cols-3 gap-2">
-                <Button variant="secondary" onClick={undoPoint} disabled={draft.points.length === 0}>
-                  Undo point
-                </Button>
-                <Button variant="secondary" onClick={cancelDraft}>
-                  Cancel
-                </Button>
-                <Button onClick={closeShape} disabled={draft.points.length < minPoints(draft.type) || draftCrosses}>
-                  Done
-                </Button>
-              </div>
-            </>
-          ) : null}
-
-          {editType === 'cutout' ? (
-            <div role="group" aria-label="Take this out of" className="flex flex-col gap-2">
-              <span className="text-ui-sm font-semibold text-ink">Take this out of</span>
-              <div className="grid grid-cols-2 gap-2">
-                {(['lawn', 'bed'] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={editTakesFrom === v}
-                    className={chip(editTakesFrom === v)}
-                    onClick={() => (draft ? setDraft({ ...draft, takesFrom: v }) : patchSelected({ takesFrom: v }))}
-                  >
-                    {v === 'lawn' ? 'The lawn' : 'The beds'}
-                  </button>
-                ))}
-              </div>
+        <aside aria-label="Measuring tools" className="absolute inset-x-0 bottom-0 z-10 flex flex-col border-t border-surface-line bg-surface lg:relative lg:inset-auto lg:z-auto lg:min-h-0 lg:w-[23rem] lg:shrink-0 lg:border-l lg:border-t-0">
+          <div className="flex shrink-0 flex-col gap-2 p-2 lg:gap-3 lg:p-3">
+            <p className={`text-ui-sm font-semibold lg:text-ui-base ${hasCrossing ? 'text-danger' : 'text-ink'}`} role="status" data-testid="yard-status">
+              {hint ?? status}
+            </p>
+            <div className="grid grid-cols-4 gap-1.5 lg:grid-cols-2 lg:gap-2" role="group" aria-label="What are you measuring">
+              {SHAPE_TYPES.map((t) => (
+                <button key={t} type="button" aria-pressed={editType === t} className={chip(editType === t && !!draft)} onClick={() => pickType(t)}>
+                  {draft ? SHAPE_TYPE_LABELS[t] : `+ ${SHAPE_TYPE_LABELS[t]}`}
+                </button>
+              ))}
             </div>
-          ) : null}
+            {editType ? <p className="text-ui-sm text-ink max-lg:hidden">{SHAPE_TYPE_HELP[editType]}</p> : null}
 
-          {draft || selected ? (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-ui-sm font-semibold text-ink">Name (optional)</span>
-              <Input
-                value={editName}
-                maxLength={80}
-                placeholder="Front yard, Rose bed, House ..."
-                onChange={(e) => (draft ? setDraft({ ...draft, name: e.target.value }) : patchSelected({ name: e.target.value || null }))}
-              />
-            </label>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      {shapes.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Shapes</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {shapes.map((s) => {
-              const m = s.type === 'bed' ? bedMaterials(s.sqft ?? 0, settings) : null
-              return (
-                <div key={s.id} className={`flex items-stretch gap-2 rounded-ui border p-2 ${s.id === selectedId ? 'border-brand-700 bg-brand-50' : 'border-surface-line'}`}>
-                  <button type="button" className="min-h-tap min-w-0 flex-1 text-left" onClick={() => !draft && setSelectedId(s.id === selectedId ? null : s.id)} aria-pressed={s.id === selectedId}>
-                    <span className="flex items-center gap-2 text-ui-base font-semibold text-ink">
-                      <span aria-hidden className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: COLORS[s.type] }} />
-                      <span className="break-words">{shapeLabel(s, shapes)}</span>
-                    </span>
-                    <span className="block text-ui-base text-ink">
-                      {SHAPE_TYPE_LABELS[s.type]}
-                      {s.type === 'cutout' ? ` (out of ${s.takesFrom === 'bed' ? 'beds' : 'lawn'})` : ''}: {valueText(s)}
-                    </span>
-                    {crossingIds.includes(s.id) ? (
-                      <span className="block text-ui-base font-semibold text-danger" data-testid="yard-crossing">
-                        {LINES_CROSS_MESSAGE}
-                      </span>
-                    ) : null}
-                    {m ? (
-                      <span className="block text-ui-sm text-ink">
-                        est. {formatCuYd(m.mulchCuYd)} mulch · est. {m.strawBales} bale{m.strawBales === 1 ? '' : 's'} pine straw
-                      </span>
-                    ) : null}
-                  </button>
-                  <Button variant="secondary" onClick={() => removeShape(s.id)} aria-label={`Delete ${shapeLabel(s, shapes)}`}>
-                    Delete
+            {draft ? (
+              <>
+                {draftMeasure ? (
+                  <p className="text-ui-base font-semibold text-ink" data-testid="yard-live">
+                    {valueText(draftMeasure)}
+                  </p>
+                ) : null}
+                <div className="grid grid-cols-3 gap-1.5 lg:gap-2">
+                  <Button variant="secondary" onClick={undoPoint} disabled={draft.points.length === 0}>
+                    Undo point
+                  </Button>
+                  <Button variant="secondary" onClick={cancelDraft}>
+                    Cancel
+                  </Button>
+                  <Button onClick={closeShape} disabled={draft.points.length < minPoints(draft.type) || draftCrosses}>
+                    Done
                   </Button>
                 </div>
-              )
-            })}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Totals</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3" data-testid="yard-totals">
-          <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 text-ui-base text-ink">
-            <dt className="font-semibold">Lawn{totals.cutoutLawnSqft > 0 ? ' (after cut-outs)' : ''}</dt>
-            <dd className="text-right">{formatSqft(totals.lawnSqft)} · {formatAcres(totals.lawnSqft)}</dd>
-            <dt className="font-semibold">Beds{totals.cutoutBedSqft > 0 ? ' (after cut-outs)' : ''}</dt>
-            <dd className="text-right">{formatSqft(totals.bedSqft)} · {formatAcres(totals.bedSqft)}</dd>
-            {totals.counts.cutout > 0 ? (
-              <>
-                <dt className="font-semibold">Cut out of lawn / beds</dt>
-                <dd className="text-right">{formatSqft(totals.cutoutSqft)}</dd>
               </>
             ) : null}
-            <dt className="font-semibold">Edging / lines</dt>
-            <dd className="text-right">{formatFeet(totals.lineFeet)}</dd>
-          </dl>
-          {hasBeds ? (
-            <div className="rounded-ui border border-surface-line bg-surface-subtle p-3" data-testid="yard-materials">
-              <p className="text-ui-base font-semibold text-ink">Bed materials (est.)</p>
-              <p className="text-ui-base text-ink">Mulch: est. {formatCuYd(totals.materials.mulchCuYd)} at {settings.mulchDepthIn} in deep</p>
-              <p className="text-ui-base text-ink">
-                Pine straw: est. {totals.materials.strawBales} bale{totals.materials.strawBales === 1 ? '' : 's'} at {settings.strawSqftPerBale} sq ft per bale
-              </p>
-            </div>
-          ) : null}
-          <div>
-            <button type="button" className="min-h-tap text-ui-base font-semibold text-brand-800 underline" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((v) => !v)}>
-              {canEditSettings ? 'Change mulch and pine straw numbers' : 'How the bed estimates are worked out'}
-            </button>
-            {settingsOpen ? (
-              <div className="mt-2 flex flex-col gap-3 rounded-ui border border-surface-line p-3">
-                {(Object.keys(AREA_MEASURE_SETTING_FIELDS) as Array<keyof AreaMeasureSettings>).map((k) => {
-                  const f = AREA_MEASURE_SETTING_FIELDS[k]
-                  return (
-                    <label key={k} className="flex flex-col gap-1.5">
-                      <span className="text-ui-sm font-semibold text-ink">{f.label}</span>
-                      <Input
-                        inputMode="decimal"
-                        value={settingsDraft[k]}
-                        disabled={!canEditSettings}
-                        onChange={(e) => setSettingsDraft((d) => ({ ...d, [k]: e.target.value }))}
-                        aria-describedby={`${k}-help`}
-                      />
-                      <span id={`${k}-help`} className="text-ui-sm text-ink">
-                        {f.help} Your company uses {settings[k]} now{settings[k] === AREA_MEASURE_DEFAULTS[k] ? ' (the starting number)' : ` (starting number ${AREA_MEASURE_DEFAULTS[k]})`}.
-                      </span>
-                    </label>
-                  )
-                })}
-                {canEditSettings ? (
-                  <Button onClick={saveSettings}>Save for the company</Button>
-                ) : (
-                  <p className="text-ui-sm text-ink">Only an owner can change these.</p>
-                )}
-                {settingsMsg ? <p className="text-ui-base text-ink" role="status">{settingsMsg}</p> : null}
+
+            {editType === 'cutout' ? (
+              <div role="group" aria-label="Take this out of" className="flex flex-col gap-1.5">
+                <span className="text-ui-sm font-semibold text-ink">Take this out of</span>
+                <div className="grid grid-cols-2 gap-1.5 lg:gap-2">
+                  {(['lawn', 'bed'] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      aria-pressed={editTakesFrom === v}
+                      className={chip(editTakesFrom === v)}
+                      onClick={() => (draft ? setDraft({ ...draft, takesFrom: v }) : patchSelected({ takesFrom: v }))}
+                    >
+                      {v === 'lawn' ? 'The lawn' : 'The beds'}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>
-        </CardContent>
-      </Card>
 
-      <div ref={barRef} className="fixed inset-x-0 bottom-0 z-20 border-t border-surface-line bg-surface p-3 shadow-lg">
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
-          {saveMsg ? (
-            <p className={`text-ui-base font-semibold ${saveMsg.ok ? 'text-ink' : 'text-danger'}`} role="status" data-testid="yard-save-msg">
-              {saveMsg.text}{' '}
-              {saveMsg.ok ? (
-                <Link href={backHref} className="underline">
-                  Back
-                </Link>
-              ) : null}
-            </p>
-          ) : hasCrossing && !draft ? (
-            <p className="text-ui-base font-semibold text-danger" data-testid="yard-save-blocked">
-              Cannot save yet. {crossingText}. Your points are kept.
-            </p>
-          ) : geometryFailed && !draft ? (
-            <p className="text-ui-base font-semibold text-danger" data-testid="yard-save-blocked">
-              Cannot save yet. {GEOMETRY_FAILED_MESSAGE} Your points are kept.
-            </p>
-          ) : !canSave && cannotSaveReason ? (
-            <p className="text-ui-base text-ink">{cannotSaveReason}</p>
-          ) : null}
-          <Button onClick={save} disabled={!canSave || shapes.length === 0 || !dirty || !!draft || saveBlocked} loading={saving}>
-            {!dirty && shapes.length > 0 ? 'Saved' : 'Save measurement'}
-          </Button>
-        </div>
+          {/* Details: a sheet above the bottom bar on phones / tablets, the scrolling middle of the side panel on wide screens. */}
+          <div
+            id="yard-details"
+            data-testid="yard-details"
+            className={`${sheetOpen ? '' : 'max-lg:hidden'} flex flex-col gap-4 overflow-y-auto border-t border-surface-line bg-surface p-3 max-lg:absolute max-lg:inset-x-0 max-lg:bottom-full max-lg:max-h-[62dvh] max-lg:shadow-lg lg:min-h-0 lg:flex-1`}
+          >
+            {props.forLabel ? <p className="break-words text-ui-base font-semibold text-ink lg:hidden">Measure yard for {props.forLabel}</p> : null}
+
+            {draft || selected ? (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-ui-sm font-semibold text-ink">Name (optional)</span>
+                <Input
+                  value={editName}
+                  maxLength={80}
+                  placeholder="Front yard, Rose bed, House ..."
+                  onChange={(e) => (draft ? setDraft({ ...draft, name: e.target.value }) : patchSelected({ name: e.target.value || null }))}
+                />
+              </label>
+            ) : null}
+
+            {shapes.length > 0 ? (
+              <section className="flex flex-col gap-2" aria-label="Shapes">
+                <h2 className="text-ui-base font-semibold text-ink">Shapes</h2>
+                {shapes.map((sh) => {
+                  const m = sh.type === 'bed' ? bedMaterials(sh.sqft ?? 0, settings) : null
+                  return (
+                    <div key={sh.id} className={`flex items-stretch gap-2 rounded-ui border p-2 ${sh.id === selectedId ? 'border-brand-700 bg-brand-50' : 'border-surface-line'}`}>
+                      <button type="button" className="min-h-tap min-w-0 flex-1 text-left" onClick={() => !draft && setSelectedId(sh.id === selectedId ? null : sh.id)} aria-pressed={sh.id === selectedId}>
+                        <span className="flex items-center gap-2 text-ui-base font-semibold text-ink">
+                          <span aria-hidden className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: COLORS[sh.type] }} />
+                          <span className="break-words">{shapeLabel(sh, shapes)}</span>
+                        </span>
+                        <span className="block text-ui-base text-ink">
+                          {SHAPE_TYPE_LABELS[sh.type]}
+                          {sh.type === 'cutout' ? ` (out of ${sh.takesFrom === 'bed' ? 'beds' : 'lawn'})` : ''}: {valueText(sh)}
+                        </span>
+                        {crossingIds.includes(sh.id) ? (
+                          <span className="block text-ui-base font-semibold text-danger" data-testid="yard-crossing">
+                            {LINES_CROSS_MESSAGE}
+                          </span>
+                        ) : null}
+                        {m ? (
+                          <span className="block text-ui-sm text-ink">
+                            est. {formatCuYd(m.mulchCuYd)} mulch · est. {m.strawBales} bale{m.strawBales === 1 ? '' : 's'} pine straw
+                          </span>
+                        ) : null}
+                      </button>
+                      <Button variant="secondary" onClick={() => removeShape(sh.id)} aria-label={`Delete ${shapeLabel(sh, shapes)}`}>
+                        Delete
+                      </Button>
+                    </div>
+                  )
+                })}
+              </section>
+            ) : null}
+
+            <section className="flex flex-col gap-3" aria-label="Totals">
+              <h2 className="text-ui-base font-semibold text-ink">Totals</h2>
+              <div className="flex flex-col gap-3" data-testid="yard-totals">
+                <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 text-ui-base text-ink">
+                  <dt className="font-semibold">Lawn{totals.cutoutLawnSqft > 0 ? ' (after cut-outs)' : ''}</dt>
+                  <dd className="text-right">{formatSqft(totals.lawnSqft)} · {formatAcres(totals.lawnSqft)}</dd>
+                  <dt className="font-semibold">Beds{totals.cutoutBedSqft > 0 ? ' (after cut-outs)' : ''}</dt>
+                  <dd className="text-right">{formatSqft(totals.bedSqft)} · {formatAcres(totals.bedSqft)}</dd>
+                  {totals.counts.cutout > 0 ? (
+                    <>
+                      <dt className="font-semibold">Cut out of lawn / beds</dt>
+                      <dd className="text-right">{formatSqft(totals.cutoutSqft)}</dd>
+                    </>
+                  ) : null}
+                  <dt className="font-semibold">Edging / lines</dt>
+                  <dd className="text-right">{formatFeet(totals.lineFeet)}</dd>
+                </dl>
+                {hasBeds ? (
+                  <div className="rounded-ui border border-surface-line bg-surface-subtle p-3" data-testid="yard-materials">
+                    <p className="text-ui-base font-semibold text-ink">Bed materials (est.)</p>
+                    <p className="text-ui-base text-ink">Mulch: est. {formatCuYd(totals.materials.mulchCuYd)} at {settings.mulchDepthIn} in deep</p>
+                    <p className="text-ui-base text-ink">
+                      Pine straw: est. {totals.materials.strawBales} bale{totals.materials.strawBales === 1 ? '' : 's'} at {settings.strawSqftPerBale} sq ft per bale
+                    </p>
+                  </div>
+                ) : null}
+                <div>
+                  <button type="button" className="min-h-tap text-left text-ui-base font-semibold text-brand-800 underline" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((v) => !v)}>
+                    {canEditSettings ? 'Change mulch and pine straw numbers' : 'How the bed estimates are worked out'}
+                  </button>
+                  {settingsOpen ? (
+                    <div className="mt-2 flex flex-col gap-3 rounded-ui border border-surface-line p-3">
+                      {(Object.keys(AREA_MEASURE_SETTING_FIELDS) as Array<keyof AreaMeasureSettings>).map((k) => {
+                        const f = AREA_MEASURE_SETTING_FIELDS[k]
+                        return (
+                          <label key={k} className="flex flex-col gap-1.5">
+                            <span className="text-ui-sm font-semibold text-ink">{f.label}</span>
+                            <Input
+                              inputMode="decimal"
+                              value={settingsDraft[k]}
+                              disabled={!canEditSettings}
+                              onChange={(e) => setSettingsDraft((d) => ({ ...d, [k]: e.target.value }))}
+                              aria-describedby={`${k}-help`}
+                            />
+                            <span id={`${k}-help`} className="text-ui-sm text-ink">
+                              {f.help} Your company uses {settings[k]} now{settings[k] === AREA_MEASURE_DEFAULTS[k] ? ' (the starting number)' : ` (starting number ${AREA_MEASURE_DEFAULTS[k]})`}.
+                            </span>
+                          </label>
+                        )
+                      })}
+                      {canEditSettings ? (
+                        <Button onClick={saveSettings}>Save for the company</Button>
+                      ) : (
+                        <p className="text-ui-sm text-ink">Only an owner can change these.</p>
+                      )}
+                      {settingsMsg ? <p className="text-ui-base text-ink" role="status">{settingsMsg}</p> : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+          </div>
+
+          {/* Save: always in thumb reach (bottom of the screen / bottom of the side panel). */}
+          <div data-testid="yard-save-bar" className="flex shrink-0 flex-col gap-2 border-t border-surface-line bg-surface p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-3">
+            {saveMsg ? (
+              <p className={`text-ui-base font-semibold ${saveMsg.ok ? 'text-ink' : 'text-danger'}`} role="status" data-testid="yard-save-msg">
+                {saveMsg.text}{' '}
+                {saveMsg.ok ? (
+                  <Link href={backHref} className="underline">
+                    Back
+                  </Link>
+                ) : null}
+              </p>
+            ) : hasCrossing && !draft ? (
+              <p className="text-ui-base font-semibold text-danger" data-testid="yard-save-blocked">
+                Cannot save yet. {crossingText}. Your points are kept.
+              </p>
+            ) : geometryFailed && !draft ? (
+              <p className="text-ui-base font-semibold text-danger" data-testid="yard-save-blocked">
+                Cannot save yet. {GEOMETRY_FAILED_MESSAGE} Your points are kept.
+              </p>
+            ) : !canSave && cannotSaveReason ? (
+              <p className="text-ui-base text-ink">{cannotSaveReason}</p>
+            ) : null}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                aria-expanded={sheetOpen}
+                aria-controls="yard-details"
+                onClick={() => setSheetOpen((v) => !v)}
+                className="inline-flex min-h-tap shrink-0 items-center gap-1 rounded-ui border border-surface-line bg-surface px-3 text-ui-sm font-semibold text-ink lg:hidden"
+              >
+                <span>{summaryBtn}</span>
+                <span aria-hidden>{sheetOpen ? '▼' : '▲'}</span>
+              </button>
+              <Button className="min-w-0 flex-1" onClick={save} disabled={!canSave || shapes.length === 0 || !dirty || !!draft || saveBlocked} loading={saving}>
+                {!dirty && shapes.length > 0 ? 'Saved' : 'Save measurement'}
+              </Button>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   )
