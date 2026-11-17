@@ -1,3 +1,4 @@
+import { loadOrgProfile, newDealProjectType } from '@/lib/org-profile'
 import { requireAuthApi } from '@/lib/auth'
 import { orgAppUrl } from '@/lib/company-links'
 import { NextResponse } from 'next/server'
@@ -990,7 +991,7 @@ export async function POST(request: Request) {
           owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
           setter_user_id: profile.id,
           status: 'open',
-          project_type: 'roofing',
+          project_type: newDealProjectType(await loadOrgProfile(supabase, profile.org_id)),
           address_text: leadRow.address_text || null,
           lat: leadRow.lat ?? null,
           lng: leadRow.lng ?? null,
@@ -1141,7 +1142,7 @@ export async function POST(request: Request) {
             owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
             setter_user_id: profile.id,
             status: 'open' as const,
-            project_type: 'roofing' as const,
+            project_type: newDealProjectType(await loadOrgProfile(supabase, profile.org_id)),
             address_text: leadRow.address_text || null,
             lat: leadRow.lat ?? null,
             lng: leadRow.lng ?? null,

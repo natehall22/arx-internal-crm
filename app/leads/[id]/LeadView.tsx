@@ -666,8 +666,8 @@ export default async function LeadView({
             recipient_user_id: recipientId,
             actor_user_id: profile.id,
             type: 'inspection_scheduled',
-            title: 'Inspection scheduled',
-            body: `${freshLead.homeowner_name || 'Lead'} moved to Inspection.`,
+            title: `${t(orgProfile, 'inspection')} scheduled`,
+            body: `${freshLead.homeowner_name || 'Lead'} moved to ${t(orgProfile, 'inspection')}.`,
             link_url: `/leads/${params.id}`,
           }))
         )
@@ -704,8 +704,8 @@ export default async function LeadView({
               recipientUserId: effectiveSetterId,
               orgId: profile.org_id,
               setterName: ownerNameRow?.full_name,
-              subject: `🚀 ${freshLead.homeowner_name || 'Customer'} Inspection Set 🚀`,
-              introHtml: `<p style="color:#374151;">Your inspection has been scheduled. Here are the details:</p>`,
+              subject: `🚀 ${freshLead.homeowner_name || 'Customer'} ${t(orgProfile, 'inspection')} Set 🚀`,
+              introHtml: `<p style="color:#374151;">Your ${t(orgProfile, 'inspection').toLowerCase()} has been scheduled. Here are the details:</p>`,
               rows: [
                 { label: 'Customer', value: freshLead.homeowner_name || 'Unknown' },
                 { label: 'Address', value: freshLead.address_text || 'TBD' },
@@ -780,7 +780,7 @@ export default async function LeadView({
           <form action={updateLeadInfo}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700">Homeowner Name</label>
+                <label className="text-sm font-medium text-gray-700">{t(orgProfile, 'leadName')}</label>
                 <input
                   type="text"
                   name="homeowner_name"
@@ -847,12 +847,14 @@ export default async function LeadView({
                 <span className="text-gray-700">Status:</span>
                 <span className="ml-2 text-gray-900 capitalize">{lead.status.replace('_', ' ')}</span>
               </div>
+              {(orgProfile.features.canvassing || lead.owner_user_id) && (
               <div>
                 <span className="text-gray-700">Setter:</span>
                 <span className="ml-2 text-gray-900">{leadOwnerLabel(lead)}</span>
               </div>
+              )}
               <div>
-                <span className="text-gray-700">Closer:</span>
+                <span className="text-gray-700">{`${orgProfile.features.canvassing ? 'Closer' : 'Salesperson'}:`}</span>
                 <span className="ml-2 text-gray-900">{closerName || 'Unassigned'}</span>
               </div>
               {orgProfile.features.canvassing && (
@@ -865,7 +867,7 @@ export default async function LeadView({
               )}
               {effectiveInspection?.inspection_outcome && (
                 <div>
-                  <span className="text-gray-700">Inspection outcome:</span>
+                  <span className="text-gray-700">{`${t(orgProfile, 'inspection')} outcome:`}</span>
                   <span className="ml-2 text-gray-900">
                     {effectiveInspectionOutcomeConfig?.label ||
                       effectiveInspection.inspection_outcome.replace(/_/g, ' ')}
@@ -874,7 +876,7 @@ export default async function LeadView({
               )}
               {lead.inspection_scheduled_for && (
                 <div className="col-span-2">
-                  <span className="text-gray-700">Inspection:</span>
+                  <span className="text-gray-700">{`${t(orgProfile, 'inspection')}:`}</span>
                   <span className="ml-2 text-gray-900">
                     {formatEasternDateTime(lead.inspection_scheduled_for)}
                   </span>
@@ -928,6 +930,7 @@ export default async function LeadView({
             className="space-y-6"
           >
             <LeadWorkflowInspectionScheduler
+              stepWord={t(orgProfile, 'inspection').toLowerCase()}
               leadId={params.id}
               canScheduleInspection={canScheduleInspection}
               hasActiveInspectionSlot={hasActiveInspectionSlot}
@@ -1050,7 +1053,7 @@ export default async function LeadView({
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Inspection scheduled for (ET)</label>
+                  <label className="text-sm font-medium text-gray-700">{`${t(orgProfile, 'inspection')} scheduled for (ET)`}</label>
                   <input
                     name="inspection_scheduled_for"
                     type="datetime-local"
@@ -1101,7 +1104,7 @@ export default async function LeadView({
                 </Link>
               </span>
             ) : (
-              <span>Opportunity will be created based on inspection outcome.</span>
+              <span>{`Opportunity will be created based on ${t(orgProfile, 'inspection').toLowerCase()} outcome.`}</span>
             )}
           </div>
         </div>
@@ -1200,17 +1203,17 @@ export default async function LeadView({
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-sm font-medium text-amber-800">Inspection Flow Not Updated</h3>
+                    <h3 className="text-sm font-medium text-amber-800">{`${t(orgProfile, 'inspection')} Flow Not Updated`}</h3>
                     <p className="text-sm text-amber-700 mt-1">
-                      The inspection outcome has not been recorded yet. 
+                      {`The ${t(orgProfile, 'inspection').toLowerCase()} outcome has not been recorded yet. `}
                       {(appointments && appointments.length > 0 && appointments[0].scheduled_for) ? (
                         <span>
-                          {' '}Inspection was scheduled for{' '}
+                          {' '}{`${t(orgProfile, 'inspection')} was scheduled for`}{' '}
                           {formatEasternDateTime(appointments[0].scheduled_for)}.
                         </span>
                       ) : lead.inspection_scheduled_for ? (
                         <span>
-                          {' '}Inspection was scheduled for{' '}
+                          {' '}{`${t(orgProfile, 'inspection')} was scheduled for`}{' '}
                           {formatEasternDateTime(lead.inspection_scheduled_for)}.
                         </span>
                       ) : null}

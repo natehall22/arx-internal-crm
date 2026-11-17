@@ -108,6 +108,33 @@ export function builtInContractsAvailable(
   return original === true
 }
 
+/** The company's profile hides this page / Settings entry (menu, hub, header shortcut). Roofing hides none. */
+export function pageHidden(profile: Pick<ResolvedOrgProfile, 'nav'> | Pick<ClientOrgProfile, 'nav'> | null | undefined, href: string): boolean {
+  return profile?.nav.hidden.includes(href) ?? false
+}
+
+/**
+ * The `opportunities.project_type` a new deal is created with (DB enum: roofing, siding, windows, gutters, solar, other).
+ * Roofing — the original company — stays 'roofing'; every other profile's deals are 'other' (its own trade is the customer's
+ * work category, not a roof). Additive: no migration, old rows untouched.
+ */
+export function newDealProjectType(profile: Pick<ResolvedOrgProfile, 'id'> | Pick<ClientOrgProfile, 'id'> | null | undefined): 'roofing' | 'other' {
+  return (profile?.id ?? DEFAULT_INDUSTRY_PROFILE) === 'roofing' ? 'roofing' : 'other'
+}
+
+/**
+ * Roof-only SECTIONS (opportunity / lead / customer pages). The roofing profile (the original company) always shows them,
+ * exactly as before; any other profile shows one only when its feature says so (roof report ← insurance, roof measurements
+ * ← roofMeasure) — and callers still show a section that already holds data, so history is never hidden.
+ */
+export function roofSectionsAvailable(
+  profile: Pick<ResolvedOrgProfile, 'id'> | Pick<ClientOrgProfile, 'id'> | null | undefined,
+  features: Pick<OrgFeatures, 'insurance' | 'roofMeasure'>
+): { roofing: boolean; report: boolean; measurements: boolean } {
+  const roofing = (profile?.id ?? DEFAULT_INDUSTRY_PROFILE) === 'roofing'
+  return { roofing, report: roofing || features.insurance, measurements: roofing || features.roofMeasure }
+}
+
 /** The company's word for an outcome (profile wording, else the one given). Roofing has none: unchanged. */
 export function outcomeLabel(profile: Pick<ResolvedOrgProfile, 'outcomeText'> | null | undefined, id: string | null | undefined, fallback: string): string {
   return (id && profile?.outcomeText[id]?.label) || fallback
@@ -141,7 +168,7 @@ export function profileOutcomeRows<R extends { id: string; label: string; descri
   if (Array.isArray(saved) && saved.length > 0) return [...saved]
   return defaults.map((row) => {
     const own = profile.outcomeText[row.id]
-    const off = row.id === 'insurance_follow_up' && !profile.features.insurance
+    const off = (row.id === 'insurance_follow_up' || row.id === 'waiting_on_insurance') && !profile.features.insurance
     return own || off ? { ...row, ...(own?.label ? { label: own.label } : {}), ...(own?.description ? { description: own.description } : {}), ...(off ? { active: false } : {}) } : row
   })
 }

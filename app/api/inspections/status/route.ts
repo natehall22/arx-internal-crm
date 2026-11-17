@@ -1,3 +1,4 @@
+import { loadOrgProfile, newDealProjectType } from '@/lib/org-profile'
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { PRODUCT_NAME } from '@/lib/product'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
@@ -537,7 +538,7 @@ export async function POST(request: NextRequest) {
           setter_user_id: setterForOpp,
           status: newStatus,
           source: lead?.source || 'inspection',
-          project_type: 'roofing',
+          project_type: newDealProjectType(await loadOrgProfile(supabase, profile.org_id)),
           inspection_outcome: outcome,
           inspection_outcome_at: outcomeAt,
           inspection_notes: notes || null,

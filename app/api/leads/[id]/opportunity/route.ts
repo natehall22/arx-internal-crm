@@ -1,3 +1,4 @@
+import { loadOrgProfile, newDealProjectType } from '@/lib/org-profile'
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -159,7 +160,7 @@ export async function POST(
         owner_user_id: ownerUserId,
         setter_user_id: setterUserId,
         status: 'open',
-        project_type: 'roofing',
+        project_type: newDealProjectType(await loadOrgProfile(adminClient, profile.org_id)),
         address_text: lead.address_text || null,
         lat: mapPin.lat,
         lng: mapPin.lng,
