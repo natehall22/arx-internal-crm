@@ -80,6 +80,7 @@ const COLORS: Record<ShapeType, string> = { lawn: '#2e7d32', bed: '#a65e00', cut
 const CROSS_COLOR = '#d50000'
 
 /** Closest useful satellite zoom: a house fills the screen. Google's imagery is often missing past 20, so never ask for more. */
+const CUTOUT_NEEDS_LAWN = 'Draw the lawn first, then cut out the house'
 const PROPERTY_ZOOM = 20
 const COMPACT_QUERY = '(max-width: 1023px)'
 
@@ -235,6 +236,21 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     }
   }, [shapes])
 
+  // While a cut-out is being drawn over a lawn / bed: the hole the lawn fill would get right now, and how much comes out.
+  const preview = React.useMemo(() => {
+    if (!draft || draft.type !== 'cutout' || draft.points.length < 3 || !cutter || polygonCrossings(draft.points).length > 0) return null
+    try {
+      const all: AreaShape[] = [...shapes, { id: 'draft', type: 'cutout', name: null, points: draft.points, takesFrom: draft.takesFrom }]
+      const cc = cookieCutter(all)
+      const before = computeTotals(shapes, settings, cutter)
+      const after = computeTotals(all, settings, cc)
+      const removed = draft.takesFrom === 'bed' ? after.cutoutBedSqft - before.cutoutBedSqft : after.cutoutLawnSqft - before.cutoutLawnSqft
+      return { cc, removed: Math.max(0, removed) }
+    } catch {
+      return null
+    }
+  }, [draft, shapes, settings, cutter])
+
   // Overlays for every finished shape and the one being drawn. Rebuilt on any change (a yard has a handful of shapes).
   // Lawn / bed: one fill per region WITH its holes (z 1, not clickable), the outline on top (z 2, clickable); cut-outs on top of that (z 3)
   // as a red outline so they stay visible and editable; crossings in solid red (z 6).
@@ -260,9 +276,10 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     const fill = (regions: Array<LatLngPoint[][]>, color: string) => {
       for (const paths of regions) keep(new g.Polygon({ map, paths, strokeWeight: 0, fillColor: color, fillOpacity: 0.3, clickable: false, zIndex: 1 }))
     }
-    if (cutter) {
-      fill(cutter.lawnNet, COLORS.lawn)
-      fill(cutter.bedNet, COLORS.bed)
+    const fillFrom = preview?.cc ?? cutter
+    if (fillFrom) {
+      fill(fillFrom.lawnNet, COLORS.lawn)
+      fill(fillFrom.bedNet, COLORS.bed)
     }
     for (const s of shapes) make(s.type, s.points, s.id === selectedId, false, () => setSelectedId(s.id))
     if (draft) make(draft.type, draft.points, true, true)
@@ -284,7 +301,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     }
     for (const s of shapes) if (isPolygonType(s.type)) showCrossing(s.points, polygonCrossings(s.points))
     if (draft && isPolygonType(draft.type)) showCrossing(draft.points, polygonCrossings(draft.points))
-  }, [shapes, draft, selectedId, mapReady, cutter])
+  }, [shapes, draft, selectedId, mapReady, cutter, preview])
 
   // Round drag handles on the points of the shape being drawn or adjusted.
   const selected = shapes.find((s) => s.id === selectedId) ?? null
@@ -345,6 +362,11 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   function pickType(t: ShapeType) {
     setSaveMsg(null)
     setHint(null)
+    // A cut-out is cut out OF something: with no lawn or bed yet it would show as a lone red shape with its own area.
+    if (t === 'cutout' && !shapes.some((x) => x.type === 'lawn' || x.type === 'bed')) {
+      setHint(CUTOUT_NEEDS_LAWN)
+      return
+    }
     if (draft) setDraft({ ...draft, type: t })
     else {
       setSelectedId(null)
@@ -572,7 +594,13 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
 
             {draft ? (
               <>
-                {draftMeasure ? (
+                {draft.type === 'cutout' ? (
+                  preview ? (
+                    <p className="text-ui-base font-semibold text-ink" data-testid="yard-live">
+                      Comes out of {draft.takesFrom === 'bed' ? 'beds' : 'lawn'}: {formatSqft(preview.removed)}
+                    </p>
+                  ) : null
+                ) : draftMeasure ? (
                   <p className="text-ui-base font-semibold text-ink" data-testid="yard-live">
                     {valueText(draftMeasure)}
                   </p>

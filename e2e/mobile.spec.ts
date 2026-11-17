@@ -991,6 +991,30 @@ const SCREENS: Screen[] = [
         const want = 40 * 80 * 0.1153
         if (Math.abs(removed - want) > 12) throw new Error(`removed ${removed} sq ft, wanted about ${want} (only the half on the lawn)`)
       } },
+      { name: 'cutout-needs-a-lawn-first', run: async (p) => {
+        await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
+        await p.waitForSelector('[data-testid=yard-status] >> text=Draw the lawn first, then cut out the house')
+        // no cut-out was started: the buttons still say "+ ..." and there is no Done / Undo row
+        if (await p.getByRole('button', { name: 'Done', exact: true }).count()) throw new Error('a cut-out was started with no lawn')
+        await p.getByTestId('yard-map').click({ position: { x: 60, y: 60 } })
+        if ((await p.evaluate(() => (window as any).__yardMarkers || []).then((m: unknown[]) => m.length)) !== 0) throw new Error('points were placed with no lawn')
+        // with a lawn drawn it works
+        await drawShape(p, '+ Lawn', 40, 40, 200)
+        await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
+        await p.waitForSelector('text=Tap the map to place the first point of the cut-out.')
+      } },
+      { name: 'cutout-previews-the-hole-live', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 240)
+        await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
+        for (const [x, y] of [[100, 100], [160, 100], [160, 160]]) await p.getByTestId('yard-map').click({ position: { x, y } })
+        await p.waitForSelector('[data-testid=yard-live] >> text=Comes out of lawn:')
+        const live = sqftOf(await p.getByTestId('yard-live').textContent())
+        const want = 1800 * 0.1153
+        if (Math.abs(live - want) > 15) throw new Error(`comes out ${live}, wanted about ${want}`)
+        // the lawn fill already has the hole while the cut-out is still being drawn
+        await p.waitForFunction(() => ((window as any).__yardPolys || []).some((x: any) => Array.isArray(x.o.paths) && Array.isArray(x.o.paths[0]) && x.o.paths.length === 2))
+        // a lawn alone is not labelled that way
+      } },
       { name: 'crossing-keeps-points-and-dragging-fixes', run: async (p) => {
         await drawShape(p, '+ Lawn', 40, 40, 140)
         const pos = await p.evaluate(() => (window as any).__yardMarkers.map((m: any) => m.o.position))
