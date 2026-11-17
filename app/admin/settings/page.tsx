@@ -408,12 +408,6 @@ export default function AdminSettingsPage() {
         setClassicDashboard(true)
       }
 
-      try {
-        setClassicDashboard(resolveDashboard(data.settings, resolveOrgProfile(data.settings).dashboard.cards).mode === 'classic')
-      } catch {
-        setClassicDashboard(true)
-      }
-
       if (data.org) {
         const brand = {
           brand_legal_name: data.settings?.brand?.legalName || '',

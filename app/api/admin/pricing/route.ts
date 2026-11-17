@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
 import { canSeeFinancials } from '@/lib/financials-access'
-import { mergeOrgSettings } from '@/lib/org-settings'
 import { canEditPriceLists, cleanPriceListName } from '@/lib/price-list-access'
 
 export const dynamic = 'force-dynamic'
@@ -359,112 +358,6 @@ export async function PATCH(request: NextRequest) {
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
-      return NextResponse.json({ success: true })
-    }
-
-    if (type === 'org_settings') {
-      // Only the `pricing` key: the body used to be spread over every org setting (incl. super-admin-only brand).
-      if (data.pricing === undefined) {
-        return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
-      }
-      const { error } = await mergeOrgSettings(adminClient, profile.org_id, { pricing: data.pricing })
-
-      if (error) {
-        return NextResponse.json({ error: 'Failed to save pricing settings' }, { status: 400 })
-      }
-
-      // Auto-create/update default pricebook items based on pricing settings
-      if (data.pricing) {
-        const pricing = data.pricing
-        
-        // Get or create default pricebook
-        let { data: defaultPricebook } = await adminClient
-          .from('pricebooks')
-          .select('id')
-          .eq('org_id', profile.org_id)
-          .eq('is_default', true)
-          .single()
-
-        if (!defaultPricebook) {
-          const { data: newPb } = await adminClient
-            .from('pricebooks')
-            .insert({
-              org_id: profile.org_id,
-              name: 'Default Pricebook',
-              is_default: true,
-            })
-            .select()
-            .single()
-          defaultPricebook = newPb
-        }
-
-        if (defaultPricebook) {
-          // Create/update roofing installation item if price_per_square_installed is set
-          if (pricing.price_per_square_installed) {
-            const { data: existingRoofing } = await adminClient
-              .from('pricebook_items')
-              .select('id')
-              .eq('pricebook_id', defaultPricebook.id)
-              .eq('name', 'Roofing Installation (Complete)')
-              .single()
-
-            if (existingRoofing) {
-              await adminClient
-                .from('pricebook_items')
-                .update({ unit_price: pricing.price_per_square_installed })
-                .eq('id', existingRoofing.id)
-            } else {
-              await adminClient
-                .from('pricebook_items')
-                .insert({
-                  pricebook_id: defaultPricebook.id,
-                  org_id: profile.org_id,
-                  category: 'Roofing',
-                  item_type: 'install',
-                  name: 'Roofing Installation (Complete)',
-                  unit: 'square',
-                  unit_price: pricing.price_per_square_installed,
-                  is_labor: false,
-                  is_taxable: true,
-                  active: true,
-                })
-            }
-          }
-
-          // Create/update solar installation item if price_per_watt is set
-          if (pricing.price_per_watt) {
-            const { data: existingSolar } = await adminClient
-              .from('pricebook_items')
-              .select('id')
-              .eq('pricebook_id', defaultPricebook.id)
-              .eq('name', 'Solar Installation (Complete)')
-              .single()
-
-            if (existingSolar) {
-              await adminClient
-                .from('pricebook_items')
-                .update({ unit_price: pricing.price_per_watt })
-                .eq('id', existingSolar.id)
-            } else {
-              await adminClient
-                .from('pricebook_items')
-                .insert({
-                  pricebook_id: defaultPricebook.id,
-                  org_id: profile.org_id,
-                  category: 'Solar',
-                  item_type: 'install',
-                  name: 'Solar Installation (Complete)',
-                  unit: 'watt',
-                  unit_price: pricing.price_per_watt,
-                  is_labor: false,
-                  is_taxable: true,
-                  active: true,
-                })
-            }
-          }
-        }
-      }
-
       return NextResponse.json({ success: true })
     }
 

@@ -268,7 +268,7 @@ const FIXTURES: Record<string, Variant[]> = {
   'PATCH /api/admin/data': each('resource', ['region', 'team', 'comp_plan', 'user', 'campaign', 'dashboard_settings', 'user_hierarchy', 'proposal_template']),
   'DELETE /api/admin/data': each('resource', ['region', 'team', 'comp_plan', 'campaign', 'proposal_template']),
   '/api/admin/incentives': each('resource', ['payout_queue', 'heat_program', 'incentive_cycle', 'incentive_badge', 'user_badge']),
-  '/api/admin/pricing': each('type', ['pricebook', 'item', 'pricebook_default', 'org_settings']),
+  '/api/admin/pricing': each('type', ['pricebook', 'item', 'pricebook_default']),
   '/api/admin/proposals': each('type', ['adder', 'percentage', 'template', 'visibility', 'toggle_adder']),
   '/api/admin/settings': each('type', ['job_catch_up', 'features', 'checkups', 'general', 'settings', 'canvass_dispositions', 'inspection_outcomes', 'close_outcomes']),
   'POST /api/admin/announcements': [() => ({ body: { slug: 'bravo-news', title: 'Bravo news', body: 'Bravo body', starts_at: '2026-11-10T00:00:00.000Z', roles: ['admin'] } })],
