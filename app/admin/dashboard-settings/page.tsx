@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
+import DashboardCardsEditor from '@/components/dashboard/DashboardCardsEditor'
+import type { DashboardMode } from '@/lib/dashboard-cards'
 
 interface DashboardSettingsData {
   widgets: string[]
@@ -42,6 +44,9 @@ export default function DashboardSettingsPage() {
     goals: { doors_knocked: 100, inspections: 20, sales: 5 },
   })
   const [existingSettings, setExistingSettings] = useState<SettingsRecord | null>(null)
+  // 'cards' = this company's dashboard is the card list: the classic widgets / weekly goals below do not apply to it.
+  const [dashboardMode, setDashboardMode] = useState<DashboardMode | null>(null)
+  const classicOnly = dashboardMode !== 'cards'
 
   useEffect(() => {
     loadInitialData()
@@ -240,6 +245,9 @@ export default function DashboardSettingsPage() {
           </div>
         )}
 
+        <DashboardCardsEditor onMode={setDashboardMode} />
+
+        {classicOnly && (<>
         {/* Scope Selection */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Settings Scope</h2>
@@ -446,6 +454,7 @@ export default function DashboardSettingsPage() {
             )}
           </button>
         </div>
+        </>)}
       </div>
     </div>
   )

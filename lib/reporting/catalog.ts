@@ -23,6 +23,8 @@ export type Dataset = {
   columns: DatasetColumn[]
   /** Date used by the date-range filter and by "by month/week" grouping. */
   dateColumn: string
+  /** The date column holds a calendar DATE (no time of day), not a timestamp: a caller passing exact bounds gives YYYY-MM-DD. */
+  dateColumnIsDay?: boolean
   /** Column holding the user a row "belongs to"; used to scope own/team/region viewers. null = company-level data. */
   ownerColumn: string | null
   /** Unique id column; keeps paging stable. */
@@ -81,7 +83,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
   },
   revenue: {
     idColumn: 'revenue_id', key: 'revenue', label: 'Revenue', description: 'Gross revenue: what was billed (job contracts and service invoices, sales tax shown on its own line) and what was collected (every payment, refunds taken off). A dollar is never counted twice.',
-    view: 'rpt_revenue', dateColumn: 'event_date', ownerColumn: null, financeOnly: true,
+    view: 'rpt_revenue', dateColumn: 'event_date', dateColumnIsDay: true, ownerColumn: null, financeOnly: true,
     columns: [
       c('event_date', 'Date', 'date'), c('work_type', 'Kind of work'), c('entry', 'Billed or collected'), c('service', 'Service'), c('trade', 'Trade'),
       c('reference', 'Job / invoice #'), c('customer', 'Customer'), c('billed', 'Billed', 'money'), c('collected', 'Collected', 'money'),

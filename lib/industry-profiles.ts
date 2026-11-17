@@ -168,6 +168,13 @@ export type IndustryProfile = {
   scheduleTemplates?: readonly ScheduleTemplate[]
   /** The words on the customer proposal PDF's cover, process and why-us pages (lib/industry-profiles-proposal.ts). Left out = neutral text. */
   proposalContent?: ProposalContentDefaults
+  /**
+   * The dashboard's STARTING cards (lib/dashboard-cards.ts keys, in order). Left out or `cards: null` = the classic field-sales
+   * dashboard exactly as it was (roofing, and every profile that has not asked for cards). A company's own saved list
+   * (`settings.dashboardCards`) always wins; "reset" returns to this list. Keys with no data source yet are listed on purpose
+   * (the owner-approved list): they are skipped until a source exists.
+   */
+  dashboard?: { cards: readonly string[] | null }
 }
 
 /** Today's add-on units, in the order the add-on form shows them (app/admin/proposals/page.tsx). */
@@ -251,6 +258,18 @@ const SERVICE_REPORTS_OVERVIEW: ReportsOverviewProfile = {
 }
 /** Service companies' Today owner tiles. */
 const SERVICE_OWNER_TILES: readonly TodayTileKey[] = ['visits-left-today', 'unpaid-invoices', 'billed-week']
+
+/**
+ * Service companies' starting dashboard cards (owner-approved, 2026-11-16): money, recurring, work, sales, then the two
+ * leaderboards. No doors, contacts, inspections, sits or closer wording.
+ */
+const SERVICE_DASHBOARD_CARDS: readonly string[] = [
+  'billed-week', 'collected-week', 'unpaid-overdue', 'revenue-per-crew-hour',
+  'active-plans', 'new-plans-month', 'cancellations-month', 'mrr',
+  'visits-done-week', 'visits-skipped-week', 'visits-moved-week',
+  'quotes-sent-week', 'quotes-won-week', 'win-rate', 'dollars-sold-week',
+  'salespeople', 'crews',
+]
 
 /** Service companies: Leads (Pipeline) → Customers → Jobs → Money (Billing = Ready to bill / request payment). */
 const SERVICE_NAV_ORDER: readonly NavSectionId[] = ['today', 'dashboard', 'pipeline', 'customers', 'jobs', 'money', 'reports', 'sisu']
@@ -353,6 +372,7 @@ const lawnLandscape: IndustryProfile = {
   reportsOverview: SERVICE_REPORTS_OVERVIEW,
   // No door knocking and no call center: a lawn office's leads come in by phone, web, ads and referrals.
   hiddenLeadSources: ['door_to_door', 'call_center'],
+  dashboard: { cards: SERVICE_DASHBOARD_CARDS },
 }
 
 const exteriorCleaning: IndustryProfile = {
@@ -408,6 +428,7 @@ const exteriorCleaning: IndustryProfile = {
   reportsOverview: SERVICE_REPORTS_OVERVIEW,
   // Door knocking stays on for cleaning companies; there is no call center.
   hiddenLeadSources: ['call_center'],
+  dashboard: { cards: SERVICE_DASHBOARD_CARDS },
 }
 
 /** Stage templates for a home builder: a new build and a major remodel. Durations are workdays; trade labels match the profile's trades. */

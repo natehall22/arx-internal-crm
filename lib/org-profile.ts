@@ -54,6 +54,8 @@ export type ResolvedOrgProfile = {
   dispositionText: Readonly<Record<string, string>>
   settingsHidden: readonly string[]
   settingsText: Readonly<Record<string, string>>
+  /** The dashboard's starting cards; null = the classic dashboard (lib/dashboard-cards.ts). */
+  dashboard: { cards: readonly string[] | null }
 }
 
 function asObject(v: unknown): Record<string, unknown> {
@@ -87,6 +89,7 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
     dispositionText: p.dispositionText ?? {},
     settingsHidden: p.settingsHidden ?? [],
     settingsText: p.settingsText ?? {},
+    dashboard: { cards: p.dashboard?.cards ?? null },
   }
 }
 

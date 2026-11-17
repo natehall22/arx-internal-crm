@@ -81,9 +81,11 @@ import MyPayClient from '@/components/payroll/MyPayClient'
 import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
 import SupportAccessCard from '@/components/admin/SupportAccessCard'
 import SupportBannerView from '@/components/support/SupportBannerView'
-import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD } from '@/e2e/fixtures'
+import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD, HARNESS_CARD_DASHBOARD } from '@/e2e/fixtures'
 import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
 import DashboardClient from '@/app/dashboard/DashboardClient'
+import CardDashboard from '@/components/dashboard/CardDashboard'
+import DashboardCardsEditor from '@/components/dashboard/DashboardCardsEditor'
 import UiKitHarness from '@/components/ui/UiKitHarness'
 import Nav from '@/components/Nav'
 import SettingsHub from '@/app/admin/SettingsHub'
@@ -570,6 +572,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="min-h-screen bg-surface-subtle"><main className="mx-auto max-w-3xl px-4 py-4"><BonusApprovalClient isFullAdmin /></main></div>
     case 'dashboard':
       return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} settings={{}} />
+    case 'dashboard-cards':
+      return <div className="min-h-screen bg-gray-50"><CardDashboard firstName="Pat" cards={HARNESS_CARD_DASHBOARD} canEdit /></div>
+    case 'dashboard-cards-editor':
+      return <div className="mx-auto max-w-4xl px-4 py-4"><DashboardCardsEditor /></div>
     case 'whats-new': {
       // Every role group, as the real page renders it (same component + same screenshot table).
       return (

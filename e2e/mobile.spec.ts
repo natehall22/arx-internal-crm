@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { HARNESS_CATEGORIES, JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CREW_INCENTIVES, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS } from './fixtures'
+import { HARNESS_CATEGORIES, JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CREW_INCENTIVES, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_SIGNED_RUN, HARNESS_SIGNED_STATE, HARNESS_SIGNED_HELD, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS, HARNESS_DASHBOARD_CARDS_API } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -296,6 +296,37 @@ const SCREENS: Screen[] = [
         if ((await p.getByText(gone, { exact: true }).count()) > 0) throw new Error(`dashboard still shows "${gone}"`)
       }
       await p.getByText('Progress vs goals').waitFor()
+    } }] },
+  { name: 'dashboard-cards-lawn', path: '/dev-harness/dashboard-cards', ready: 'text=Billed this week',
+    states: [{ name: 'lawn-words-only', run: async (p) => {
+      // A lawn company's dashboard has money, recurring, work and sales cards and two leaderboards — and none of the door-knocking words.
+      await p.getByText('Visits done').first().waitFor()
+      await p.getByRole('heading', { name: 'Crews' }).waitFor()
+      await p.getByRole('heading', { name: 'Salespeople' }).waitFor()
+      const text = await p.locator('main, body').first().innerText()
+      for (const gone of [/\bdoors?\b/i, /\binspections?\b/i, /\bsits?\b/i, /\bclosers?\b/i, /\bcontacts?\b/i]) {
+        if (gone.test(text)) throw new Error(`lawn dashboard still says ${gone}`)
+      }
+    } }] },
+  { name: 'dashboard-cards-editor', path: '/dev-harness/dashboard-cards-editor', ready: 'text=Dashboard cards',
+    mock: async (p) => {
+      let saved: unknown = null
+      await p.route('**/api/admin/dashboard-cards', async (route) => {
+        const m = route.request().method()
+        if (m === 'PUT') { saved = JSON.parse(route.request().postData() || '{}'); return route.fulfill(json({ ok: true, cards: [] })) }
+        return route.fulfill(json(saved ? { ...HARNESS_DASHBOARD_CARDS_API, cards: (saved as { cards: unknown[] }).cards } : HARNESS_DASHBOARD_CARDS_API))
+      })
+    },
+    states: [{ name: 'add-reorder-save', run: async (p) => {
+      await p.getByRole('button', { name: 'Add Quotes won' }).click()
+      await p.getByRole('button', { name: 'Move Quotes won up' }).click()
+      await p.getByLabel(/Goal/).first().fill('30000')
+      await p.getByRole('button', { name: 'Save cards' }).click()
+      await p.getByText('Saved. The dashboard shows this list now.').waitFor()
+      // A card with no data source is listed, greyed, with the reason — and has no Add button.
+      await p.getByText('Not available yet').click()
+      await p.getByText('Monthly recurring revenue').waitFor()
+      if ((await p.getByRole('button', { name: 'Add Monthly recurring revenue' }).count()) > 0) throw new Error('a card with no source can be added')
     } }] },
   { name: 'bonuses', path: '/dev-harness/bonuses', ready: 'text=Bonuses', mock: async (p) => {
     const line = (id: string, name: string, type: string, amount: number) => ({ id, org_id: 'o1', payroll_period_id: 'p1', user_id: `u-${id}`, bonus_type: type, amount, description: 'Week 1: 400 doors and 4 inspections', status: 'pending_approval', reviewed_by: null, reviewed_at: null, review_note: null, created_at: '2026-11-09T12:00:00Z', user: { id: `u-${id}`, full_name: name, role: 'setter' }, period: { id: 'p1', period_label: 'Nov 2 - Nov 8', cutoff_at: null, lock_at: null, scheduled_pay_date: '2026-11-13T12:00:00Z', status: 'open' }, reviewer: null })
