@@ -10,6 +10,8 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { resolveServicePlanAccess } from '@/lib/service-plans-access'
 import { loadPlanCustomerIds } from '@/lib/service-plans-db'
 import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
+import { customerFileDefaultFor } from '@/lib/customer-file/redirects'
+import { loadOrgProfile } from '@/lib/org-profile'
 
 export default async function CustomersPage({
   searchParams,
@@ -81,6 +83,20 @@ export default async function CustomersPage({
     }))
   }
 
+  // Rows open the Customer File where it is the company's customer page; the roof-linking tools (Link / Create from a
+  // project or job, Backfill) belong to companies that price from a roof, and Backfill shows only when something is unlinked.
+  const orgProfile = await loadOrgProfile(adminForCategories, profile.org_id)
+  const fileDefault = customerFileDefaultFor(profile.role, orgProfile.id)
+  const linkTools = orgProfile.features.squaresPricing
+  let unlinked = 0
+  if (profile.role === 'admin' && linkTools) {
+    const [p, j] = await Promise.all([
+      adminForCategories.from('projects').select('id', { count: 'exact', head: true }).eq('org_id', profile.org_id).is('customer_id', null),
+      adminForCategories.from('production_jobs').select('id', { count: 'exact', head: true }).eq('org_id', profile.org_id).is('customer_id', null),
+    ])
+    unlinked = (p.count ?? 0) + (j.count ?? 0)
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -91,7 +107,7 @@ export default async function CustomersPage({
             <NewCustomerPlan size="md" />
           </div>
         ) : null}
-        <CustomersPageClient customers={customers} categories={categories} showRecurring={showRecurring} query={query} isAdmin={profile.role === 'admin'} />
+        <CustomersPageClient customers={customers} categories={categories} showRecurring={showRecurring} query={query} isAdmin={profile.role === 'admin' && unlinked > 0} customerFile={fileDefault} showLinkTools={linkTools} />
       </div>
     </div>
   )

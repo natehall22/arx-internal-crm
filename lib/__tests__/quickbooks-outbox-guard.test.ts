@@ -1,7 +1,7 @@
 /**
  * QuickBooks outbox: ONE helper family in lib/integrations.ts (`enqueueCustomerUpserted`, `enqueuePaymentRecorded`,
  * `enqueueRecordEvent`) and a closed list of callers. A new caller must be added here on purpose (docs/quickbooks-sync.md):
- *  - customer.upserted — contract signing only (`enrichCustomerFromContract`);
+ *  - customer.upserted — contract signing (`enrichCustomerFromContract`), and a customer edit (PATCH /api/customers/[id]) only when qb_links shows the customer was already sent;
  *  - payment.recorded/refunded — `recordJobPayment` (job payments) and the customer-invoice payment/refund writers in lib/invoices.ts;
  *  - invoice.upserted/voided — job sale amount (`syncJobSaleAndCommissionBase`), invoice send/void (lib/invoices.ts), job cancel;
  *  - bill.recorded/voided — purchase-order bill record/void (lib/purchase-orders-db.ts).
@@ -26,8 +26,11 @@ const ALL = ['app', 'lib', 'components'].flatMap((d) => sourceFiles(d))
 const callersOf = (name: string) => ALL.filter((f) => f !== 'lib/integrations.ts' && new RegExp(`(?<!function )\\b${name}\\(`).test(read(f))).sort()
 
 describe('QuickBooks outbox: who can enqueue', () => {
-  it('only contract signing queues a customer', () => {
-    expect(callersOf('enqueueCustomerUpserted')).toEqual(['lib/customers.ts'])
+  it('only contract signing queues a customer, and a later customer edit re-queues one already sent to QuickBooks', () => {
+    expect(callersOf('enqueueCustomerUpserted')).toEqual(['app/api/customers/[id]/route.ts', 'lib/customers.ts'])
+    const patch = read('app/api/customers/[id]/route.ts')
+    expect(patch.indexOf("get('customers', params.id, 'Customer')")).toBeGreaterThan(-1)
+    expect(patch.indexOf("get('customers', params.id, 'Customer')")).toBeLessThan(patch.indexOf('enqueueCustomerUpserted('))
     const src = read('lib/customers.ts')
     const upsert = src.slice(src.indexOf('export async function upsertCustomer'), src.indexOf('export async function enrichCustomerFromContract'))
     expect(upsert).not.toMatch(/enqueue/)
