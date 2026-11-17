@@ -113,3 +113,13 @@ test('POST: a regional manager cannot create an admin or use another org’s ids
   expect(createUser).not.toHaveBeenCalled()
   expect((await POST(req('POST', { ...base, team_id: 't-a' }))).status).toBe(200)
 })
+
+test('a non-owner admin ticking money access: the user is created without it and the response says so (not a silent drop)', async () => {
+  const guard = jest.requireMock('@/lib/money-permission-guard') as { moneyPermissionIds: jest.Mock }
+  authResult = as('u-admin', 'admin') // an admin who is not the owner (actorIsOwner is mocked false)
+  guard.moneyPermissionIds.mockResolvedValueOnce(new Set(['perm-money']))
+  const res = await POST(req('POST', { email: 'new@example.com', password: 'secret1', full_name: 'New Person', role: 'custom', permission_ids: ['perm-money'] }))
+  const body = await res.json()
+  expect(res.status).toBe(200)
+  expect(body.moneyAccessRemoved).toBe(true)
+})

@@ -139,7 +139,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Money permissions can only be given by an owner (use Settings > Money access).
-    const newUserPermissionIds = lockMoneyPermissions(Array.isArray(permission_ids) ? permission_ids : [], [], await moneyPermissionIds(adminClient), await actorIsOwner(adminClient, user.id))
+    const requestedPermissionIds: string[] = Array.isArray(permission_ids) ? permission_ids : []
+    const moneyIds = await moneyPermissionIds(adminClient)
+    const creatorIsOwner = await actorIsOwner(adminClient, user.id)
+    const newUserPermissionIds = lockMoneyPermissions(requestedPermissionIds, [], moneyIds, creatorIsOwner)
+    // The screen says so (never a silent drop): the person is created without the money access that was ticked.
+    const moneyAccessRemoved = !creatorIsOwner && requestedPermissionIds.some((id) => moneyIds.has(id))
     if (newUserPermissionIds.length > 0) {
       const permissionInserts = newUserPermissionIds.map((permId: string) => ({
         org_id: targetOrgId,
@@ -159,6 +164,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ 
       success: true, 
+      moneyAccessRemoved,
       user: { 
         id: authData.user.id, 
         email, 

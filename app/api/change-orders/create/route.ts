@@ -10,6 +10,7 @@ import { loadSigningSettings } from '@/lib/signing/settings-server'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { changeOrderDocumentName } from '@/lib/contracts/change-order-wording'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 
 export async function POST(request: NextRequest) {
@@ -130,6 +131,7 @@ export async function POST(request: NextRequest) {
         repName,
         repSignature,
         originalContractDate,
+        documentName: await changeOrderDocumentName(createServiceClient(), profile.org_id),
       }, documentBrand)
 
       console.log('[Change Order] PDF generated, size:', pdfBuffer.length, 'bytes')
