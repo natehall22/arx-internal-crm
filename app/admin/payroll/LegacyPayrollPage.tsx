@@ -316,8 +316,8 @@ export default function AdminPayrollPage({ features: serverFeatures = null }: { 
             </p>
           </div>
 
-          {/* Pays the rep who ran the inspection: only for door-knocking companies. */}
-          {features.canvassing && <InspectionCommissionRateCard />}
+          {/* Pays the rep who ran the inspection: door-knocking companies, or any company with a rate already saved. */}
+          <InspectionCommissionRateCard canvassing={features.canvassing} />
         </div>
       </div>
     </div>

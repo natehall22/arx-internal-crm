@@ -133,6 +133,8 @@ export type IndustryProfile = {
   version: number
   label: string
   description: string
+  /** What the company does, as the AI assistant's prompts describe it; left out = `description`. */
+  aiContext?: string
   /** Feature switch defaults; a key left out = the feature's own default (`featureDefaultOn`, lib/org-features.ts). The company's own saved switch always wins. */
   features: Readonly<Partial<Record<OrgFeature, boolean>>>
   /** Starting trades (null = the standard list, lib/org-trades.ts DEFAULT_ORG_TRADES). */
@@ -198,6 +200,7 @@ const roofing: IndustryProfile = {
   proposalContent: ROOFING_PROPOSAL_CONTENT,
   version: 1,
   label: 'Roofing',
+  aiContext: 'residential storm/insurance roofing',
   description: 'Storm and retail roofing: door knocking, inspections, insurance claims, roof measuring and squares pricing.',
   features: {},
   trades: null,

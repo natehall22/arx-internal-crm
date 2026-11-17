@@ -27,9 +27,6 @@
   "app/api/admin/sisu/accountability/route.ts": {
     "timezone": 1
   },
-  "app/api/ai/route.ts": {
-    "brand": 3
-  },
   "app/api/calendar/sync/route.ts": {
     "timezone": 1
   },
@@ -156,9 +153,6 @@
   },
   "app/work-orders/[id]/WorkOrderDetailClient.tsx": {
     "timezone": 1
-  },
-  "components/AIAssistant.tsx": {
-    "brand": 1
   },
   "components/AppointmentFeedbackPrompt.tsx": {
     "timezone": 2

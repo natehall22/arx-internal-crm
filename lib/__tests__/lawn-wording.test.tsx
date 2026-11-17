@@ -101,10 +101,10 @@ describe('lawn: leads, dashboard, sale credit, comp plans, time clock', () => {
     expect(src).toContain("t(orgProfile, 'inspection')")
   })
 
-  it('Opportunities: Project Type comes from the company trades (API), insurance/knockback filters follow the switches', () => {
+  it('Opportunities: Project Type filter is roofing-only (API flag), insurance/knockback filters follow the switches', () => {
     expect(read('app/api/opportunities/route.ts')).toContain("orgProfile.id === 'roofing'")
     const page = read('app/opportunities/page.tsx')
-    expect(page).toContain('projectTypes ?')
+    expect(page).toContain('showProjectType &&')
     expect(page).toContain('orgFeaturesNow.canvassing &&')
   })
 
@@ -143,7 +143,7 @@ describe('lawn: leads, dashboard, sale credit, comp plans, time clock', () => {
 
   it('setter ramp and the legacy inspection-commission card are gated', () => {
     expect(read('app/admin/sisu/setter-ramp/page.tsx')).toContain('!features.incentives && !features.canvassing')
-    expect(read('app/admin/payroll/LegacyPayrollPage.tsx')).toContain('features.canvassing && <InspectionCommissionRateCard />')
+    expect(read('app/admin/payroll/LegacyPayrollPage.tsx')).toContain('<InspectionCommissionRateCard canvassing={features.canvassing} />')
   })
 })
 

@@ -164,6 +164,20 @@ export async function loadOrgProfile(client: SupabaseClient, orgId: string | nul
   }
 }
 
+/** Like `loadOrgProfile`, but a failed read is reported (`ok: false`) so a caller that must fail closed can refuse. */
+export async function loadOrgProfileStrict(
+  client: SupabaseClient,
+  orgId: string | null | undefined
+): Promise<{ profile: ResolvedOrgProfile; ok: boolean }> {
+  if (!orgId) return { profile: defaultOrgProfile(), ok: false }
+  try {
+    return { profile: resolveOrgProfile(await readOrgFeatureSettings(client, orgId)), ok: true }
+  } catch (e) {
+    console.error('loadOrgProfileStrict: profile not readable', orgId, e)
+    return { profile: defaultOrgProfile(), ok: false }
+  }
+}
+
 /* ------------------------------------------------------------------------ *
  * What the client needs (Nav, customer file tabs, price book forms) — sent on /api/me/effective-permissions.
  * ------------------------------------------------------------------------ */

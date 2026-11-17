@@ -41,8 +41,10 @@ const PROD_ROW = {
   phone: '(704) 313-8834',
   email: 'info@arxroofing.com',
   address: '4101 Woodbury Ter NW\nConcord, NC 28027',
+  original_brand: true,
   settings: { brand: null },
 }
+const NEUTRAL_ROW = { original_brand: false }
 const PROD_ARX = resolveOrgBrand(PROD_ROW)
 const PROD_DOC = brandDocument(PROD_ARX)
 
@@ -336,7 +338,7 @@ describe('neutral fallback on a fenced deployment (DEPLOYMENT_ORG_ID set)', () =
 
   it('DEFAULT_ORG_BRAND carries no company at all', () => {
     for (const v of Object.values(DEFAULT_ORG_BRAND)) expect(v).toBe('')
-    expect(resolveOrgBrand(null)).toEqual({ ...DEFAULT_ORG_BRAND })
+    expect(resolveOrgBrand(NEUTRAL_ROW)).toEqual({ ...DEFAULT_ORG_BRAND })
   })
 
   it('an org with nothing but its columns prints only its own identity', () => {
@@ -392,11 +394,11 @@ describe('neutral fallback on a fenced deployment (DEPLOYMENT_ORG_ID set)', () =
   })
 
   it('website-estimate errors read the org brand and drop blank parts', () => {
-    expect(misconfiguredMessage(resolveOrgBrand(null).phone)).toBe('Public roof estimate is not configured.')
+    expect(misconfiguredMessage(resolveOrgBrand(NEUTRAL_ROW).phone)).toBe('Public roof estimate is not configured.')
     expect(outOfServiceAreaMessage({ serviceArea: 'Anytown, ST', phone: '555-010-0100' })).toBe(
       'That address looks outside our service area (Anytown and nearby). Call 555-010-0100 and we can still help.'
     )
-    expect(outOfServiceAreaMessage(resolveOrgBrand(null))).toBe('That address looks outside our service area.')
+    expect(outOfServiceAreaMessage(resolveOrgBrand(NEUTRAL_ROW))).toBe('That address looks outside our service area.')
   })
 })
 

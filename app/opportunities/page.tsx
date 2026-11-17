@@ -64,8 +64,9 @@ export default function OpportunitiesPage() {
   const featureTabs = insideSalesFeatureTabs(orgFeaturesNow)
   const orgWords = useOrgProfile()
   const inspectionWord = t(orgWords, 'inspection')
-  // Project Type choices: the company's trades from the API; null (roofing) = the fixed list below.
-  const [projectTypes, setProjectTypes] = useState<Array<{ value: string; label: string }> | null>(null)
+  // The Project Type filter is roofing-only (the API says; until it answers, the profile does).
+  const [projectTypeFilterApi, setProjectTypeFilterApi] = useState<boolean | null>(null)
+  const showProjectType = projectTypeFilterApi ?? orgWords.id === 'roofing'
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -123,9 +124,9 @@ export default function OpportunitiesPage() {
         return
       }
 
-      const { opportunities: opps, projectTypes: types } = await response.json()
+      const { opportunities: opps, projectTypeFilter } = await response.json()
       setOpportunities(opps || [])
-      setProjectTypes(Array.isArray(types) ? types : null)
+      setProjectTypeFilterApi(typeof projectTypeFilter === 'boolean' ? projectTypeFilter : null)
     } catch (err) {
       console.error('Error loading opportunities:', err)
       setError('Failed to load opportunities')
@@ -240,7 +241,7 @@ export default function OpportunitiesPage() {
   const filteredInsideSalesItems = useMemo(() => {
     const query = deferredFilters.q.trim().toLowerCase()
     const status = deferredFilters.status.trim().toLowerCase()
-    const projectType = deferredFilters.project_type.trim().toLowerCase()
+    const projectType = showProjectType ? deferredFilters.project_type.trim().toLowerCase() : ''
     const queueTypeRaw = deferredFilters.inspection_outcome.trim().toLowerCase()
     const queueType =
       queueTypeRaw === 'insurance' ? 'handoff' : queueTypeRaw
@@ -271,7 +272,7 @@ export default function OpportunitiesPage() {
 
       return true
     })
-  }, [deferredFilters, insideSalesItems])
+  }, [deferredFilters, insideSalesItems, showProjectType])
 
   const setFilter = (key: 'status' | 'inspection_outcome' | 'project_type', value: string) => {
     pushFiltersToUrl({ ...filters, [key]: value, q: searchInput })
@@ -293,7 +294,7 @@ export default function OpportunitiesPage() {
   }
 
   const hasActiveFilters =
-    activeFilters.q || activeFilters.status || activeFilters.inspection_outcome || activeFilters.project_type
+    activeFilters.q || activeFilters.status || activeFilters.inspection_outcome || (showProjectType && activeFilters.project_type)
   // Built from the deferred filters, not the live input: these strings go into every
   // row's href, and a new href on each keystroke re-fires next/link prefetch for every
   // visible row. Deferred also keeps them in sync with the list actually on screen.
@@ -451,6 +452,7 @@ export default function OpportunitiesPage() {
                 )}
               </select>
             </div>
+            {showProjectType && (
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Project Type</label>
               <select
@@ -459,22 +461,13 @@ export default function OpportunitiesPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="">All Types</option>
-                {projectTypes ? (
-                  projectTypes.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))
-                ) : (
-                  <>
-                    <option value="roofing">Roofing</option>
-                    <option value="siding">Siding</option>
-                    <option value="windows">Windows</option>
-                    <option value="mixed">Mixed</option>
-                  </>
-                )}
+                <option value="roofing">Roofing</option>
+                <option value="siding">Siding</option>
+                <option value="windows">Windows</option>
+                <option value="mixed">Mixed</option>
               </select>
             </div>
+            )}
             <div className="flex items-end">
               {hasActiveFilters && (
                 <button

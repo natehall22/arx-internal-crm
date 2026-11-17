@@ -5,6 +5,9 @@ import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessJobBoardFromPermissionNames } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getOrgBrand } from '@/lib/org-brand'
+import { INDUSTRY_PROFILES } from '@/lib/industry-profiles'
+import { loadOrgProfile } from '@/lib/org-profile'
 import {
   createRequestScopedClient,
   getRequestAccessToken,
@@ -26,18 +29,27 @@ type AIRequestBody = {
 /** Structured CRM actions use JSON mode; align with other server routes (e.g. detect-roof). */
 const STRUCTURED_MODEL = 'gpt-4o'
 
-const SYSTEM_PROMPTS: Record<AIAction, string> = {
-  job_profit_risk:
-    "You are a financial analyst for a roofing contractor. Analyze the job financials provided and return ONLY a JSON object: { riskLevel: 'high' | 'medium' | 'low', estimatedMarginPercent: number, warning: string | null, suggestion: string }. No markdown, just JSON.",
-  job_packet_summary:
-    'You are writing a job briefing for a roofing installation crew. Return ONLY a JSON object: { bullets: string[] } where bullets is an array of 3-5 specific, practical instructions for the crew. Be concrete. No fluff. No markdown in the bullets themselves.',
-  notes_summary:
-    'You are summarizing internal job notes for a roofing operations manager. Return ONLY a JSON object: { summary: string } where summary is 2-3 plain sentences capturing key decisions, status, and any outstanding items.',
-  collection_followup_email:
-    'You are writing a payment follow-up email for ARX Roofing & Exteriors. The job is complete. Be professional and warm. Return ONLY a JSON object: { subject: string, body: string }. The body should be 3-4 sentences. No markdown.',
-  change_order_draft:
-    'You are a roofing project manager at ARX Roofing & Exteriors. Draft a change order from the plain-language description provided. Return ONLY a JSON object: { title: string, description: string, notes: string }. Be professional and specific.',
-  chat: 'You are an AI assistant built into the ARX Roofing & Exteriors CRM. Help with CRM tasks: leads, opportunities, jobs, scheduling, pricing, and team management. Be concise and practical. Return plain text responses.',
+const SYSTEM_PROMPTS: Record<AIAction, (who: string) => string> = {
+  job_profit_risk: (who) =>
+    `You are a financial analyst for ${who}. Analyze the job financials provided and return ONLY a JSON object: { riskLevel: 'high' | 'medium' | 'low', estimatedMarginPercent: number, warning: string | null, suggestion: string }. No markdown, just JSON.`,
+  job_packet_summary: (who) =>
+    `You are writing a job briefing for an installation or service crew at ${who}. Return ONLY a JSON object: { bullets: string[] } where bullets is an array of 3-5 specific, practical instructions for the crew. Be concrete. No fluff. No markdown in the bullets themselves.`,
+  notes_summary: (who) =>
+    `You are summarizing internal job notes for an operations manager at ${who}. Return ONLY a JSON object: { summary: string } where summary is 2-3 plain sentences capturing key decisions, status, and any outstanding items.`,
+  collection_followup_email: (who) =>
+    `You are writing a payment follow-up email for ${who}. The job is complete. Be professional and warm. Return ONLY a JSON object: { subject: string, body: string }. The body should be 3-4 sentences. No markdown.`,
+  change_order_draft: (who) =>
+    `You are a project manager at ${who}. Draft a change order from the plain-language description provided. Return ONLY a JSON object: { title: string, description: string, notes: string }. Be professional and specific.`,
+  chat: (who) =>
+    `You are an AI assistant built into the CRM of ${who}. Help with CRM tasks: leads, opportunities, jobs, scheduling, pricing, and team management. Be concise and practical. Return plain text responses.`,
+}
+
+/** "Company Name (what it does)" for the prompts: the org's own name (lib/org-brand.ts) and its industry profile. */
+async function describeCompany(admin: ReturnType<typeof createServiceClient>, orgId: string | null | undefined): Promise<string> {
+  const [brand, org] = await Promise.all([getOrgBrand(admin, orgId), loadOrgProfile(admin, orgId as string)])
+  const sector = INDUSTRY_PROFILES[org.id]?.aiContext ?? INDUSTRY_PROFILES[org.id]?.description ?? ''
+  const name = brand.name || 'the company'
+  return sector ? `${name} (${sector})` : name
 }
 
 const JOB_BOARD_ACTIONS = new Set<AIAction>([
@@ -49,7 +61,7 @@ const JOB_BOARD_ACTIONS = new Set<AIAction>([
 ])
 
 function isAIAction(action: string): action is AIAction {
-  return action in SYSTEM_PROMPTS
+  return Object.prototype.hasOwnProperty.call(SYSTEM_PROMPTS, action)
 }
 
 function getOpenAI() {
@@ -90,7 +102,7 @@ async function getUserAiSettings(
 
 export async function POST(request: Request) {
   try {
-    let profile: { id: string; role: string }
+    let profile: { id: string; role: string; org_id?: string }
     let supabase: ReturnType<typeof createRequestScopedClient>
 
     try {
@@ -140,6 +152,7 @@ export async function POST(request: Request) {
       }
     }
 
+    const who = await describeCompany(createServiceClient(), (profile as { org_id?: string }).org_id)
     const openai = getOpenAI()
     const userContent = JSON.stringify(context)
 
@@ -149,7 +162,7 @@ export async function POST(request: Request) {
         max_tokens: 1024,
         temperature: 0.7,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPTS.chat },
+          { role: 'system', content: SYSTEM_PROMPTS.chat(who) },
           { role: 'user', content: userContent },
         ],
       })
@@ -163,7 +176,7 @@ export async function POST(request: Request) {
       temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPTS[action] },
+        { role: 'system', content: SYSTEM_PROMPTS[action](who) },
         { role: 'user', content: userContent },
       ],
     })

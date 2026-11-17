@@ -9,7 +9,7 @@ jest.mock('@/lib/auth', () => ({ requireAuthApi: async () => ({ authUser: { id: 
 jest.mock('@/lib/sales-doc-access', () => ({ resolveSalesDocAccessBarred: async () => false }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
-    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profileSettings ? { features: {}, email: 'info@arxroofing.com', profile: profileSettings } : { features: {}, email: 'info@arxroofing.com' }, error: null }) }) }) }),
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profileSettings ? { features: {}, original_brand: true, profile: profileSettings } : { features: {}, original_brand: true }, error: null }) }) }) }),
   }),
 }))
 

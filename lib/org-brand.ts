@@ -5,12 +5,10 @@
  * and the two contract spellings (no column) from `orgs.settings.brand`; either way a missing value → the fallback.
  * Blank / whitespace-only strings count as missing.
  *
- * Fallback: DEFAULT_ORG_BRAND is NEUTRAL (blank; a missing legal/short name falls back to the company name). Until
- * the original company's identity is stored on its org row (data fix supabase/data-fixes/2026-11-10_arx_brand_into_org_row.sql),
- * a deployment WITHOUT the `DEPLOYMENT_ORG_ID` fence (= the original company's prod today) keeps its strings as the
- * fallback (`legacyBrandFallback`), so its output stays byte-identical. Every other company's copy sets
- * DEPLOYMENT_ORG_ID (docs/multi-company-plan.md slice 8) and never sees them. Delete LEGACY_ORG_BRAND and the gate once
- * the data fix is applied and that deployment sets DEPLOYMENT_ORG_ID. Do not add another copy of these strings anywhere.
+ * Fallback: DEFAULT_ORG_BRAND is NEUTRAL (blank; a missing legal/short name falls back to the company name). Only the org
+ * row flagged `orgs.original_brand` (server-only, guard-triggered) keeps the original company's strings as its fallback
+ * (LEGACY_ORG_BRAND) until its identity is stored on the row (supabase/data-fixes/2026-11-10_arx_brand_into_org_row.sql);
+ * a failed org read is neutral. Do not add another copy of these strings anywhere.
  *
  * Customer documents show the owning rep's phone when it is dialable, else the company phone (`contactPhone`).
  */
@@ -19,7 +17,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { mergeOrgSettings } from '@/lib/org-settings'
 
 import { formatPhone, formatPhoneDashed, telHref } from '@/lib/format'
-import { deploymentOrgId } from '@/lib/company-host'
 
 export interface OrgBrand {
   /** Display name, e.g. report footers and email headers. */
@@ -44,6 +41,8 @@ export interface OrgBrand {
   documentAddress?: string
   /** Short region name for sentences ("outside our service area (… and nearby)"), when it differs from serviceArea. */
   serviceRegion?: string
+  /** True only for the original company (its org row's server-only `original_brand`); gates its legacy strings and artwork. */
+  original?: boolean
 }
 
 /** Neutral fallback: nothing about any real company. A seeded org (scripts/seed-company.ts) never needs it. */
@@ -60,9 +59,9 @@ export const DEFAULT_ORG_BRAND: Readonly<OrgBrand> = Object.freeze({
 
 /**
  * LEGACY — the exact strings the CRM printed before identity moved onto the org row (the original company's), plus the
- * spellings its contracts used. Only the fallback while `legacyBrandFallback()` is on. Delete with the gate.
+ * spellings its contracts used. Only the fallback for the org row flagged `original_brand`.
  */
-const LEGACY_ORG_BRAND: Readonly<Required<OrgBrand>> = (() => {
+const LEGACY_ORG_BRAND: Readonly<Required<Omit<OrgBrand, 'original'>>> = (() => {
   const base = {
     name: 'ARX Roofing & Exteriors',
     legalName: 'ARX Roofing & Exteriors, LLC',
@@ -83,35 +82,22 @@ const LEGACY_ORG_BRAND: Readonly<Required<OrgBrand>> = (() => {
 })()
 
 /**
- * True while this deployment has no `DEPLOYMENT_ORG_ID` fence — today only the original company's prod (and local dev/tests). Then a
- * missing brand field falls back to the original company's strings, exactly as before; with the fence it is neutral.
- * Server env only: in browser bundles it is always true, so client code must not resolve a brand itself.
- */
-export function legacyBrandFallback(): boolean {
-  return !deploymentOrgId()
-}
-
-/**
- * The legacy fallback belongs to the original company only: no org row (local dev/tests), or a row whose own `email` column is
- * the original company's alias — the same marker `getCrmEmailFrom` uses. Any other company on the shared app that left a field
- * blank gets neutral text, never the original's phone, address or website. A name is not a marker (a company that merely shares a word with the original is not it).
+ * The legacy fallback and the bundled artwork belong to the original company only. The marker is `orgs.original_brand`, a
+ * server-only column (a guard trigger lets only the service role / a migration session change it), so nothing a manager can edit
+ * (name, email, settings) can claim it. No org row at all (local dev/tests) counts as the original company, as before; a row
+ * without the flag is any other company and gets neutral text, never the original's phone, address or website.
  */
 function isOriginalCompanyRow(row: OrgBrandRow | null | undefined): boolean {
-  return !row || isOriginalCompanyEmail(row.email)
+  return !row || row.original_brand === true
 }
 
-/** True when `email` is the original company's alias (compared as the org's `email` column). Data-based, never an id. */
-export function isOriginalCompanyEmail(email: string | null | undefined): boolean {
-  return !!email && email.trim().toLowerCase() === LEGACY_ORG_BRAND.email.toLowerCase()
-}
-
-/** True when this brand is the original company's (its own email), so its own bundled artwork may be shown. */
-export function usesOriginalCompanyAssets(brand: Pick<OrgBrand, 'email'>): boolean {
-  return legacyBrandFallback() && isOriginalCompanyEmail(brand.email)
+/** True when this resolved brand is the original company's, so its own bundled artwork may be shown. */
+export function usesOriginalCompanyAssets(brand: Pick<OrgBrand, 'original'>): boolean {
+  return brand.original === true
 }
 
 /** The always-present fields (the optional contract spellings are resolved separately). */
-type CoreBrandKey = Exclude<keyof OrgBrand, 'documentLegalName' | 'documentAddress' | 'serviceRegion'>
+type CoreBrandKey = Exclude<keyof OrgBrand, 'documentLegalName' | 'documentAddress' | 'serviceRegion' | 'original'>
 const ORG_BRAND_KEYS = Object.keys(DEFAULT_ORG_BRAND) as CoreBrandKey[]
 
 /** Fields that are real `orgs` columns (edited as Company Name / Phone / Email / Address). The column always wins. */
@@ -134,6 +120,8 @@ export interface OrgBrandRow {
   phone?: string | null
   email?: string | null
   address?: string | null
+  /** `orgs.original_brand` — server-only marker of the original company. */
+  original_brand?: boolean | null
   settings?: { brand?: unknown; [key: string]: unknown } | null
   /** `settings->brand` when selected directly (see getOrgBrand). */
   brand?: unknown
@@ -149,7 +137,7 @@ function brandObject(v: unknown): Record<string, unknown> {
 
 /** Pure: resolve every identity field for an org row (null row → the fallback). */
 export function resolveOrgBrand(row: OrgBrandRow | null | undefined): OrgBrand {
-  const legacy = legacyBrandFallback() && isOriginalCompanyRow(row)
+  const legacy = isOriginalCompanyRow(row)
   const fallback: Readonly<OrgBrand> = legacy ? LEGACY_ORG_BRAND : DEFAULT_ORG_BRAND
   const stored = brandObject(row?.brand ?? row?.settings?.brand)
   const out = {} as OrgBrand
@@ -176,6 +164,7 @@ export function resolveOrgBrand(row: OrgBrandRow | null | undefined): OrgBrand {
   if (documentLegalName) out.documentLegalName = documentLegalName
   if (documentAddress) out.documentAddress = documentAddress
   if (serviceRegion) out.serviceRegion = serviceRegion
+  if (legacy) out.original = true
   return out
 }
 
@@ -185,10 +174,13 @@ export interface OrgBrandResult {
   ok: boolean
 }
 
+/** What a failed or empty org read resolves to: neutral — no original-company text, logo or phone (never the legacy fallback). */
+const UNREADABLE_ORG_ROW: OrgBrandRow = Object.freeze({ original_brand: false })
+
 async function readOrgBrandRow(client: SupabaseClient, orgId: string): Promise<OrgBrandRow | null> {
   const { data, error } = await client
     .from('orgs')
-    .select('name, phone, email, address, brand:settings->brand')
+    .select('name, phone, email, address, original_brand, brand:settings->brand')
     .eq('id', orgId)
     .maybeSingle()
   if (error) throw error
@@ -200,20 +192,20 @@ async function readOrgBrandRow(client: SupabaseClient, orgId: string): Promise<O
  * returned with `ok: false` so callers that must not act on the defaults (e.g. sending to the company inbox) can tell.
  */
 export async function getOrgBrandResult(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgBrandResult> {
-  if (!orgId) return { brand: resolveOrgBrand(null), ok: false }
+  if (!orgId) return { brand: resolveOrgBrand(UNREADABLE_ORG_ROW), ok: false }
   let lastError: unknown = null
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const row = await readOrgBrandRow(client, orgId)
       if (row) return { brand: resolveOrgBrand(row), ok: true }
-      console.error('getOrgBrand: org row not found, using defaults', orgId)
-      return { brand: resolveOrgBrand(null), ok: false }
+      console.error('getOrgBrand: org row not found, using neutral defaults', orgId)
+      return { brand: resolveOrgBrand(UNREADABLE_ORG_ROW), ok: false }
     } catch (e) {
       lastError = e
     }
   }
-  console.error('getOrgBrand: org row not readable after retry, using defaults', orgId, lastError)
-  return { brand: resolveOrgBrand(null), ok: false }
+  console.error('getOrgBrand: org row not readable after retry, using neutral defaults', orgId, lastError)
+  return { brand: resolveOrgBrand(UNREADABLE_ORG_ROW), ok: false }
 }
 
 /** Load and resolve an org's brand (defaults when it can't be read). Never throws. */

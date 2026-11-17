@@ -18,7 +18,7 @@ const INK = '#2c2c2a'
 
 type LoadState = 'loading' | 'ready' | 'forbidden' | 'error'
 
-export default function InspectionCommissionRateCard() {
+export default function InspectionCommissionRateCard({ canvassing = true }: { canvassing?: boolean } = {}) {
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [savedRate, setSavedRate] = useState<number>(0)
   const [draft, setDraft] = useState<string>('')
@@ -105,6 +105,9 @@ export default function InspectionCommissionRateCard() {
   }
 
   if (loadState === 'forbidden') return null
+  // Door-knocking companies always see it; any other company sees it only while a rate is saved, so a rate that is paying is never uneditable.
+  if (!canvassing && loadState === 'ready' && savedRate === 0) return null
+  if (!canvassing && loadState === 'loading') return null
 
   const dirty = draft.trim() !== '' && Number(draft) !== savedRate
   const isOff = savedRate <= 0

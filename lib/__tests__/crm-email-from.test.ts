@@ -9,7 +9,7 @@ import { execSync } from 'child_process'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { formatFromHeader, getCrmEmailFrom } from '@/lib/crm-email-from'
 
-const ORIGINAL = { id: 'arx', name: 'ARX Roofing & Exteriors', email: 'info@arxroofing.com' }
+const ORIGINAL = { id: 'arx', name: 'ARX Roofing & Exteriors', email: 'info@arxroofing.com', original_brand: true }
 const db = (orgs: Array<Record<string, unknown>>) => createFakeDb({ orgs }).client
 
 const saved = { from: process.env.SMTP_FROM, user: process.env.SMTP_USER, fence: process.env.DEPLOYMENT_ORG_ID }

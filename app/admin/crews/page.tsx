@@ -7,6 +7,7 @@ import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import PhoneLink from '@/components/PhoneLink'
+import { dbCrewType } from '@/lib/org-trades'
 
 interface Crew {
   id: string
@@ -102,7 +103,7 @@ export default function CrewsPage() {
       setOrgId(data.orgId)
       if (Array.isArray(data.crewTypes) && data.crewTypes.length > 0) {
         setCrewTypes(data.crewTypes)
-        setFormData((prev) => (data.crewTypes.some((o: { value: string }) => o.value === prev.crew_type) ? prev : { ...prev, crew_type: data.crewTypes[0].value }))
+        setFormData((prev) => (data.crewTypes.some((o: { value: string }) => o.value === prev.crew_type) ? prev : { ...prev, crew_type: dbCrewType(data.crewTypes[0].value) }))
       }
       setLoading(false)
     } catch (err) {
@@ -129,7 +130,7 @@ export default function CrewsPage() {
       setEditingCrew(null)
       setFormData({
         name: '',
-        crew_type: crewTypes[0]?.value ?? 'roofing',
+        crew_type: dbCrewType(crewTypes[0]?.value ?? 'roofing'),
         foreman_user_id: '',
         members: [],
         color: colorOptions[crews.length % colorOptions.length],
@@ -161,7 +162,7 @@ export default function CrewsPage() {
     try {
       const crewData: any = {
         name: formData.name,
-        crew_type: formData.crew_type,
+        crew_type: dbCrewType(formData.crew_type),
         foreman_user_id: formData.foreman_user_id || null,
         members: formData.members,
         color: formData.color,

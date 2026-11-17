@@ -235,9 +235,10 @@ export async function PATCH(request: NextRequest) {
       
       // These columns may not exist in older schemas, so we try them
       // and fall back to settings if they fail
-      const optionalFields = {
+      // The company email is part of its identity (From address): only an owner (super admin) may change it.
+      const optionalFields: Record<string, unknown> = {
         phone: data.company_phone,
-        email: data.company_email,
+        ...(isSuperAdmin(profile) ? { email: data.company_email } : {}),
         address: data.company_address,
         timezone: data.timezone,
         date_format: data.date_format,
@@ -260,7 +261,7 @@ export async function PATCH(request: NextRequest) {
             settings: {
               ...currentSettings,
               company_phone: data.company_phone,
-              company_email: data.company_email,
+              ...(isSuperAdmin(profile) ? { company_email: data.company_email } : {}),
               company_address: data.company_address,
               timezone: data.timezone,
               date_format: data.date_format,

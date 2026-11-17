@@ -71,6 +71,7 @@ beforeEach(() => {
   colorInsertError = null
   authResult = admin
   db = createFakeDb({
+    orgs: [{ id: 'org-a', original_brand: true }, { id: 'org-b', original_brand: true }],
     opportunities: [
       { id: 'opp-a', org_id: 'org-a' },
       { id: 'opp-b', org_id: 'org-b' },
@@ -156,4 +157,13 @@ describe('roof color on the installation agreement (2026-11-12)', () => {
     expect((await post(install({ roofColor: 'Black' }))).status).toBe(500)
     err.mockRestore()
   })
+})
+
+test('fails closed: an unreadable company row refuses the contract and writes nothing', async () => {
+  db.tables.orgs.length = 0
+  const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+  const res = await post(body('opp-a'))
+  expect(res.status).toBe(503)
+  expect(db.writes).toEqual([])
+  err.mockRestore()
 })

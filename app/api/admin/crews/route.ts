@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
 import { loadOrgProfile } from '@/lib/org-profile'
-import { activeTrades, loadOrgTrades, orderedTrades } from '@/lib/org-trades'
+import { activeTrades, dbCrewType, loadOrgTrades, orderedTrades } from '@/lib/org-trades'
 
 export const dynamic = 'force-dynamic'
 
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
     const crewData = {
       org_id: profile.org_id,
       name: body.name,
-      crew_type: body.crew_type || 'roofing',
+      crew_type: dbCrewType(body.crew_type || 'roofing'),
       foreman_user_id: body.foreman_user_id || null,
       members: body.members || [],
       color: body.color || '#3B82F6',
@@ -226,6 +226,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
     // org_id is never client-set (it would move the crew to another company).
     const { id, org_id: _orgId, ...updates } = body
+    if (typeof updates.crew_type === 'string') updates.crew_type = dbCrewType(updates.crew_type)
 
     if (!id) {
       return NextResponse.json({ error: 'Crew ID required' }, { status: 400 })

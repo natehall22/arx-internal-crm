@@ -280,7 +280,7 @@ jest.mock('@/lib/supabase/service', () => ({
               maybeSingle: async () =>
                 orgBrandReadShouldFail
                   ? { data: null, error: { message: 'connection reset' } }
-                  : { data: { name: null, phone: null, email: 'info@arxroofing.com', address: null, brand: null }, error: null },
+                  : { data: { name: null, phone: null, email: 'info@arxroofing.com', original_brand: true, address: null, brand: null }, error: null },
             }),
           }),
         }

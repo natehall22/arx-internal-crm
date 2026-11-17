@@ -249,6 +249,8 @@ export default async function DashboardPage() {
     .order('prompt_at', { ascending: true })
 
   // Fetch team member stats for managers/admins and team members
+  const orgFeatures = await getOrgFeatures(profile.org_id)
+  const canvassingOn = orgFeatures.canvassing
   let teamMemberStats: any[] = []
   let setterTeamStats: any[] = []
   let closerTeamStats: any[] = []
@@ -276,7 +278,9 @@ export default async function DashboardPage() {
       membersQuery = membersQuery.eq('team_id', profile.team_id)
     }
 
-    const { data: members } = await membersQuery
+    const { data: allMembers } = await membersQuery
+    // Setter stats only exist for door-knocking companies: otherwise setter rows are neither built nor sent to the browser.
+    const members = canvassingOn ? allMembers : (allMembers ?? []).filter((m) => !isSetterLikeRole(m.role))
     
     if (members && members.length > 0) {
       const built: any[] = []
@@ -321,7 +325,7 @@ export default async function DashboardPage() {
 
       teamMemberStats = built
 
-      setterTeamStats = teamMemberStats
+      setterTeamStats = !canvassingOn ? [] : teamMemberStats
         .filter((m) => isSetterLikeRole(m.role))
         .sort((a, b) => {
           if (b.inspectionsSet !== a.inspectionsSet) return b.inspectionsSet - a.inspectionsSet
@@ -393,7 +397,7 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <DashboardClient
-        orgFeatures={await getOrgFeatures(profile.org_id)}
+        orgFeatures={orgFeatures}
         orgProfile={clientOrgProfile(await loadOrgProfile(createServiceClient(), profile.org_id))}
         profile={profile}
         stats={stats}

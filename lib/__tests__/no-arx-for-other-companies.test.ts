@@ -6,7 +6,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { PRODUCT_NAME } from '@/lib/product'
-import { isOriginalCompanyEmail, resolveOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
+import { getOrgBrandResult, resolveOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import { seedReportDoc } from '@/lib/inspection-report/types'
 import { printKitBrand } from '@/lib/print-kit'
 import { builtInContractsAvailable } from '@/lib/org-profile'
@@ -29,20 +29,36 @@ describe('another company never gets ARX identity', () => {
   })
 
   it('the original company keeps its fallback exactly', () => {
-    const b = resolveOrgBrand({ name: 'ARX Roofing & Exteriors', email: 'info@arxroofing.com' })
+    const b = resolveOrgBrand({ name: 'ARX Roofing & Exteriors', original_brand: true })
     expect(b.website).toBe('arxroofing.com')
-    expect(isOriginalCompanyEmail(b.email)).toBe(true)
     expect(usesOriginalCompanyAssets(b)).toBe(true)
     expect(resolveOrgBrand(null).name).toBe('ARX Roofing & Exteriors')
   })
 
-  it('a name is not the marker: "ARX Lawn" (its own email) gets nothing of the original company', () => {
+  it('a name or an email is not the marker: "ARX Lawn" (even holding the original alias) gets nothing of the original company', () => {
     const b = resolveOrgBrand({ name: 'ARX Lawn', email: 'hello@arxlawn.example' })
     expect(b.website).toBe('')
     expect(b.phone).toBe('')
     expect(usesOriginalCompanyAssets(b)).toBe(false)
     expect(builtInContractsAvailable({ id: 'roofing' }, usesOriginalCompanyAssets(b))).toBe(false)
     expect(resolveOrgBrand({ name: 'ARX Lawn' }).email).toBe('')
+    // a manager-writable column cannot claim the original company
+    const spoof = resolveOrgBrand({ name: 'ARX Lawn', email: 'info@arxroofing.com', original_brand: false })
+    expect(spoof.website).toBe('')
+    expect(usesOriginalCompanyAssets(spoof)).toBe(false)
+  })
+
+  it('fails closed: an unreadable or missing org row is neutral and not original', async () => {
+    const failing = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: new Error('down') }) }) }) }) }
+    const missing = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) }
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    for (const client of [failing, missing]) {
+      const r = await getOrgBrandResult(client as never, 'org-1')
+      expect(r.ok).toBe(false)
+      expect(r.brand.phone).toBe('')
+      expect(mentionsArx(JSON.stringify(r.brand))).toBe(false)
+      expect(usesOriginalCompanyAssets(r.brand)).toBe(false)
+    }
   })
 
   it('the roof report default copy uses the company, and the original text is unchanged for ARX', () => {
