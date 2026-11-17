@@ -10,6 +10,8 @@ import ThreadPanel from '@/components/customer-file/ThreadPanel'
 import ContractListItem from '@/components/contracts/ContractListItem'
 import { Card, CardContent, CardHeader, CardTitle, StatusPill } from '@/components/ui'
 import JobView from '@/app/ops/jobs/[id]/JobView'
+import SalesTab from '@/components/customer-file/SalesTab'
+import { loadOrgProfile } from '@/lib/org-profile'
 import OpportunityView from '@/app/opportunities/[id]/OpportunityView'
 import { loadCheckups } from '@/lib/checkups'
 import { formatDate } from '@/lib/format'
@@ -30,7 +32,12 @@ export default async function TabBody({ customerId, dealId, tab, jobTab = null }
     case 'overview':
       return <Overview customerId={customerId} dealId={dealId} />
     case 'sales':
-      // The existing opportunity page, re-shelled (no second Nav).
+      // Roofing keeps the opportunity page (its roof sections), re-shelled (no second Nav). Every other company — and anyone
+      // who may see pricing — gets the Overview-style Sales cards; pricing-barred / setter-like viewers keep the page (it
+      // already hides sales documents from them).
+      if (!ctx.viewer.pricingBarred && !ctx.viewer.setterLike && (await loadOrgProfile(createServiceClient(), ctx.viewer.orgId)).id !== 'roofing') {
+        return <SalesTab customerId={customerId} dealId={dealId} />
+      }
       return <OpportunityView params={{ id: dealId }} embedded />
     case 'job':
       return ctx.job ? (

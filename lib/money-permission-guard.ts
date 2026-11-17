@@ -1,11 +1,11 @@
 /**
- * Only an owner may add or remove the two money permissions (reports:financials, money:record), on a person OR on a role.
+ * Only an owner may add or remove the money permissions (reports:financials, money:record, jobs:financials:view), on a person OR on a role.
  * Every other permission-editing route (user permissions, roles, new users, single grants) runs its request through here so the
  * "owner-only" rule cannot be side-stepped by editing a role or saving a user's permission list.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { DENIABLE_PERMISSIONS } from '@/lib/effective-permissions'
+import { OWNER_ONLY_MONEY_PERMISSIONS } from '@/lib/effective-permissions'
 import { isOwnerProfile } from '@/lib/super-admin'
 
 export async function actorIsOwner(admin: SupabaseClient, actorId: string): Promise<boolean> {
@@ -14,12 +14,12 @@ export async function actorIsOwner(admin: SupabaseClient, actorId: string): Prom
 }
 
 export async function moneyPermissionIds(admin: SupabaseClient): Promise<Set<string>> {
-  const { data } = await admin.from('permissions').select('id').in('name', [...DENIABLE_PERMISSIONS])
+  const { data } = await admin.from('permissions').select('id').in('name', [...OWNER_ONLY_MONEY_PERMISSIONS])
   return new Set((data ?? []).map((p: { id: string }) => p.id))
 }
 
 export function isMoneyPermissionName(name: unknown): boolean {
-  return (DENIABLE_PERMISSIONS as readonly string[]).includes(String(name))
+  return (OWNER_ONLY_MONEY_PERMISSIONS as readonly string[]).includes(String(name))
 }
 
 /**

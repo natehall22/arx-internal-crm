@@ -6,6 +6,7 @@ import {
   getExistingCompletionCertificate,
 } from '@/lib/completion-certificate'
 import { pickValidEmail } from '@/lib/setter-email'
+import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 
 export const runtime = 'nodejs'
 
@@ -36,7 +37,7 @@ export async function GET(
       document,
       can_send: (job as any).status === 'complete' || (job as any).status === 'collected',
       default_email: pickValidEmail(customer?.email) ?? '',
-      job_type: (job as any).job_type ?? null,
+      job_type: (job as any).job_type ? tradeLabel((job as any).job_type, await loadOrgTrades(supabase, profile.org_id)) : null,
       work_description: (job as any).completion_certificate_work_description ?? null,
     })
   } catch (error: any) {
