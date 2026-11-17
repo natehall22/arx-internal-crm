@@ -169,6 +169,38 @@ export const HARNESS_DASHBOARD = {
   progress: { doors_knocked: { current: 412, goal: 500 }, contacts: { current: 96, goal: 120 }, inspections: { current: 11, goal: 12 }, sales: { current: 3, goal: 4 } },
 }
 
+/** The lawn company's card dashboard (components/dashboard/CardDashboard.tsx): numbers as the server hands them over, money included (an owner). */
+export const HARNESS_CARD_DASHBOARD: import('../lib/dashboard-cards').CardData[] = [
+  { kind: 'tile', key: 'billed-week', label: 'Billed this week', display: 'money', value: 18420, goal: 25000 },
+  { kind: 'tile', key: 'collected-week', label: 'Collected this week', display: 'money', value: 12150, goal: null },
+  { kind: 'tile', key: 'unpaid-overdue', label: 'Unpaid and overdue', display: 'money', value: 6980, goal: null, sub: '9 unpaid · 3 overdue' },
+  { kind: 'tile', key: 'active-plans', label: 'Active plans', display: 'count', value: 142, goal: null },
+  { kind: 'tile', key: 'new-plans-month', label: 'New plans this month', display: 'count', value: 11, goal: 20 },
+  { kind: 'tile', key: 'visits-done-week', label: 'Visits done', display: 'count', value: 64, goal: 90, sub: 'of 88 scheduled this week' },
+  { kind: 'tile', key: 'visits-skipped-week', label: 'Visits skipped', display: 'count', value: 7, goal: null, sub: 'Rain 4 · Customer not home 2 · Gate locked 1' },
+  { kind: 'tile', key: 'visits-moved-week', label: 'Rain-day moves', display: 'count', value: 12, goal: null },
+  { kind: 'tile', key: 'quotes-won-week', label: 'Quotes won', display: 'count', value: 5, goal: null },
+  { kind: 'tile', key: 'win-rate', label: 'Win rate', display: 'percent', value: 38, goal: null },
+  { kind: 'tile', key: 'dollars-sold-week', label: 'Dollars sold', display: 'money', value: 9650, goal: null },
+  { kind: 'leaderboard', key: 'salespeople', label: 'Salespeople', failed: false, empty: '', columns: [{ key: 'wins', label: 'Quotes won', format: 'count' }, { key: 'dollars', label: 'Dollars sold', format: 'money' }], rows: [{ id: 'a', name: 'Jordan Rivera', values: [3, 6200] }, { id: 'b', name: 'Casey Morgan', values: [2, 3450] }] },
+  { kind: 'leaderboard', key: 'crews', label: 'Crews', failed: false, empty: '', columns: [{ key: 'done', label: 'Visits done', format: 'count' }, { key: 'hours', label: 'Hours', format: 'hours' }, { key: 'skips', label: 'Skips', format: 'count' }], rows: [{ id: 'c1', name: 'Mow Crew North', values: [31, 112.5, 2] }, { id: 'c2', name: 'Mow Crew South', values: [26, 98, 4] }, { id: 'c3', name: 'Landscape Crew', values: [7, 41.5, 1] }] },
+]
+
+/** GET /api/admin/dashboard-cards for the lawn company (an owner editing). */
+export const HARNESS_DASHBOARD_CARDS_API = {
+  mode: 'cards', editingMode: 'cards', custom: false, startsClassic: false, canEdit: true,
+  cards: [{ key: 'billed-week', goal: 25000 }, { key: 'collected-week', goal: null }, { key: 'visits-done-week', goal: null }, { key: 'salespeople', goal: null }],
+  offered: [
+    { key: 'billed-week', label: 'Billed this week', description: 'Job contracts and service invoices billed since Sunday, sales tax included (the Revenue report).', group: 'Money', goal: true, goalUnit: 'money' },
+    { key: 'collected-week', label: 'Collected this week', description: 'Payments received since Sunday, refunds taken off (the Revenue report).', group: 'Money', goal: true, goalUnit: 'money' },
+    { key: 'unpaid-overdue', label: 'Unpaid and overdue', description: 'What customers still owe on sent invoices, and how many are past due.', group: 'Money', goal: false, goalUnit: 'money' },
+    { key: 'visits-done-week', label: 'Visits done', description: 'Visits finished this week, of the visits scheduled for the week.', group: 'Work', goal: true, goalUnit: 'count' },
+    { key: 'quotes-won-week', label: 'Quotes won', description: 'Quotes approved and signed since Sunday.', group: 'Sales', goal: true, goalUnit: 'count' },
+    { key: 'salespeople', label: 'Salespeople', description: 'Quotes won and dollars sold since Sunday, per salesperson.', group: 'Leaderboards', goal: false, goalUnit: 'count' },
+  ],
+  unavailable: [{ key: 'mrr', label: 'Monthly recurring revenue', reason: 'Turning per-visit, per-month and per-year plan prices into one monthly number is new money math; no report or loader does it.' }],
+}
+
 export const BANNER = {
   announcement: {
     id: '11111111-1111-4111-8111-111111111111', title: "What's new",
