@@ -8,6 +8,8 @@ const signContract = jest.fn()
 jest.mock('@/app/api/contracts/sign/route', () => ({ POST: (...a: unknown[]) => signContract(...a) }))
 const notifySale = jest.fn()
 jest.mock('@/lib/admin-sale-email', () => ({ buildOrderFormContractSaleDescription: (c: { scope_other?: string }) => c.scope_other ?? 'sold', notifyOrgAdminsOfSale: (...a: unknown[]) => notifySale(...a) }))
+const postMessage = jest.fn()
+jest.mock('@/lib/threads/post-message', () => ({ postMessage: (...a: unknown[]) => postMessage(...a) }))
 const addInvoiceItem = jest.fn()
 const finalizeAndSendInvoice = jest.fn()
 jest.mock('@/lib/invoices', () => ({ addInvoiceItem: (...a: unknown[]) => addInvoiceItem(...a), finalizeAndSendInvoice: (...a: unknown[]) => finalizeAndSendInvoice(...a), computeInvoiceBalance: jest.fn() }))
@@ -75,7 +77,7 @@ function setup(lines: L[], withPlans = true) {
       proposals: [{ id: 'p1', org_id: ORG, status: 'sent', opportunity_id: 'o1', proposal_number: 'P-1', customer_name: 'Pat Doe', customer_email: 'pat@x.test', customer_phone: null, customer_address: '12 Maple Ct', discount_percent: 0, created_by: 'u1' }],
       proposal_line_items: lines.map((l) => ({ ...l, org_id: ORG, proposal_id: 'p1' })),
       opportunities: [{ id: 'o1', org_id: ORG, owner_user_id: 'closer1', setter_user_id: null, customer_id: 'c1', status: 'open' }],
-      users: [{ id: 'closer1', org_id: ORG, full_name: 'Casey Closer' }],
+      users: [{ id: 'closer1', org_id: ORG, full_name: 'Casey Closer' }, { id: 'u1', org_id: ORG, full_name: 'Sender', role: 'admin', active: true }],
       activities: [],
       quote_links: [{ id: 'ql1', org_id: ORG, created_by: 'u1' }],
     },
@@ -98,6 +100,7 @@ beforeEach(() => {
   addInvoiceItem.mockResolvedValue({})
   finalizeAndSendInvoice.mockResolvedValue({})
   sendApprovalConfirmation.mockResolvedValue(true)
+  postMessage.mockResolvedValue({ ok: true })
   upsertCustomer.mockResolvedValue({ customer_id: 'c-new', created: true })
   findOrCreateProperty.mockResolvedValue({ ok: true, propertyId: 'prop1' })
   loadServicePlan.mockImplementation(async () => ({ start_date: '2027-04-01', end_date: null, status: 'active', paused_until: null, seasons, preferred_weekday: null }))
@@ -126,7 +129,9 @@ describe('plan-only quote', () => {
     expect(db.tables.job_invoices ?? []).toHaveLength(0)
     expect(db.tables.opportunities[0].status).toBe('won')
     expect(db.tables.proposals[0].status).toBe('accepted')
-    expect(db.tables.activities.filter((x) => x.type === 'status_change')).toHaveLength(1)
+    expect(db.tables.activities.filter((x) => x.type === 'status_change')).toHaveLength(0)
+    expect(postMessage).toHaveBeenCalledTimes(1)
+    expect(postMessage.mock.calls[0][3]).toMatchObject({ audience: 'sales', clientId: `quote-approval-won:${a.id}`, noMentions: true })
     expect(notifySale).toHaveBeenCalledTimes(1)
     expect(notifySale.mock.calls[0][1]).toMatchObject({ orgId: ORG, customerName: 'Pat Doe', totalAmount: value / 100, closerName: 'Casey Closer' })
     expect(createServicePlan).toHaveBeenCalledTimes(1)
@@ -150,7 +155,33 @@ describe('plan-only quote', () => {
     expect(db.tables.production_jobs ?? []).toHaveLength(0)
     expect(db.tables.order_form_contracts ?? []).toHaveLength(0)
     expect(notifySale).toHaveBeenCalledTimes(1) // the owner notice is sent once, not again on the retry
-    expect(db.tables.activities.filter((x) => x.type === 'status_change')).toHaveLength(1)
+    expect(db.tables.activities.filter((x) => x.type === 'status_change')).toHaveLength(0)
+  })
+
+  it('a deal already won (by hand) still gets the note and the owner email, once; a later run sends neither again', async () => {
+    const db = setup([recurring('r1', 45)])
+    db.tables.opportunities[0].status = 'won'
+    await approve(db)
+    expect(postMessage).toHaveBeenCalledTimes(1)
+    expect(notifySale).toHaveBeenCalledTimes(1)
+    db.tables.quote_approvals[0].finalized_at = null
+    db.tables.quote_approvals[0].finalize_claimed_at = null
+    await finalizeApproval(db.client, ORG, String(db.tables.quote_approvals[0].id), { now: new Date('2027-03-21T15:00:00Z') })
+    expect(notifySale).toHaveBeenCalledTimes(1)
+    expect(postMessage).toHaveBeenCalledTimes(2) // the same clientId: the thread write path returns the first note
+    expect(new Set(postMessage.mock.calls.map((c) => c[3].clientId)).size).toBe(1)
+  })
+
+  it('a run that stopped before the email still sends it on the next run', async () => {
+    const db = setup([recurring('r1', 45)])
+    notifySale.mockRejectedValueOnce(new Error('smtp'))
+    await approve(db)
+    expect(db.tables.quote_approvals[0].sale_notified_at ?? null).toBeNull()
+    db.tables.quote_approvals[0].finalized_at = null
+    db.tables.quote_approvals[0].finalize_claimed_at = null
+    await finalizeApproval(db.client, ORG, String(db.tables.quote_approvals[0].id), { now: new Date('2027-03-21T15:00:00Z') })
+    expect(notifySale).toHaveBeenCalledTimes(2)
+    expect(db.tables.quote_approvals[0].sale_notified_at).toBeTruthy()
   })
 
   it('refuses when the recurring line cannot be sold (plans off / template gone)', async () => {

@@ -150,7 +150,7 @@ describe('builder gating (servicePlans + quoteApproval)', () => {
 
 describe('recurring sales reporting is separate from signed sales', () => {
   const fs = require('fs') as typeof import('fs')
-  const sql = fs.readFileSync('supabase/migrations/202611300020_quote_recurring_estimate.sql', 'utf8')
+  const sql = fs.readFileSync('supabase/migrations/202611300120_quote_recurring_estimate.sql', 'utf8')
   it('rpt_sales is not redefined; rpt_recurring_sales counts only finalized approvals with a plan that has not ended', () => {
     expect(sql).not.toMatch(/CREATE OR REPLACE VIEW\s+(public\.)?rpt_sales\b/i)
     expect(sql).toMatch(/CREATE OR REPLACE VIEW public\.rpt_recurring_sales WITH \(security_invoker = true\)/)

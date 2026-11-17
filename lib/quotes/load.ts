@@ -92,7 +92,7 @@ export async function loadQuoteContext(admin: SupabaseClient, orgId: string, pro
   if (!p) return null
   const proposal = p as QuoteProposal
   let { data: l, error: lineErr } = await db.from('proposal_line_items').select(RECURRING_LINE_COLS).eq('proposal_id', proposalId).order('sort_order', { ascending: true })
-  // Before migration 202611300010 is applied the recurring columns do not exist: read the old column list (every quote without a recurring line is unchanged).
+  // Before migration 202611300110 is applied the recurring columns do not exist: read the old column list (every quote without a recurring line is unchanged).
   if (lineErr) ({ data: l } = await db.from('proposal_line_items').select(LINE_COLS).eq('proposal_id', proposalId).order('sort_order', { ascending: true }))
   const lines = ((l ?? []) as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),

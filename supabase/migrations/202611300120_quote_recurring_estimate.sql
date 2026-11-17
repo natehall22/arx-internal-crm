@@ -5,6 +5,7 @@
 --    A PLAN-ONLY quote (no one-time lines) makes no contract, job or deposit; its total_cents (which must stay > 0 under the
 --    existing check) holds this estimate as a placeholder and `snapshot.planOnly` says so (approvalOneTimeCents reads 0).
 -- 2. quote_approvals.pdf_path: where the approval PDF is stored when there is no contract to hang it on (plan-only).
+--    quote_approvals.sale_notified_at marks that email so any finalize run can send it once.
 -- 3. quote_links.portal_token_enc: the customer portal's reusable "open quote" link (sealed token; row has sent_to = 'portal').
 -- 4. service_plans.sold_by_user_id / quote_approval_id: who sold the plan (the deal's closer) and the approval it came from,
 --    so a later comp rule can attribute PAID plan invoices to the selling salesperson. Nothing pays on them yet.
@@ -15,7 +16,8 @@ BEGIN;
 
 ALTER TABLE public.quote_approvals
   ADD COLUMN IF NOT EXISTS recurring_estimate_cents integer NULL CHECK (recurring_estimate_cents IS NULL OR recurring_estimate_cents >= 0),
-  ADD COLUMN IF NOT EXISTS pdf_path text NULL;
+  ADD COLUMN IF NOT EXISTS pdf_path text NULL,
+  ADD COLUMN IF NOT EXISTS sale_notified_at timestamptz NULL; -- plan-only sale: the owner sale email went out for this approval (sent once)
 
 ALTER TABLE public.quote_links
   ADD COLUMN IF NOT EXISTS portal_token_enc text NULL;
