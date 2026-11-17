@@ -11,11 +11,19 @@
  * points with the JS port of the same formula below (`polygonAreaSqft`, `pathLengthFeet`), stores its own value, and
  * refuses a request whose value is more than 2% off. Totals are always `computeTotals` over the server's values.
  *
- * CUT-OUTS — what we chose: a cut-out is subtracted from the TOTAL of the type it "takes from" (Lawn by default, or Beds),
- * never clipped against one particular lawn shape. A true polygon overlap needs polygon clipping (a house outline that
- * is partly off the lawn, an L-shaped house...) and a wrong clip would silently misprice a job; the total rule is simple
- * and the crew lead can see why the number is what it is. The result never goes below zero. A cut-out drawn outside any
- * lawn still subtracts, so draw cut-outs only where they sit on grass or beds.
+ * CUT-OUTS — cookie cutter (Nathan, 2026-11-16; reverses the earlier "subtract the whole cut-out from the total" rule): a cut-out
+ * removes ONLY the part of it that overlaps the shapes of the type it "takes from" (Lawn by default, or Beds). Draw a house over the
+ * edge of the lawn and only the part on the grass comes out; a cut-out entirely off the lawn removes 0.
+ *   lawn_sqft = area( union(lawn shapes) - union(cut-outs taking from lawn) ), and the same for beds.
+ * Overlapping lawns, overlapping beds and overlapping cut-outs never count twice (union first). `cutout_sqft` is the area actually removed.
+ * The geometry is done by `polygon-clipping` (union / difference) on a flat local plane around the measurement's centroid
+ * (equirectangular: fine at yard scale); every resulting polygon, holes included, is projected back and measured with the SAME
+ * spherical formula as a single shape (`polygonAreaSqm`), so the screen and the server get identical totals from the same points.
+ * `cookieCutter` is the one place this is computed: the totals AND the map's "lawn with a hole" fill both read it.
+ * A shape whose outline crosses itself has no single area: it is left out of the geometry (the screen shows which one, and the
+ * save is refused) until its points are dragged apart.
+ * HISTORY: a measurement saved under the old rule keeps its stored totals (`area_measurements.totals`, never rewritten). Re-opening one
+ * recomputes live with this rule; the new totals are stored only when it is saved again (as a new row).
  *
  * Every material number is an ESTIMATE ("est."): it is area x the company's depth or coverage, with no waste or overlap.
  *
@@ -23,6 +31,7 @@
  * feat/price-sheet) would read the plain columns `lawn_sqft` / `bed_sqft` / `line_feet` of the newest `area_measurements`
  * row for the property (`GET /api/area-measure?property_id=` returns them as `latest`). Nothing here depends on that branch.
  */
+import polygonClipping from 'polygon-clipping'
 
 export const SHAPE_TYPES = ['lawn', 'bed', 'cutout', 'line'] as const
 export type ShapeType = (typeof SHAPE_TYPES)[number]
@@ -39,7 +48,7 @@ export const SHAPE_TYPE_LABELS: Record<ShapeType, string> = {
 export const SHAPE_TYPE_HELP: Record<ShapeType, string> = {
   lawn: 'Grass to mow',
   bed: 'Flower beds and landscaping',
-  cutout: 'House, driveway, pool: taken out of the lawn or beds',
+  cutout: 'House, driveway, pool: only the part on the lawn or beds comes out',
   line: 'Edging, fence, borders (feet)',
 }
 
@@ -118,45 +127,77 @@ export function pathLengthMeters(points: readonly LatLngPoint[], radius: number 
 export const polygonAreaSqft = (points: readonly LatLngPoint[]): number => sqmToSqft(polygonAreaSqm(points))
 export const pathLengthFeet = (points: readonly LatLngPoint[]): number => metersToFeet(pathLengthMeters(points))
 
-export const LINES_CROSS_MESSAGE = 'Lines cross — redraw'
+export const LINES_CROSS_MESSAGE = 'Lines cross — drag a point to fix it'
+/** While drawing, a crossing can also be undone. */
+export const LINES_CROSS_DRAFT_MESSAGE = 'Lines cross — undo the last point or drag a point to fix it'
+
+type XY = { x: number; y: number }
+
+/** An outline's two edges that touch or cross: edge i runs from point i to point i+1 (the last edge closes back to point 0). */
+export type Crossing = { edgeA: number; edgeB: number; at: LatLngPoint }
 
 /**
- * Does a closed outline cross itself (a bow-tie, a figure 8)? Two edges that are not neighbours may not touch. Works in a flat
- * local frame (metres around the shape), which is exact enough for a yard. A repeated point or a touching vertex counts, so
- * "redraw" is the safe answer: a self-crossing outline has no single area, and Google's number for it is not the yard's.
+ * Every place a closed outline touches or crosses itself (a bow-tie, a figure 8). Two edges that are not neighbours may not touch.
+ * Works in a flat local frame (metres around the shape), which is exact enough for a yard. A repeated point or a touching vertex
+ * counts: a self-crossing outline has no single area, and Google's number for it is not the yard's. `at` is where, for the screen.
  */
-export function polygonSelfIntersects(points: readonly LatLngPoint[]): boolean {
+export function polygonCrossings(points: readonly LatLngPoint[]): readonly Crossing[] {
+  // O(n^2) per outline and asked several times for the same points (parse, cookie cutter, the screen's map / status / save checks).
+  // Points arrays are never changed in place (a drag makes a new array), so the answer is kept per array.
+  const hit = crossingsCache.get(points)
+  if (hit) return hit
+  const found = findCrossings(points)
+  crossingsCache.set(points, found)
+  return found
+}
+const crossingsCache = new WeakMap<readonly LatLngPoint[], readonly Crossing[]>()
+
+function findCrossings(points: readonly LatLngPoint[]): Crossing[] {
   const n = points.length
-  if (n < 4) return false
+  if (n < 4) return []
   const lat0 = points.reduce((a, p) => a + p.lat, 0) / n
   const kx = Math.cos(toRad(lat0)) * EARTH_RADIUS_M * (Math.PI / 180)
   const ky = EARTH_RADIUS_M * (Math.PI / 180)
-  const xy = points.map((p) => ({ x: p.lng * kx, y: p.lat * ky }))
-  const orient = (a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): number => {
+  const xy: XY[] = points.map((p) => ({ x: p.lng * kx, y: p.lat * ky }))
+  const orient = (a: XY, b: XY, c: XY): number => {
     const v = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
     return Math.abs(v) < 1e-9 ? 0 : v > 0 ? 1 : -1
   }
-  const onSeg = (a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): boolean =>
+  const onSeg = (a: XY, b: XY, c: XY): boolean =>
     Math.min(a.x, b.x) - 1e-9 <= c.x && c.x <= Math.max(a.x, b.x) + 1e-9 && Math.min(a.y, b.y) - 1e-9 <= c.y && c.y <= Math.max(a.y, b.y) + 1e-9
-  const crosses = (a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }, d: { x: number; y: number }): boolean => {
+  /** Where two edges meet, or null when they do not. */
+  const meet = (a: XY, b: XY, c: XY, d: XY): XY | null => {
     const o1 = orient(a, b, c)
     const o2 = orient(a, b, d)
     const o3 = orient(c, d, a)
     const o4 = orient(c, d, b)
-    if (o1 !== o2 && o3 !== o4) return true
-    return (o1 === 0 && onSeg(a, b, c)) || (o2 === 0 && onSeg(a, b, d)) || (o3 === 0 && onSeg(c, d, a)) || (o4 === 0 && onSeg(c, d, b))
+    if (o1 !== o2 && o3 !== o4) {
+      const den = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x)
+      if (Math.abs(den) < 1e-12) return a
+      const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / den
+      return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) }
+    }
+    if (o1 === 0 && onSeg(a, b, c)) return c
+    if (o2 === 0 && onSeg(a, b, d)) return d
+    if (o3 === 0 && onSeg(c, d, a)) return a
+    if (o4 === 0 && onSeg(c, d, b)) return b
+    return null
   }
+  const out: Crossing[] = []
   for (let i = 0; i < n; i++) {
     const a = xy[i]
     const b = xy[(i + 1) % n]
     for (let j = i + 1; j < n; j++) {
       // neighbours share a vertex by design
       if (j === i + 1 || (i === 0 && j === n - 1)) continue
-      if (crosses(a, b, xy[j], xy[(j + 1) % n])) return true
+      const m = meet(a, b, xy[j], xy[(j + 1) % n])
+      if (m) out.push({ edgeA: i, edgeB: j, at: { lat: m.y / ky, lng: m.x / kx } })
     }
   }
-  return false
+  return out
 }
+
+export const polygonSelfIntersects = (points: readonly LatLngPoint[]): boolean => polygonCrossings(points).length > 0
 
 /** The browser's own number may differ from ours by rounding only: more than this fraction (or 1 sq ft / 1 ft on a tiny shape) is refused. */
 export const MEASURE_TOLERANCE = 0.02
@@ -238,15 +279,81 @@ export function bedMaterials(sqft: number, settings: AreaMeasureSettings): BedMa
   return { mulchCuYd: mulchCubicYards(sqft, settings.mulchDepthIn), strawBales: pineStrawBales(sqft, settings.strawSqftPerBale) }
 }
 
+// ---- cookie cutter: union of lawns / beds minus union of the cut-outs that take from them ----
+/** One piece of land: the outer ring first, then its holes (as `polygon-clipping` returns them: outer counter-clockwise, holes clockwise, which is what Google's Polygon `paths` wants). Rings are NOT closed (no repeated first point). */
+export type Region = LatLngPoint[][]
+
+type Pair = [number, number]
+type Multi = Pair[][][]
+
+export type CookieCutter = {
+  lawnGross: Region[]
+  lawnNet: Region[]
+  bedGross: Region[]
+  bedNet: Region[]
+}
+
+const isFilledPolygon = (s: AreaShape): boolean => isPolygonType(s.type) && s.points.length >= 3
+
+/** Square feet of a set of regions: each outer ring minus its holes, every ring measured with the one spherical formula. */
+export function regionsAreaSqft(regions: readonly Region[]): number {
+  let total = 0
+  for (const [outer, ...holes] of regions) {
+    total += polygonAreaSqft(outer)
+    for (const h of holes) total -= polygonAreaSqft(h)
+  }
+  return Math.max(0, total)
+}
+
+/** Shown when the clipping library cannot handle a drawing (it throws on some near-degenerate inputs). The points are kept. */
+export const GEOMETRY_FAILED_MESSAGE = 'These shapes could not be measured together. Drag a point of the newest shape a little, then save again.'
+
+/**
+ * The ONE cookie-cutter computation (see the header). Shapes that cross themselves are left out until fixed.
+ * May THROW (polygon-clipping does on some near-degenerate inputs): the save checks it in `parseShapesInput`, the screen catches it.
+ */
+export function cookieCutter(shapes: readonly AreaShape[]): CookieCutter {
+  const usable = shapes.filter((s) => isFilledPolygon(s) && !polygonSelfIntersects(s.points))
+  const all = usable.flatMap((s) => s.points)
+  if (all.length === 0) return { lawnGross: [], lawnNet: [], bedGross: [], bedNet: [] }
+  // Flat plane (metres) around the centroid of everything drawn.
+  const lat0 = all.reduce((a, p) => a + p.lat, 0) / all.length
+  const lng0 = all.reduce((a, p) => a + p.lng, 0) / all.length
+  const ky = EARTH_RADIUS_M * (Math.PI / 180)
+  const kx = Math.cos(toRad(lat0)) * ky
+  const toXY = (p: LatLngPoint): Pair => [(p.lng - lng0) * kx, (p.lat - lat0) * ky]
+  const toLatLng = ([x, y]: Pair): LatLngPoint => ({ lat: lat0 + y / ky, lng: lng0 + x / kx })
+
+  const polys = (pick: (s: AreaShape) => boolean): Pair[][][] => usable.filter(pick).map((s) => [s.points.map(toXY)])
+  const union = (list: Pair[][][]): Multi => {
+    if (list.length === 0) return []
+    const [first, ...rest] = list
+    return polygonClipping.union(first, ...rest) as Multi
+  }
+  const minus = (a: Multi, b: Multi): Multi => (a.length === 0 || b.length === 0 ? a : (polygonClipping.difference(a, b) as Multi))
+  const back = (m: Multi): Region[] => m.map((poly) => poly.map((ring) => ring.slice(0, -1).map(toLatLng)))
+
+  const lawnGross = union(polys((s) => s.type === 'lawn'))
+  const bedGross = union(polys((s) => s.type === 'bed'))
+  const cutLawn = union(polys((s) => s.type === 'cutout' && s.takesFrom !== 'bed'))
+  const cutBed = union(polys((s) => s.type === 'cutout' && s.takesFrom === 'bed'))
+  return {
+    lawnGross: back(lawnGross),
+    lawnNet: back(minus(lawnGross, cutLawn)),
+    bedGross: back(bedGross),
+    bedNet: back(minus(bedGross, cutBed)),
+  }
+}
+
 // ---- totals ----
 export type AreaTotals = {
-  /** Sum of every lawn shape, before cut-outs. */
+  /** The lawn shapes together (overlaps counted once), before cut-outs. */
   lawnGrossSqft: number
-  /** Lawn after the cut-outs that take from lawn (never below 0). */
+  /** Lawn after the parts of cut-outs that sit on it. */
   lawnSqft: number
   bedGrossSqft: number
   bedSqft: number
-  /** Cut-outs that take from lawn / from beds / both. */
+  /** Area actually removed from the lawn / from the beds / both (a cut-out's part off the lawn removes nothing). */
   cutoutLawnSqft: number
   cutoutBedSqft: number
   cutoutSqft: number
@@ -260,25 +367,25 @@ export type AreaTotals = {
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
 
-/** The ONE totals rule: the screen's live totals and the saved totals are both this function over the same shapes. */
-export function computeTotals(shapes: readonly AreaShape[], settings: AreaMeasureSettings = AREA_MEASURE_DEFAULTS): AreaTotals {
-  let lawnGross = 0
-  let bedGross = 0
-  let cutLawn = 0
-  let cutBed = 0
+/** The ONE totals rule: the screen's live totals and the saved totals are both this function over the same shapes (their points). */
+export function computeTotals(
+  shapes: readonly AreaShape[],
+  settings: AreaMeasureSettings = AREA_MEASURE_DEFAULTS,
+  /** The screen passes the `cookieCutter(shapes)` it already has for the map, so the geometry is done once. */
+  cc: CookieCutter = cookieCutter(shapes)
+): AreaTotals {
   let lineFeet = 0
   const counts: Record<ShapeType, number> = { lawn: 0, bed: 0, cutout: 0, line: 0 }
   for (const s of shapes) {
     counts[s.type] += 1
-    if (s.type === 'lawn') lawnGross += num(s.sqft)
-    else if (s.type === 'bed') bedGross += num(s.sqft)
-    else if (s.type === 'cutout') {
-      if (s.takesFrom === 'bed') cutBed += num(s.sqft)
-      else cutLawn += num(s.sqft)
-    } else lineFeet += num(s.feet)
+    if (s.type === 'line') lineFeet += num(s.feet)
   }
-  const lawn = Math.max(0, lawnGross - cutLawn)
-  const bed = Math.max(0, bedGross - cutBed)
+  const lawnGross = regionsAreaSqft(cc.lawnGross)
+  const lawn = regionsAreaSqft(cc.lawnNet)
+  const bedGross = regionsAreaSqft(cc.bedGross)
+  const bed = regionsAreaSqft(cc.bedNet)
+  const cutLawn = Math.max(0, lawnGross - lawn)
+  const cutBed = Math.max(0, bedGross - bed)
   return {
     lawnGrossSqft: round(lawnGross, 1),
     lawnSqft: round(lawn, 1),
@@ -333,7 +440,7 @@ const ID_PATTERN = /^[A-Za-z0-9_-]{1,40}$/
  * counts, coordinate ranges and measured values are all checked; `takesFrom` is kept only on cut-outs; the id is kept
  * only when it is a safe short token. The sqft / feet are MEASURED HERE from the points (`polygonAreaSqft`, `pathLengthFeet`,
  * a port of Google's computeArea / computeLength) and the server's value is stored; the browser's value is optional and
- * refused when more than 2% off. An outline that crosses itself is refused. The TOTALS are `computeTotals` over those.
+ * refused when more than 2% off. An outline that crosses itself is refused, by name. The TOTALS are `computeTotals` over those points (cookie-cutter rule, see the header).
  */
 export function parseShapesInput(input: unknown): { shapes: AreaShape[] } | { error: string } {
   if (!Array.isArray(input)) return { error: 'Shapes must be a list' }
@@ -369,7 +476,10 @@ export function parseShapesInput(input: unknown): { shapes: AreaShape[] } | { er
     const shape: AreaShape = { id: typeof raw.id === 'string' && ID_PATTERN.test(raw.id) && !seen.has(raw.id) ? raw.id : `s${i + 1}`, type: t, name, points }
     seen.add(shape.id)
     if (isPolygonType(t)) {
-      if (polygonSelfIntersects(points)) return { error: `Shape ${i + 1}: ${LINES_CROSS_MESSAGE}` }
+      if (polygonSelfIntersects(points)) {
+        const nth = input.slice(0, i + 1).filter((x) => asObject(x).type === t).length
+        return { error: `${name || `${SHAPE_TYPE_LABELS[t]} ${nth}`} (shape ${i + 1}): ${LINES_CROSS_MESSAGE}. Nothing was lost: drag its points on the map, then save again.` }
+      }
       // The SERVER's measurement is the one stored. The browser's (Google's) is optional and only checked against it.
       const serverSqft = polygonAreaSqft(points)
       if (serverSqft > AREA_LIMITS.maxSqft) return { error: `Shape ${i + 1}: the area is not a valid number` }
@@ -394,6 +504,12 @@ export function parseShapesInput(input: unknown): { shapes: AreaShape[] } | { er
       shape.feet = round(serverFeet, 1)
     }
     out.push(shape)
+  }
+  // The totals are clipped geometry: a drawing the library cannot clip is refused here with a clear message, never a 500 at save.
+  try {
+    cookieCutter(out)
+  } catch {
+    return { error: GEOMETRY_FAILED_MESSAGE }
   }
   return { shapes: out }
 }
