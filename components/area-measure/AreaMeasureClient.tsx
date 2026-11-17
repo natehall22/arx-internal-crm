@@ -22,6 +22,7 @@ import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/compo
 import {
   AREA_MEASURE_DEFAULTS,
   AREA_MEASURE_SETTING_FIELDS,
+  GEOMETRY_FAILED_MESSAGE,
   LINES_CROSS_DRAFT_MESSAGE,
   LINES_CROSS_MESSAGE,
   SHAPE_TYPES,
@@ -338,7 +339,13 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   }
 
   // ---- totals ----
-  const totals = React.useMemo(() => computeTotals(shapes, settings), [shapes, settings])
+  // The geometry is done once (`cutter`, shared with the map). If the clipping library could not handle the drawing, lawn / bed
+  // totals are not shown as numbers and save is off until a point is moved (lines still total).
+  const geometryFailed = cutter === null
+  const totals = React.useMemo(
+    () => (cutter ? computeTotals(shapes, settings, cutter) : computeTotals(shapes.filter((s) => !isPolygonType(s.type)), settings)),
+    [shapes, settings, cutter]
+  )
   const draftMeasure = React.useMemo(() => {
     if (!draft || !mapReady) return null
     const need = minPoints(draft.type)
@@ -351,6 +358,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   const draftCrosses = !!draft && isPolygonType(draft.type) && polygonCrossings(draft.points).length > 0
   const crossingIds = React.useMemo(() => shapes.filter((x) => isPolygonType(x.type) && polygonCrossings(x.points).length > 0).map((x) => x.id), [shapes])
   const hasCrossing = draftCrosses || crossingIds.length > 0
+  const saveBlocked = hasCrossing || geometryFailed
   const crossingText = crossingIds.map((id) => `${shapeLabel(shapes.find((x) => x.id === id)!, shapes)}: ${LINES_CROSS_MESSAGE}`).join('. ')
   // A saved or re-opened shape that crosses is selected, so its drag points are there to fix it.
   React.useEffect(() => {
@@ -373,11 +381,11 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   // A message that wraps to more lines makes the bar taller: re-measure in the same frame, before paint.
   React.useLayoutEffect(() => {
     if (barRef.current) setBarHeight(barRef.current.getBoundingClientRect().height)
-  }, [saveMsg, hasCrossing, canSave, cannotSaveReason])
+  }, [saveMsg, saveBlocked, canSave, cannotSaveReason])
 
   // ---- save ----
   async function save() {
-    if (!canSave || shapes.length === 0 || saving || hasCrossing) return
+    if (!canSave || shapes.length === 0 || saving || saveBlocked) return
     setSaving(true)
     setSaveMsg(null)
     const c = mapRef.current?.getCenter?.()
@@ -661,10 +669,14 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
             <p className="text-ui-base font-semibold text-danger" data-testid="yard-save-blocked">
               Cannot save yet. {crossingText}. Your points are kept.
             </p>
+          ) : geometryFailed && !draft ? (
+            <p className="text-ui-base font-semibold text-danger" data-testid="yard-save-blocked">
+              Cannot save yet. {GEOMETRY_FAILED_MESSAGE} Your points are kept.
+            </p>
           ) : !canSave && cannotSaveReason ? (
             <p className="text-ui-base text-ink">{cannotSaveReason}</p>
           ) : null}
-          <Button onClick={save} disabled={!canSave || shapes.length === 0 || !dirty || !!draft || hasCrossing} loading={saving}>
+          <Button onClick={save} disabled={!canSave || shapes.length === 0 || !dirty || !!draft || saveBlocked} loading={saving}>
             {!dirty && shapes.length > 0 ? 'Saved' : 'Save measurement'}
           </Button>
         </div>

@@ -6,10 +6,13 @@
 import fs from 'fs'
 import path from 'path'
 
+import polygonClipping from 'polygon-clipping'
+
 import {
   AREA_LIMITS,
   AREA_MEASURE_DEFAULTS,
   EARTH_RADIUS_M,
+  GEOMETRY_FAILED_MESSAGE,
   bedMaterials,
   computeTotals,
   cookieCutter,
@@ -192,6 +195,22 @@ describe('totals and cut-outs (cookie cutter)', () => {
     expect(() => computeTotals([bow])).not.toThrow()
     expect(computeTotals([bow]).lawnSqft).toBe(0)
     near(computeTotals([bow, box('ok', 'lawn', 200, 0, 10, 10)]).lawnSqft, 100)
+  })
+  it('if the clipping library throws, the save is refused with a clear message (never a 500)', () => {
+    const spy = jest.spyOn(polygonClipping, 'union').mockImplementation(() => {
+      throw new Error('Unable to complete output ring')
+    })
+    try {
+      const a = box('a', 'lawn', 0, 0, 100, 100)
+      expect(() => cookieCutter([a])).toThrow()
+      expect(parseShapesInput([{ type: 'lawn', points: a.points }])).toEqual({ error: GEOMETRY_FAILED_MESSAGE })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+  it('totals can reuse a cookie cutter the screen already has', () => {
+    const shapes = [box('a', 'lawn', 0, 0, 100, 100), box('h', 'cutout', 20, 20, 50, 50)]
+    expect(computeTotals(shapes, AREA_MEASURE_DEFAULTS, cookieCutter(shapes))).toEqual(computeTotals(shapes))
   })
   it('bed materials are worked from the NET bed area', () => {
     const t = computeTotals([box('b', 'bed', 0, 0, 36, 30), box('c', 'cutout', 0, 0, 18, 30, { takesFrom: 'bed' })], { mulchDepthIn: 3, strawSqftPerBale: 50 })

@@ -294,7 +294,13 @@ export function regionsAreaSqft(regions: readonly Region[]): number {
   return Math.max(0, total)
 }
 
-/** The ONE cookie-cutter computation (see the header). Shapes that cross themselves are left out until fixed. */
+/** Shown when the clipping library cannot handle a drawing (it throws on some near-degenerate inputs). The points are kept. */
+export const GEOMETRY_FAILED_MESSAGE = 'These shapes could not be measured together. Drag a point of the newest shape a little, then save again.'
+
+/**
+ * The ONE cookie-cutter computation (see the header). Shapes that cross themselves are left out until fixed.
+ * May THROW (polygon-clipping does on some near-degenerate inputs): the save checks it in `parseShapesInput`, the screen catches it.
+ */
 export function cookieCutter(shapes: readonly AreaShape[]): CookieCutter {
   const usable = shapes.filter((s) => isFilledPolygon(s) && !polygonSelfIntersects(s.points))
   const all = usable.flatMap((s) => s.points)
@@ -351,14 +357,18 @@ export type AreaTotals = {
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
 
 /** The ONE totals rule: the screen's live totals and the saved totals are both this function over the same shapes (their points). */
-export function computeTotals(shapes: readonly AreaShape[], settings: AreaMeasureSettings = AREA_MEASURE_DEFAULTS): AreaTotals {
+export function computeTotals(
+  shapes: readonly AreaShape[],
+  settings: AreaMeasureSettings = AREA_MEASURE_DEFAULTS,
+  /** The screen passes the `cookieCutter(shapes)` it already has for the map, so the geometry is done once. */
+  cc: CookieCutter = cookieCutter(shapes)
+): AreaTotals {
   let lineFeet = 0
   const counts: Record<ShapeType, number> = { lawn: 0, bed: 0, cutout: 0, line: 0 }
   for (const s of shapes) {
     counts[s.type] += 1
     if (s.type === 'line') lineFeet += num(s.feet)
   }
-  const cc = cookieCutter(shapes)
   const lawnGross = regionsAreaSqft(cc.lawnGross)
   const lawn = regionsAreaSqft(cc.lawnNet)
   const bedGross = regionsAreaSqft(cc.bedGross)
@@ -483,6 +493,12 @@ export function parseShapesInput(input: unknown): { shapes: AreaShape[] } | { er
       shape.feet = round(serverFeet, 1)
     }
     out.push(shape)
+  }
+  // The totals are clipped geometry: a drawing the library cannot clip is refused here with a clear message, never a 500 at save.
+  try {
+    cookieCutter(out)
+  } catch {
+    return { error: GEOMETRY_FAILED_MESSAGE }
   }
   return { shapes: out }
 }
