@@ -1,5 +1,9 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgProfile } from '@/lib/org-profile'
+import { orgLogoHref } from '@/lib/files/files-object'
+import { printKitBrand } from '@/lib/print-kit'
 import AppointmentCardsClient from './AppointmentCardsClient'
 
 export const dynamic = 'force-dynamic'
@@ -18,16 +22,13 @@ const ADMIN_TOOL_ROLES = [
 ]
 
 export default async function AppointmentCardsPage() {
-  const supabase = createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  const { profile } = await requireAuth()
+  if (!ADMIN_TOOL_ROLES.includes(profile.role)) redirect('/dashboard')
+  const admin = createServiceClient()
+  const orgProfile = await loadOrgProfile(admin, profile.org_id)
+  // The company's own name and logo (orgs row); roofing keeps the card exactly as it was (lib/print-kit.ts).
+  const { data: org } = await admin.from('orgs').select('name, logo_url, settings').eq('id', profile.org_id).maybeSingle()
+  const brand = printKitBrand(orgProfile, { name: org?.name ?? '', logoHref: orgLogoHref(profile.org_id, org) })
 
-  if (authError || !user) redirect('/login')
-
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-  if (!profile || !ADMIN_TOOL_ROLES.includes(profile.role)) redirect('/dashboard')
-
-  return <AppointmentCardsClient />
+  return <AppointmentCardsClient brand={brand} />
 }

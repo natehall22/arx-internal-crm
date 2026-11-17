@@ -1,6 +1,9 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgProfile } from '@/lib/org-profile'
+import { doorDropAvailable } from '@/lib/print-kit'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
 
@@ -20,23 +23,14 @@ const ADMIN_TOOL_ROLES = [
 ]
 
 export default async function PrintKitPage() {
-  const supabase = createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) redirect('/login')
-
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-  if (!profile || !ADMIN_TOOL_ROLES.includes(profile.role)) redirect('/dashboard')
+  const { profile } = await requireAuth()
+  if (!ADMIN_TOOL_ROLES.includes(profile.role)) redirect('/dashboard')
+  const orgProfile = await loadOrgProfile(createServiceClient(), profile.org_id)
 
   const printTools = [
-    {
-      title: 'Door Drop Kit',
-      description: 'Buyer/seller letter and #10 envelope print kit',
-      href: '/admin/door-drop',
-    },
+    ...(doorDropAvailable(orgProfile)
+      ? [{ title: 'Door Drop Kit', description: 'Buyer/seller letter and #10 envelope print kit', href: '/admin/door-drop' }]
+      : []),
     {
       title: 'Appointment Cards',
       description: 'Four-up field marketer appointment cards on Letter paper',
