@@ -21,7 +21,8 @@ import { buildDemoDataset, type DemoQuote, DEMO_CREWS, DEMO_CUSTOM_FIELDS, DEMO_
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { orgDb } from '@/lib/supabase/org-db'
 import { parseAppUrl } from '@/lib/app-url'
-import { companyAppUrl } from '@/lib/company-host'
+import { appBaseDomain } from '@/lib/company-host'
+import { tryOrgAppUrl } from '@/lib/company-links'
 import { upsertCustomer } from '@/lib/customers'
 import { createProperty } from '@/lib/properties-db'
 import { saveCustomFieldValues, saveDefinitionChange, loadCustomFieldDefinitions } from '@/lib/custom-fields-db'
@@ -679,7 +680,9 @@ async function portalStep(ctx: Ctx) {
   const expires = new Date(ctx.now.getTime() + 7 * 24 * 3600 * 1000)
   unwrap(await orgDb(admin, orgId).from('portal_login_tokens').insert({ customer_id: cust.id, token_hash: hashPortalToken(token), sent_to: row.email, expires_at: expires.toISOString() }), 'portal link')
   // Never a relative link: it would open as file:///portal/enter in a terminal-pasted tab and its form post would be refused.
-  const base = companyAppUrl(DEMO_DEFAULTS.subdomain) ?? parseAppUrl(process.env.NEXT_PUBLIC_APP_URL)
+  // With company addresses on, the demo company's OWN address (its stored web name); otherwise the deployment address.
+  const own = appBaseDomain() ? await tryOrgAppUrl(orgId, 'demo portal link') : null
+  const base = own ?? parseAppUrl(process.env.NEXT_PUBLIC_APP_URL)
   ctx.report.portalPath = `/portal/enter?t=${token}`
   ctx.report.portalLink = base ? `${base}${ctx.report.portalPath}` : null
   return 'portal customer + a 7-day sign-in link (single use)'

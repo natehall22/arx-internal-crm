@@ -1,4 +1,5 @@
 import { crossSiteWrite } from '@/lib/online-payments/access'
+import { staffLinkMaker } from '@/lib/portal/invite'
 import { PORTAL_NO_STORE, portalJson, seeOther } from '@/lib/portal/api'
 import { consumeLoginLink, logPortalEvent, portalOrgForRequest, PORTAL_LIMITS, setSessionCookie, startPortalSession, takePortalAttempt } from '@/lib/portal/server'
 import { opaqueKey } from '@/lib/portal/tokens'
@@ -26,6 +27,8 @@ export async function POST(request: Request) {
     return seeOther('/portal?problem=link')
   }
   const s = await startPortalSession(admin, who.orgId, who.customerId)
-  await logPortalEvent(admin, who.orgId, { kind: 'login', customerId: who.customerId, via: 'email_link', ip })
+  // A link a staff member made ("Copy sign-in link") is logged as such, with who made it.
+  const staffId = await staffLinkMaker(admin, who.orgId, who.customerId, String(token)).catch(() => null)
+  await logPortalEvent(admin, who.orgId, { kind: 'login', customerId: who.customerId, via: staffId ? 'staff_link' : 'email_link', detail: staffId ? `staff:${staffId}` : null, ip })
   return seeOther('/portal', { setCookie: (res) => setSessionCookie(res, s.token, s.expires) })
 }

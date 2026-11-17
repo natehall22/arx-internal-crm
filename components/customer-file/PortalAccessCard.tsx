@@ -28,20 +28,29 @@ export default function PortalAccessCard({ customerId, hasEmail = true, inviteOn
   }
   /** Owners/admins: a one-time 20-minute link, copied (demo companies send no email, so this is how the portal gets tested). */
   async function copyLink() {
+    // Invite-only company + not invited yet: the link only works if they are invited, so say so and make that the explicit choice.
+    const invite = inviteOnly && !invited
     // A demo company's email is suppressed, so the link goes nowhere else: no confirm. A real company asks first.
-    if (!emailSuppressed && !(await confirmDialog({ title: 'Copy a sign-in link?', description: "Anyone with this link can open this customer's portal once. It stops working after 20 minutes.", confirmLabel: 'Copy link' }))) return
+    if (!emailSuppressed) {
+      const ok = await confirmDialog({
+        title: invite ? 'Invite and copy a sign-in link?' : 'Copy a sign-in link?',
+        description: `Nothing is emailed. Anyone with this link can open this customer's portal once, and it stops working after 20 minutes.${invite ? ' This also invites them to the portal, so they can sign in themselves later (use "Remove access" to undo).' : ' It does not invite them or change their access.'}`,
+        confirmLabel: invite ? 'Invite and copy link' : 'Copy link',
+      })
+      if (!ok) return
+    }
     setBusy('link')
-    const res = await fetch(`/api/customers/${customerId}/portal-link`, { method: 'POST' }).catch(() => null)
-    const body = (await res?.json().catch(() => null)) as { url?: string; error?: string } | null
+    const res = await fetch(`/api/customers/${customerId}/portal-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invite }) }).catch(() => null)
+    const body = (await res?.json().catch(() => null)) as { url?: string; error?: string; invited?: boolean } | null
     setBusy('')
     if (!res?.ok || !body?.url) return toast.error(body?.error || 'That did not work. Please try again.')
+    if (body.invited) setInvited(true)
     try {
       await navigator.clipboard.writeText(body.url)
       toast.success('Link copied. It works once, for 20 minutes. Open it in a private window to test.')
     } catch {
       window.prompt('Copy this sign-in link (works once, 20 minutes):', body.url)
     }
-    setInvited(true)
   }
   return (
     <Card>

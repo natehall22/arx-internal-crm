@@ -335,9 +335,29 @@ describe('entering from the wrong place, and staff sign-in links', () => {
     expect(r.url.startsWith(`https://${A}.crm.test/portal/enter?t=`)).toBe(true)
     expect(JSON.stringify(db.tables.portal_login_tokens)).not.toContain(t) // only the hash is stored
     expect(db.tables.portal_login_events.some((e) => e.kind === 'link_sent' && e.via === 'staff:staff-1' && e.customer_id === 'a2')).toBe(true)
+    expect(r.invited).toBe(false)
+    expect(db.tables.customers.find((c) => c.id === 'a2')?.portal_invited_at ?? null).toBeNull() // copying a link does not invite
     const ok = await enterPOST(form('/api/portal/enter', { t }))
     expect(ok.headers.get('location')).toBe('/portal')
+    // the login is traced to the staff member, not logged as an emailed link
+    expect(db.tables.portal_login_events.some((e) => e.kind === 'login' && e.via === 'staff_link' && e.detail === 'staff:staff-1')).toBe(true)
     expect((await enterPOST(form('/api/portal/enter', { t }))).headers.get('location')).toBe('/portal?problem=link')
+  })
+  test('invite-only company: an uninvited customer needs the explicit invite choice; no token is written without it', async () => {
+    const co = db.tables.orgs.find((o) => o.id === A) as { settings: Record<string, unknown> }
+    const before = co.settings
+    co.settings = { ...before, customerPortal: { inviteOnly: true } }
+    try {
+      const tokens = (db.tables.portal_login_tokens ?? []).length
+      const no = await createStaffSignInLink(admin(), A, 'a2', 'staff-1')
+      expect(no).toMatchObject({ ok: false, status: 409, needsInvite: true })
+      expect((db.tables.portal_login_tokens ?? []).length).toBe(tokens)
+      const yes = await createStaffSignInLink(admin(), A, 'a2', 'staff-1', { invite: true })
+      expect(yes).toMatchObject({ ok: true, invited: true })
+      expect(db.tables.customers.find((c) => c.id === 'a2')?.portal_invited_at).toBeTruthy()
+    } finally {
+      co.settings = before
+    }
   })
   test("staff link refuses another company's customer", async () => {
     const r = await createStaffSignInLink(admin(), A, 'b1', 'staff-1')

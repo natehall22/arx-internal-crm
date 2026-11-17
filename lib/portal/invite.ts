@@ -31,27 +31,54 @@ export async function inviteCustomerToPortal(admin: SupabaseClient, orgId: strin
   return { ok: true, sentTo: String(c.email).trim() }
 }
 
-export type StaffLinkResult = { ok: true; url: string; minutes: number } | { ok: false; status: 404 | 409 | 429 | 500; error: string }
+export type StaffLinkResult = { ok: true; url: string; minutes: number; invited: boolean } | { ok: false; status: 404 | 409 | 429 | 500; error: string; needsInvite?: boolean }
+
+/** The link_sent event of a staff-made token carries this in `detail` (first 16 hex of the token hash, never the token) so the login can be traced to the staff member. */
+export const STAFF_LINK_DETAIL_PREFIX = 'staff link t:'
+export const staffLinkDetail = (token: string) => `${STAFF_LINK_DETAIL_PREFIX}${hashPortalToken(token).slice(0, 16)}`
 
 /**
  * Staff "Copy sign-in link": the same one-time token as the emailed link (portal_login_tokens, used once, LOGIN_LINK_MINUTES),
  * handed to the staff member instead of mailed. For testing the portal (a demo company sends no email) or a customer on the phone.
- * Whoever holds it can open this customer's portal once, so it is logged (link_sent, via staff:<user>) and rate limited. In an invite-only
- * company, making the link also invites the customer (a session needs the invitation).
+ * Whoever holds it can open this customer's portal once, so it is logged (link_sent, via staff:<user>, detail marks the token) and rate
+ * limited. The login it produces is logged as via 'staff_link' with the staff user id.
+ * `sent_to` is the customer's address on file although NOTHING is emailed: consumeLoginLink kills a link whose sent_to no longer matches
+ * the address on file, and that check is wanted here too.
+ * Invitation: copying a link does NOT invite the customer. In an invite-only company a session needs the invitation, so an uninvited
+ * customer gets a link only when the owner explicitly chooses "invite" (opts.invite); otherwise 409 `needsInvite`.
  */
-export async function createStaffSignInLink(admin: SupabaseClient, orgId: string, customerId: string, staffUserId: string): Promise<StaffLinkResult> {
+export async function createStaffSignInLink(admin: SupabaseClient, orgId: string, customerId: string, staffUserId: string, opts: { invite?: boolean } = {}): Promise<StaffLinkResult> {
   const db = orgDb(admin, orgId)
-  const { data } = await db.from('customers').select('id, email').eq('id', customerId).maybeSingle()
-  const c = data as { id: string; email: string | null } | null
+  const { data } = await db.from('customers').select('id, email, portal_invited_at').eq('id', customerId).maybeSingle()
+  const c = data as { id: string; email: string | null; portal_invited_at?: string | null } | null
   if (!c) return { ok: false, status: 404, error: 'Not found' }
+  // The address first: if it cannot be built nothing is written (no token, no invitation, no log line).
+  let base: string
+  try {
+    base = await orgAppUrl(orgId)
+  } catch {
+    return { ok: false, status: 500, error: "The company's app address is not set up, so no link can be made." }
+  }
+  const { loadPortalSettings } = await import('@/lib/portal/settings')
+  const needsInvite = (await loadPortalSettings(admin, orgId)).inviteOnly && !c.portal_invited_at
+  if (needsInvite && !opts.invite) return { ok: false, status: 409, needsInvite: true, error: 'This customer has not been invited to the portal. Choose "Invite and copy link".' }
   if (!(await takePortalAttempt(admin, `staff-link:${customerId}`, { limit: 10, windowSeconds: 3600 }))) return { ok: false, status: 429, error: 'Too many links for this customer. Try again in an hour.' }
   const token = newPortalToken()
   const { error: insErr } = await db.from('portal_login_tokens').insert({ customer_id: customerId, token_hash: hashPortalToken(token), sent_to: c.email ? String(c.email).trim() : null, expires_at: loginLinkExpiry().toISOString() })
   if (insErr) return { ok: false, status: 500, error: 'Could not make the link. Please try again.' }
-  const { error: invErr } = await db.from('customers').update({ portal_invited_at: new Date().toISOString() }).eq('id', customerId).is('portal_invited_at', null)
-  if (invErr) return { ok: false, status: 409, error: 'The link needs the customer portal update to be applied first.' }
-  await logPortalEvent(admin, orgId, { kind: 'link_sent', customerId, via: `staff:${staffUserId}`, detail: 'staff copied a sign-in link' })
-  return { ok: true, url: `${await orgAppUrl(orgId)}/portal/enter?t=${token}`, minutes: LOGIN_LINK_MINUTES }
+  if (needsInvite) {
+    const { error: invErr } = await db.from('customers').update({ portal_invited_at: new Date().toISOString() }).eq('id', customerId).is('portal_invited_at', null)
+    if (invErr) return { ok: false, status: 409, error: 'The link needs the customer portal update to be applied first.' }
+  }
+  await logPortalEvent(admin, orgId, { kind: 'link_sent', customerId, via: `staff:${staffUserId}`, detail: staffLinkDetail(token) })
+  return { ok: true, url: `${base}/portal/enter?t=${token}`, minutes: LOGIN_LINK_MINUTES, invited: needsInvite }
+}
+
+/** Was this (just consumed) token made by a staff member? Returns that staff user id, else null. */
+export async function staffLinkMaker(admin: SupabaseClient, orgId: string, customerId: string, token: string): Promise<string | null> {
+  const { data } = await orgDb(admin, orgId).from('portal_login_events').select('via').eq('kind', 'link_sent').eq('customer_id', customerId).eq('detail', staffLinkDetail(token)).like('via', 'staff:%').limit(1).maybeSingle()
+  const via = (data as { via?: string | null } | null)?.via
+  return via ? via.slice('staff:'.length) : null
 }
 
 /** Take access away: the invitation, every open session and every unused link. */
