@@ -8,6 +8,10 @@
  * satellite photo), 44 px taps, 16 px inputs, Save in a bar at the bottom of the screen. Points are tapped on the map
  * (a tap that did not drag); round 28 px handles are dragged to adjust. The map never gets a control of ours on top of it.
  *
+ * Cut-outs work like a cookie cutter: the lawn / bed fill gets a real hole where a cut-out sits (lib/area-measure.ts `cookieCutter`,
+ * the same geometry the totals use). A line that crosses itself is shown in red on the map and never forces a redraw: undo the
+ * last point or drag any point; the points are never thrown away.
+ *
  * Pure rules: lib/area-measure.ts. Map loading + Google's computeArea / computeLength: lib/google-maps-client.ts.
  * Roof measuring code is never imported here (jest guard: lib/__tests__/area-measure-isolation.test.ts).
  */
@@ -18,12 +22,14 @@ import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/compo
 import {
   AREA_MEASURE_DEFAULTS,
   AREA_MEASURE_SETTING_FIELDS,
+  LINES_CROSS_DRAFT_MESSAGE,
   LINES_CROSS_MESSAGE,
   SHAPE_TYPES,
   SHAPE_TYPE_HELP,
   SHAPE_TYPE_LABELS,
   bedMaterials,
   computeTotals,
+  cookieCutter,
   formatAcres,
   formatCuYd,
   formatFeet,
@@ -31,7 +37,9 @@ import {
   isPolygonType,
   metersToFeet,
   minPoints,
-  polygonSelfIntersects,
+  polygonCrossings,
+  type CookieCutter,
+  type Crossing,
   shapeLabel,
   sqmToSqft,
   type AreaMeasureSettings,
@@ -65,6 +73,8 @@ export type AreaMeasureClientProps = {
 }
 
 const COLORS: Record<ShapeType, string> = { lawn: '#2e7d32', bed: '#a65e00', cutout: '#c62828', line: '#1565c0' }
+/** A line that crosses itself: solid red, brighter than the cut-out outline. */
+const CROSS_COLOR = '#d50000'
 
 type Draft = { type: ShapeType; takesFrom: TakesFrom; name: string; points: LatLngPoint[] }
 
@@ -179,7 +189,18 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     })
   }
 
+  // The cookie-cutter geometry (lawn / bed with holes). Same function the totals use. It never throws into the screen.
+  const cutter = React.useMemo<CookieCutter | null>(() => {
+    try {
+      return cookieCutter(shapes)
+    } catch {
+      return null
+    }
+  }, [shapes])
+
   // Overlays for every finished shape and the one being drawn. Rebuilt on any change (a yard has a handful of shapes).
+  // Lawn / bed: one fill per region WITH its holes (z 1, not clickable), the outline on top (z 2, clickable); cut-outs on top of that (z 3)
+  // as a red outline so they stay visible and editable; crossings in solid red (z 6).
   React.useEffect(() => {
     const map = mapRef.current
     if (!mapReady || !map) return
@@ -187,18 +208,46 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     overlaysRef.current.forEach((o) => o.setMap(null))
     overlaysRef.current = []
     const drawing = !!draft
-    const make = (type: ShapeType, pts: LatLngPoint[], selected: boolean, onClick?: () => void) => {
+    const keep = (o: any) => overlaysRef.current.push(o)
+    const make = (type: ShapeType, pts: LatLngPoint[], selected: boolean, isDraft: boolean, onClick?: () => void) => {
       const color = COLORS[type]
       const asPolygon = isPolygonType(type) && pts.length >= 3
+      const fillOpacity = isDraft ? 0.2 : type === 'cutout' ? 0.12 : 0.02
+      const zIndex = type === 'cutout' ? 3 : 2
       const o = asPolygon
-        ? new g.Polygon({ map, paths: pts, strokeColor: color, strokeWeight: selected ? 4 : 2, fillColor: color, fillOpacity: type === 'cutout' ? 0.4 : 0.3, clickable: !drawing })
-        : new g.Polyline({ map, path: pts, strokeColor: color, strokeWeight: selected ? 6 : 4, clickable: !drawing })
+        ? new g.Polygon({ map, paths: pts, strokeColor: color, strokeWeight: selected ? 4 : 2, fillColor: color, fillOpacity, clickable: !drawing, zIndex })
+        : new g.Polyline({ map, path: pts, strokeColor: color, strokeWeight: selected ? 6 : 4, clickable: !drawing, zIndex })
       if (onClick && !drawing) o.addListener('click', onClick)
-      overlaysRef.current.push(o)
+      keep(o)
     }
-    for (const s of shapes) make(s.type, s.points, s.id === selectedId, () => setSelectedId(s.id))
-    if (draft) make(draft.type, draft.points, true)
-  }, [shapes, draft, selectedId, mapReady])
+    const fill = (regions: Array<LatLngPoint[][]>, color: string) => {
+      for (const paths of regions) keep(new g.Polygon({ map, paths, strokeWeight: 0, fillColor: color, fillOpacity: 0.3, clickable: false, zIndex: 1 }))
+    }
+    if (cutter) {
+      fill(cutter.lawnNet, COLORS.lawn)
+      fill(cutter.bedNet, COLORS.bed)
+    }
+    for (const s of shapes) make(s.type, s.points, s.id === selectedId, false, () => setSelectedId(s.id))
+    if (draft) make(draft.type, draft.points, true, true)
+    // Where an outline crosses itself: the two edges and a red square on the spot.
+    const showCrossing = (pts: LatLngPoint[], list: Crossing[]) => {
+      for (const c of list) {
+        for (const e of [c.edgeA, c.edgeB]) {
+          keep(new g.Polyline({ map, path: [pts[e], pts[(e + 1) % pts.length]], strokeColor: CROSS_COLOR, strokeWeight: 7, clickable: false, zIndex: 6 }))
+        }
+        const d = 0.00002
+        const box = [
+          { lat: c.at.lat - d, lng: c.at.lng - d },
+          { lat: c.at.lat - d, lng: c.at.lng + d },
+          { lat: c.at.lat + d, lng: c.at.lng + d },
+          { lat: c.at.lat + d, lng: c.at.lng - d },
+        ]
+        keep(new g.Polygon({ map, paths: box, strokeColor: '#ffffff', strokeWeight: 2, fillColor: CROSS_COLOR, fillOpacity: 1, clickable: false, zIndex: 7 }))
+      }
+    }
+    for (const s of shapes) if (isPolygonType(s.type)) showCrossing(s.points, polygonCrossings(s.points))
+    if (draft && isPolygonType(draft.type)) showCrossing(draft.points, polygonCrossings(draft.points))
+  }, [shapes, draft, selectedId, mapReady, cutter])
 
   // Round drag handles on the points of the shape being drawn or adjusted.
   const selected = shapes.find((s) => s.id === selectedId) ?? null
@@ -260,7 +309,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   function closeShape() {
     if (!draft || draft.points.length < minPoints(draft.type)) return
     if (draftCrosses) {
-      setHint(LINES_CROSS_MESSAGE)
+      setHint(LINES_CROSS_DRAFT_MESSAGE)
       return
     }
     const shape = withMeasure({
@@ -297,10 +346,16 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     return withMeasure({ id: 'draft', type: draft.type, name: null, points: draft.points })
   }, [draft, mapReady])
   const hasBeds = totals.counts.bed > 0
-  // An outline that crosses itself has no single area: it cannot be finished or saved until it is redrawn.
-  const draftCrosses = !!draft && isPolygonType(draft.type) && polygonSelfIntersects(draft.points)
-  const crossingIds = React.useMemo(() => shapes.filter((x) => isPolygonType(x.type) && polygonSelfIntersects(x.points)).map((x) => x.id), [shapes])
+  // An outline that crosses itself has no single area, so it cannot be finished or saved. It is never thrown away: the crossing is
+  // shown in red and the person undoes the last point or drags any point until it no longer crosses.
+  const draftCrosses = !!draft && isPolygonType(draft.type) && polygonCrossings(draft.points).length > 0
+  const crossingIds = React.useMemo(() => shapes.filter((x) => isPolygonType(x.type) && polygonCrossings(x.points).length > 0).map((x) => x.id), [shapes])
   const hasCrossing = draftCrosses || crossingIds.length > 0
+  const crossingText = crossingIds.map((id) => `${shapeLabel(shapes.find((x) => x.id === id)!, shapes)}: ${LINES_CROSS_MESSAGE}`).join('. ')
+  // A saved or re-opened shape that crosses is selected, so its drag points are there to fix it.
+  React.useEffect(() => {
+    if (!draft && !selectedId && crossingIds.length > 0) setSelectedId(crossingIds[0])
+  }, [draft, selectedId, crossingIds])
 
   // The Save bar is fixed to the bottom; keep the page padded by its real height so a wrapped message is never hidden behind it.
   const barRef = React.useRef<HTMLDivElement>(null)
@@ -315,6 +370,10 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+  // A message that wraps to more lines makes the bar taller: re-measure in the same frame, before paint.
+  React.useLayoutEffect(() => {
+    if (barRef.current) setBarHeight(barRef.current.getBoundingClientRect().height)
+  }, [saveMsg, hasCrossing, canSave, cannotSaveReason])
 
   // ---- save ----
   async function save() {
@@ -363,14 +422,16 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
   const editName = draft ? draft.name : selected?.name ?? ''
   const editTakesFrom = draft ? draft.takesFrom : selected?.takesFrom ?? 'lawn'
   const status = draftCrosses
-    ? LINES_CROSS_MESSAGE
+    ? LINES_CROSS_DRAFT_MESSAGE
     : draft
     ? draft.points.length === 0
       ? `Tap the map to place the first point of the ${SHAPE_TYPE_LABELS[draft.type].toLowerCase()}.`
       : draft.points.length < minPoints(draft.type)
         ? `${draft.points.length} point${draft.points.length === 1 ? '' : 's'}. Keep tapping.`
         : `${draft.points.length} points. Tap more, or press Done.`
-    : selected
+    : crossingIds.length > 0
+      ? `${crossingText}. Drag the round points to fix it.`
+      : selected
       ? 'Drag the round points to adjust this shape.'
       : shapes.length === 0
         ? 'Pick what you are measuring, then tap points around it on the map.'
@@ -415,7 +476,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
 
       <Card>
         <CardContent className="flex flex-col gap-3 pt-4">
-          <p className={`text-ui-base font-semibold ${draftCrosses ? 'text-danger' : 'text-ink'}`} role="status" data-testid="yard-status">
+          <p className={`text-ui-base font-semibold ${hasCrossing ? 'text-danger' : 'text-ink'}`} role="status" data-testid="yard-status">
             {hint ?? status}
           </p>
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="What are you measuring">
@@ -533,7 +594,7 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
             <dd className="text-right">{formatSqft(totals.bedSqft)} · {formatAcres(totals.bedSqft)}</dd>
             {totals.counts.cutout > 0 ? (
               <>
-                <dt className="font-semibold">Cut-outs</dt>
+                <dt className="font-semibold">Cut out of lawn / beds</dt>
                 <dd className="text-right">{formatSqft(totals.cutoutSqft)}</dd>
               </>
             ) : null}
@@ -595,6 +656,10 @@ export default function AreaMeasureClient(props: AreaMeasureClientProps) {
                   Back
                 </Link>
               ) : null}
+            </p>
+          ) : hasCrossing && !draft ? (
+            <p className="text-ui-base font-semibold text-danger" data-testid="yard-save-blocked">
+              Cannot save yet. {crossingText}. Your points are kept.
             </p>
           ) : !canSave && cannotSaveReason ? (
             <p className="text-ui-base text-ink">{cannotSaveReason}</p>

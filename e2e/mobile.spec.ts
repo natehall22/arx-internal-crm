@@ -78,7 +78,7 @@ const YARD_MAPS_STUB = `(function () {
     getCenter() { return this.c } setCenter(c) { this.c = ll(c) } setZoom() {} fitBounds() {}
   }
   class Marker extends Base { constructor(o) { super(o); this.map = o.map; window.__yardMarkers = window.__yardMarkers || []; window.__yardMarkers.push(this) } setMap(m) { this.map = m; if (!m) window.__yardMarkers = (window.__yardMarkers || []).filter((x) => x !== this) } }
-  class Poly extends Base {}
+  class Poly extends Base { constructor(o) { super(o); this.map = o.map; window.__yardPolys = window.__yardPolys || []; window.__yardPolys.push(this) } setMap(m) { this.map = m; if (!m) window.__yardPolys = (window.__yardPolys || []).filter((x) => x !== this) } }
   class Bounds { extend() {} }
   class Geocoder { geocode(req, cb) { cb([{ geometry: { location: new LatLng(30.2, -84.3) } }], 'OK') } }
   const M = 111320
@@ -907,6 +907,43 @@ const SCREENS: Screen[] = [
         const net = sqftOf(await p.getByTestId('yard-totals').innerText())
         if (!(net < lawn)) throw new Error(`cut-out did not reduce the lawn: ${lawn} -> ${net}`)
       } },
+      { name: 'cutout-leaves-a-hole', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 240)
+        await drawShape(p, '+ Cut-out', 100, 100, 60)
+        // a lawn fill with a hole: one region, two rings (outer + the house)
+        await p.waitForFunction(() => ((window as any).__yardPolys || []).some((x: any) => Array.isArray(x.o.paths) && Array.isArray(x.o.paths[0]) && x.o.paths.length === 2))
+      } },
+      { name: 'cutout-half-off-lawn-removes-half', run: async (p) => {
+        await drawShape(p, '+ Lawn', 80, 40, 200)
+        const lawn = sqftOf(await p.getByTestId('yard-totals').innerText())
+        // 80 x 80 px cut-out whose left half hangs off the lawn: 40 x 80 px sits on it (1 px^2 = 0.1153 sq ft at this latitude)
+        await p.getByRole('button', { name: '+ Cut-out', exact: true }).click()
+        for (const [x, y] of [[40, 100], [120, 100], [120, 180], [40, 180]]) await p.getByTestId('yard-map').click({ position: { x, y } })
+        await p.getByRole('button', { name: 'Done', exact: true }).click()
+        await p.waitForSelector('text=Lawn (after cut-outs)')
+        const net = sqftOf(await p.getByTestId('yard-totals').innerText())
+        const removed = lawn - net
+        const want = 40 * 80 * 0.1153
+        if (Math.abs(removed - want) > 12) throw new Error(`removed ${removed} sq ft, wanted about ${want} (only the half on the lawn)`)
+      } },
+      { name: 'crossing-keeps-points-and-dragging-fixes', run: async (p) => {
+        await drawShape(p, '+ Lawn', 40, 40, 140)
+        const pos = await p.evaluate(() => (window as any).__yardMarkers.map((m: any) => m.o.position))
+        const drag = (i: number, to: { lat: number; lng: number }) => p.evaluate(([idx, t]) => {
+          const g = (window as any).google.maps
+          ;(window as any).__yardMarkers[idx as number].emit('dragend', { latLng: new g.LatLng((t as any).lat, (t as any).lng) })
+        }, [i, to] as const)
+        await drag(1, pos[2])
+        await drag(2, pos[1])
+        await p.waitForSelector('[data-testid=yard-status] >> text=Lawn 1: Lines cross — drag a point to fix it')
+        await p.waitForSelector('[data-testid=yard-save-blocked] >> text=Your points are kept')
+        if (!(await p.getByRole('button', { name: 'Save measurement' }).isDisabled())) throw new Error('Save must be off while a shape crosses')
+        if ((await p.evaluate(() => (window as any).__yardMarkers.length)) !== 4) throw new Error('points were lost')
+        await drag(1, pos[1])
+        await drag(2, pos[2])
+        await p.waitForFunction(() => !document.querySelector('[data-testid=yard-status]')?.textContent?.includes('Lines cross'))
+        if (await p.getByRole('button', { name: 'Save measurement' }).isDisabled()) throw new Error('Save should come back once the lines no longer cross')
+      } },
       { name: 'bed-materials-and-save', run: async (p) => {
         const sent = await captureYardSave(p)
         await drawShape(p, '+ Lawn', 40, 40, 240)
@@ -947,8 +984,10 @@ const SCREENS: Screen[] = [
       { name: 'lines-cross-redraw', run: async (p) => {
         await p.getByRole('button', { name: '+ Lawn', exact: true }).click()
         for (const [x, y] of [[60, 60], [240, 220], [240, 60], [60, 220]]) await p.getByTestId('yard-map').click({ position: { x, y } })
-        await p.waitForSelector('[data-testid=yard-status] >> text=Lines cross — redraw')
+        await p.waitForSelector('[data-testid=yard-status] >> text=Lines cross — undo the last point or drag a point to fix it')
         if (!(await p.getByRole('button', { name: 'Done', exact: true }).isDisabled())) throw new Error('Done must be off while lines cross')
+        // the points are all still there (4 round handles), and the crossing is drawn in red on the map
+        if ((await p.evaluate(() => (window as any).__yardMarkers.length)) !== 4) throw new Error('points were lost while lines cross')
         await p.getByRole('button', { name: 'Undo point' }).click()
         await p.waitForSelector('text=3 points. Tap more, or press Done.')
         if (await p.getByRole('button', { name: 'Done', exact: true }).isDisabled()) throw new Error('Done should come back once the lines no longer cross')
@@ -960,13 +999,13 @@ const SCREENS: Screen[] = [
         await drawShape(p, '+ Lawn', 40, 40, 200)
         await p.getByRole('button', { name: 'Save measurement' }).click()
         await p.waitForSelector('[data-testid=yard-save-msg]')
-        await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
-        const gap = await p.evaluate(() => {
+        // Poll instead of measuring once: the page padding follows the bar's height a frame after the message appears.
+        await p.waitForFunction(() => {
+          window.scrollTo(0, document.documentElement.scrollHeight)
           const bar = document.querySelector('[data-testid=yard-save-msg]')!.closest('div.fixed') as HTMLElement
           const lastCard = document.querySelector('[data-testid=yard-totals]')!.parentElement as HTMLElement
-          return bar.getBoundingClientRect().top - lastCard.getBoundingClientRect().bottom
-        })
-        if (gap < 0) throw new Error(`content runs ${-gap}px behind the Save bar`)
+          return bar.getBoundingClientRect().top - lastCard.getBoundingClientRect().bottom >= 0
+        }, undefined, { timeout: 5000 }).catch(() => { throw new Error('content runs behind the Save bar') })
       } },
     ] },
   { name: 'area-measure-readonly', path: '/dev-harness/area-measure-readonly', ready: 'text=Open this from a customer or lead to save it.', mock: yardScreenMock },
