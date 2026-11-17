@@ -8,7 +8,7 @@ import * as React from 'react'
 import { notFound } from 'next/navigation'
 import { NextResponse } from 'next/server'
 
-import { DEFAULT_ORG_FEATURES, loadOrgFeatures, ORG_FEATURE_DEFS, type OrgFeature, type OrgFeatures } from '@/lib/org-features'
+import { DEFAULT_ORG_FEATURES, loadOrgFeatures, ORG_FEATURE_DEFS, resolveOrgFeatures, type OrgFeature, type OrgFeatures } from '@/lib/org-features'
 import { DEMO_LOCKED_FEATURES, isDemoOrg } from '@/lib/demo-org'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -22,8 +22,8 @@ export const getOrgFeatures = perRequest(async (orgId: string | null | undefined
   try {
     client = createServiceClient()
   } catch (e) {
-    console.error('getOrgFeatures: no database client, using defaults', e)
-    return { ...DEFAULT_ORG_FEATURES }
+    console.error('[PLAN] getOrgFeatures: no database client, treating every module as NOT entitled', e)
+    return resolveOrgFeatures({}, {})
   }
   const features = await loadOrgFeatures(client, orgId)
   // A demo company can never have these on, whatever is stored (lib/demo-org.ts).

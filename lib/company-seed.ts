@@ -26,6 +26,8 @@ import { isMissingTable } from '@/lib/supabase/errors'
 import { applyOrgTradesSeed, planOrgTradesSeed, readOrgTradesForSeed, type OrgTradeSeed } from '@/lib/org-trades-admin'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES, isIndustryProfileId, type IndustryProfileId } from '@/lib/industry-profiles'
 import { ORG_PROFILE_SETTINGS_KEY } from '@/lib/org-profile'
+import { isOrgFeature, ORG_FEATURE_KEYS, resolveOrgEntitlements, resolveOrgFeatures, type OrgFeature, type OrgFeatures } from '@/lib/org-features'
+import { DEMO_FEATURES } from '@/lib/demo-company-data'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { applyDemoCompany } from '@/lib/demo-company-apply'
 import { resetDemoOrg } from '@/lib/demo-reset'
@@ -48,6 +50,8 @@ export interface CompanySeedInput {
   trades: OrgTradeSeed[] | null
   /** Industry profile (lib/industry-profiles.ts). null = leave as is (a new company with none = roofing defaults). */
   profile: IndustryProfileId | null
+  /** Plan overrides (feature key → allowed), merged over the profile's defaults (`seedEntitlements`). null = no overrides. */
+  entitlements: Partial<Record<OrgFeature, boolean>> | null
   owner: { email: string; fullName: string; phone: string | null }
   /** Plan templates to add (by name; an existing template of that name is kept as is). [] = none. */
   servicePlanTemplates: SeedTemplate[]
@@ -174,6 +178,20 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
     else errors.push(`profile must be one of ${INDUSTRY_PROFILE_IDS.join(', ')}`)
   }
 
+  let entitlements: Partial<Record<OrgFeature, boolean>> | null = null
+  if (root.entitlements !== undefined && root.entitlements !== null) {
+    const e = obj(root.entitlements)
+    if (Array.isArray(root.entitlements) || typeof root.entitlements !== 'object') errors.push('entitlements must be an object of feature key → true/false')
+    else {
+      entitlements = {}
+      for (const [k, v] of Object.entries(e)) {
+        if (!isOrgFeature(k)) errors.push(`entitlements.${k} is not a feature (${ORG_FEATURE_KEYS.join(', ')})`)
+        else if (typeof v !== 'boolean') errors.push(`entitlements.${k} must be true or false`)
+        else entitlements[k] = v
+      }
+    }
+  }
+
   const ownerEmail = need('owner.email', owner.email).toLowerCase()
   if (ownerEmail && !EMAIL_RE.test(ownerEmail)) errors.push('owner.email is not an email address')
   const fullName = need('owner.fullName', owner.fullName)
@@ -186,11 +204,45 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
       brand,
       trades,
       profile,
+      entitlements,
       owner: { email: ownerEmail, fullName, phone: str(owner.phone) },
       servicePlanTemplates,
       demo: root.demo === true,
     },
   }
+}
+
+/** The nil uuid stands for "the seed script" in plan_entitlement_log.staff_user_id (source = 'seed'); no user has it. */
+export const SEED_ACTOR_ID = '00000000-0000-0000-0000-000000000000'
+
+/**
+ * Write a plan THROUGH set_plan_entitlement() (migration 202611270010) so every change has its plan_entitlement_log row
+ * (actor = SEED_ACTOR_ID, source 'seed'). `have` = the plan now (null = NULL column = everything allowed); a key already at
+ * its wanted value is skipped, except that a NULL plan writes every key so the stored map is explicit.
+ */
+async function writePlan(client: SupabaseClient, orgId: string, want: OrgFeatures, have: OrgFeatures | null): Promise<void> {
+  const base = Object.fromEntries(ORG_FEATURE_KEYS.map((k) => [k, true]))
+  for (const k of ORG_FEATURE_KEYS) {
+    if (have && have[k] === want[k]) continue
+    const { error } = await client.rpc('set_plan_entitlement', { p_org: orgId, p_staff: SEED_ACTOR_ID, p_feature: k, p_entitled: want[k], p_base: base, p_source: 'seed' })
+    if (error) throw new Error(`plan ${k}: ${error.message}`)
+  }
+}
+
+/**
+ * Pure: the plan a seeded company gets. Default = everything its industry profile turns on (roofing / no profile = the
+ * original features); a demo company also gets every module its sample data uses (DEMO_FEATURES); the seed file's
+ * `entitlements` then override key by key. Every key is written (a left-out key would mean "not in plan").
+ */
+export function seedEntitlements(input: Pick<CompanySeedInput, 'profile' | 'demo' | 'entitlements'>): OrgFeatures {
+  const base = resolveOrgFeatures(input.profile ? { features: {}, profile: { id: input.profile } } : {})
+  const out = { ...base }
+  if (input.demo) for (const k of ORG_FEATURE_KEYS) if (DEMO_FEATURES[k] === true) out[k] = true
+  for (const k of ORG_FEATURE_KEYS) {
+    const o = input.entitlements?.[k]
+    if (typeof o === 'boolean') out[k] = o
+  }
+  return out
 }
 
 export interface CompanySeedOptions {
@@ -219,7 +271,7 @@ export interface CompanySeedReport {
   demo?: { logins: Array<{ role: string; email: string; password: string }>; portalLink: string | null; skipped: string[] }
 }
 
-type OrgRow = { is_demo?: boolean | null; id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown; profile?: unknown }
+type OrgRow = { plan_entitlements?: unknown; is_demo?: boolean | null; id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown; profile?: unknown }
 type UserRow = { id: string; org_id: string | null; email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null; full_name: string | null }
 
 class SeedStop extends Error {}
@@ -254,7 +306,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     org = await must(
       client
         .from('orgs')
-        .select(`id, name, phone, email, address, timezone, ${input.demo ? 'is_demo, ' : ''}${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`)
+        .select(`id, name, phone, email, address, timezone, plan_entitlements, ${input.demo ? 'is_demo, ' : ''}${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`)
         .eq('id', input.org.id)
         .maybeSingle(),
       'read org'
@@ -266,7 +318,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     // A demo run re-finds ITS OWN demo company by name (so a re-run / --reset needs no org id); anything else is refused below.
     if (input.demo && sameRows.length === 1 && sameRows[0].is_demo === true) {
       org = await must(
-        client.from('orgs').select(`id, name, phone, email, address, timezone, is_demo, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`).eq('id', sameRows[0].id).maybeSingle(),
+        client.from('orgs').select(`id, name, phone, email, address, timezone, plan_entitlements, is_demo, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`).eq('id', sameRows[0].id).maybeSingle(),
         'read demo org'
       )
     } else if (sameRows.length) {
@@ -381,7 +433,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
       // same check as the owner save); before that the company is left not set up and the owner saves Settings ->
       // Sales tax after the migration.
       const settings = taxReady ? { [SALES_TAX_SETTINGS_KEY]: { ...NEW_COMPANY_SALES_TAX } } : {}
-      const created = await must(client.from('orgs').insert({ ...wantColumns, settings, ...(input.demo ? { is_demo: true } : {}) }).select('id').single(), 'create org')
+      const created = await must(client.from('orgs').insert({ ...wantColumns, settings, plan_entitlements: {}, ...(input.demo ? { is_demo: true } : {}) }).select('id').single(), 'create org')
       orgId = (created as { id: string }).id
       say(`org id ${orgId} — put it in org.id for every re-run`)
     }
@@ -422,6 +474,24 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
         const { error } = await mergeOrgSettings(client, orgId, want, { path: [ORG_PROFILE_SETTINGS_KEY] })
         if (error) throw new Error(`profile: ${error}`)
       }
+    }
+  }
+
+  // ---- plan (orgs.plan_entitlements, server-only; lib/org-features.ts) ----
+  // A NEW company gets its profile's modules (+ the seed file's overrides). An existing company is only changed when the
+  // seed file names `entitlements` (or it is the demo company); otherwise its plan (NULL = everything allowed) is left alone.
+  const wantPlan = seedEntitlements(input)
+  if (!org) {
+    // The company row was created with an EMPTY plan ({} = nothing entitled), so a seed that stops half way can never leave it
+    // with everything allowed; the real plan is written below through set_plan_entitlement(), one log row per module.
+    if (opts.apply) await writePlan(client, orgId, wantPlan, null)
+    say(`plan: entitled to ${ORG_FEATURE_KEYS.filter((k) => wantPlan[k]).length} of ${ORG_FEATURE_KEYS.length} modules (${INDUSTRY_PROFILES[input.profile ?? 'roofing'].label} profile${input.entitlements ? ' + overrides' : ''})`)
+  } else if (input.entitlements || input.demo) {
+    const have = org.plan_entitlements == null ? null : resolveOrgEntitlements(org.plan_entitlements)
+    if (have && ORG_FEATURE_KEYS.every((k) => have[k] === wantPlan[k])) say('plan: already matches')
+    else {
+      say(`plan: set ${ORG_FEATURE_KEYS.filter((k) => wantPlan[k]).length} of ${ORG_FEATURE_KEYS.length} modules`)
+      if (opts.apply) await writePlan(client, orgId, wantPlan, have)
     }
   }
 

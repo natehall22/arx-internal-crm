@@ -818,6 +818,9 @@ const SCREENS: Screen[] = [
       await p.waitForSelector('text=When on, every finished job')
     } }] },
   { name: 'catch-up-settings', path: '/dev-harness/catch-up-settings', ready: 'text=Flag a job as stuck' },
+  { name: 'org-features-not-in-plan', path: '/dev-harness/org-features-plan', ready: 'text=Not in your plan — contact us to add it' },
+  { name: 'support-plans', path: '/dev-harness/support-plans', ready: 'text=Which modules a company may use',
+    states: [{ name: 'other-company', run: async (p) => { await p.getByLabel('Company').selectOption('o2'); await p.waitForSelector('text=No plan set yet') } }] },
   { name: 'org-features', path: '/dev-harness/org-features', ready: 'text=Turn off what your company doesn’t use' },
   { name: 'org-profile', path: '/dev-harness/org-profile', ready: 'text=A profile sets the starting point',
     mock: async (p) => {

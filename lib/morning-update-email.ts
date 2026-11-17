@@ -12,7 +12,7 @@ import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
 import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, loadUnpaidInvoicesQueue, unpaidInvoicesFailedQueue, type Queue } from '@/lib/today'
-import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
+import { loadOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 import { PRODUCT_NAME } from '@/lib/product'
 import { getOrgBrand } from '@/lib/org-brand'
@@ -457,7 +457,7 @@ export async function sendMorningUpdateEmail(
 
   const settings = getOrgEmailBlastSettings(orgRow?.settings)
   // Same settings row: the company's feature switches (Settings → Features) decide the door / insurance rows.
-  const features = resolveOrgFeatures(orgRow?.settings)
+  const features = await loadOrgFeatures(supabase, params.orgId)
 
   if (isTest) {
     emails = Array.from(

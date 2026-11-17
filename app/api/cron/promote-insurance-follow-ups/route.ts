@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveOrgFeatures } from '@/lib/org-features'
+import { loadOrgFeatures } from '@/lib/org-features'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   DIDNT_SIT_PIPELINE_PREFIX,
@@ -322,8 +322,8 @@ export async function GET(request: NextRequest) {
     const failedOrgs: string[] = []
     for (const org of orgs) {
       // Companies with Insurance switched off (Settings → Features) get no insurance follow-up promotion or
-      // auto-retire. Read from the settings loadCronOrgs already fetched — the one feature rule, no extra query.
-      if (!resolveOrgFeatures(org.settings).insurance) continue
+      // auto-retire. The one feature reader (switch AND plan entitlement), one small read per company.
+      if (!(await loadOrgFeatures(admin, org.id)).insurance) continue
       try {
         const result = await promoteForOrg(admin, org.id, org.settings, nowIso)
         promoted += result.promoted

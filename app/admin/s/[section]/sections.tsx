@@ -20,6 +20,7 @@ import { canEditCheckupSettings } from '@/lib/checkups-settings'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
 import { canEditJobCatchUpSettings } from '@/lib/job-catch-up-settings'
+import { loadOrgEntitlements, resolveOrgEntitlements } from '@/lib/org-features'
 import type { ResolvedOrgProfile } from '@/lib/org-profile'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -48,7 +49,13 @@ export const SECTION_PAGES: Record<string, SectionPage> = {
           />
         ),
       },
-      { anchor: 'features', render: ({ orgProfile }) => <OrgFeaturesCard initial={orgProfile.features} /> },
+      {
+        anchor: 'features',
+        // The plan (set by the platform owner): features it leaves out show as "Not in your plan". A read error = nothing entitled.
+        render: async ({ admin, profile, orgProfile }) => (
+          <OrgFeaturesCard initial={orgProfile.features} entitled={await loadOrgEntitlements(admin, profile.org_id).catch(() => resolveOrgEntitlements({}))} />
+        ),
+      },
     ],
   },
   payments: {

@@ -80,6 +80,8 @@ import PayWeekClient from '@/components/payroll/PayWeekClient'
 import MyPayClient from '@/components/payroll/MyPayClient'
 import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
 import SupportAccessCard from '@/components/admin/SupportAccessCard'
+import SupportPlans from '@/app/support/SupportPlans'
+import { ORG_FEATURE_KEYS as PLAN_HARNESS_KEYS, resolveOrgEntitlements as planHarnessEntitlements } from '@/lib/org-features'
 import SupportBannerView from '@/components/support/SupportBannerView'
 import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD, HARNESS_CARD_DASHBOARD } from '@/e2e/fixtures'
 import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
@@ -466,6 +468,29 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false }} />
         </div>
       )
+    case 'org-features-plan': {
+      // A plan that leaves out Service plans and Texting: those rows show "Not in your plan" with no switch.
+      const entitled = { ...planHarnessEntitlements(null), servicePlans: false, texting: false }
+      const initial = Object.fromEntries(PLAN_HARNESS_KEYS.map((k) => [k, entitled[k] && k === 'canvassing'])) as Record<(typeof PLAN_HARNESS_KEYS)[number], boolean>
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <OrgFeaturesCard initial={initial} entitled={entitled} />
+        </div>
+      )
+    }
+    case 'support-plans': {
+      const all = planHarnessEntitlements(null)
+      return (
+        <div className="mx-auto max-w-3xl p-4">
+          <SupportPlans
+            companies={[
+              { orgId: 'o1', name: 'Summit Lawn Care', profileLabel: 'Lawn & landscape', entitlements: { ...all, quickbooks: false, texting: false }, unrestricted: false },
+              { orgId: 'o2', name: 'Acme Roofing', profileLabel: 'Roofing', entitlements: all, unrestricted: true },
+            ]}
+          />
+        </div>
+      )
+    }
     case 'org-profile':
       return (
         <div className="mx-auto max-w-2xl p-4">
