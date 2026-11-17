@@ -8,7 +8,7 @@ import { reassignOpenCheckups } from '@/lib/checkups'
 import { CHECKUPS_ASSIGNEE_KEY, canEditCheckupSettings, parseCheckupPatch } from '@/lib/checkups-settings'
 import { canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
 import { mergeOrgSettings } from '@/lib/org-settings'
-import { ORG_FEATURES_SETTINGS_KEY, parseOrgFeaturesPatch } from '@/lib/org-features'
+import { loadOrgEntitlements, ORG_FEATURE_DEFS, ORG_FEATURES_SETTINGS_KEY, parseOrgFeaturesPatch, type OrgFeature } from '@/lib/org-features'
 import { saveSalesTaxSettings } from '@/lib/sales-tax-server'
 
 export const dynamic = 'force-dynamic'
@@ -162,6 +162,19 @@ export async function PATCH(request: NextRequest) {
       if (!profile?.org_id || !isSuperAdmin(profile)) return NextResponse.json({ error: 'Only an owner can turn features on or off' }, { status: 403 })
       const parsed = parseOrgFeaturesPatch(data)
       if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      // The plan is set outside the company (lib/org-features.ts, /support → Plans): an owner may switch OFF anything, but
+      // can only switch ON what the plan includes. A plan that cannot be read refuses (fails closed).
+      if (Object.values(parsed.set).some((v) => v === true)) {
+        let plan: Awaited<ReturnType<typeof loadOrgEntitlements>>
+        try {
+          plan = await loadOrgEntitlements(adminClient, profile.org_id)
+        } catch (e) {
+          console.error('settings: plan not readable', e)
+          return NextResponse.json({ error: 'Could not check your plan. Try again.' }, { status: 503 })
+        }
+        const notInPlan = (Object.entries(parsed.set) as Array<[OrgFeature, boolean]>).find(([k, v]) => v === true && !plan[k])
+        if (notInPlan) return NextResponse.json({ error: `${ORG_FEATURE_DEFS[notInPlan[0]].label} is not in your plan. Contact us to add it.`, code: 'not_in_plan' }, { status: 403 })
+      }
       // A demo company can never switch on QuickBooks or AI changes (lib/demo-org.ts).
       const locked = demoLockedFeatureIn(parsed.set)
       if (locked && (await isDemoOrg(adminClient, profile.org_id, { failClosed: true }))) {

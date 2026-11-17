@@ -16,6 +16,7 @@ import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import OrgProfileCard from '@/components/admin/OrgProfileCard'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { loadOrgProfile } from '@/lib/org-profile'
+import { loadOrgEntitlements, resolveOrgEntitlements } from '@/lib/org-features'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import ProposalContentCard from '@/components/admin/ProposalContentCard'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
@@ -43,6 +44,8 @@ export default async function SettingsPage() {
   // Industry profile (lib/org-profile.ts): its feature map is the same profile-aware one every gate reads.
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
   const features = orgProfile.features
+  // The plan (set by the platform owner): features it leaves out show as "Not in your plan" on the Features card.
+  const entitled = await loadOrgEntitlements(admin, profile.org_id).catch(() => resolveOrgEntitlements(null))
   const canEditFeatures = isSuperAdmin(profile)
   const groups = visibleSettingsGroups({
     features,
@@ -79,7 +82,7 @@ export default async function SettingsPage() {
               profiles={INDUSTRY_PROFILE_IDS.map((id) => ({ id, label: INDUSTRY_PROFILES[id].label, description: INDUSTRY_PROFILES[id].description }))}
             />
           )}
-          {canEditFeatures && <OrgFeaturesCard initial={features} />}
+          {canEditFeatures && <OrgFeaturesCard initial={features} entitled={entitled} />}
           {/* Owners only: sales tax rates, default stack, on/off (lib/sales-tax.ts). */}
           {canEditFeatures && <SalesTaxCard initial={salesTax} proposalWord={orgProfile.terms.proposal} />}
           {/* Owners, when the company uses online payments: connect its own Stripe account (lib/online-payments). */}

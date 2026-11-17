@@ -10,7 +10,7 @@ import { ORG_FEATURE_DEFS, ORG_FEATURE_KEYS, type OrgFeature, type OrgFeatures }
  * anyone else): turn whole parts of the app on or off for this company. Saved per feature through
  * PATCH /api/admin/settings `type: 'features'` (lib/org-features.ts). Nothing is deleted when a feature is off.
  */
-export default function OrgFeaturesCard({ initial }: { initial: OrgFeatures }) {
+export default function OrgFeaturesCard({ initial, entitled }: { initial: OrgFeatures; entitled?: OrgFeatures }) {
   const [features, setFeatures] = useState<OrgFeatures>(initial)
   const [saving, setSaving] = useState<OrgFeature | null>(null)
 
@@ -41,6 +41,18 @@ export default function OrgFeaturesCard({ initial }: { initial: OrgFeatures }) {
         <ul className="divide-y divide-surface-line">
           {ORG_FEATURE_KEYS.map((key) => {
             const on = features[key]
+            // Not in the company's plan (set by the platform owner): no switch, whatever is stored. The server refuses it too.
+            if (entitled && !entitled[key]) {
+              return (
+                <li key={key} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-ui-base font-semibold text-ink">{ORG_FEATURE_DEFS[key].label}</p>
+                    <p className="text-ui-sm text-ink">{ORG_FEATURE_DEFS[key].description}</p>
+                    <p className="mt-1 text-ui-sm font-semibold text-ink">Not in your plan — contact us to add it</p>
+                  </div>
+                </li>
+              )
+            }
             return (
               <li key={key} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div className="min-w-0 flex-1">
