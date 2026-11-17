@@ -1429,3 +1429,25 @@ test('top bar fits the phone with a wide company logo, Ask AI and + Partner; min
   await page.getByRole('button', { name: 'Ask AI' }).click()
   await expect(page.getByRole('heading', { name: 'AI Assistant' })).toBeVisible()
 })
+
+// Roofing-words crawl: screens a lawn company opens must not say any roofing / ARX word (the static guard is
+// scripts/roofing-words-ratchet.mjs; this is the rendered counterpart). Fixtures are lawn-safe on these screens.
+const LAWN_CRAWL: Array<{ name: string; path: string; ready: string }> = [
+  { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
+  { name: 'custom-fields-admin', path: '/dev-harness/custom-fields-admin', ready: 'text=Payment terms' },
+  { name: 'checkups', path: '/dev-harness/checkups', ready: 'text=6-month inspection' },
+]
+const LAWN_FORBIDDEN = (require('../scripts/roofing-terms.cjs') as { TERMS: RegExp }).TERMS // the one list the static guard scans with
+for (const screen of LAWN_CRAWL) {
+  test(`lawn crawl / ${screen.name} says no roofing or ARX word`, async ({ page }) => {
+    await mockApi(page)
+    await SCREENS.find((s) => s.name === screen.name)?.mock?.(page) // the screen's own fixtures, then the lawn company over them
+    await asLawnCompany(page)
+    await page.goto(screen.path)
+    await page.waitForSelector(screen.ready, { timeout: 30_000 })
+    await page.waitForTimeout(400)
+    const text = await page.locator('body').innerText()
+    const hit = text.match(LAWN_FORBIDDEN)
+    if (hit) throw new Error(`${screen.name} (lawn) shows "${hit[0]}" near: ${text.slice(Math.max(0, hit.index! - 40), hit.index! + 60).replace(/\s+/g, ' ')}`)
+  })
+}

@@ -341,3 +341,14 @@ export function inspectionOutcomeRequiresCloseSchedule(
   const label = (o.label || '').trim().toLowerCase()
   return label === 'moving to close'
 }
+
+/** Outcome ids that only make sense for a company that works insurance claims (feature switch Insurance). */
+export const INSURANCE_OUTCOME_IDS: readonly string[] = ['insurance_follow_up', 'waiting_on_insurance']
+
+/**
+ * Pure: the outcome choices a person sees. With the Insurance feature off the insurance outcomes are hidden (also from the
+ * built-in defaults the screens start with before their own load finishes). Insurance on = the rows exactly as given.
+ */
+export function visibleOutcomeRows<R extends { id: string }>(rows: readonly R[], insuranceOn: boolean): R[] {
+  return insuranceOn ? [...rows] : rows.filter((r) => !INSURANCE_OUTCOME_IDS.includes(r.id))
+}

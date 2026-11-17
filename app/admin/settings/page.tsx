@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useOrgFeatures, useOrgProfile, useRoofingWord } from '@/hooks/useOrgFeatures'
+import { t as profileWord } from '@/lib/org-profile'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
@@ -380,6 +382,31 @@ export default function AdminSettingsPage() {
     loadSettings()
   }, [])
 
+  // Built-in defaults above are the roofing company's wording. A company that never saved its own list gets the profile's
+  // words instead (a company's saved settings always win; the roofing profile is left exactly as is).
+  const orgProfile = useOrgProfile()
+  const insuranceOn = useOrgFeatures().insurance
+  /** Door-knocking wording (Sits, canvass dispositions) only exists when the company canvasses. */
+  const canvassingOn = useOrgFeatures().canvassing
+  const rw = useRoofingWord()
+  /** The company's word for the visit before a sale: Inspection (roofing), Estimate (lawn), Site visit (builder). */
+  const visitWord = profileWord(orgProfile, 'inspection')
+  const [savedSections, setSavedSections] = useState<{ types: boolean; templates: boolean } | null>(null)
+  useEffect(() => {
+    if (!savedSections || orgProfile.id === 'roofing') return
+    const visit = profileWord(orgProfile, 'inspection').toLowerCase()
+    if (!savedSections.types) {
+      setAppointmentTypes(prev => prev
+        .filter(a => insuranceOn || a.id !== 'insurance_follow_up')
+        .map(a => (a.id === 'inspection' ? { ...a, description: `Standard ${visit}` } : a)))
+    }
+    if (!savedSections.templates) {
+      setNotificationTemplates(prev => prev.map(n => (n.id === 'inspection_scheduled'
+        ? { ...n, name: `${profileWord(orgProfile, 'inspection')} Scheduled`, subject: `Your ${visit} has been scheduled`, body: n.body?.replace('roof inspection', visit) }
+        : n)))
+    }
+  }, [savedSections, orgProfile, insuranceOn])
+
   const loadSettings = async () => {
     try {
       const response = await fetch('/api/admin/settings')
@@ -461,6 +488,7 @@ export default function AdminSettingsPage() {
         setCloseOutcomes(normalizeCloseOutcomeRows(data.settings.close_outcomes))
       }
       
+      setSavedSections({ types: !!data.settings?.appointment_types, templates: !!data.settings?.notification_templates })
       // Load appointment types from org settings
       
       // Load external integrations from org settings
@@ -646,7 +674,12 @@ export default function AdminSettingsPage() {
             <h2 className="font-semibold text-gray-900">Admin Settings</h2>
           </div>
           <nav className="p-4 space-y-6 overflow-y-auto max-h-[calc(100vh-130px)]">
-            {menuSections.map((section) => (
+            {menuSections.map((section) => ({
+              ...section,
+              items: section.items
+                .filter((item) => canvassingOn || item.id !== 'canvass-dispositions')
+                .map((item) => (item.id === 'inspection-outcomes' ? { ...item, label: `${visitWord} outcomes` } : item)),
+            })).map((section) => (
               <div key={section.title}>
                 <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">
                   {section.title}
@@ -1327,9 +1360,10 @@ export default function AdminSettingsPage() {
             <div className="max-w-3xl">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Inspection outcomes</h1>
+                  <h1 className="text-2xl font-bold text-gray-900">{visitWord} outcomes</h1>
                   <p className="text-gray-700 mt-1">
-                    Configure the outcomes closers can select after an inspection. Control which outcomes create opportunities and which count as a &quot;Sit&quot; on the dashboard Team Stats leaderboard.
+                    {`Configure the outcomes ${rw('closers', 'salespeople')} can select after ${rw('an inspection', `a ${visitWord.toLowerCase()}`)}. Control which outcomes create opportunities`}
+                    {canvassingOn ? ' and which count as a "Sit" on the dashboard Team Stats leaderboard.' : '.'}
                   </p>
                 </div>
                 <button
@@ -1361,7 +1395,7 @@ export default function AdminSettingsPage() {
                   </svg>
                   <div className="text-sm text-blue-700">
                     <p className="font-medium">How it works:</p>
-                    <p className="mt-1">When a closer submits an inspection result, outcomes marked with &quot;Creates Opportunity&quot; will automatically convert the lead to an opportunity. Other outcomes will keep the lead as-is for follow-up.</p>
+                    <p className="mt-1">When {rw('a closer', 'a salesperson')} submits {rw('an inspection', `a ${visitWord.toLowerCase()}`)} result, outcomes marked with &quot;Creates Opportunity&quot; will automatically convert the lead to an opportunity. Other outcomes will keep the lead as-is for follow-up.</p>
                   </div>
                 </div>
               </div>
@@ -1375,7 +1409,7 @@ export default function AdminSettingsPage() {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Label</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Description</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase">Creates Opportunity</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase">Counts as Sit</th>
+                      {canvassingOn && <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase">Counts as Sit</th>}
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Status</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Actions</th>
                     </tr>
@@ -1413,6 +1447,7 @@ export default function AdminSettingsPage() {
                             {outcome.converts_to_opportunity ? '✓ Yes' : 'No'}
                           </button>
                         </td>
+                        {canvassingOn && (
                         <td className="px-4 py-3 text-center">
                           <button
                             type="button"
@@ -1432,6 +1467,7 @@ export default function AdminSettingsPage() {
                             {outcome.counts_as_sit ? '✓ Yes' : 'No'}
                           </button>
                         </td>
+                        )}
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                             outcome.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
@@ -1596,6 +1632,7 @@ export default function AdminSettingsPage() {
                           </p>
                         </label>
                       </div>
+                      {canvassingOn && (
                       <div className="flex items-center gap-3 p-3 bg-cyan-50 rounded-lg border border-cyan-200">
                         <input
                           type="checkbox"
@@ -1616,6 +1653,7 @@ export default function AdminSettingsPage() {
                           </p>
                         </label>
                       </div>
+                      )}
                       <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
                         <div className="flex items-start gap-3">
                           <input

@@ -1,5 +1,6 @@
 'use client'
 
+import { useIsRoofingProfile, useOrgFeatures, useRoofingWord } from '@/hooks/useOrgFeatures'
 import { useState, useEffect, useRef } from 'react'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import {
@@ -43,6 +44,9 @@ export default function CloseVisitDebriefWizard({
   onComplete,
   onFinishLater,
 }: Props) {
+  const rw = useRoofingWord()
+  const isRoofing = useIsRoofingProfile()
+  const insuranceOn = useOrgFeatures().insurance
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
 
@@ -418,6 +422,7 @@ export default function CloseVisitDebriefWizard({
           <div className="border-t pt-4 space-y-4">
             <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Optional details</p>
 
+            {isRoofing && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Roof Slopes</label>
               <input
@@ -428,9 +433,10 @@ export default function CloseVisitDebriefWizard({
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
+            )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Homeowner&apos;s Mood</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{rw("Homeowner's Mood", "Customer's Mood")}</label>
               <input
                 type="text"
                 value={homeownerMood}
@@ -441,7 +447,7 @@ export default function CloseVisitDebriefWizard({
             </div>
 
             <BoolToggle label="Consequence questions asked?" value={consequenceQs} onChange={setConsequenceQs} />
-            <BoolToggle label="Insurance discussed?" value={insuranceMentioned} onChange={setInsuranceMentioned} />
+            {insuranceOn && <BoolToggle label="Insurance discussed?" value={insuranceMentioned} onChange={setInsuranceMentioned} />}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes for Closer</label>

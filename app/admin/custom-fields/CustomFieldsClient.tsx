@@ -1,5 +1,6 @@
 'use client'
 
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import * as React from 'react'
 
 import ConfigListEditor from '@/components/admin/ConfigListEditor'
@@ -95,6 +96,7 @@ function EntityFields({
   readOnly: boolean
   save: (body: Record<string, unknown>, done: string) => Promise<boolean>
 }) {
+  const canvassingOn = useOrgFeatures().canvassing
   const [settingsFor, setSettingsFor] = React.useState<CustomFieldDefinition | null>(null)
   const byId = (id: string) => defs.find((d) => d.id === id)
   const where = entity === 'customer' ? 'each customer' : entity === 'property' ? 'each property' : 'each job'
@@ -113,7 +115,7 @@ function EntityFields({
           if (!d) return null
           const parts: string[] = [CUSTOM_FIELD_TYPE_LABELS[d.field_type]]
           if (d.required) parts.push('Required')
-          if (d.visible_to_field) parts.push('Door-knocking roles see it')
+          if (d.visible_to_field) parts.push(canvassingOn ? 'Door-knocking roles see it' : 'Field sales roles see it')
           if (d.field_type === 'dropdown') parts.push(d.options.join(', '))
           return parts.join(' · ')
         }}
@@ -137,6 +139,8 @@ function EntityFields({
 }
 
 function AddFieldForm({ entity, save }: { entity: CustomFieldEntity; save: (body: Record<string, unknown>, done: string) => Promise<boolean> }) {
+  const canvassingOn = useOrgFeatures().canvassing
+  const fieldRoles = canvassingOn ? 'Setters, canvassers and inside sales' : 'Field sales roles'
   const [label, setLabel] = React.useState('')
   const [type, setType] = React.useState<CustomFieldType>('text')
   const [choices, setChoices] = React.useState('')
@@ -193,7 +197,7 @@ function AddFieldForm({ entity, save }: { entity: CustomFieldEntity; save: (body
       {entity !== 'job' ? (
         <label htmlFor={visId} className="flex min-h-tap items-center gap-3 text-ui-base text-ink">
           <input id={visId} type="checkbox" checked={fieldVisible} onChange={(e) => setFieldVisible(e.target.checked)} className="h-5 w-5" />
-          Setters, canvassers and inside sales can see it (off: office and crews only)
+          {fieldRoles} can see it (off: office and crews only)
         </label>
       ) : null}
       <p className="text-ui-sm text-ink">The type can’t be changed later — turn the field off and add a new one instead.</p>
@@ -205,6 +209,8 @@ function AddFieldForm({ entity, save }: { entity: CustomFieldEntity; save: (body
 }
 
 function FieldSettingsSheet({ def, onClose, save }: { def: CustomFieldDefinition; onClose: () => void; save: (body: Record<string, unknown>, done: string) => Promise<boolean> }) {
+  const canvassingOn = useOrgFeatures().canvassing
+  const fieldRoles = canvassingOn ? 'Setters, canvassers and inside sales' : 'Field sales roles'
   const [required, setRequired] = React.useState(def.required)
   const [fieldVisible, setFieldVisible] = React.useState(def.visible_to_field)
   const [choices, setChoices] = React.useState(def.options.join('\n'))
@@ -239,7 +245,7 @@ function FieldSettingsSheet({ def, onClose, save }: { def: CustomFieldDefinition
           {def.entity !== 'job' ? (
             <label htmlFor={visId} className="flex min-h-tap items-center gap-3 text-ui-base text-ink">
               <input id={visId} type="checkbox" checked={fieldVisible} onChange={(e) => setFieldVisible(e.target.checked)} className="h-5 w-5" />
-              Setters, canvassers and inside sales can see it
+              {fieldRoles} can see it
             </label>
           ) : null}
           <DialogFooter>

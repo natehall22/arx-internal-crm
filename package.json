@@ -38,6 +38,8 @@
     "import:price-list": "tsx --env-file=.env.local scripts/import-price-list.ts",
     "hardcode:check": "node scripts/hardcode-ratchet.mjs",
     "hardcode:update": "node scripts/hardcode-ratchet.mjs --update",
+    "roofing-words:check": "node scripts/roofing-words-ratchet.mjs",
+    "roofing-words:update": "node scripts/roofing-words-ratchet.mjs --update",
     "org-scope:check": "node scripts/org-scope-check.mjs",
     "org-scope:list": "node scripts/org-scope-check.mjs --list",
     "org-scope:update": "node scripts/org-scope-check.mjs --update"

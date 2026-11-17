@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency } from '@/lib/job-payments'
@@ -23,6 +24,7 @@ export default function CompleteJobModal({
   variant = 'complete',
   canForce = false,
 }: CompleteJobModalProps) {
+  const rw = useRoofingWord()
   const isCollect = variant === 'collect'
   // Closing with a balance is an owner decision and must say why (lib/job-collection.ts).
   const blocked = isCollect && !canForce
@@ -95,7 +97,7 @@ export default function CompleteJobModal({
                   type="text"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="e.g., Insurance kept depreciation — we are accepting the short pay"
+                  placeholder={rw('e.g., Insurance kept depreciation — we are accepting the short pay', 'e.g., Customer disputed part of the work — we are accepting a short pay')}
                   autoComplete="off"
                   className="w-full min-h-[44px] px-3 py-2 border border-gray-400 rounded-lg text-base"
                   style={{ color: '#2c2c2a' }}

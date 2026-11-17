@@ -238,7 +238,7 @@ export async function loadOrgEntitlements(client: SupabaseClient, orgId: string)
 
 /**
  * Load an org's features. Never throws: a failed read is logged loudly and every module is OFF (fail closed: the plan could not
- * be checked). Exception, by design: the plan column not existing yet (migration 202611270010 not applied; Postgres 42703) is
+ * be checked), except for a roofing / no-profile company, which gets the normal defaults. Exception, by design: the plan column not existing yet (migration 202611270010 not applied; Postgres 42703) is
  * "no plan system yet" = plan NULL = everything allowed, so the original company keeps every module on deploy. This repo has no
  * `orgs.original_brand` marker, so there is no way to tell "the original company" from any other on a missing column.
  */
@@ -259,7 +259,19 @@ export async function loadOrgFeatures(client: SupabaseClient, orgId: string | nu
     // FAIL CLOSED (after the one retry above): if the plan cannot be read we cannot know what the company is entitled to, so every plan-governed module is
     // treated as not entitled (a transient error must never hand out paid modules). A missing column is NOT an error here: it is
     // the pre-migration state and `readOrgFeatureSettings` already returns the plan as NULL (= today's behavior).
-    console.error('[PLAN] loadOrgFeatures: org features/plan not readable, treating every module as NOT entitled', orgId, e)
+    console.error('[PLAN] loadOrgFeatures: org features/plan not readable', orgId, e)
+    // A roofing company (or one with no profile stored: the original company) keeps its normal defaults, so insurance outcomes,
+    // canvassing and the Sit column do not vanish on a blip. Any other profile, or a profile that cannot be read either, fails closed.
+    try {
+      const res = await client.from('orgs').select('features:settings->features, profile:settings->profile').eq('id', orgId).maybeSingle()
+      if (!res.error) {
+        const row = (res.data ?? {}) as { features?: unknown; profile?: unknown }
+        const stored = row.profile == null ? { features: row.features ?? {} } : { features: row.features ?? {}, profile: row.profile }
+        if (storedProfileId(stored) === 'roofing') return resolveOrgFeatures(stored, null)
+      }
+    } catch {
+      /* fall through to closed */
+    }
     return resolveOrgFeatures({}, {})
   }
 }

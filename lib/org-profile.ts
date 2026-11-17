@@ -285,3 +285,12 @@ export function applyTodayProfile<Q extends TodayQueueLike>(queues: readonly Q[]
     }
   })
 }
+
+/**
+ * Wording that is roofing-specific: the roofing profile (and the original company, which resolves to it) keeps its text
+ * byte-for-byte, every other profile gets the neutral text. Use where a profile term (`t`) does not exist for the word.
+ * The roofing-words guard (scripts/roofing-words-ratchet.mjs) treats the first argument as gated.
+ */
+export function roofingOr<T>(profile: { id: string } | null | undefined, roofing: T, other: T): T {
+  return !profile || profile.id === DEFAULT_INDUSTRY_PROFILE ? roofing : other
+}

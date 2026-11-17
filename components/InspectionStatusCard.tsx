@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { createPortal } from 'react-dom'
 import type { ScheduledAppointment } from '@/lib/types/database'
 import {
   DEFAULT_INSPECTION_OUTCOMES,
+  visibleOutcomeRows,
   inspectionOutcomeRequiresCloseSchedule,
   sortActiveOutcomes,
   type InspectionOutcomeConfigRow,
@@ -81,6 +83,7 @@ export default function InspectionStatusCard({
   onFillLater,
 }: InspectionStatusCardProps) {
   const displayTz = 'America/New_York'
+  const insuranceOn = useOrgFeatures().insurance
   const [outcomeOptions, setOutcomeOptions] = useState<OutcomeOption[]>(() =>
     toUiOptions(DEFAULT_INSPECTION_OUTCOMES)
   )
@@ -348,7 +351,7 @@ export default function InspectionStatusCard({
           <div className="px-6 py-4">
             <p className="text-sm font-medium text-gray-700 mb-3">Select Outcome *</p>
             <div className="grid grid-cols-1 gap-2">
-              {outcomeOptions.map((option) => (
+              {visibleOutcomeRows(outcomeOptions, insuranceOn).map((option) => (
                 <button
                   key={option.id}
                   type="button"

@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import { useEffect, useState } from 'react'
 
 import { toast } from '@/components/ui/toast'
@@ -36,6 +37,7 @@ export default function AddCostSheet({
   onClose: () => void
   onSaved: () => void
 }) {
+  const rw = useRoofingWord()
   const editing = !!line
   const [form, setForm] = useState<Form>(EMPTY)
   const [saving, setSaving] = useState(false)
@@ -99,7 +101,7 @@ export default function AddCostSheet({
         <div className="space-y-4 overflow-y-auto p-4">
           <div>
             <label className={label} htmlFor="cost-what">What was it for?</label>
-            <input id="cost-what" className={field} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Shingles, dump fee, crew labor…" autoFocus />
+            <input id="cost-what" className={field} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={rw('Shingles, dump fee, crew labor…', 'Materials, disposal fee, crew labor…')} autoFocus />
           </div>
           {costCodes && !editing ? (
             <div>
