@@ -1,11 +1,11 @@
 -- Retype 'roofing' deals and projects of NON-roofing companies to 'other'.
 --
 -- WHY: every opportunity was created with project_type = 'roofing' (the column default), so a lawn company's deals read as
--- "Roofing". New deals now get 'other' (lib/new-deal.ts). As of 2026-11-17: 1 Precision Maintenance deal and 5 demo-company
+-- "Roofing". New deals now get 'other' (lib/new-deal.ts). As of 2026-11-17: the non-roofing company's deals (preview shows real counts) and 5 demo-company
 -- deals (counts will have moved; the preview gives today's). Only companies whose stored industry profile
 -- (orgs.settings.profile.id) is set and is not 'roofing' are touched; a company with no stored profile is roofing and is skipped.
 --
--- !! Needs migration 202611300010_project_type_other.sql applied first (the function refuses otherwise).
+-- !! Needs migration 202611300060_project_type_other.sql applied first (the function refuses otherwise).
 --
 -- HOW THIS FILE RUNS (nothing is written to any existing table by running it as-is):
 --   1. Running the whole file (re)creates a function + backup table in the private schema `release_backups` and calls the PREVIEW.
@@ -47,7 +47,7 @@ BEGIN
     RAISE EXCEPTION 'org % has no non-roofing industry profile (profile=%): nothing to retype', p_org, coalesce(v_profile, 'none');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'project_type' AND e.enumlabel = 'other') THEN
-    RAISE EXCEPTION 'apply migration 202611300010_project_type_other.sql first';
+    RAISE EXCEPTION 'apply migration 202611300060_project_type_other.sql first';
   END IF;
 
   SELECT count(*) INTO v_opps     FROM opportunities WHERE org_id = p_org AND project_type::text = 'roofing';

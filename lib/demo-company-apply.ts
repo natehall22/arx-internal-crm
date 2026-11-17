@@ -11,6 +11,7 @@
  * still go. Refuses anything but a demo org (`assertDemoOrg`). Passwords are generated here and returned for the script to
  * print once; they are never stored anywhere but Supabase Auth.
  */
+import { insertOpportunityRow } from '@/lib/new-deal'
 import { randomBytes, createHash } from 'crypto'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -426,7 +427,7 @@ async function ensureOpportunity(ctx: Ctx, key: string, status: 'open' | 'won'):
   const c = ctx.data.customers.find((x) => x.key === key)!
   const p = c.properties[0]
   const row = unwrap(
-    await db.from('opportunities').insert({ customer_id: cust.id, owner_user_id: ctx.userIds.get('sales'), status, address_text: `${p.address_line1}, ${p.city}, ${p.state} ${p.zip}`, notes: 'Sample data' }).select('id').single(),
+    await insertOpportunityRow(ctx.admin, ctx.orgId, { org_id: ctx.orgId, customer_id: cust.id, owner_user_id: ctx.userIds.get('sales'), status, address_text: `${p.address_line1}, ${p.city}, ${p.state} ${p.zip}`, notes: 'Sample data' }, 'id'),
     'opportunity'
   ) as Row
   ctx.oppIds.set(key, row.id)

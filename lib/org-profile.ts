@@ -114,9 +114,9 @@ export function pageHidden(profile: Pick<ResolvedOrgProfile, 'nav'> | Pick<Clien
 }
 
 /**
- * The `opportunities.project_type` a new deal is created with (DB enum: roofing, siding, windows, gutters, solar, other).
- * Roofing — the original company — stays 'roofing'; every other profile's deals are 'other' (its own trade is the customer's
- * work category, not a roof). Additive: no migration, old rows untouched.
+ * The `opportunities.project_type` a new deal is created with (DB enum: roofing, siding, windows, mixed, plus 'other' from
+ * migration 202611300060). Roofing — the original company — stays 'roofing'; every other profile's deals are 'other' (its own
+ * trade is the customer's work category, not a roof). Old rows untouched (see the retype data fix).
  */
 export function newDealProjectType(profile: Pick<ResolvedOrgProfile, 'id'> | Pick<ClientOrgProfile, 'id'> | null | undefined): 'roofing' | 'other' {
   return (profile?.id ?? DEFAULT_INDUSTRY_PROFILE) === 'roofing' ? 'roofing' : 'other'

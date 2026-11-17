@@ -158,7 +158,7 @@ describe('deal project type vs the database enum', () => {
     for (const p of [roof, lawn, resolveOrgProfile({ profile: { id: 'exterior_cleaning', version: 4 } }), resolveOrgProfile({ profile: { id: 'home_builder', version: 1 } })]) {
       expect(enumValues).toContain(newDealProjectType(p))
     }
-    expect(read('supabase/migrations/202611300010_project_type_other.sql')).toContain("ADD VALUE IF NOT EXISTS 'other'")
+    expect(read('supabase/migrations/202611300060_project_type_other.sql')).toContain("ADD VALUE IF NOT EXISTS 'other'")
     expect(read('supabase/data-fixes/2026-11-30_retype_non_roofing_deals.sql')).toContain('undo_retype_non_roofing_deals')
   })
   it('a database without the new value: the insert is retried once as roofing, never fails', async () => {
