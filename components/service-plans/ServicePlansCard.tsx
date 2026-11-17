@@ -2,13 +2,14 @@
 
 import * as React from 'react'
 
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, confirmDialog, Dialog, DialogContent, DialogFooter, Field, Input, toast } from '@/components/ui'
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, confirmDialog, Dialog, DialogContent, DialogFooter, Field, Input, Select, toast } from '@/components/ui'
 import { PlanFields, bodyFrom, formFromPlan, formFromTemplate, planFormReady, todayLocal, type PlanEditorOptions, type PlanFormValues, type PlanRow } from '@/components/service-plans/PlanForm'
 import { formatDateShort, formatDateTime, formatMoney } from '@/lib/format'
 import OneOffVisit from '@/components/service-plans/OneOffVisit'
 import { BILLING_BASIS_LABELS, WEEKDAY_LABELS, isOneOffPlan, planWeekday, seasonLabel } from '@/lib/service-plans'
 
-type Load = PlanEditorOptions & { ready: boolean; plans: PlanRow[]; canEdit: boolean }
+type OneOff = { planId: string; visitId: string; name: string; date: string; crew: string | null; workOrderNumber: string | null }
+type Load = PlanEditorOptions & { ready: boolean; plans: PlanRow[]; canEdit: boolean; oneOffs?: OneOff[] }
 
 type Preview = { body: Record<string, unknown>; plan: PlanRow; summary: string; lines: string[] }
 type HistoryEntry = { id: string; action: string; at: string; by: string | null; lines: string[]; effect: { removed: number; added: number; updated: number } | null }
@@ -41,6 +42,7 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
   const [pausing, setPausing] = React.useState<{ plan: PlanRow; until: string } | null>(null)
   const [history, setHistory] = React.useState<History | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [moving, setMoving] = React.useState<Record<string, string>>({})
 
   const load = React.useCallback(async () => {
     const res = await fetch(`/api/customers/${customerId}/service-plans`, { cache: 'no-store' }).catch(() => null)
@@ -55,9 +57,10 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
 
   if (failed) return <p className="text-ui-base text-ink">Service plans couldn’t load. Refresh to try again.</p>
   if (!data || !data.ready) return null
-  if (data.plans.length === 0 && !data.canEdit) return null
-  // A one-off visit is a plan that starts and ends the same day: it lives on the Visits board, not in this list of recurring plans.
+  if (data.plans.length === 0 && (data.oneOffs ?? []).length === 0 && !data.canEdit) return null
+  // One-off visits come apart from the server (listed below, not as plans); the plans here are recurring ones only.
   const d = { ...data, plans: data.plans.filter((p) => !isOneOffPlan(p)) }
+  const oneOffs = data.oneOffs ?? []
 
   async function send(url: string, method: string, body: unknown): Promise<Record<string, unknown> | null> {
     setSaving(true)
@@ -130,6 +133,38 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
       </CardHeader>
       <CardContent>
         {d.canEdit && d.properties.length === 0 ? <p className="text-ui-base text-ink">Add a property first — a plan is for one property.</p> : null}
+        {oneOffs.length > 0 ? (
+          <div className="mb-3 flex flex-col gap-2" aria-label="Upcoming one-off visits">
+            <h3 className="text-ui-base font-semibold text-ink">Upcoming one-off visits</h3>
+            <ul className="divide-y divide-surface-line">
+              {oneOffs.map((o) => (
+                <li key={o.visitId} className="flex flex-col gap-1.5 py-2">
+                  <p className="break-words text-ui-base text-ink">
+                    <span className="font-semibold">{formatDateShort(o.date)}</span> · {o.name}
+                    {o.workOrderNumber ? ` · ${o.workOrderNumber}` : ''} · {o.crew ?? 'No crew yet'}
+                  </p>
+                  {d.canEdit ? (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <Input aria-label={`New day for ${o.name}`} type="date" className="max-w-[11rem] text-base" min={todayLocal()} value={moving[o.visitId] ?? o.date} onChange={(e) => setMoving((m) => ({ ...m, [o.visitId]: e.target.value }))} />
+                      <Button size="sm" variant="secondary" loading={saving} disabled={!moving[o.visitId] || moving[o.visitId] === o.date} onClick={async () => { const out = await send(`/api/ops/visits/${o.visitId}`, 'POST', { action: 'move', date: moving[o.visitId] }); if (out) { toast.success('Visit moved'); await load() } }}>
+                        Move
+                      </Button>
+                      <Select aria-label={`Crew for ${o.name}`} className="max-w-[12rem] text-base" value={d.crews.find((c) => c.name === o.crew)?.id ?? ''} onChange={async (e) => { const out = await send(`/api/ops/visits/${o.visitId}`, 'POST', { action: 'assign', subId: e.target.value || null }); if (out) { toast.success('Crew changed'); await load() } }}>
+                        <option value="">No crew yet</option>
+                        {d.crews.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </Select>
+                      <Button size="sm" variant="secondary" loading={saving} onClick={async () => { if (await confirmDialog({ title: `Cancel this visit?`, description: `${o.name} on ${formatDateShort(o.date)} comes off the calendar.`, confirmLabel: 'Cancel visit', destructive: true })) { const out = await send(`/api/service-plans/${o.planId}`, 'PATCH', { action: 'end' }); if (out) { toast.success('Visit cancelled'); await load() } } }}>
+                        Cancel visit
+                      </Button>
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {d.plans.length === 0 ? (
           d.properties.length > 0 ? <p className="text-ui-base text-ink">One-time customer — no recurring plan yet.</p> : null
         ) : (

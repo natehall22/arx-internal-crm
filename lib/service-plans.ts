@@ -99,13 +99,15 @@ export type ServicePlan = ServicePlanSchedule & {
   template_version: number | null
   default_sub_id: string | null
   route_position: number | null
+  /** A one-off visit's plan (see isOneOffPlan). */
+  one_off: boolean
   created_by: string
   created_at: string
   updated_at: string
 }
 
 export const SERVICE_PLAN_COLUMNS =
-  'id, org_id, customer_id, property_id, template_id, template_version, trade, name, description, service_lines, price, previous_price, price_starts_on, billing_basis, taxable, pricing, pricing_inputs, tier_key, steps, status, start_date, end_date, paused_until, seasons, preferred_weekday, default_sub_id, route_position, created_by, created_at, updated_at'
+  'id, org_id, customer_id, property_id, template_id, template_version, trade, name, description, service_lines, price, previous_price, price_starts_on, billing_basis, taxable, pricing, pricing_inputs, tier_key, steps, status, start_date, end_date, paused_until, seasons, preferred_weekday, default_sub_id, route_position, one_off, created_by, created_at, updated_at'
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Calendar-day arithmetic
@@ -266,13 +268,18 @@ function frequencyHits(freq: ServiceFrequency, anchor: string, ymd: string): boo
 }
 
 /**
- * Every 3 months / yearly: the anchor day itself, then the first <weekday> of every n-th month counted from the anchor's
- * month. Pure calendar arithmetic on the date's own year/month, so daylight saving cannot move it.
+ * Every 3 months / yearly: the same "nth <weekday> of the month" as the anchor day (2nd Wednesday stays the 2nd Wednesday), in
+ * every n-th month counted from the anchor's month. A 5th weekday that a month does not have lands on that month's last one.
+ * Pure calendar arithmetic on the date's own year/month, so daylight saving cannot move it.
  */
 function monthlyCadenceHits(everyMonths: number, anchor: string, ymd: string): boolean {
-  if (ymd === anchor) return true
   const months = (Number(ymd.slice(0, 4)) - Number(anchor.slice(0, 4))) * 12 + Number(ymd.slice(5, 7)) - Number(anchor.slice(5, 7))
-  return months > 0 && months % everyMonths === 0 && Number(ymd.slice(8)) <= 7
+  if (months < 0 || months % everyMonths !== 0) return false
+  const nth = Math.ceil(Number(anchor.slice(8)) / 7)
+  const day = Number(ymd.slice(8))
+  if (Math.ceil(day / 7) === nth) return true
+  const daysInMonth = new Date(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)), 0)).getUTCDate()
+  return nth === 5 && day + 7 > daysInMonth && Math.ceil(day / 7) === 4
 }
 
 /**
@@ -308,12 +315,12 @@ export function planVisitDates(p: ServicePlanSchedule, from: string, to: string)
 }
 
 /**
- * A ONE-OFF visit (a single mow, a one-time grading touch-up) is a plan that starts and ends the same day — so it is a
+ * A ONE-OFF visit (a single mow, a one-time grading touch-up) is a plan flagged `one_off` that starts and ends the same day — so it is a
  * `service_visit` work order like every other, with the same visit code, checklist, crew-day stop, price snapshot and
  * invoicing. No second kind of visit exists. It is not "recurring": lists and tags that mean recurring skip it.
  */
-export function isOneOffPlan(p: Pick<ServicePlanSchedule, 'start_date' | 'end_date'>): boolean {
-  return !!p.end_date && p.end_date === p.start_date
+export function isOneOffPlan(p: { one_off?: boolean | null }): boolean {
+  return p.one_off === true
 }
 
 export const ONE_OFF_DEFAULT_NAME = 'One-time visit'

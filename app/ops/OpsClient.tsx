@@ -496,7 +496,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
           </div>
           <div className="flex items-center gap-3">
             <Link
-              href="/ops/schedule"
+              href={orgFeatures.servicePlans ? '/ops/schedule?view=board' : '/ops/schedule'}
               className="px-4 py-2 border border-gray-300 bg-white rounded-lg hover:bg-gray-50 text-sm font-medium text-gray-700"
             >
               🔨 Install Schedule

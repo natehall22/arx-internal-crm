@@ -333,7 +333,6 @@ const lawnLandscape: IndustryProfile = {
     '/admin/scheduling': 'Who takes estimate visits and your calendar settings',
     '/admin/teams': 'Groups of people in your company',
     '/admin/regions': 'The areas your company works in',
-    '/admin/crews': 'In-house crews',
     '/admin/email-blasts': 'Who gets sale and payment emails, and the owner morning update',
   },
   today: {

@@ -78,8 +78,9 @@ async function ownIds(admin: SupabaseClient, orgId: string, customerId: string) 
   const [jobs, opps, plans, props] = await Promise.all([
     soft<{ id: string; status: string | null }>('jobs', () => db.from('production_jobs').select('id, status').eq('customer_id', customerId).limit(200)),
     soft<{ id: string }>('opportunities', () => db.from('opportunities').select('id').eq('customer_id', customerId).limit(200)),
-    soft<{ id: string; name: string; status: string; property_id: string | null; seasons: unknown; price: number | null; billing_basis: string; steps: unknown }>('plans', () =>
-      db.from('service_plans').select('id, name, status, property_id, seasons, price, billing_basis, steps').eq('customer_id', customerId).in('status', ['active', 'paused']).limit(50)
+    soft<{ id: string; name: string; status: string; property_id: string | null; seasons: unknown; price: number | null; billing_basis: string; steps: unknown; one_off: boolean | null }>('plans', () =>
+      // A one-off visit's plan stays in even once it has ended, so its visit stays in the history; it is never listed as a plan.
+      db.from('service_plans').select('id, name, status, property_id, seasons, price, billing_basis, steps, one_off').eq('customer_id', customerId).or('status.in.(active,paused),one_off.eq.true').limit(50)
     ),
     soft<{ id: string; label: string | null; address_text: string | null }>('properties', () => db.from('properties').select('id, label, address_text').eq('customer_id', customerId).limit(100)),
   ])
@@ -182,7 +183,7 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
     const cur = nextByPlan.get(v.service_plan_id)
     if (!cur || v.scheduled_date < cur) nextByPlan.set(v.service_plan_id, v.scheduled_date)
   }
-  const plans: PortalPlan[] = ids.plans.map((p) => ({
+  const plans: PortalPlan[] = ids.plans.filter((p) => p.one_off !== true && (p.status === 'active' || p.status === 'paused')).map((p) => ({
     id: p.id,
     name: p.name,
     address: p.property_id ? addressOf.get(p.property_id) ?? null : null,

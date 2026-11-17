@@ -68,3 +68,18 @@ describe('loadCrewProjectStops', () => {
     expect(stops.find((s) => s.id === 'w3')?.photoLinkPath).toBeNull()
   })
 })
+
+describe('photo link expiry', () => {
+  it('an expired trade link is hidden, not shown as a dead button', async () => {
+    const t = {
+      work_orders: [{ org_id: 'o1', id: 'w1', job_id: 'j1', trade: 'grading', work_order_type: 'install', assigned_sub_id: 's1', status: 'scheduled', scheduled_date: '2026-11-10', install_days: 1, crew_link_token: 'tok-a', work_order_number: 'WO-1' }],
+      production_jobs: [{ org_id: 'o1', id: 'j1', job_number: '26-1', address_text: 'x', lat: null, lng: null, status: 'scheduled', cancelled_at: null }],
+      org_trades: [],
+    }
+    // The page only lists today's work, so "today" is inside the window and the link is live; far past its grace it is not.
+    const live = await loadCrewProjectStops(fakeAdmin(t) as never, { orgId: 'o1', subId: 's1' }, '2026-11-10')
+    expect(live[0].photoLinkPath).toBe('/crew/tok-a')
+    const { isCrewLinkExpired } = await import('@/lib/crew-link')
+    expect(isCrewLinkExpired('2026-11-10', 1, '2027-01-10')).toBe(true)
+  })
+})

@@ -1,3 +1,4 @@
+jest.mock('@/lib/org-features-server', () => ({ isOrgFeatureOn: jest.fn(async () => true) }))
 import { morningUpdateFocusFor, normalizeOrgEmailBlastSettings } from '../admin-email-blasts'
 import { buildTodayHtml, loadMorningTodayQueues } from '../morning-update-email'
 import { jobQueue, loadStormHitsQueue, proposalQueue, type Queue } from '../today'

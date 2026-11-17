@@ -6,6 +6,7 @@ import {
   bulkShiftVisits,
   previewBulkShift,
   createCustomerWithPlan,
+  createOneOffVisit,
   createServicePlan,
   loadChangeHistory,
   saveTemplate,
@@ -584,3 +585,25 @@ describe('new customer + plan in one go', () => {
   })
 })
 
+
+describe('one-off visits', () => {
+  const body = { property_id: 'p1', trade: 'lawn', date: '2026-11-18', price: '60', sub_id: 's1', idempotency_key: 'key-12345678' }
+  it('makes ONE flagged plan and ONE normal service visit with a price snapshot; the same key returns the same visit', async () => {
+    const db = seed()
+    const a = await createOneOffVisit(db.client, ORG, 'u1', 'c1', body, NOW)
+    expect(a.ok).toBe(true)
+    const b = await createOneOffVisit(db.client, ORG, 'u1', 'c1', body, NOW) // double tap / retry
+    expect(b).toEqual(a)
+    const plans = (db.tables.service_plans ?? []) as Array<Record<string, unknown>>
+    expect(plans).toHaveLength(1)
+    expect(plans[0]).toMatchObject({ one_off: true, one_off_key: 'key-12345678', start_date: '2026-11-18', end_date: '2026-11-18', billing_basis: 'per_visit' })
+    const visits = (db.tables.work_orders ?? []) as Array<Record<string, unknown>>
+    expect(visits).toHaveLength(1)
+    expect(visits[0]).toMatchObject({ work_order_type: 'service_visit', scheduled_date: '2026-11-18', assigned_sub_id: 's1' })
+  })
+  it('a past day and another company\'s property are refused', async () => {
+    const db = seed()
+    expect(await createOneOffVisit(db.client, ORG, 'u1', 'c1', { ...body, date: '2026-11-09' }, NOW)).toMatchObject({ ok: false, status: 400 })
+    expect((await createOneOffVisit(db.client, ORG, 'u1', 'c1', { ...body, property_id: 'p2' }, NOW)).ok).toBe(false)
+  })
+})

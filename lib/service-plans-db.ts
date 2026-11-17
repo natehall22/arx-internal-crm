@@ -124,6 +124,7 @@ export function planFromRow(r: Record<string, unknown>): ServicePlan {
     preferred_weekday: num(r.preferred_weekday),
     default_sub_id: (r.default_sub_id as string | null) ?? null,
     route_position: num(r.route_position),
+    one_off: r.one_off === true,
     created_by: String(r.created_by ?? ''),
     created_at: String(r.created_at ?? ''),
     updated_at: String(r.updated_at ?? ''),
@@ -170,7 +171,7 @@ export async function loadPlanCustomerIds(admin: SupabaseClient, orgId: string):
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await orgDb(admin, orgId)
       .from('service_plans')
-      .select('customer_id, status, start_date, end_date')
+      .select('customer_id, status, one_off')
       .order('id')
       .range(from, from + PAGE - 1)
     if (error) {
@@ -181,7 +182,7 @@ export async function loadPlanCustomerIds(admin: SupabaseClient, orgId: string):
       if (!r.customer_id) continue
       onPlan.add(r.customer_id as string)
       // A one-off visit is a plan that starts and ends the same day: a sale, but not a recurring customer.
-      if (r.status === 'active' && !isOneOffPlan({ start_date: String(r.start_date ?? ''), end_date: (r.end_date as string | null) ?? null })) recurring.add(r.customer_id as string)
+      if (r.status === 'active' && !isOneOffPlan(r as { one_off?: boolean | null })) recurring.add(r.customer_id as string)
     }
     if ((data ?? []).length < PAGE) break
   }
@@ -605,7 +606,8 @@ export async function createServicePlan(
   userId: string,
   customerId: string,
   body: unknown,
-  now = new Date()
+  now = new Date(),
+  opts: { oneOff?: boolean; oneOffKey?: string | null } = {}
 ): Promise<PlanSave> {
   const prep = await prepareNewPlan(admin, orgId, customerId, body)
   if (!prep.ok) return prep
@@ -619,6 +621,7 @@ export async function createServicePlan(
       template_version: (base.template_version as number | undefined) ?? null,
       customer_id: customerId,
       status: 'active',
+      ...(opts.oneOff ? { one_off: true, ...(opts.oneOffKey ? { one_off_key: opts.oneOffKey } : {}) } : {}),
       created_by: userId,
       updated_by: userId,
     })
@@ -662,8 +665,21 @@ export async function createOneOffVisit(admin: SupabaseClient, orgId: string, us
   const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
   const clean = cleanOneOffVisit(body, today)
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
-  const made = await createServicePlan(admin, orgId, userId, customerId, oneOffPlanBody(clean.value), now)
-  if (!made.ok) return made
+  // The request's own key (made by the sheet when it opens): the same key never makes a second visit.
+  const rawKey = (body as { idempotency_key?: unknown } | null)?.idempotency_key
+  const key = typeof rawKey === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(rawKey) ? rawKey : null
+  const existing = async (): Promise<OneOffVisitResult | null> => {
+    if (!key) return null
+    const { data } = await orgDb(admin, orgId).from('service_plans').select('id, customer_id, start_date').eq('one_off_key', key).maybeSingle()
+    const row = data as { id: string; customer_id: string; start_date: string } | null
+    if (!row || row.customer_id !== customerId) return null
+    const v = await loadVisits(admin, orgId, { from: row.start_date, to: row.start_date, planId: row.id, accessNotes: false })
+    return { ok: true, visitId: v[0]?.id ?? null, workOrderNumber: v[0]?.workOrderNumber ?? null, date: row.start_date }
+  }
+  const again = await existing()
+  if (again) return again
+  const made = await createServicePlan(admin, orgId, userId, customerId, oneOffPlanBody(clean.value), now, { oneOff: true, oneOffKey: key })
+  if (!made.ok) return (await existing()) ?? made // a racing double-submit lost the unique key: answer with the winner's visit
   const visits = await loadVisits(admin, orgId, { from: clean.value.date, to: clean.value.date, planId: made.plan.id, accessNotes: false })
   return { ok: true, visitId: visits[0]?.id ?? null, workOrderNumber: visits[0]?.workOrderNumber ?? null, date: clean.value.date }
 }

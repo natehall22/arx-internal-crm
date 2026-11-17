@@ -34,13 +34,15 @@ export type DefaultTabInput = {
   /** Tabs this viewer may open (Money is hidden without job-money access). */
   allowed: ReadonlyArray<JobTab>
   lastTab?: string | null
+  /** false = no materials-ordering step: the Materials tab never asks for attention or opens by default. Left out = true. */
+  materialsStep?: boolean
 }
 
 const NEEDS_MATERIALS = new Set(['sold', 'materials', 'scheduled', 'in_progress'])
 
 export function pickDefaultJobTab(i: DefaultTabInput): JobTab {
   const ok = (t: JobTab) => i.allowed.includes(t)
-  if (ok('materials') && NEEDS_MATERIALS.has(i.jobStatus) && (i.materialsKey === 'not_ordered' || i.materialsKey === 'partial')) return 'materials'
+  if (i.materialsStep !== false && ok('materials') && NEEDS_MATERIALS.has(i.jobStatus) && (i.materialsKey === 'not_ordered' || i.materialsKey === 'partial')) return 'materials'
   const live = i.trades.filter((t) => t.status !== 'cancelled')
   const overdue = live.some((t) => {
     const last = crewLastDay(t)
@@ -55,7 +57,7 @@ export function pickDefaultJobTab(i: DefaultTabInput): JobTab {
 /** Which tabs show a "needs you" dot. */
 export function tabsNeedingAttention(i: Omit<DefaultTabInput, 'allowed' | 'lastTab'>): JobTab[] {
   const out: JobTab[] = []
-  if (NEEDS_MATERIALS.has(i.jobStatus) && (i.materialsKey === 'not_ordered' || i.materialsKey === 'partial')) out.push('materials')
+  if (i.materialsStep !== false && NEEDS_MATERIALS.has(i.jobStatus) && (i.materialsKey === 'not_ordered' || i.materialsKey === 'partial')) out.push('materials')
   if (i.trades.some((t) => t.status !== 'cancelled' && t.status !== 'completed' && (crewLastDay(t) ?? '9999') < i.todayYmd)) out.push('crews')
   if (i.jobStatus === 'complete' && (i.balanceOwedCents ?? 0) > 0) out.push('money')
   return out

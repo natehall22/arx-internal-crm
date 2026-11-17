@@ -21,6 +21,8 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
   const [found, setFound] = React.useState<Found[]>([])
   const [options, setOptions] = React.useState<(PlanEditorOptions & { canEdit?: boolean }) | null>(null)
   const [optionsFailed, setOptionsFailed] = React.useState(false)
+  // One key per opening of the sheet: a double tap or a retried request returns the same visit (the server checks it).
+  const keyRef = React.useRef('')
   const [f, setF] = React.useState({ property_id: '', trade: '', name: '', date: '', sub_id: '', price: '', taxable: false, notes: '' })
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }))
   const today = todayLocal()
@@ -32,6 +34,7 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
     setOptions(null)
     setOptionsFailed(false)
     setF({ property_id: '', trade: '', name: '', date: todayLocal(), sub_id: '', price: '', taxable: false, notes: '' })
+    keyRef.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `k${Date.now()}${Math.random().toString(36).slice(2)}`
     setOpen(true)
   }
 
@@ -75,7 +78,7 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
     const res = await fetch('/api/ops/visits', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customer_id: customer.id, property_id: f.property_id, trade: f.trade, name: f.name, date: f.date, sub_id: f.sub_id || null, price: f.price, taxable: f.taxable, notes: f.notes }),
+      body: JSON.stringify({ idempotency_key: keyRef.current, customer_id: customer.id, property_id: f.property_id, trade: f.trade, name: f.name, date: f.date, sub_id: f.sub_id || null, price: f.price, taxable: f.taxable, notes: f.notes }),
     }).catch(() => null)
     const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; workOrderNumber?: string | null }
     setSaving(false)

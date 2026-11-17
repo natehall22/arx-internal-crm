@@ -10,6 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { addDaysYmd } from '@/lib/service-plans'
+import { isCrewLinkExpired } from '@/lib/crew-link'
 import { calendarDaySpan } from '@/lib/job-trades'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -85,7 +86,8 @@ export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId:
         lat: j.lat,
         lng: j.lng,
         status: r.status,
-        photoLinkPath: r.crew_link_token ? `/crew/${r.crew_link_token}` : null,
+        // Only a link the trade page would still open: an expired one is hidden, never a dead button.
+        photoLinkPath: r.crew_link_token && r.scheduled_date && !isCrewLinkExpired(r.scheduled_date, r.install_days, today) ? `/crew/${r.crew_link_token}` : null,
         dayNumber: r.dayNumber,
         dayCount: r.dayCount,
       }
