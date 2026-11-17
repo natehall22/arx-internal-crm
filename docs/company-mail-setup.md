@@ -28,5 +28,7 @@ Other companies' email goes out from our product domain through Resend. ARX stay
 - Send an invoice or a signed contract once too (those carry PDF attachments).
 
 ## Notes
+- Resend is used only once an org is marked as the original company (`orgs.original_brand`, ARX). Until then everyone stays on the old SMTP path.
+- With both env vars set, if a company's row can't be read the email fails (and is reported) instead of going out from ARX's mailbox.
 - ARX (the original company), demo companies and mail with no company (public marketing forms) never use Resend.
 - Remove either env var to go back to the old behavior immediately.
