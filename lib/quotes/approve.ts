@@ -305,40 +305,41 @@ async function announcePlanOnlySale(
   orgId: string,
   approval: ApprovalRow,
   ctx: { proposalNumber: string | null; customerName: string; creator: string | null }
-): Promise<void> {
+): Promise<{ noteError: string | null }> {
   const db = orgDb(admin, orgId)
   const oppId = approval.opportunity_id as string
   const { data: opp } = await db.from('opportunities').select('id, owner_user_id, setter_user_id, customer_id, lead_id').eq('id', oppId).maybeSingle()
   const deal = opp as { id: string; owner_user_id: string | null; setter_user_id: string | null; customer_id: string | null; lead_id: string | null } | null
-  if (!deal) return
+  if (!deal) return { noteError: null }
   const snap = approval.snapshot
   const estimate = (approvalRecurringEstimateCents(approval) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
-  // The author is whoever sent the quote link (else the deal's closer): an active staff user of this company.
-  const authorId = ctx.creator ?? deal.owner_user_id
-  const { data: author } = authorId ? await db.from('users').select('id, org_id, role, custom_role_id, is_super_admin, active').eq('id', authorId).maybeSingle() : { data: null }
-  if (author) {
-    const posted = await postMessage(
-      admin,
-      author as { id: string; org_id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null; active?: boolean | null },
-      deal,
-      {
-        body: `Won: recurring service approved online${ctx.proposalNumber ? ` (quote ${ctx.proposalNumber})` : ''} by ${approval.typed_name}, about ${estimate} est. first season. No job or contract.`,
-        audience: 'sales',
-        clientId: `quote-approval-won:${approval.id}`,
-        source: 'quote_approval',
-        noMentions: true,
-        allowSetters: true,
-      }
-    )
-    if (!posted.ok) console.error('plan-only won note not written', approval.id, posted.error)
-  } else {
-    console.error('plan-only won note not written: no author', approval.id)
+  // The author is whoever sent the quote link; if the thread write path refuses them, the deal's closer. Both are active staff of
+  // this company. The note keeps the dollar amount, so it is stored pricing-restricted (setters / field roles never read it).
+  type Author = { id: string; org_id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null; active?: boolean | null }
+  const tryAuthor = async (userId: string | null): Promise<string | null> => {
+    if (!userId) return 'no author'
+    const { data: author } = await db.from('users').select('id, org_id, role, custom_role_id, is_super_admin, active').eq('id', userId).maybeSingle()
+    if (!author) return 'author not found'
+    const posted = await postMessage(admin, author as Author, deal, {
+      body: `Won: recurring service approved online${ctx.proposalNumber ? ` (quote ${ctx.proposalNumber})` : ''} by ${approval.typed_name}, about ${estimate} est. first season. No job or contract.`,
+      audience: 'sales',
+      clientId: `quote-approval-won:${approval.id}`,
+      source: 'quote_approval',
+      origin: 'system',
+      noMentions: true,
+      keepPricingRestricted: true,
+    })
+    return posted.ok ? null : posted.error
   }
+  const authorId = ctx.creator ?? deal.owner_user_id
+  let noteError = await tryAuthor(authorId)
+  if (noteError && deal.owner_user_id && deal.owner_user_id !== authorId) noteError = await tryAuthor(deal.owner_user_id)
+  if (noteError) console.error('plan-only won note not written', approval.id, noteError)
 
   const { data: sent, error: sentErr } = await db.from('quote_approvals').select('sale_notified_at').eq('id', approval.id).maybeSingle()
   // Column not there yet (migration pending): say nothing rather than risk a second email on every run.
-  if (sentErr || (sent as { sale_notified_at?: string | null } | null)?.sale_notified_at) return
+  if (sentErr || (sent as { sale_notified_at?: string | null } | null)?.sale_notified_at) return { noteError }
   const ids = [deal.owner_user_id, deal.setter_user_id].filter(Boolean) as string[]
   const { data: people } = ids.length > 0 ? await db.from('users').select('id, full_name').in('id', ids) : { data: [] }
   const nameOf = (id?: string | null) => ((people ?? []) as { id: string; full_name: string }[]).find((u) => u.id === id)?.full_name ?? null
@@ -353,6 +354,7 @@ async function announcePlanOnlySale(
     recordUrl: appUrl ? `${appUrl}/opportunities/${oppId}` : undefined,
   })
   await setApproval(admin, orgId, approval.id, { sale_notified_at: new Date().toISOString() })
+  return { noteError }
 }
 
 /**
@@ -408,6 +410,8 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     let contractToken: string | null = null
     let jobId = approval.job_id
     let note: string | null = null
+    // False when the owner sale notice failed: the approval then stays unfinished so the next run (page load, "Finish") sends it.
+    let announced = true
     if (planOnly) {
       if (approval.opportunity_id) {
         const { data: o } = await db.from('opportunities').select('customer_id').eq('id', approval.opportunity_id).maybeSingle()
@@ -423,8 +427,10 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       // stop in between, or a deal already won by hand, still gets both exactly once.
       if (approval.opportunity_id) {
         try {
-          await announcePlanOnlySale(admin, orgId, approval, { proposalNumber: proposal.proposal_number, customerName: proposal.customer_name, creator })
+          const { noteError } = await announcePlanOnlySale(admin, orgId, approval, { proposalNumber: proposal.proposal_number, customerName: proposal.customer_name, creator })
+          if (noteError) note = `${note ? `${note} ` : ''}The "won" note could not be added to the deal.`
         } catch (e) {
+          announced = false
           console.error('plan-only sale notice failed', approvalId, e)
           note = `${note ? `${note} ` : ''}The owner sale notice could not be sent.`
         }
@@ -535,7 +541,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       console.error('quote approval PDF failed', approvalId, e)
       note = `${note ? `${note} ` : ''}The approval PDF could not be made — the approval record itself is saved.`
     }
-    await setApproval(admin, orgId, approvalId, { finalized_at: now.toISOString(), finalize_error: note })
+    await setApproval(admin, orgId, approvalId, announced ? { finalized_at: now.toISOString(), finalize_error: note } : { finalize_error: note, finalize_claimed_at: null })
 
     // 4. One confirmation to the customer (the sale email to the owners is the signing pipeline's).
     if (!approval.confirmation_sent_at && proposal.customer_email) {
@@ -548,7 +554,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       })
       if (sent) await setApproval(admin, orgId, approvalId, { confirmation_sent_at: new Date().toISOString() })
     }
-    return true
+    return announced
   } catch (e) {
     console.error('finalizeApproval failed (will be retried)', approvalId, e)
     await orgDb(admin, orgId).from('quote_approvals').update({ finalize_error: (e instanceof Error ? e.message : 'unknown').slice(0, 300), finalize_claimed_at: null }).eq('id', approvalId)

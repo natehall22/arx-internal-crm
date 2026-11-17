@@ -184,6 +184,35 @@ describe('plan-only quote', () => {
     expect(db.tables.quote_approvals[0].sale_notified_at).toBeTruthy()
   })
 
+  it('an owner-email failure leaves the approval unfinished and unlocked, so the next plain run retries and then finishes', async () => {
+    const db = setup([recurring('r1', 45)])
+    notifySale.mockRejectedValueOnce(new Error('smtp'))
+    await approve(db)
+    const a = db.tables.quote_approvals[0]
+    expect(a.finalized_at ?? null).toBeNull()
+    expect(a.finalize_claimed_at ?? null).toBeNull()
+    expect(String(a.finalize_error)).toContain('sale notice')
+    expect(await finalizeApproval(db.client, ORG, String(a.id), { now: new Date('2027-03-20T15:00:30Z') })).toBe(true) // no manual reset
+    expect(notifySale).toHaveBeenCalledTimes(2)
+    expect(a.sale_notified_at).toBeTruthy()
+    expect(a.finalized_at).toBeTruthy()
+  })
+
+  it('the won note: refused for the quote sender, retried as the closer, stored as a system note; both refused is recorded', async () => {
+    const db = setup([recurring('r1', 45)])
+    postMessage.mockResolvedValueOnce({ ok: false, status: 403, error: 'no' }).mockResolvedValueOnce({ ok: true })
+    await approve(db)
+    const calls = postMessage.mock.calls.slice(-2)
+    expect(calls[1][1].id).toBe(db.tables.opportunities[0].owner_user_id)
+    for (const c of calls) expect(c[3]).toMatchObject({ origin: 'system', keepPricingRestricted: true, audience: 'sales' })
+    expect(db.tables.quote_approvals[0].finalize_error ?? null).toBeNull()
+    const db2 = setup([recurring('r1', 45)])
+    postMessage.mockResolvedValue({ ok: false, status: 403, error: 'no' })
+    await approve(db2)
+    expect(String(db2.tables.quote_approvals[0].finalize_error)).toContain('won')
+    expect(db2.tables.quote_approvals[0].finalized_at).toBeTruthy()
+  })
+
   it('refuses when the recurring line cannot be sold (plans off / template gone)', async () => {
     const db = setup([recurring('r1', 45)], false)
     expect(await approve(db)).toMatchObject({ ok: false, status: 409 })

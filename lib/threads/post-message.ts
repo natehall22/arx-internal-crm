@@ -41,6 +41,10 @@ export type MessageDraft = {
   allowSetters?: boolean
   clientId?: string | null
   source?: string | null
+  /** 'system' for a note the app wrote on its own (not a person typing). Default 'human'. */
+  origin?: 'human' | 'system'
+  /** A price-looking body is flagged even when the author is pricing-barred, so setters / field roles never read it. */
+  keepPricingRestricted?: boolean
   /** Text is stored as typed; @names are NOT turned into mentions (nobody is flagged or waiting). Used for text an AI app wrote. */
   noMentions?: boolean
   /** A logged call/text/email/visit: the row is written as that type with its outcome, and `body` becomes the optional note. */
@@ -152,7 +156,8 @@ export async function postMessage(
   const restricted =
     parent?.restricted_pricing === true ||
     (pricing && audience === 'crew') ||
-    (pricing && !viewer.pricingBarred && draft.allowSetters !== true)
+    (pricing && !viewer.pricingBarred && draft.allowSetters !== true) ||
+    (pricing && draft.keepPricingRestricted === true)
 
   // Someone has to be waiting for a needs-reply / urgent to mean anything: the people @mentioned, or the author of the message replied to.
   let priority: Priority = 'fyi'
@@ -203,7 +208,7 @@ export async function postMessage(
       type: contact ? contact.kind : 'note',
       ...(contact ? { contact_outcome: contact.outcome } : {}),
       body,
-      origin: 'human',
+      origin: draft.origin ?? 'human',
       audience,
       restricted_pricing: restricted,
       priority,
