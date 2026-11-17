@@ -11,6 +11,14 @@
  * settings links, pages → 404, key API routes → 403); it never deletes data and never changes how anything is
  * computed — turning it back on shows everything as it was.
  *
+ * ENTITLEMENTS (the plan): which modules a company is ALLOWED are set outside the company, by the platform owner, in the
+ * server-only column `orgs.plan_entitlements` (feature key → boolean; guard trigger, migration 202611270010; written only by
+ * /api/support/plans). A feature is ON only if entitled AND the company's own switch (or profile default) is on. NULL column
+ * = everything allowed (the original company and every existing company, no data change). A map with a key left out = not
+ * entitled (a module added later is never granted by accident). Not entitled = OFF everywhere, exactly like a company
+ * switching it off; data is never deleted. Entitlements are NEVER read from `orgs.settings` (a company writes that), only
+ * passed in by the loaders below from the column.
+ *
  * Client-safe (types only from supabase). Server pages / API routes use `lib/org-features-server.ts`, which reads
  * through `loadOrgFeatures` here; client components get the resolved map from `/api/me/effective-permissions`
  * (`flags.features`, hook `useOrgFeatures`).
@@ -18,6 +26,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { INDUSTRY_PROFILES, storedProfileId } from '@/lib/industry-profiles'
+import { isMissingColumn } from '@/lib/supabase/errors'
 
 export const ORG_FEATURES_SETTINGS_KEY = 'features'
 
@@ -143,14 +152,25 @@ function asObject(v: unknown): Record<string, unknown> {
 }
 
 /**
+ * Pure: the plan. `raw` = the `orgs.plan_entitlements` value. NULL / missing / not an object = everything entitled.
+ * An object = only the keys that are exactly `true` are entitled (a missing key or any other value is not).
+ */
+export function resolveOrgEntitlements(raw: unknown): OrgFeatures {
+  if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) return Object.fromEntries(ORG_FEATURE_KEYS.map((k) => [k, true])) as OrgFeatures
+  const o = raw as Record<string, unknown>
+  return Object.fromEntries(ORG_FEATURE_KEYS.map((k) => [k, o[k] === true])) as OrgFeatures
+}
+
+/**
  * Pure: the feature map from either the whole `orgs.settings` object or the `features` object itself
  * (`{ features: … }` / `{ profile: … }` = the whole settings). Order: the company's own saved switch (a boolean) wins,
  * else the industry profile's default (`settings.profile`, lib/industry-profiles.ts), else the feature's own default
  * (`featureDefaultOn`). With no profile stored the default is roofing, which sets none — so only an explicit `false`
  * turns an original feature off, exactly as before, and a `defaultOn: false` module (service plans) stays off.
- * Unknown keys are ignored.
+ * Unknown keys are ignored. `entitlements` = the `orgs.plan_entitlements` column value (never part of `stored`): a feature the
+ * plan does not include is OFF whatever the company switch says. Omitted/NULL = all entitled.
  */
-export function resolveOrgFeatures(stored: unknown): OrgFeatures {
+export function resolveOrgFeatures(stored: unknown, entitlements?: unknown): OrgFeatures {
   const obj = asObject(stored)
   const whole = ORG_FEATURES_SETTINGS_KEY in obj || 'profile' in obj
   const features = whole ? asObject(obj[ORG_FEATURES_SETTINGS_KEY]) : obj
@@ -162,6 +182,8 @@ export function resolveOrgFeatures(stored: unknown): OrgFeatures {
     // Profile key left out = the feature's own default (NOT always ON): a `defaultOn: false` module stays off for roofing.
     out[k] = typeof own === 'boolean' ? own : typeof profileDefault === 'boolean' ? profileDefault : featureDefaultOn(k)
   }
+  const plan = resolveOrgEntitlements(entitlements)
+  for (const k of ORG_FEATURE_KEYS) if (!plan[k]) out[k] = false
   return out
 }
 
@@ -187,14 +209,24 @@ export function parseOrgFeaturesPatch(body: unknown): { set: Partial<OrgFeatures
 }
 
 /**
- * The one read of the settings the feature map (and lib/org-profile.ts) needs: `settings.features` + `settings.profile`,
- * returned as a whole-settings-shaped object. Throws on a read error (callers decide how to fail).
+ * The one read of what the feature map (and lib/org-profile.ts) needs: `settings.features` + `settings.profile`, returned
+ * as a whole-settings-shaped object, plus the plan column as `entitlements` (NULL = all entitled). Pass `.entitlements` to
+ * the resolvers as their second argument: it is never read from inside the settings object. Before migration
+ * 202611270010 the column is missing and the plan is NULL (everything allowed). Throws on any other read error.
  */
-export async function readOrgFeatureSettings(client: SupabaseClient, orgId: string): Promise<{ features: unknown; profile?: unknown }> {
-  const { data, error } = await client.from('orgs').select('features:settings->features, profile:settings->profile').eq('id', orgId).maybeSingle()
-  if (error) throw error
-  const row = (data ?? {}) as { features?: unknown; profile?: unknown }
-  return row.profile == null ? { features: row.features ?? {} } : { features: row.features ?? {}, profile: row.profile }
+export async function readOrgFeatureSettings(client: SupabaseClient, orgId: string): Promise<{ features: unknown; profile?: unknown; entitlements: unknown }> {
+  const base = 'features:settings->features, profile:settings->profile'
+  let res = await client.from('orgs').select(`${base}, entitlements:plan_entitlements`).eq('id', orgId).maybeSingle()
+  if (isMissingColumn(res.error, 'plan_entitlements')) res = await client.from('orgs').select(base).eq('id', orgId).maybeSingle()
+  if (res.error) throw res.error
+  const row = (res.data ?? {}) as { features?: unknown; profile?: unknown; entitlements?: unknown }
+  const entitlements = row.entitlements ?? null
+  return row.profile == null ? { features: row.features ?? {}, entitlements } : { features: row.features ?? {}, profile: row.profile, entitlements }
+}
+
+/** Load an org's plan (`orgs.plan_entitlements` resolved: every feature true/false). Throws on a read error (callers decide). */
+export async function loadOrgEntitlements(client: SupabaseClient, orgId: string): Promise<OrgFeatures> {
+  return resolveOrgEntitlements((await readOrgFeatureSettings(client, orgId)).entitlements)
 }
 
 /**
@@ -204,7 +236,8 @@ export async function readOrgFeatureSettings(client: SupabaseClient, orgId: stri
 export async function loadOrgFeatures(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgFeatures> {
   if (!orgId) return { ...DEFAULT_ORG_FEATURES }
   try {
-    return resolveOrgFeatures(await readOrgFeatureSettings(client, orgId))
+    const s = await readOrgFeatureSettings(client, orgId)
+    return resolveOrgFeatures(s, s.entitlements)
   } catch (e) {
     console.error('loadOrgFeatures: org features not readable, using defaults', orgId, e)
     return { ...DEFAULT_ORG_FEATURES }

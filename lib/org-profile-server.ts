@@ -47,11 +47,13 @@ export function profileTradeSeeds(id: IndustryProfileId): OrgTradeSeed[] {
  */
 export function planProfileSwitch(settings: unknown, trades: readonly OrgTrade[] | null, to: IndustryProfileId, opts: { resetFeatures?: boolean } = {}): ProfileSwitchPlan {
   const s = asObject(settings)
-  const now = resolveOrgProfile(s)
+  // `settings` is the readOrgFeatureSettings result (loadProfileSwitchInputs), whose `entitlements` is the plan column, not company-written data.
+  const plan = s.entitlements
+  const now = resolveOrgProfile(s, plan)
   const own = asObject(s[ORG_FEATURES_SETTINGS_KEY])
   const resetFeatures = opts.resetFeatures === true
   const afterSettings = { [ORG_FEATURES_SETTINGS_KEY]: resetFeatures ? {} : own, [ORG_PROFILE_SETTINGS_KEY]: { id: to, version: INDUSTRY_PROFILES[to].version } }
-  const after = resolveOrgProfile(afterSettings)
+  const after = resolveOrgProfile(afterSettings, plan)
   const profileOnly = resolveOrgFeatures({ features: {}, profile: { id: to } })
 
   const features: ProfileSwitchPlan['features'] = []
@@ -107,7 +109,7 @@ export function planProfileSwitch(settings: unknown, trades: readonly OrgTrade[]
 }
 
 /** Read what the planner needs for one company. */
-export async function loadProfileSwitchInputs(client: SupabaseClient, orgId: string): Promise<{ settings: { features: unknown; profile?: unknown }; trades: OrgTrade[] | null }> {
+export async function loadProfileSwitchInputs(client: SupabaseClient, orgId: string): Promise<{ settings: { features: unknown; profile?: unknown; entitlements: unknown }; trades: OrgTrade[] | null }> {
   const [settings, trades] = await Promise.all([readOrgFeatureSettings(client, orgId), readOrgTradesForSeed(client, orgId)])
   return { settings, trades }
 }

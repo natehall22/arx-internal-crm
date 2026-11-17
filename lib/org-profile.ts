@@ -56,8 +56,8 @@ function asObject(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
 }
 
-/** Pure: profile defaults + the company's own settings (`orgs.settings`, whole object). */
-export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
+/** Pure: profile defaults + the company's own settings (`orgs.settings`, whole object) + the plan (`orgs.plan_entitlements`, see lib/org-features.ts). */
+export function resolveOrgProfile(settings: unknown, entitlements?: unknown): ResolvedOrgProfile {
   const s = asObject(settings)
   const id = storedProfileId(s)
   const p: IndustryProfile = INDUSTRY_PROFILES[id]
@@ -71,7 +71,7 @@ export function resolveOrgProfile(settings: unknown): ResolvedOrgProfile {
     storedVersion: typeof storedVersion === 'number' && storedRaw === id ? storedVersion : null,
     unknownStoredId: storedRaw !== null && storedRaw !== id ? storedRaw : null,
     // Always the whole-settings form so the profile is applied even when the company saved no switch yet.
-    features: resolveOrgFeatures({ features: asObject(s.features), profile: s[ORG_PROFILE_SETTINGS_KEY] ?? null }),
+    features: resolveOrgFeatures({ features: asObject(s.features), profile: s[ORG_PROFILE_SETTINGS_KEY] ?? null }, entitlements),
     terms: { ...BASE_TERMS, ...p.terms },
     nav: p.nav,
     today: p.today,
@@ -96,7 +96,8 @@ export function t(profile: Pick<ResolvedOrgProfile, 'terms'> | null | undefined,
 export async function loadOrgProfile(client: SupabaseClient, orgId: string | null | undefined): Promise<ResolvedOrgProfile> {
   if (!orgId) return defaultOrgProfile()
   try {
-    return resolveOrgProfile(await readOrgFeatureSettings(client, orgId))
+    const s = await readOrgFeatureSettings(client, orgId)
+    return resolveOrgProfile(s, s.entitlements)
   } catch (e) {
     console.error('loadOrgProfile: profile not readable, using defaults', orgId, e)
     return defaultOrgProfile()
