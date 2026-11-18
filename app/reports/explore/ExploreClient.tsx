@@ -18,6 +18,7 @@ function fmt(v: unknown, type: string): string {
   if (type === 'money') return Number(v).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
   if (type === 'date') return String(v).slice(0, 10)
   if (type === 'bool') return v ? 'Yes' : 'No'
+  if (type === 'percent') return `${Number(v).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`
   if (typeof v === 'number') return v.toLocaleString('en-US', { maximumFractionDigits: 2 })
   return String(v)
 }

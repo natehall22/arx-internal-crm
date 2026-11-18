@@ -167,6 +167,8 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
   for (const f of spec.filters) wanted.add(f.column)
   if (spec.mode === 'rows') for (const c of visibleColumns(ctx, ds)) wanted.add(c.key)
   if (spec.sortBy && spec.sortBy !== '@group') wanted.add(spec.sortBy)
+  const groupSort = spec.mode === 'summary' && spec.sortBy === '@group' ? ds.groupSortColumn ?? null : null
+  if (groupSort) wanted.add(groupSort)
   const select = Array.from(wanted).join(',')
 
   const { start, end } = opts.bounds ?? dateBounds(spec.date)
@@ -219,11 +221,12 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
     }
   }
 
-  const groups = new Map<string, { n: number; sum: number; yes: number; extra: number[]; ratio: number[] }>()
+  const groups = new Map<string, { n: number; sum: number; yes: number; extra: number[]; ratio: number[]; order: string | null }>()
   for (const r of all) {
     const k = groupKey(r, ds, spec.groupBy)
-    const g = groups.get(k) ?? { n: 0, sum: 0, yes: 0, extra: alsoSum.map(() => 0), ratio: ratios.flatMap(() => [0, 0]) }
+    const g = groups.get(k) ?? { n: 0, sum: 0, yes: 0, extra: alsoSum.map(() => 0), ratio: ratios.flatMap(() => [0, 0]), order: null }
     g.n += 1
+    if (groupSort) { const o = String(r[groupSort] ?? ''); if (g.order === null || o < g.order) g.order = o }
     ratios.forEach((rt, i) => { g.ratio[i * 2] += Number(r[rt.numerator]) || 0; g.ratio[i * 2 + 1] += Number(r[rt.denominator]) || 0 })
     alsoSum.forEach((col, i) => { g.extra[i] += Number(r[col]) || 0 })
     if (spec.metric.kind === 'sum' || spec.metric.kind === 'avg') g.sum += Number(r[spec.metric.column]) || 0
@@ -241,6 +244,7 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
     : g.n ? (g.yes / g.n) * 100 : 0
   const round = (n: number) => Math.round(n * 100) / 100
   const isTime = spec.groupBy === '@month' || spec.groupBy === '@week'
+  const orderOf = new Map(Array.from(groups.entries()).map(([k, g]) => [k, g.order ?? k]))
   let rows = Array.from(groups.entries()).map(([group, g]) => ({
     group, value: round(valueOf(g)),
     ...Object.fromEntries(alsoSum.map((col, i) => [`sum_${col}`, round(g.extra[i])])),
@@ -248,7 +252,7 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
     ...Object.fromEntries(ratios.map((rt, i) => [`ratio_${rt.key}`, g.ratio[i * 2 + 1] === 0 ? null : round((g.ratio[i * 2] / g.ratio[i * 2 + 1]) * 100)])),
     rows: g.n,
   })) as Array<Record<string, string | number | null>>
-  rows.sort(isTime || spec.sortBy === '@group' ? (a, b) => String(a.group).localeCompare(String(b.group)) : (a, b) => (spec.sortDesc === false ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value)))
+  rows.sort(isTime || spec.sortBy === '@group' ? (a, b) => String(orderOf.get(String(a.group))).localeCompare(String(orderOf.get(String(b.group)))) : (a, b) => (spec.sortDesc === false ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value)))
   const limit = Math.min(spec.limit ?? MAX_ROWS_RETURNED, MAX_ROWS_RETURNED)
   const groupCol = spec.groupBy && !isTime ? columnOf(ds, spec.groupBy)?.label ?? 'Group' : spec.groupBy === '@week' ? 'Week of' : spec.groupBy === '@month' ? 'Month' : 'All'
   const total = spec.metric.kind === 'count' ? all.length
@@ -260,7 +264,7 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
       { key: 'group', label: groupCol, type: 'text' },
       { key: 'value', label: metricLabel, type: spec.metric.kind === 'rate' ? 'number' : spec.metric.kind === 'count' ? 'number' : (columnOf(ds, (spec.metric as { column: string }).column)?.type ?? 'number') },
       ...alsoSum.map((col) => ({ key: `sum_${col}`, label: `Total ${columnOf(ds, col)!.label}`, type: columnOf(ds, col)!.type })),
-      ...ratios.map((rt) => ({ key: `ratio_${rt.key}`, label: rt.label, type: 'number' as const })),
+      ...ratios.map((rt) => ({ key: `ratio_${rt.key}`, label: rt.label, type: 'percent' as const })),
       { key: 'rows', label: 'Rows', type: 'number' as const },
     ],
     rows, matched: groups.size, scanned: all.length, truncated,

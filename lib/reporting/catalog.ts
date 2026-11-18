@@ -3,7 +3,8 @@
  * the view is where a metric is DEFINED; this file only names it for people and says who may see it.
  * Plain names for the owner, not table names.
  */
-export type ColumnType = 'text' | 'number' | 'money' | 'date' | 'bool'
+/** 'percent' is only the type of a computed ratio column (`Dataset.ratios`); no stored column uses it. */
+export type ColumnType = 'text' | 'number' | 'money' | 'date' | 'bool' | 'percent'
 
 export type DatasetColumn = {
   key: string
@@ -35,6 +36,8 @@ export type Dataset = {
   financeOnly?: boolean
   /** Ratios of two summed columns (e.g. margin = profit / revenue), offered beside a sum metric as `spec.alsoRatio`. Blank, never 0, when the denominator totals 0. */
   ratios?: DatasetRatio[]
+  /** Column whose smallest value in a group orders the groups when a summary asks for sortBy '@group' (default: the group name). */
+  groupSortColumn?: string
   /** The view is written (supabase/migrations) but not applied yet: the dataset is not offered and cannot be run. Remove the flag when the migration is applied. */
   viewPending?: boolean
 }
@@ -124,10 +127,12 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
   },
   division_pnl: {
     idColumn: 'pnl_id', key: 'division_pnl', label: 'Profit by division',
-    description: 'Revenue (billed, issued invoices and contracts, sales tax left out) and cost (live job cost lines, by cost code) for each division, which is the trade of the job or visit. Anything not tied to a trade is under No division.',
-    view: 'rpt_division_pnl', dateColumn: 'entry_date', dateColumnIsDay: true, ownerColumn: null, financeOnly: true,
+    description: 'Revenue (billed, issued invoices and contracts, sales tax left out) and cost (live job cost lines, by cost code) for each division, which is the trade of the job or visit. Anything not tied to a trade is under No division. Crew time on service visits isn\'t a cost here yet — it needs pay rates. Revenue is booked on the sale or invoice date and cost on the day it is spent.',
+    view: 'rpt_division_pnl', dateColumn: 'entry_date', dateColumnIsDay: true, ownerColumn: null, financeOnly: true, groupSortColumn: 'sort_key',
+    // Migration 202611300150 is written but not applied: remove this flag in the release commit after applying it.
+    viewPending: true,
     columns: [
-      c('entry_date', 'Date', 'date'), c('division', 'Division'), c('line', 'Line (Revenue or cost code)'), c('division_line', 'Division and line'),
+      c('entry_date', 'Date', 'date'), c('division', 'Division'), c('line', 'Line (Revenue or cost code)'), c('division_line', 'Division and line'), c('sort_key', 'Sort order'),
       c('revenue', 'Revenue', 'money'), c('cost', 'Cost', 'money'), c('profit', 'Profit', 'money'),
     ],
     ratios: [{ key: 'margin', label: 'Margin %', numerator: 'profit', denominator: 'revenue' }],

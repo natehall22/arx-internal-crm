@@ -25,6 +25,24 @@ function fakeAdmin(rows: Record<string, unknown>[]) {
 
 const row = (division: string, line: string, revenue: number, cost: number) => ({
   pnl_id: `${division}|${line}`, entry_date: '2026-11-02', division, line, division_line: `${division} · ${line}`, revenue, cost, profit: revenue - cost,
+  sort_key: `${division === 'No division' ? '1' : '0'}|${division.toLowerCase()}|${line === 'Revenue' ? '0' : '1|' + line.toLowerCase()}`,
+})
+
+// The dataset is flagged viewPending until the release commit applies the migration; these tests run it as if applied.
+const pending = DATASETS.division_pnl.viewPending
+beforeAll(() => { DATASETS.division_pnl.viewPending = false })
+afterAll(() => { DATASETS.division_pnl.viewPending = pending })
+
+describe('release flag', () => {
+  it('is flagged viewPending (not offered, not runnable) until the migration is applied', async () => {
+    expect(pending).toBe(true)
+    DATASETS.division_pnl.viewPending = true
+    try {
+      const { admin } = fakeAdmin([])
+      await expect(runReport(admin, ctx(), templateByKey('profit-by-division')!.spec)).rejects.toBeInstanceOf(ReportAccessError)
+      expect(offeredDatasets(ctx()).map((d) => d.key)).not.toContain('division_pnl')
+    } finally { DATASETS.division_pnl.viewPending = false }
+  })
 })
 
 describe('Profit by division', () => {
@@ -70,12 +88,23 @@ describe('Profit by division', () => {
     expect(by['No division']).toMatchObject({ value: 0, sum_cost: 50, sum_profit: -50, ratio_margin: null })
     expect(by['Soft wash'].ratio_margin).toBe(100)
     expect(res.columns.map((c) => c.label)).toEqual(['Division', 'Total Revenue', 'Total Cost', 'Total Profit', 'Margin %', 'Rows'])
+    expect(res.columns.find((c) => c.key === 'ratio_margin')!.type).toBe('percent')
+    expect(res.rows.map((r) => r.group)).toEqual(['Lawn care', 'Soft wash', 'No division'])
   })
 
-  it('division x cost code rows come out by name', async () => {
-    const { admin } = fakeAdmin([row('B', 'Labor', 0, 1), row('A', 'Revenue', 5, 0), row('A', 'Labor', 0, 2)])
+  it('division x cost code: revenue first, then codes by name, No division last', async () => {
+    const { admin } = fakeAdmin([
+      row('No division', 'Labor', 0, 1), row('B', 'Labor', 0, 1), row('A', 'Sub', 0, 2), row('A', 'Revenue', 5, 0), row('A', 'Labor', 0, 2), row('A', 'Materials', 0, 2),
+    ])
     const res = await runReport(admin, ctx(), byCode.spec)
-    expect(res.rows.map((r) => r.group)).toEqual(['A · Labor', 'A · Revenue', 'B · Labor'])
+    expect(res.rows.map((r) => r.group)).toEqual(['A · Revenue', 'A · Labor', 'A · Materials', 'A · Sub', 'B · Labor', 'No division · Labor'])
+  })
+
+  it('the blurbs and the dataset say crew time on service visits is not a cost yet, and when revenue and cost are booked', () => {
+    for (const text of [byDivision.blurb, byCode.blurb, DATASETS.division_pnl.description]) {
+      expect(text).toContain("Crew time on service visits isn't a cost here yet — it needs pay rates.")
+      expect(text).toMatch(/Revenue is booked on the sale or invoice date and cost on the day it is spent/)
+    }
   })
 
   it('a ratio on a non-finance viewer is still refused (numerator and denominator are money)', async () => {
@@ -124,9 +153,17 @@ describe('rpt_division_pnl migration', () => {
     }
   })
 
+  it('row ids are unique: they carry the division key and the cost code; a real trade named "No division" never merges with the bucket', () => {
+    expect(sql).toMatch(/entry_date::text \|\| '\|' \|\| division_key \|\| '\|' \|\| line_key as pnl_id/)
+    expect(sql).toMatch(/'@revenue'::text as line_key/)
+    expect(sql).toMatch(/coalesce\(t\.slug, '@none'\)/)
+    expect(sql).toMatch(/'No division \(trade\)'/)
+    expect(sql).toMatch(/as sort_key/)
+  })
+
   it('anything without a division is "No division", not dropped', () => {
-    expect(sql).toMatch(/else 'No division' end as division/)
-    expect(sql).toMatch(/coalesce\(tr\.label, 'No division'\)/)
+    expect(sql).toMatch(/when t\.slug is null then 'No division'/)
+    expect(sql).toMatch(/when tr\.slug is null then 'No division'/)
   })
 })
 

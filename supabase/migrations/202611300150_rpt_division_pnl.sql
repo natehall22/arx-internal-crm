@@ -12,8 +12,12 @@
 --   Cost = live job_cost_lines (status 'active', not deleted), the same lines lib/job-cost-ledger.ts reads, dated on the line's own
 --     day, division = the job's trade, line = the line's cost code. A line with no code counts under the code its cost_type maps to
 --     (lib/cost-codes.ts codeForLine; a test keeps the two in step). The mirrored 'Lender / dealer fee' line is NOT a ledger cost;
---     the job's dealer_fee_amount is added once, as its own 'Lender fee' line (same as rpt_jobs.cost_total), on the sale date.
---     Day-clock labor already lands in the ledger as lines, so time_entries is never read here (no double count).
+--     the job's dealer_fee_amount is added once, as its own 'Lender fee' line on the sale date (rpt_jobs also counts a cancelled
+--     job's fee in cost_total; here a cancelled job has no sale, so its fee is not a cost line).
+--     Day-clock labor on a JOB already lands in the ledger as lines, so time_entries is never read here (no double count).
+--     NOT a cost here yet: crew time on service visits with no job. The ledger needs a job, so such time has no cost line, and
+--     the pay rate is resolved per person and week in the app (lib/payroll-hourly-rate.ts), not in SQL.
+--   Revenue is booked on the sale / invoice date and cost on the day it is spent, so a period can show cost without its revenue.
 --   Anything that cannot be tied to a division (a job of more than one trade, a job type that is not one of the company's trades,
 --   a service invoice line with no plan or visit trade) is the division 'No division'. Nothing is dropped.
 --   Cancelled jobs bill nothing (rpt_revenue) but keep the cost already spent on them.
@@ -25,12 +29,17 @@
 
 create or replace view public.rpt_division_pnl with (security_invoker = true) as
 with rev as (
+  -- division_key: the trade's slug, or '@none' for the "No division" bucket. A real trade that is itself named "No division"
+  -- is shown as "No division (trade)" so it never merges with the bucket.
   select r.org_id,
          r.event_date::date as entry_date,
-         case when exists (select 1 from public.org_trades t where t.org_id = r.org_id and t.label = r.trade)
-              then r.trade else 'No division' end as division,
+         coalesce(t.slug, '@none') as division_key,
+         case when t.slug is null then 'No division'
+              when t.label = 'No division' then 'No division (trade)' else t.label end as division,
          r.billed as amount
   from public.rpt_revenue r
+  left join lateral (select t0.slug, t0.label from public.org_trades t0
+                     where t0.org_id = r.org_id and t0.label = r.trade order by t0.slug limit 1) t on true
   where r.entry = 'Billed'
     and r.service is distinct from 'Sales tax'
     and r.billed <> 0
@@ -38,7 +47,8 @@ with rev as (
 cost as (
   select l.org_id,
          coalesce(l.incurred_on, arx_private.org_date(l.org_id, l.created_at))::date as entry_date,
-         coalesce(tr.label, 'No division') as division,
+         coalesce(tr.slug, '@none') as division_key,
+         case when tr.slug is null then 'No division' when tr.label = 'No division' then 'No division (trade)' else tr.label end as division,
          coalesce(nullif(btrim(l.cost_code), ''),
                   case l.cost_type when 'material' then 'materials' when 'labor' then 'labor' when 'subcontractor' then 'sub'
                                    when 'permit' then 'permit' else 'other' end) as code,
@@ -52,7 +62,8 @@ cost as (
   union all
   select j.org_id,
          coalesce(j.sale_date, arx_private.org_date(j.org_id, j.created_at))::date,
-         coalesce(tr.label, 'No division'),
+         coalesce(tr.slug, '@none'),
+         case when tr.slug is null then 'No division' when tr.label = 'No division' then 'No division (trade)' else tr.label end,
          'lender_fee',
          j.dealer_fee_amount
   from public.production_jobs j
@@ -60,12 +71,12 @@ cost as (
   where j.status <> 'cancelled' and coalesce(j.dealer_fee_amount, 0) <> 0
 ),
 lines as (
-  select org_id, entry_date, division, 'Revenue'::text as line, sum(amount) as revenue, 0::numeric as cost
+  select org_id, entry_date, division_key, division, '@revenue'::text as line_key, 'Revenue'::text as line, sum(amount) as revenue, 0::numeric as cost
   from rev
-  group by org_id, entry_date, division
+  group by org_id, entry_date, division_key, division
 
   union all
-  select c.org_id, c.entry_date, c.division,
+  select c.org_id, c.entry_date, c.division_key, c.division, c.code as line_key,
          coalesce(oc.label,
                   case c.code when 'materials' then 'Materials' when 'labor' then 'Labor' when 'sub' then 'Sub' when 'permit' then 'Permit'
                               when 'dump' then 'Dump' when 'equipment' then 'Equipment' when 'other' then 'Other' when 'lender_fee' then 'Lender fee'
@@ -73,10 +84,12 @@ lines as (
          0::numeric, sum(c.amount)
   from cost c
   left join public.org_cost_codes oc on oc.org_id = c.org_id and oc.code = c.code
-  group by c.org_id, c.entry_date, c.division, c.code, oc.label
+  group by c.org_id, c.entry_date, c.division_key, c.division, c.code, oc.label
 )
 select org_id,
-       entry_date::text || '|' || division || '|' || line as pnl_id,
+       entry_date::text || '|' || division_key || '|' || line_key as pnl_id,
+       -- order for the report: divisions by name with "No division" last; in each, Revenue first, then cost codes by name
+       (case when division_key = '@none' then '1' else '0' end) || '|' || lower(division) || '|' || (case when line_key = '@revenue' then '0' else '1|' || lower(line) end) as sort_key,
        entry_date,
        division,
        line,
