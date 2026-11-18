@@ -2,6 +2,8 @@
 
 import OutlookConnectCard from '@/components/OutlookConnectCard'
 import { useState, useEffect } from 'react'
+import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import { t as profileWord } from '@/lib/org-profile'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import ConnectAiCard from '@/components/ai-connector/ConnectAiCard'
@@ -64,6 +66,7 @@ const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export default function SettingsPage() {
   const router = useRouter()
+  const visitWord = profileWord(useOrgProfile(), 'inspection')
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -350,7 +353,7 @@ export default function SettingsPage() {
                       <h3 className="font-medium text-gray-900 mb-3">Notification Types</h3>
                       <div className="space-y-2">
                         {[
-                          { key: 'inspection_outcome', label: 'Inspection Outcomes', desc: 'When your appointments are completed' },
+                          { key: 'inspection_outcome', label: `${visitWord} Outcomes`, desc: 'When your appointments are completed' },
                           { key: 'appointment_reminder', label: 'Appointment Reminders', desc: 'Before scheduled appointments' },
                           { key: 'commission_update', label: 'Commission Updates', desc: 'When commissions are calculated or paid' },
                           { key: 'team_updates', label: 'Team Updates', desc: 'News and updates from your team' },
@@ -387,7 +390,7 @@ export default function SettingsPage() {
         {activeTab === 'calendar' && (
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Google Calendar Integration</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Calendar</h2>
               
               {/* Success/Error Message */}
               {calendarMessage && (
