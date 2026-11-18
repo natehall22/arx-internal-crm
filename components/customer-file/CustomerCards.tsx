@@ -131,7 +131,7 @@ export default async function CustomerCards({
         </Card>
       ) : null}
 
-      {showPortal && portalState && <PortalAccessCard customerId={customer.id} hasEmail={!!customer.email} {...portalState} />}
+      {showPortal && portalState && <PortalAccessCard customerId={customer.id} hasEmail={!!customer.email} {...portalState} canCopyLink={viewer.ownerLike} />}
 
       {messages && <CustomerMessagesCard customerId={customer.id} initial={messages.state} canEdit={messages.canEdit} />}
 

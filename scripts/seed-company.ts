@@ -98,6 +98,7 @@ async function main() {
       console.log('\n  DEMO LOGINS (shown once; not stored anywhere — write them down now):')
       for (const l of report.demo.logins) console.log(`    ${l.role.padEnd(10)} ${l.email}  ${l.password}`)
       if (report.demo.portalLink) console.log(`    portal customer (single-use magic link, 7 days): ${report.demo.portalLink}`)
+      else if (report.demo.portalPath) console.log(`    portal customer: no app address is set (APP_BASE_DOMAIN / NEXT_PUBLIC_APP_URL), so no full link. Put the demo company's own address in front of this path and open it in a browser (not a file): ${report.demo.portalPath}\n    (or use "Copy sign-in link" on the customer's portal card)`)
       if (report.demo.skipped.length) console.log(`\n  ${report.demo.skipped.length} demo section(s) could not run — see "demo SKIPPED" above.`)
     } else if (report.generatedOwnerPassword) {
       console.log(`\n  Owner first password (shown once — have them change it): ${report.generatedOwnerPassword}`)

@@ -803,6 +803,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
     case 'portal-signin':
       return <PortalSignIn company={HARNESS_PORTAL_COMPANY} />
+    case 'portal-link-problem':
+      return <PortalSignIn company={HARNESS_PORTAL_COMPANY} problem="link" />
+    case 'portal-open-problem':
+      return <PortalSignIn company={HARNESS_PORTAL_COMPANY} problem="open" />
     case 'portal-roofing':
       return <PortalHomeView company={HARNESS_PORTAL_COMPANY} home={HARNESS_PORTAL_ROOFING_HOME} payOnline />
     case 'portal-home':

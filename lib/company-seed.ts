@@ -269,7 +269,7 @@ export interface CompanySeedReport {
   /** Set only when a new owner login was created with a generated password (apply only). */
   generatedOwnerPassword?: string
   /** Demo apply only: every login made (printed once by the script, never stored) and what could not be written. */
-  demo?: { logins: Array<{ role: string; email: string; password: string }>; portalLink: string | null; skipped: string[] }
+  demo?: { logins: Array<{ role: string; email: string; password: string }>; portalLink: string | null; portalPath: string | null; skipped: string[] }
 }
 
 type OrgRow = { plan_entitlements?: unknown; is_demo?: boolean | null; id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown; profile?: unknown; features?: unknown }
@@ -628,7 +628,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
       for (const l of demo.skipped) say(`demo SKIPPED ${l}`)
       const logins = [...demo.logins]
       if (report.generatedOwnerPassword) logins.unshift({ role: 'owner', email: input.owner.email, password: report.generatedOwnerPassword })
-      report.demo = { logins, portalLink: demo.portalLink, skipped: demo.skipped }
+      report.demo = { logins, portalLink: demo.portalLink, portalPath: demo.portalPath, skipped: demo.skipped }
     }
   }
 

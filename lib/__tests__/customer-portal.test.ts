@@ -29,6 +29,7 @@ jest.mock('next/headers', () => ({
 jest.mock('@/lib/company-host-server', () => ({
   getRequestHostFence: async () => (mockHostOrg ? { kind: 'org', orgId: mockHostOrg, source: 'host' } : { kind: 'open' }),
 }))
+jest.mock('@/lib/demo-org', () => ({ isDemoOrg: async () => false }))
 jest.mock('@/lib/org-features-server', () => ({ isOrgFeatureOn: async (_org: string, f: string) => !mockFeatureOff.has(f) }))
 jest.mock('@/lib/company-links', () => ({ orgAppUrl: async (org: string) => `https://${org}.crm.test`, tryOrgAppUrl: async (org: string) => `https://${org}.crm.test` }))
 const storage = { from: () => ({ createSignedUrl: async (p: string) => ({ data: { signedUrl: `https://storage.test/${p}` }, error: null }) }) }
@@ -46,6 +47,7 @@ import { findPortalFile, findPortalInvoice, loadPortalHome } from '@/lib/portal/
 import {
   consumeLoginLink, endPortalSession, revokeCustomerPortalAccess, getPortalSession, portalOrgForRequest, requestLoginLink, startPortalSession, PORTAL_LIMITS, type PortalSession,
 } from '@/lib/portal/server'
+import { createStaffSignInLink } from '@/lib/portal/invite'
 import { hashPortalToken, isWellFormedPortalToken, newPortalToken, parsePortalIdentifier } from '@/lib/portal/tokens'
 import { POST as requestLinkPOST } from '@/app/api/portal/request-link/route'
 import { POST as enterPOST } from '@/app/api/portal/enter/route'
@@ -307,6 +309,64 @@ describe('the link: once, on its own company address', () => {
     expect(again.headers.get('location')).toBe('/portal?problem=link')
     expect(again.headers.get('set-cookie')).toBeNull()
     expect(db.tables.portal_login_events.some((e) => e.kind === 'login_failed')).toBe(true)
+  })
+})
+
+describe('entering from the wrong place, and staff sign-in links', () => {
+  test('a cross-site or file:// (Origin null) form post lands on a readable page, never JSON, and burns nothing', async () => {
+    const t = newPortalToken()
+    ;(db.tables.portal_login_tokens ??= []).push({ id: 'x1', org_id: A, customer_id: 'a2', token_hash: hashPortalToken(t), sent_to: 'Bob@x.test', expires_at: iso(0.01), used_at: null })
+    for (const headers of [{ origin: 'null' } as Record<string, string>, { origin: 'https://evil.test' }, { 'sec-fetch-site': 'cross-site' }]) {
+      const fd = new FormData()
+      fd.set('t', t)
+      const res = await enterPOST(new Request(`https://${A}.crm.test/api/portal/enter`, { method: 'POST', headers, body: fd }))
+      expect(res.status).toBe(303)
+      expect(res.headers.get('location')).toBe('/portal?problem=open')
+      expect(res.headers.get('set-cookie')).toBeNull()
+    }
+    expect(db.tables.portal_login_tokens[0].used_at).toBeNull()
+  })
+  test('staff link: one-time, 20 minutes, org-scoped, logged, opens a session through enter', async () => {
+    const r = await createStaffSignInLink(admin(), A, 'a2', 'staff-1')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.minutes).toBe(20)
+    const t = new URL(r.url).searchParams.get('t') as string
+    expect(r.url.startsWith(`https://${A}.crm.test/portal/enter?t=`)).toBe(true)
+    expect(JSON.stringify(db.tables.portal_login_tokens)).not.toContain(t) // only the hash is stored
+    expect(db.tables.portal_login_events.some((e) => e.kind === 'link_sent' && e.via === 'staff:staff-1' && e.customer_id === 'a2')).toBe(true)
+    expect(r.invited).toBe(false)
+    expect(db.tables.customers.find((c) => c.id === 'a2')?.portal_invited_at ?? null).toBeNull() // copying a link does not invite
+    const ok = await enterPOST(form('/api/portal/enter', { t }))
+    expect(ok.headers.get('location')).toBe('/portal')
+    // the login is traced to the staff member, not logged as an emailed link
+    expect(db.tables.portal_login_events.some((e) => e.kind === 'login' && e.via === 'staff_link' && e.detail === 'staff:staff-1')).toBe(true)
+    expect((await enterPOST(form('/api/portal/enter', { t }))).headers.get('location')).toBe('/portal?problem=link')
+  })
+  test('invite-only company: an uninvited customer needs the explicit invite choice; no token is written without it', async () => {
+    const co = db.tables.orgs.find((o) => o.id === A) as { settings: Record<string, unknown> }
+    const before = co.settings
+    co.settings = { ...before, customerPortal: { inviteOnly: true } }
+    try {
+      const tokens = (db.tables.portal_login_tokens ?? []).length
+      const no = await createStaffSignInLink(admin(), A, 'a2', 'staff-1')
+      expect(no).toMatchObject({ ok: false, status: 409, needsInvite: true })
+      expect((db.tables.portal_login_tokens ?? []).length).toBe(tokens)
+      const yes = await createStaffSignInLink(admin(), A, 'a2', 'staff-1', { invite: true })
+      expect(yes).toMatchObject({ ok: true, invited: true })
+      expect(db.tables.customers.find((c) => c.id === 'a2')?.portal_invited_at).toBeTruthy()
+    } finally {
+      co.settings = before
+    }
+  })
+  test('staff link: a missing portal_invited_at column says the update must be applied, not "Not found"', async () => {
+    const chain: any = new Proxy({}, { get: (_t, k) => (k === 'maybeSingle' ? async () => ({ data: null, error: { message: 'column customers.portal_invited_at does not exist' } }) : () => chain) })
+    const r = await createStaffSignInLink({ from: () => chain } as any, A, 'a2', 'staff-1')
+    expect(r).toMatchObject({ ok: false, status: 409, error: 'The link needs the customer portal update to be applied first.' })
+  })
+  test("staff link refuses another company's customer", async () => {
+    const r = await createStaffSignInLink(admin(), A, 'b1', 'staff-1')
+    expect(r).toMatchObject({ ok: false, status: 404 })
   })
 })
 
