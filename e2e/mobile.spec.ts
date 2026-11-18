@@ -948,6 +948,8 @@ const SCREENS: Screen[] = [
   } },
   { name: 'quote-page', path: '/dev-harness/quote-page', ready: 'text=Optional extras — tick what you want',
     states: [{ name: 'option-ticked', run: async (p) => { await p.getByText('Driveway pressure wash').click(); await p.waitForTimeout(200) } }] },
+  { name: 'quote-page-recurring', path: '/dev-harness/quote-page-recurring', ready: 'text=Recurring service' },
+  { name: 'quote-page-recurring-only', path: '/dev-harness/quote-page-recurring-only', ready: 'text=Nothing due today' },
   { name: 'quote-page-approved', path: '/dev-harness/quote-page-approved', ready: 'text=Approved — thank you!' },
   { name: 'quote-send-card', path: '/dev-harness/quote-send-card', ready: 'text=Customer approval link', mock: async (p) => {
     await p.route('**/api/proposals/harness-proposal/quote-link', (route) => route.fulfill(json({ opportunityId: 'opp-harness', customerEmail: 'pat@example.test', status: 'draft', optionalCount: 2, totalCents: 180000, deposit: { mode: 'percent', percent: 25, fixedCents: 0, overridden: false, cents: 45000 }, company: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0 }, problems: [], link: null, approval: null })))

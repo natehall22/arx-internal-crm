@@ -49,6 +49,7 @@ import {
   visitNeedsRefresh,
   visitPatch,
   visitPrice,
+  propertyAddressKey,
   ymdInZone,
   type BulkShift,
   type ExistingVisit,
@@ -607,7 +608,7 @@ export async function createServicePlan(
   customerId: string,
   body: unknown,
   now = new Date(),
-  opts: { oneOff?: boolean; oneOffKey?: string | null } = {}
+  opts: { oneOff?: boolean; oneOffKey?: string | null; quoteLineId?: string; soldByUserId?: string | null; quoteApprovalId?: string | null } = {}
 ): Promise<PlanSave> {
   const prep = await prepareNewPlan(admin, orgId, customerId, body)
   if (!prep.ok) return prep
@@ -624,6 +625,11 @@ export async function createServicePlan(
       ...(opts.oneOff ? { one_off: true, ...(opts.oneOffKey ? { one_off_key: opts.oneOffKey } : {}) } : {}),
       created_by: userId,
       updated_by: userId,
+      // The quote line this plan was sold on (unique): approving the same quote again can never make a second plan.
+      ...(opts.quoteLineId ? { quote_line_id: opts.quoteLineId } : {}),
+      // Who sold it (the deal's closer) and the approval: the hook for a future comp rule on PAID plan invoices (see CLAUDE.md).
+      ...(opts.soldByUserId ? { sold_by_user_id: opts.soldByUserId } : {}),
+      ...(opts.quoteApprovalId ? { quote_approval_id: opts.quoteApprovalId } : {}),
     })
     .select(SERVICE_PLAN_COLUMNS)
     .single()
@@ -741,6 +747,28 @@ export type NewCustomerPlanResult =
   | { ok: false; status: number; error: string; customerId?: string }
 
 /**
+ * The customer's property at this address (the same home may already be on file: matched by letters and digits only, so
+ * "12 Oak St." finds "12 oak st"), else a new one made from `propertyBody`. THE one match rule: "New customer + plan" and an
+ * approved quote's recurring plan (lib/quotes/recurring-plans.ts) both come through here.
+ */
+export async function findOrCreateProperty(
+  admin: SupabaseClient,
+  orgId: string,
+  userId: string,
+  customerId: string,
+  addressText: string,
+  propertyBody: unknown,
+  opts: { accessNotes: boolean }
+): Promise<{ ok: true; propertyId: string } | { ok: false; status: number; error: string }> {
+  const existing = await loadCustomerProperties(admin, orgId, customerId, { accessNotes: false })
+  const match = existing.properties.find((p) => propertyAddressKey(p.address_text) === propertyAddressKey(addressText))?.id ?? null
+  if (match) return { ok: true, propertyId: match }
+  const made = await createProperty(admin, orgId, userId, customerId, propertyBody, { accessNotes: opts.accessNotes })
+  if (!made.ok) return { ok: false, status: made.status, error: made.error }
+  return { ok: true, propertyId: made.property.id }
+}
+
+/**
  * "New customer + plan" in one go (Visits board / customers list): the customer (the one matching rule, `upsertCustomer`
  * — a phone or email already on file reuses that customer), their property, then the plan. Everything is checked first,
  * so a bad plan creates nobody. If the plan save itself fails afterwards, the customer and property stay (said in the
@@ -771,15 +799,9 @@ export async function createCustomerWithPlan(
   const { customer_id: customerId, created } = await upsertCustomer(admin, orgId, { name, phone, email, address_text: addressText })
   // A work category picked on the form (blank = not set). Never overwrites what a matched customer already has; a bad pick never blocks the plan.
   if (c.category) await setCustomerCategory(admin, orgId, customerId, c.category, { onlyIfBlank: true })
-  // The same home may already be on file for a matched customer: use it rather than refusing.
-  const existing = await loadCustomerProperties(admin, orgId, customerId, { accessNotes: false })
-  const key = (t: string | null | undefined) => (t ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  let propertyId = existing.properties.find((p) => key(p.address_text) === key(addressText))?.id ?? null
-  if (!propertyId) {
-    const made = await createProperty(admin, orgId, userId, customerId, b.property, { accessNotes: opts.accessNotes })
-    if (!made.ok) return { ok: false, status: made.status, error: made.error, customerId }
-    propertyId = made.property.id
-  }
+  const found = await findOrCreateProperty(admin, orgId, userId, customerId, addressText, b.property, { accessNotes: opts.accessNotes })
+  if (!found.ok) return { ok: false, status: found.status, error: found.error, customerId }
+  const propertyId = found.propertyId
   const plan = await createServicePlan(admin, orgId, userId, customerId, { ...planBody, property_id: propertyId }, opts.now)
   if (!plan.ok) return { ok: false, status: plan.status, error: `The customer was saved, but not the plan: ${plan.error}`, customerId }
   return { ok: true, customerId, matchedExisting: !created, plan: plan.plan, effect: plan.effect }

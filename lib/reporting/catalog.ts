@@ -35,7 +35,7 @@ export type Dataset = {
 
 export const DATASET_KEYS = [
   'jobs', 'sales', 'payments', 'invoices', 'revenue', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
-  'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy',
+  'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy', 'recurring_sales',
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
 
@@ -62,6 +62,15 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
       c('signed_at', 'Signed', 'date'), c('address', 'Address'), c('amount', 'Sale amount', 'money', false, true), c('agreement_type', 'Type'),
       c('payment_method', 'Payment method'), c('closer', 'Closer'), c('setter', 'Setter'), c('job_source', 'Lead source'),
       c('is_self_generated', 'Self-generated', 'bool'),
+    ],
+  },
+  recurring_sales: {
+    idColumn: 'approval_id', key: 'recurring_sales', label: 'Recurring sales (est.)',
+    description: 'Approved recurring service (first-season estimate, not signed contract money), credited to the closer and setter. Never part of Sales.',
+    view: 'rpt_recurring_sales', dateColumn: 'signed_at', ownerColumn: 'closer_user_id',
+    columns: [
+      c('signed_at', 'Approved', 'date'), c('address', 'Address'), c('amount', 'Estimated first season', 'money', false, true), c('agreement_type', 'Type'),
+      c('closer', 'Closer'), c('setter', 'Setter'), c('job_source', 'Lead source'), c('is_self_generated', 'Self-generated', 'bool'),
     ],
   },
   payments: {

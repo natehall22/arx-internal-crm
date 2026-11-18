@@ -40,6 +40,8 @@ const RAW_TEMPLATES: ReportTemplate[] = [
     spec: base('sales', { groupBy: '@month', metric: { kind: 'sum', column: 'amount' }, date: { preset: 'ytd' }, sortDesc: false }) },
   { key: 'sales-by-source', title: 'Sales by lead source', group: 'Sales', blurb: 'Where sold jobs came from.', chart: 'bar',
     spec: base('sales', { groupBy: 'job_source', metric: { kind: 'sum', column: 'amount' } }) },
+  { key: 'recurring-sales-by-closer', title: 'Recurring sales (est.) by closer', group: 'Sales', blurb: 'Approved recurring service, first-season estimate per closer. Not included in Sales.', chart: 'bar',
+    spec: base('recurring_sales', { groupBy: 'closer', metric: { kind: 'sum', column: 'amount' } }) },
   { key: 'self-gen-sales', title: 'Self-generated vs set sales', group: 'Sales', blurb: 'Sales the closer found themself vs got from a setter.', chart: 'bar',
     spec: base('sales', { groupBy: 'is_self_generated', metric: { kind: 'sum', column: 'amount' } }) },
   { key: 'sold-rate-by-closer', title: 'Sold % by closer', group: 'Pipeline', blurb: 'Share of inspected homes that sold, per closer.', chart: 'bar',

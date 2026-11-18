@@ -359,6 +359,8 @@ interface FinancialSourceProposalOption {
 }
 
 interface JobDetailClientProps {
+  /** Service plans started by this job's approved quote (not ended). Cancelling the job leaves them running. */
+  quotePlanCount?: number
   /** Rendered inside the Customer File: no Nav, back link, or legacy notes card (the file's thread replaces it). */
   embedded?: boolean
   initialJob: Job
@@ -630,6 +632,7 @@ export default function JobDetailClient({
   catchUp = null,
   detailsSlot = null,
   orgFeatures: serverOrgFeatures = null,
+  quotePlanCount = 0,
   orgProfile: serverOrgProfile = null,
 }: JobDetailClientProps) {
   const router = useRouter()
@@ -1959,6 +1962,11 @@ export default function JobDetailClient({
                 The job comes off the board and the install schedule, and the signed agreement is voided so it no
                 longer counts as a sale. A new signed agreement brings it back.
               </p>
+              {quotePlanCount > 0 && (
+                <p className="mt-2 text-sm font-medium text-[#2c2c2a]">
+                  This sale started {quotePlanCount === 1 ? 'a recurring service plan' : `${quotePlanCount} recurring service plans`}. Cancelling the job does not end {quotePlanCount === 1 ? 'it' : 'them'}. End {quotePlanCount === 1 ? 'it' : 'them'} on the customer’s plan page if the customer is also stopping the recurring service.
+                </p>
+              )}
               <fieldset className="mt-4">
                 <legend className="text-sm font-medium text-[#2c2c2a]">Reason (required)</legend>
                 <div className="mt-2 flex flex-col gap-1">

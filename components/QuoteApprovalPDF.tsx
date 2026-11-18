@@ -24,6 +24,8 @@ export type QuoteApprovalPdfData = {
   totalCents: number
   deposit: { cents: number; label: string }
   terms: string
+  /** Recurring service lines (service plans) shown and approved; absent on a quote with none, so every other PDF is unchanged. */
+  recurring?: Array<{ name: string; description: string; detail: string; termsLine: string; optional: boolean; chosen: boolean; firstSeasonCents: number }>
   approval: { typedName: string; approvedAt: string; ip: string | null }
 }
 
@@ -46,6 +48,8 @@ export function QuoteApprovalPDF({ data }: { data: QuoteApprovalPdfData }) {
   const left = data.lines.filter((l) => !l.chosen)
   const qty = (l: QuoteApprovalPdfData['lines'][number]) => (l.quantity != null && l.quantity !== 1 ? ` (${l.quantity}${l.unit && l.unit !== 'each' ? ` ${l.unit}` : ''})` : '')
   const c = data.company
+  // A recurring-only quote has no one-time lines: no one-time heading, subtotal or total.
+  const hasOneTime = chosen.length > 0 || !(data.recurring && data.recurring.length > 0)
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
@@ -56,7 +60,7 @@ export function QuoteApprovalPDF({ data }: { data: QuoteApprovalPdfData }) {
         <Text style={{ marginTop: 6 }}>{data.customerName}</Text>
         <Text>{data.customerAddress}</Text>
 
-        <Text style={styles.h2}>What was approved</Text>
+        {hasOneTime ? <Text style={styles.h2}>What was approved</Text> : null}
         {chosen.map((l, i) => (
           <View key={i} style={styles.row} wrap={false}>
             <View style={styles.name}>
@@ -75,7 +79,7 @@ export function QuoteApprovalPDF({ data }: { data: QuoteApprovalPdfData }) {
           </View>
         ) : null}
 
-        <View style={{ marginTop: 12 }}>
+        {hasOneTime ? <View style={{ marginTop: 12 }}>
           <View style={styles.row}><Text>Subtotal</Text><Text>{formatCents(data.subtotalCents)}</Text></View>
           {data.discountCents > 0 ? <View style={styles.row}><Text>Discount</Text><Text>-{formatCents(data.discountCents)}</Text></View> : null}
           {data.taxLines.length > 0
@@ -83,7 +87,25 @@ export function QuoteApprovalPDF({ data }: { data: QuoteApprovalPdfData }) {
             : data.taxCents > 0 ? <View style={styles.row}><Text>Sales tax</Text><Text>{formatCents(data.taxCents)}</Text></View> : null}
           <View style={styles.row}><Text style={styles.total}>Total</Text><Text style={styles.total}>{formatCents(data.totalCents)}</Text></View>
           {data.deposit.cents > 0 ? <View style={styles.row}><Text>{data.deposit.label}</Text><Text>{formatCents(data.deposit.cents)}</Text></View> : null}
-        </View>
+        </View> : null}
+
+        {data.recurring && data.recurring.some((r) => r.chosen) ? (
+          <View wrap={false}>
+            <Text style={styles.h2}>Recurring service approved</Text>
+            {data.recurring.filter((r) => r.chosen).map((r, i) => (
+              <View key={i} style={styles.row}>
+                <View style={styles.name}>
+                  <Text>{r.name}{r.optional ? '  (optional, selected)' : ''}</Text>
+                  <Text style={styles.desc}>{r.detail}</Text>
+                  {r.description ? <Text style={styles.desc}>{r.description}</Text> : null}
+                </View>
+              </View>
+            ))}
+            {Array.from(new Set(data.recurring.filter((r) => r.chosen).map((r) => r.termsLine))).map((t, i) => <Text key={i} style={{ marginTop: 3 }}>{t}</Text>)}
+            <Text style={[styles.small, { marginTop: 3 }]}>Estimated first-season value of the recurring service (counted in the sale, billed as it is performed): {formatCents(data.recurring.filter((r) => r.chosen).reduce((n, r) => n + r.firstSeasonCents, 0))}</Text>
+            {data.recurring.some((r) => !r.chosen) ? <Text style={styles.small}>Not selected: {data.recurring.filter((r) => !r.chosen).map((r) => r.name).join(', ')}</Text> : null}
+          </View>
+        ) : null}
 
         {data.terms ? (
           <View wrap={false}>

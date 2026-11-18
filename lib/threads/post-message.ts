@@ -41,6 +41,10 @@ export type MessageDraft = {
   allowSetters?: boolean
   clientId?: string | null
   source?: string | null
+  /** 'system' for a note the app wrote on its own (not a person typing). Default 'human'. */
+  origin?: 'human' | 'system'
+  /** A price-looking body is flagged even when the author is pricing-barred, so setters / field roles never read it. */
+  keepPricingRestricted?: boolean
   /** Text is stored as typed; @names are NOT turned into mentions (nobody is flagged or waiting). Used for text an AI app wrote. */
   noMentions?: boolean
   /** A logged call/text/email/visit: the row is written as that type with its outcome, and `body` becomes the optional note. */
@@ -152,7 +156,8 @@ export async function postMessage(
   const restricted =
     parent?.restricted_pricing === true ||
     (pricing && audience === 'crew') ||
-    (pricing && !viewer.pricingBarred && draft.allowSetters !== true)
+    (pricing && !viewer.pricingBarred && draft.allowSetters !== true) ||
+    (pricing && draft.keepPricingRestricted === true)
 
   // Someone has to be waiting for a needs-reply / urgent to mean anything: the people @mentioned, or the author of the message replied to.
   let priority: Priority = 'fyi'
@@ -203,7 +208,7 @@ export async function postMessage(
       type: contact ? contact.kind : 'note',
       ...(contact ? { contact_outcome: contact.outcome } : {}),
       body,
-      origin: 'human',
+      origin: draft.origin ?? 'human',
       audience,
       restricted_pricing: restricted,
       priority,
@@ -298,7 +303,8 @@ export async function ensureThread(
  * What a customer's own words may write: ONE customer's message, on their latest deal (or, with no deal, on the customer
  * alone). `origin` says how it arrived: their portal (default) or a text to the company's number.
  */
-export type CustomerPortalPost = { orgId: string; customerId: string; body: string; clientId?: string | null; origin?: 'customer_portal' | 'sms' }
+/** `opportunityId`: put it on THAT deal (the quote's own) instead of the customer's latest (it must belong to this customer, else the latest is used). */
+export type CustomerPortalPost = { orgId: string; customerId: string; body: string; clientId?: string | null; origin?: 'customer_portal' | 'sms'; opportunityId?: string | null }
 
 /**
  * The customer wrote to the company — from their portal, or by text. Written through THIS module (the one write path for
@@ -317,14 +323,9 @@ export async function postCustomerMessage(admin: SupabaseClient, p: CustomerPort
     if (again) return { ok: true, id: (again as { id: string }).id }
   }
   // The customer's most recent deal, if any (org- and customer-scoped).
-  const { data: deal } = await admin
-    .from('opportunities')
-    .select('id, customer_id, lead_id')
-    .eq('org_id', p.orgId)
-    .eq('customer_id', p.customerId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const dealQuery = () => admin.from('opportunities').select('id, customer_id, lead_id').eq('org_id', p.orgId).eq('customer_id', p.customerId)
+  const named = p.opportunityId ? (await dealQuery().eq('id', p.opportunityId).maybeSingle()).data : null
+  const deal = named ?? (await dealQuery().order('created_at', { ascending: false }).limit(1).maybeSingle()).data
   const d = deal as { id: string; customer_id: string | null; lead_id: string | null } | null
   const thread = d ? await ensureThread(admin, p.orgId, d) : null
   const { data, error } = await admin

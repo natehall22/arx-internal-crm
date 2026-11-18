@@ -15,6 +15,10 @@ export type QuoteLine = ProposalTaxLineItem & {
   name?: string | null
   description?: string | null
   quantity?: number | null
+  /** Recurring line (lib/quotes/recurring.ts): tied to a service plan template, never part of the one-time price. */
+  service_plan_template_id?: string | null
+  /** Template id + version + start + weekday the customer relied on; part of the fingerprint. Set only on recurring lines. */
+  recurring_key?: string | null
 }
 
 export type QuoteTaxMode =
@@ -39,10 +43,10 @@ export function defaultSelectedIds(lines: readonly QuoteLine[]): string[] {
   return lines.filter((l) => isOptionalLine(l) && l.optional_default_on === true).map((l) => l.id)
 }
 
-/** Lines that count: every required line + the ticked optional ones. Order is kept. */
+/** Lines that count toward the ONE-TIME price: every required line + the ticked optional ones. Recurring lines never do. Order is kept. */
 export function includedLines<T extends QuoteLine>(lines: readonly T[], selectedOptionalIds: Iterable<string>): T[] {
   const picked = new Set(selectedOptionalIds)
-  return lines.filter((l) => !isOptionalLine(l) || picked.has(l.id))
+  return lines.filter((l) => !l.service_plan_template_id && (!isOptionalLine(l) || picked.has(l.id)))
 }
 
 export type QuotePrice = {
@@ -107,7 +111,7 @@ export function quoteFingerprint(input: {
   scope?: string
 }): string {
   const body = JSON.stringify({
-    l: input.lines.map((l) => [l.id, Math.round((Number(l.line_total) || 0) * 100), Math.round((Number(l.unit_price) || 0) * 100), l.unit ?? '', l.price_type ?? '', l.taxable ?? null, l.is_optional === true, l.optional_default_on === true, l.name ?? '', l.description ?? '', l.quantity ?? null]),
+    l: input.lines.map((l) => [l.id, Math.round((Number(l.line_total) || 0) * 100), Math.round((Number(l.unit_price) || 0) * 100), l.unit ?? '', l.price_type ?? '', l.taxable ?? null, l.is_optional === true, l.optional_default_on === true, l.name ?? '', l.description ?? '', l.quantity ?? null, ...(l.recurring_key ? [l.recurring_key] : [])]),
     dp: Number(input.discountPercent) || 0,
     da: Math.round((Number(input.discountAmount) || 0) * 100),
     t: input.tax.kind === 'legacy' ? ['legacy', input.tax.percent] : ['rates', input.tax.exempt, input.tax.rates.map((r) => [r.id ?? '', r.percent])],
