@@ -73,7 +73,7 @@ describe('Revenue by month / Revenue by service templates', () => {
   })
 
   it('existing templates are untouched (ARX numbers cannot move): no existing spec gained alsoSum, and the old ones still read the same views', () => {
-    const old = REPORT_TEMPLATES.filter((t) => !t.key.startsWith('revenue-'))
+    const old = REPORT_TEMPLATES.filter((t) => !t.key.startsWith('revenue-') && !t.key.startsWith('profit-by-division'))
     expect(old.length).toBeGreaterThanOrEqual(24)
     for (const t of old) expect(t.spec.alsoSum).toBeUndefined()
     expect(templateByKey('sales-by-month')!.spec).toMatchObject({ dataset: 'sales', metric: { kind: 'sum', column: 'amount' } })

@@ -252,6 +252,8 @@ const SERVICE_REPORTS = [
   'jobs-by-status',
   'profit-by-job',
   'profit-by-month',
+  'profit-by-division',
+  'profit-by-division-and-code',
   'cost-overruns',
   'costs-by-type',
   'payroll-by-week',

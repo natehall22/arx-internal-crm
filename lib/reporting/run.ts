@@ -98,6 +98,14 @@ export function datasetOffered(ctx: Pick<ReportContext, 'features'>, datasetKey:
   return !ctx.features || !reportDatasetHidden(datasetKey, ctx.features)
 }
 
+/** The columns a spec's ratios read (numerator and denominator), so the money gate sees them. */
+function ratioColumns(ds: Dataset, spec: ReportSpec): string[] {
+  return (spec.alsoRatio ?? []).flatMap((k) => {
+    const r = (ds.ratios ?? []).find((x) => x.key === k)
+    return r ? [r.numerator, r.denominator] : []
+  })
+}
+
 export function checkAccess(ctx: ReportContext, ds: Dataset, spec: ReportSpec): void {
   if (ds.viewPending) throw new ReportAccessError('That report is not available yet.')
   if (!datasetOffered(ctx, ds.key)) throw new ReportAccessError('That report is for a feature your company has turned off.')
@@ -107,6 +115,7 @@ export function checkAccess(ctx: ReportContext, ds: Dataset, spec: ReportSpec): 
     spec.groupBy && !spec.groupBy.startsWith('@') ? spec.groupBy : null,
     'column' in spec.metric ? spec.metric.column : null,
     ...(spec.alsoSum ?? []),
+    ...ratioColumns(ds, spec),
     spec.sortBy ?? null,
     ...spec.filters.map((f) => f.column),
   ].filter(Boolean) as string[]
@@ -153,9 +162,11 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
   if ('column' in spec.metric) wanted.add(spec.metric.column)
   const alsoSum = spec.mode === 'summary' && spec.metric.kind === 'sum' ? spec.alsoSum ?? [] : []
   for (const k of alsoSum) wanted.add(k)
+  const ratios = spec.mode === 'summary' && spec.metric.kind === 'sum' ? (spec.alsoRatio ?? []).flatMap((k) => (ds.ratios ?? []).filter((r) => r.key === k)) : []
+  for (const r of ratios) { wanted.add(r.numerator); wanted.add(r.denominator) }
   for (const f of spec.filters) wanted.add(f.column)
   if (spec.mode === 'rows') for (const c of visibleColumns(ctx, ds)) wanted.add(c.key)
-  if (spec.sortBy) wanted.add(spec.sortBy)
+  if (spec.sortBy && spec.sortBy !== '@group') wanted.add(spec.sortBy)
   const select = Array.from(wanted).join(',')
 
   const { start, end } = opts.bounds ?? dateBounds(spec.date)
@@ -190,7 +201,7 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
   if (spec.mode === 'rows') {
     const cols = visibleColumns(ctx, ds)
     let rows = all
-    if (spec.sortBy) {
+    if (spec.sortBy && spec.sortBy !== '@group') {
       const k = spec.sortBy
       const dir = spec.sortDesc === false ? 1 : -1
       rows = [...all].sort((a, b) => {
@@ -208,11 +219,12 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
     }
   }
 
-  const groups = new Map<string, { n: number; sum: number; yes: number; extra: number[] }>()
+  const groups = new Map<string, { n: number; sum: number; yes: number; extra: number[]; ratio: number[] }>()
   for (const r of all) {
     const k = groupKey(r, ds, spec.groupBy)
-    const g = groups.get(k) ?? { n: 0, sum: 0, yes: 0, extra: alsoSum.map(() => 0) }
+    const g = groups.get(k) ?? { n: 0, sum: 0, yes: 0, extra: alsoSum.map(() => 0), ratio: ratios.flatMap(() => [0, 0]) }
     g.n += 1
+    ratios.forEach((rt, i) => { g.ratio[i * 2] += Number(r[rt.numerator]) || 0; g.ratio[i * 2 + 1] += Number(r[rt.denominator]) || 0 })
     alsoSum.forEach((col, i) => { g.extra[i] += Number(r[col]) || 0 })
     if (spec.metric.kind === 'sum' || spec.metric.kind === 'avg') g.sum += Number(r[spec.metric.column]) || 0
     if (spec.metric.kind === 'rate' && r[spec.metric.column] === true) g.yes += 1
@@ -232,9 +244,11 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
   let rows = Array.from(groups.entries()).map(([group, g]) => ({
     group, value: round(valueOf(g)),
     ...Object.fromEntries(alsoSum.map((col, i) => [`sum_${col}`, round(g.extra[i])])),
+    // A ratio is blank (null), never 0, when its denominator totals 0.
+    ...Object.fromEntries(ratios.map((rt, i) => [`ratio_${rt.key}`, g.ratio[i * 2 + 1] === 0 ? null : round((g.ratio[i * 2] / g.ratio[i * 2 + 1]) * 100)])),
     rows: g.n,
-  })) as Array<Record<string, string | number>>
-  rows.sort(isTime ? (a, b) => String(a.group).localeCompare(String(b.group)) : (a, b) => (spec.sortDesc === false ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value)))
+  })) as Array<Record<string, string | number | null>>
+  rows.sort(isTime || spec.sortBy === '@group' ? (a, b) => String(a.group).localeCompare(String(b.group)) : (a, b) => (spec.sortDesc === false ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value)))
   const limit = Math.min(spec.limit ?? MAX_ROWS_RETURNED, MAX_ROWS_RETURNED)
   const groupCol = spec.groupBy && !isTime ? columnOf(ds, spec.groupBy)?.label ?? 'Group' : spec.groupBy === '@week' ? 'Week of' : spec.groupBy === '@month' ? 'Month' : 'All'
   const total = spec.metric.kind === 'count' ? all.length
@@ -246,6 +260,7 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
       { key: 'group', label: groupCol, type: 'text' },
       { key: 'value', label: metricLabel, type: spec.metric.kind === 'rate' ? 'number' : spec.metric.kind === 'count' ? 'number' : (columnOf(ds, (spec.metric as { column: string }).column)?.type ?? 'number') },
       ...alsoSum.map((col) => ({ key: `sum_${col}`, label: `Total ${columnOf(ds, col)!.label}`, type: columnOf(ds, col)!.type })),
+      ...ratios.map((rt) => ({ key: `ratio_${rt.key}`, label: rt.label, type: 'number' as const })),
       { key: 'rows', label: 'Rows', type: 'number' as const },
     ],
     rows, matched: groups.size, scanned: all.length, truncated,

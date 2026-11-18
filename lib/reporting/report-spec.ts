@@ -21,8 +21,10 @@ export type ReportSpec = {
   filters: ReportFilter[]
   /** Summary + 'sum' only: more money / number columns totalled beside the main one for the same groups (e.g. billed AND collected per month). */
   alsoSum?: string[]
+  /** Summary + 'sum' only: ratio keys from the dataset's `ratios` (e.g. 'margin'), one column each; blank when the denominator is 0. */
+  alsoRatio?: string[]
   sortDesc?: boolean
-  /** Rows mode: column to sort by. */
+  /** Rows mode: column to sort by. Summary mode: '@group' sorts the groups by name. */
   sortBy?: string | null
   limit?: number
 }
@@ -64,6 +66,14 @@ export function parseSpec(input: unknown): { ok: true; spec: ReportSpec } | { ok
     }
   }
 
+  const alsoRatio: string[] = []
+  if (metric.kind === 'sum' && Array.isArray(b.alsoRatio)) {
+    for (const k of b.alsoRatio.slice(0, 4)) {
+      if (!(ds.ratios ?? []).some((r) => r.key === String(k))) return { ok: false, error: 'Unknown ratio' }
+      if (!alsoRatio.includes(String(k))) alsoRatio.push(String(k))
+    }
+  }
+
   const filters: ReportFilter[] = []
   for (const f of Array.isArray(b.filters) ? b.filters.slice(0, 12) : []) {
     const col = columnOf(ds, String(f?.column))
@@ -90,9 +100,10 @@ export function parseSpec(input: unknown): { ok: true; spec: ReportSpec } | { ok
     spec: {
       dataset: b.dataset, mode, groupBy, metric, filters,
       ...(alsoSum.length ? { alsoSum } : {}),
+      ...(alsoRatio.length ? { alsoRatio } : {}),
       date: { preset, start: iso(b.date?.start), end: iso(b.date?.end) },
       sortDesc: b.sortDesc !== false,
-      sortBy: typeof b.sortBy === 'string' && columnOf(ds, b.sortBy) ? b.sortBy : null,
+      sortBy: typeof b.sortBy === 'string' && (b.sortBy === '@group' || columnOf(ds, b.sortBy)) ? b.sortBy : null,
       limit,
     },
   }

@@ -26,6 +26,7 @@ export function specTouchesFinancials(spec: ReportSpec, scope?: 'own' | 'team' |
     ...(spec.alsoSum ?? []),
     spec.sortBy ?? null,
     ...spec.filters.map((f) => f.column),
+    ...(spec.alsoRatio ?? []).flatMap((k) => { const r = (ds.ratios ?? []).find((x) => x.key === k); return r ? [r.numerator, r.denominator] : [] }),
   ].filter(Boolean) as string[]
   // With scope 'own', a sale price on the viewer's own deals does not count (see DatasetColumn.own).
   return used.some((k) => { const col = columnOf(ds, k); return !!col?.sensitive && !(col.own && scope === 'own') })
@@ -90,6 +91,10 @@ const RAW_TEMPLATES: ReportTemplate[] = [
     spec: base('jobs', { mode: 'rows', sortBy: 'cost_total', date: { preset: '90d' }, limit: 50 }) },
   { key: 'costs-by-type', title: 'Costs by type', group: 'Money', blurb: 'Materials, labor and other costs.', chart: 'bar', finance: true,
     spec: base('job_costs', { groupBy: 'cost_type', metric: { kind: 'sum', column: 'amount' }, date: { preset: '90d' } }) },
+  { key: 'profit-by-division', title: 'Profit by division', group: 'Money', blurb: 'Revenue (billed, no sales tax), cost and profit for each division, with margin % (profit as a share of revenue; blank when nothing was billed). Costs with no division show under No division.', chart: 'none', finance: true,
+    spec: base('division_pnl', { groupBy: 'division', metric: { kind: 'sum', column: 'revenue' }, alsoSum: ['cost', 'profit'], alsoRatio: ['margin'], date: { preset: 'ytd' } }) },
+  { key: 'profit-by-division-and-code', title: 'Profit by division and cost code', group: 'Money', blurb: 'Each division: its revenue line, then its cost by cost code. Profit adds up per division (revenue less each cost line).', chart: 'none', finance: true,
+    spec: base('division_pnl', { groupBy: 'division_line', metric: { kind: 'sum', column: 'revenue' }, alsoSum: ['cost', 'profit'], date: { preset: 'ytd' }, sortBy: '@group', sortDesc: false }) },
   { key: 'payroll-by-week', title: 'Payroll by pay date', group: 'Payroll', blurb: 'Gross pay per pay period.', chart: 'bar', finance: true,
     spec: base('payroll_lines', { groupBy: 'period_label', metric: { kind: 'sum', column: 'gross_amount' }, date: { preset: 'all' } }) },
   { key: 'payroll-by-person', title: 'Pay by person', group: 'Payroll', blurb: 'Gross pay per person.', chart: 'bar', finance: true,

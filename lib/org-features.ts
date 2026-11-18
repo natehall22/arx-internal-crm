@@ -314,7 +314,17 @@ export const FEATURE_REPORT_DATASETS: Readonly<Partial<Record<OrgFeature, readon
   quoteApproval: ['recurring_sales'],
 }
 
+/**
+ * Report datasets that need AT LEAST ONE of several features (shown when any is on, hidden when all are off). Profit by division
+ * is for companies with more than one line of work to compare: service plans or project tools. Roofing has neither on.
+ */
+export const REPORT_DATASETS_NEEDING_ANY_FEATURE: Readonly<Record<string, readonly OrgFeature[]>> = {
+  division_pnl: ['servicePlans', 'projectTools'],
+}
+
 /** Pure: is this report dataset hidden because the company switched its feature off? */
 export function reportDatasetHidden(datasetKey: string, features: OrgFeatures): boolean {
-  return ORG_FEATURE_KEYS.some((f) => !features[f] && (FEATURE_REPORT_DATASETS[f] ?? []).includes(datasetKey))
+  if (ORG_FEATURE_KEYS.some((f) => !features[f] && (FEATURE_REPORT_DATASETS[f] ?? []).includes(datasetKey))) return true
+  const any = REPORT_DATASETS_NEEDING_ANY_FEATURE[datasetKey]
+  return !!any && !any.some((f) => features[f])
 }

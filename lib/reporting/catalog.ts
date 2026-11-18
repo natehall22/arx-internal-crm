@@ -15,6 +15,8 @@ export type DatasetColumn = {
   own?: boolean
 }
 
+export type DatasetRatio = { key: string; label: string; numerator: string; denominator: string }
+
 export type Dataset = {
   key: DatasetKey
   label: string
@@ -31,13 +33,15 @@ export type Dataset = {
   idColumn: string
   /** Whole dataset is finance-only (pay, costs). */
   financeOnly?: boolean
+  /** Ratios of two summed columns (e.g. margin = profit / revenue), offered beside a sum metric as `spec.alsoRatio`. Blank, never 0, when the denominator totals 0. */
+  ratios?: DatasetRatio[]
   /** The view is written (supabase/migrations) but not applied yet: the dataset is not offered and cannot be run. Remove the flag when the migration is applied. */
   viewPending?: boolean
 }
 
 export const DATASET_KEYS = [
   'jobs', 'sales', 'payments', 'invoices', 'revenue', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
-  'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy', 'recurring_sales', 'visits', 'time',
+  'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy', 'recurring_sales', 'visits', 'time', 'division_pnl',
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
 
@@ -117,6 +121,16 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
     columns: [
       c('work_date', 'Day', 'date'), c('person', 'Person'), c('crew', 'Crew'), c('job_number', 'Job #'), c('visit_number', 'Visit #'), c('hours', 'Hours', 'number'),
     ],
+  },
+  division_pnl: {
+    idColumn: 'pnl_id', key: 'division_pnl', label: 'Profit by division',
+    description: 'Revenue (billed, issued invoices and contracts, sales tax left out) and cost (live job cost lines, by cost code) for each division, which is the trade of the job or visit. Anything not tied to a trade is under No division.',
+    view: 'rpt_division_pnl', dateColumn: 'entry_date', dateColumnIsDay: true, ownerColumn: null, financeOnly: true,
+    columns: [
+      c('entry_date', 'Date', 'date'), c('division', 'Division'), c('line', 'Line (Revenue or cost code)'), c('division_line', 'Division and line'),
+      c('revenue', 'Revenue', 'money'), c('cost', 'Cost', 'money'), c('profit', 'Profit', 'money'),
+    ],
+    ratios: [{ key: 'margin', label: 'Margin %', numerator: 'profit', denominator: 'revenue' }],
   },
   job_costs: {
     idColumn: 'cost_line_id', key: 'job_costs', label: 'Job costs', description: 'Every cost line on every job.',
