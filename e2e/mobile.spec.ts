@@ -1631,7 +1631,7 @@ const LAWN_CRAWL: Array<{ name: string; path: string; ready: string }> = [
   { name: 'custom-fields-admin', path: '/dev-harness/custom-fields-admin', ready: 'text=Payment terms' },
   { name: 'checkups', path: '/dev-harness/checkups', ready: 'text=6-month inspection' },
 ]
-const LAWN_FORBIDDEN = (require('../scripts/roofing-terms.cjs') as { TERMS: RegExp }).TERMS // the one list the static guard scans with
+const LAWN_FORBIDDEN = (require('../scripts/roofing-terms.cjs') as { SCREEN_TERMS: RegExp }).SCREEN_TERMS // the guard's one list, minus place names (customer addresses)
 for (const screen of LAWN_CRAWL) {
   test(`lawn crawl / ${screen.name} says no roofing or ARX word`, async ({ page }) => {
     await mockApi(page)
