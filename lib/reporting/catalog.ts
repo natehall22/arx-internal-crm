@@ -66,11 +66,11 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
   },
   recurring_sales: {
     idColumn: 'approval_id', key: 'recurring_sales', label: 'Recurring sales (est.)',
-    description: 'Approved recurring service (first-season estimate, not signed contract money), credited to the closer and setter. Never part of Sales.',
+    description: 'Approved recurring service (first-season estimate, not signed contract money), credited to the salesperson. Never part of Sales.',
     view: 'rpt_recurring_sales', dateColumn: 'signed_at', ownerColumn: 'closer_user_id',
     columns: [
       c('signed_at', 'Approved', 'date'), c('address', 'Address'), c('amount', 'Estimated first season', 'money', false, true), c('agreement_type', 'Type'),
-      c('closer', 'Closer'), c('setter', 'Setter'), c('job_source', 'Lead source'), c('is_self_generated', 'Self-generated', 'bool'),
+      c('closer', 'Salesperson'), c('setter', 'Lead found by'), c('job_source', 'Lead source'), c('is_self_generated', 'Self-generated', 'bool'),
     ],
   },
   payments: {

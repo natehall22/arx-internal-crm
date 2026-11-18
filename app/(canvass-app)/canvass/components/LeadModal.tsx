@@ -526,8 +526,8 @@ export default function LeadModal({
                     {calendarNotice && (
                     <p className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-gray-900">
                       {calendarNotice === 'reconnect'
-                        ? "This closer's calendar needs reconnecting \u2014 times may be wrong"
-                        : "Couldn't read the closer's calendar \u2014 tap Refresh"}
+                        ? "This person's calendar needs reconnecting \u2014 times may be wrong"
+                        : "Couldn't read this person's calendar \u2014 tap Refresh"}
                     </p>
                   )}
                     {/* One fixed-height box for every state (loading, error, empty, slots), so the contact fields below never
