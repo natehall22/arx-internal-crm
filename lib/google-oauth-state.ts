@@ -19,7 +19,7 @@
  * The legacy address keeps its original flow (state = user id, cookie on the same host). Rows past expiry are pruned
  * on every new ticket.
  */
-import { createHmac, randomUUID, timingSafeEqual } from 'crypto'
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { appBaseDomain, companyAppUrl, hostnameFromHeader } from '@/lib/company-host'
@@ -33,7 +33,7 @@ export const GOOGLE_CONNECT_COOKIE_PATH = '/api/auth/google'
 const VERSION = 1
 
 /** Which connect a ticket is for. Absent in the payload = 'google' (tickets issued before QuickBooks existed). */
-export type OAuthPurpose = 'google' | 'quickbooks'
+export type OAuthPurpose = 'google' | 'quickbooks' | 'microsoft'
 
 export type OAuthStatePayload = { v: number; u: string; o: string; h: string; n: string; e: number; p?: OAuthPurpose }
 
@@ -71,6 +71,17 @@ function sealCode(code: string): string | null {
 function openCode(sealed: string): string | null {
   const key = subKey('code-seal')
   return key ? openWithKey(key, sealed) : null
+}
+
+/**
+ * PKCE for the Outlook connect: the verifier is derived from the ticket's nonce with a server-only key, so nothing extra
+ * is stored and only this server can recompute it at the finish step. Null when no key is configured.
+ */
+export function pkceFor(nonce: string): { verifier: string; challenge: string } | null {
+  const key = subKey('pkce-verifier')
+  if (!key) return null
+  const verifier = b64(createHmac('sha256', key).update(nonce).digest())
+  return { verifier, challenge: b64(createHash('sha256').update(verifier).digest()) }
 }
 
 /** A signed state is `<payload>.<mac>`; the legacy state is a bare user id (no dot). */

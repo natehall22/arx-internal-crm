@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getCalendarConnectionStatus } from '@/lib/calendar/connection'
 import { loadOrgTrades, tradeOptions } from '@/lib/org-trades'
 
 export const dynamic = 'force-dynamic'
@@ -80,6 +81,7 @@ export async function GET() {
     // calendar nobody looks at. Both come from `orgs.install_scheduling_user_id`
     // — see `resolveInstallGoogleToken` in lib/install-calendar.ts.
     let installSchedulingEmail: string | null = null
+    let installSchedulingProvider: 'google' | 'microsoft' | null = null
     try {
       const { data: org } = await supabase
         .from('orgs')
@@ -94,6 +96,11 @@ export async function GET() {
           .eq('org_id', profile.org_id)
           .maybeSingle()
         installSchedulingEmail = schedulingUser?.email ?? null
+        // Crews share with the account the server reads as. For Outlook that is the Microsoft account connected (its
+        // own address, from Graph /me at connect time), which can differ from the CRM login email.
+        const connection = await getCalendarConnectionStatus(supabase, org.install_scheduling_user_id)
+        installSchedulingProvider = connection?.provider ?? null
+        if (connection?.provider === 'microsoft') installSchedulingEmail = connection.account_email || null // never the CRM login: it may not be the Outlook account
       }
     } catch (e) {
       console.error('Subs API: could not resolve install scheduling account', e)
@@ -106,6 +113,7 @@ export async function GET() {
       subs: subs || [],
       orgId: profile.org_id,
       installSchedulingEmail,
+      installSchedulingProvider,
       trades,
     })
   } catch (error) {

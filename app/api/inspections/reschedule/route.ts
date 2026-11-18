@@ -1,7 +1,8 @@
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
-import { createCalendarEvent, deleteCalendarEvent, refreshAccessToken, CalendarEvent } from '@/lib/google-calendar'
+import { getCalendarClient } from '@/lib/calendar/connection'
+import type { CalendarEvent } from '@/lib/calendar/provider'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { sendSetterEmail } from '@/lib/setter-email'
 import {
@@ -14,38 +15,6 @@ import {
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { inspectionLocalWallClockToUtcIso } from '@/lib/inspection-local-wall-clock'
 import { createServiceClient } from '@/lib/supabase/service'
-
-// Helper to get valid access token
-async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
-  const { data: tokenData } = await adminClient
-    .from('user_google_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  if (!tokenData) return null
-
-  const expiresAt = new Date(tokenData.expires_at)
-  const now = new Date()
-
-  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-    try {
-      const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      await adminClient
-        .from('user_google_tokens')
-        .update({
-          access_token: refreshed.access_token,
-          expires_at: refreshed.expires_at.toISOString(),
-        })
-        .eq('user_id', userId)
-      return refreshed.access_token
-    } catch {
-      return null
-    }
-  }
-
-  return tokenData.access_token
-}
 
 // Helper to get timezone for user
 async function getTimezoneForUser(adminClient: any, userId: string): Promise<string> {
@@ -221,14 +190,14 @@ export async function POST(request: NextRequest) {
     let googleEventId: string | null = null
     
     if (originalAppointment.closer_user_id) {
-      const accessToken = await getValidAccessToken(supabase, originalAppointment.closer_user_id)
+      const calendar = await getCalendarClient(supabase, originalAppointment.closer_user_id)
       
-      if (accessToken) {
+      if (calendar) {
         try {
           // Delete the old calendar event first
           if (originalAppointment.google_event_id) {
             try {
-              await deleteCalendarEvent(accessToken, originalAppointment.google_event_id)
+              await calendar.deleteEvent(originalAppointment.google_event_id)
             } catch (deleteError) {
               console.error('Failed to delete old calendar event:', deleteError)
               // Continue anyway - the old event might already be deleted
@@ -296,8 +265,7 @@ export async function POST(request: NextRequest) {
             attendees: setterInviteEmail ? [{ email: setterInviteEmail }] : undefined,
           }
           
-          const createdEvent = await createCalendarEvent(
-            accessToken,
+          const createdEvent = await calendar.createEvent(
             event,
             'primary',
             setterInviteEmail ? 'all' : 'none'

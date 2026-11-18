@@ -71,8 +71,21 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // is the SAME account the availability read acts as. Hardcoding it, or reading a
 // separate env var, would let the address crews are told drift away from the
 // calendar anyone actually looks at.
-function buildCalendarShareInstructions(shareEmail: string | null, company: string): string {
-  const address = shareEmail || '[set an install scheduling account in Ops settings]'
+function buildCalendarShareInstructions(shareEmail: string | null, company: string, provider: 'google' | 'microsoft' | null = null): string {
+  const address = shareEmail || (provider === 'microsoft' ? '[add the email crews should share with]' : '[set an install scheduling account in Ops settings]')
+  if (provider === 'microsoft') {
+    return `Share your calendar with ${company} (optional)
+
+This lets us see when your crew is already busy so we don't double-book you. ${company} will only ever see that a time is "busy" — never the appointment details, never what the job is.
+
+1. On a computer, open Outlook on the web (outlook.office.com/calendar).
+2. At the top, click "Share", then choose your calendar.
+3. Enter this address: ${address}
+4. Set the permission to "Can view when I'm busy".
+5. Click "Share".
+
+That's it. ${company} will only see when you're busy, never any details about the appointment. This is optional — it just helps us schedule installs more accurately around your other jobs.`
+  }
   return `Share your calendar with ${company} (optional)
 
 This lets us see when your crew is already busy so we don't double-book you. ${company} will only ever see that a time is "busy" — never the appointment details, never what the job is.
@@ -97,7 +110,9 @@ export default function SubContractorsPage() {
   const [subs, setSubs] = useState<SubContractor[]>([])
   /** The company account crews share their calendar with — server-resolved, see the API route. */
   const [installSchedulingEmail, setInstallSchedulingEmail] = useState<string | null>(null)
-  const calendarShareInstructions = buildCalendarShareInstructions(installSchedulingEmail, brandNames.shortName)
+  /** Which calendar that account has connected (Google or Outlook), so the share steps match what the crew will see. */
+  const [installSchedulingProvider, setInstallSchedulingProvider] = useState<'google' | 'microsoft' | null>(null)
+  const calendarShareInstructions = buildCalendarShareInstructions(installSchedulingEmail, brandNames.shortName, installSchedulingProvider)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingSub, setEditingSub] = useState<SubContractor | null>(null)
@@ -177,6 +192,7 @@ export default function SubContractorsPage() {
       setInstallSchedulingEmail(
         typeof data.installSchedulingEmail === 'string' ? data.installSchedulingEmail : null
       )
+      setInstallSchedulingProvider(data.installSchedulingProvider === 'microsoft' ? 'microsoft' : data.installSchedulingProvider === 'google' ? 'google' : null)
       setOrgId(data.orgId)
       setLoading(false)
     } catch (err) {

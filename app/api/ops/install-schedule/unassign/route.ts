@@ -85,7 +85,7 @@ export async function POST(request: Request) {
   })
 
   return NextResponse.json({
-    trade: { ...updated, install_google_event_id: null, install_calendar_id: null },
+    trade: removal.cleared ? { ...updated, install_google_event_id: null, install_calendar_id: null } : updated,
     calendarWarning: removal.warning ?? null,
   })
 }

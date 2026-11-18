@@ -597,7 +597,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
         }
       } else if (calendar === 'no_token') {
         pushToast(
-          'Job scheduled — no calendar invite was sent because the scheduling user hasn’t connected Google Calendar.',
+          'Job scheduled — no calendar invite was sent because the scheduling user hasn’t connected a calendar.',
           'warning'
         )
       } else if (calendar === 'failed') {
@@ -720,7 +720,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
             </p>
             {availability?.source === 'no_token' && (
               <p className="mt-1 text-xs text-[#57574f]">
-                Sub availability isn&apos;t shown — connect Google Calendar to see who&apos;s already busy.
+                Sub availability isn&apos;t shown — connect a calendar to see who&apos;s already busy.
               </p>
             )}
           </div>
@@ -966,7 +966,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                 title={
                                   subAvail.shareStatus === 'error'
                                     ? `${brandNames.shortName} couldn't read this sub's calendar right now — availability just isn't shown until that clears.`
-                                    : `${sub.company_name} hasn't shared their Google Calendar with ${brandNames.shortName}. Ask them to share it with ${brandNames.shortName} at "See only free/busy" to show availability here.`
+                                    : `${sub.company_name} hasn't shared their calendar with ${brandNames.shortName}. Ask them to share it with ${brandNames.shortName} at "See only free/busy" to show availability here.`
                                 }
                               >
                                 {subAvail.shareStatus === 'error' ? 'Calendar unavailable' : 'Calendar not shared'}

@@ -5,13 +5,14 @@ import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
-import { updateCalendarEvent, createCalendarEvent } from '@/lib/google-calendar'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveApiRequestAuthUser } from '@/lib/supabase-api-request-auth'
-import { deleteGoogleEventWithFallback, getValidAccessToken } from '@/lib/appointment-calendar-sync'
+import { deleteCalendarEventWithFallback } from '@/lib/appointment-calendar-sync'
+import { getCalendarClient } from '@/lib/calendar/connection'
+import { isStaleEventIdError } from '@/lib/calendar/provider'
 import { saleCreditLockBlock } from '@/lib/deal-sale-credit'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isContactScoped, myLeadIds } from '@/lib/contact-scope'
@@ -196,13 +197,13 @@ export async function PATCH(
       const calendarSync: { warnings: string[] } = { warnings: [] }
       const existingEventId = appointment.google_event_id as string | null
       if (existingEventId) {
-        const del = await deleteGoogleEventWithFallback(adminClient, existingEventId, [
+        const del = await deleteCalendarEventWithFallback(adminClient, existingEventId, [
           appointment.closer_user_id,
           appointment.canvasser_user_id,
         ])
         if (!del.ok) {
           calendarSync.warnings.push(
-            'Google Calendar: could not remove cancelled event (no OAuth token or delete failed). It may still appear on a calendar.'
+            'Calendar: could not remove cancelled event (no OAuth token or delete failed). It may still appear on a calendar.'
           )
         }
       }
@@ -641,13 +642,13 @@ export async function PATCH(
 
       if (status === 'cancelled' && existingEventId) {
         // Cancellation: remove from whoever's calendar created the event (assignee + setter fallback)
-        const del = await deleteGoogleEventWithFallback(adminClient, existingEventId, [
+        const del = await deleteCalendarEventWithFallback(adminClient, existingEventId, [
           appointment.closer_user_id,
           appointment.canvasser_user_id,
         ])
         if (!del.ok) {
           calendarSync.warnings.push(
-            'Google Calendar: could not remove cancelled event (no OAuth token or delete failed). It may still appear on a calendar.'
+            'Calendar: could not remove cancelled event (no OAuth token or delete failed). It may still appear on a calendar.'
           )
         } else {
           try {
@@ -665,18 +666,18 @@ export async function PATCH(
         // Reassignment: delete from old calendar (assignee + setter fallback), create on new closer's calendar
 
         if (existingEventId) {
-          const del = await deleteGoogleEventWithFallback(adminClient, existingEventId, [
+          const del = await deleteCalendarEventWithFallback(adminClient, existingEventId, [
             appointment.closer_user_id,
             appointment.canvasser_user_id,
           ])
           if (!del.ok) {
             calendarSync.warnings.push(
-              'Google Calendar: could not remove event from previous assignee (or setter); old calendar copy may still exist.'
+              'Calendar: could not remove event from previous assignee (or setter); old calendar copy may still exist.'
             )
           }
         }
 
-        const newToken = await getValidAccessToken(adminClient, new_closer_id)
+        const newClient = await getCalendarClient(adminClient, new_closer_id, { useExpiredOnRefreshFailure: true })
         const startIso = updated.scheduled_for as string
         const endIso = new Date(
           new Date(startIso).getTime() + (updated.duration_minutes || 60) * 60 * 1000
@@ -708,14 +709,13 @@ export async function PATCH(
             : undefined
 
         let newEventId: string | null = null
-        if (!newToken) {
+        if (!newClient) {
           calendarSync.warnings.push(
-            'Google Calendar: no valid token for new assignee; event not added to their calendar.'
+            'Calendar: no valid token for new assignee; event not added to their calendar.'
           )
         } else {
           try {
-            const created = await createCalendarEvent(
-              newToken,
+            const created = await newClient.createEvent(
               {
                 summary: `${typeLabel}: ${homeownerName}`,
                 ...(eventNotes && { description: String(eventNotes) }),
@@ -731,7 +731,7 @@ export async function PATCH(
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e)
             console.error('Appointment reassignment: Google create failed:', msg)
-            calendarSync.warnings.push(`Google Calendar: could not create event for new assignee (${msg})`)
+            calendarSync.warnings.push(`Calendar: could not create event for new assignee (${msg})`)
           }
         }
 
@@ -743,16 +743,16 @@ export async function PATCH(
 
       } else if (existingEventId && updated.closer_user_id) {
         // In-place update: time, notes, location, title (same calendar / closer)
-        const token = await getValidAccessToken(adminClient, updated.closer_user_id)
-        if (!token) {
-          calendarSync.warnings.push('Google Calendar: no valid token for assignee; calendar not updated.')
+        const client = await getCalendarClient(adminClient, updated.closer_user_id, { useExpiredOnRefreshFailure: true })
+        if (!client) {
+          calendarSync.warnings.push('Calendar: no valid token for assignee; calendar not updated.')
         } else {
           try {
             const startIso = updated.scheduled_for as string
             const dur = updated.duration_minutes || 60
             const endIso = new Date(new Date(startIso).getTime() + dur * 60 * 1000).toISOString()
             const typeLabel = appointmentCalendarTitleLabel(updated.appointment_type)
-            await updateCalendarEvent(token, existingEventId, {
+            const eventBody = {
               summary: `${typeLabel}: ${homeownerName}`,
               start: { dateTime: startIso },
               end: { dateTime: endIso },
@@ -760,18 +760,30 @@ export async function PATCH(
               ...(updated.notes != null && String(updated.notes).length > 0
                 ? { description: String(updated.notes) }
                 : {}),
-            })
+            }
+            try {
+              await client.updateEvent(existingEventId, eventBody)
+            } catch (updateError: unknown) {
+              // Gone, or an id from the other calendar provider (the closer switched Google <-> Outlook): make a fresh
+              // event and keep its id, so later edits stop failing on a dead one.
+              if (!isStaleEventIdError(updateError, existingEventId, client.provider)) throw updateError
+              console.warn('Appointment update: stored event id is not usable on this calendar, recreating', existingEventId)
+              const recreated = await client.createEvent(eventBody, 'primary', 'none')
+              if (recreated?.id) {
+                await adminClient.from('scheduled_appointments').update({ google_event_id: recreated.id }).eq('id', params.id).eq('org_id', profile.org_id)
+              }
+            }
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e)
             console.error('Appointment update: Google update failed:', msg)
-            calendarSync.warnings.push(`Google Calendar: could not update event (${msg})`)
+            calendarSync.warnings.push(`Calendar: could not update event (${msg})`)
           }
         }
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       console.error('Appointment update: Google Calendar sync error:', msg)
-      calendarSync.warnings.push(`Google Calendar: ${msg}`)
+      calendarSync.warnings.push(`Calendar: ${msg}`)
     }
 
     return NextResponse.json({
