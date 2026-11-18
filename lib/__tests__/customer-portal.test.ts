@@ -89,8 +89,8 @@ function seed() {
       { id: 'prop-a2', org_id: A, customer_id: 'a2', label: null, address_text: '2 Bob St', access_notes: 'GATE-CODE-9911' },
     ],
     service_plans: [
-      { id: 'plan-a1', org_id: A, customer_id: 'a1', name: 'Alice Mowing', status: 'active', property_id: 'prop-a1', seasons: [], price: 50, billing_basis: 'per_visit', steps: [], description: 'INTERNAL-NOTE' },
-      { id: 'plan-a2', org_id: A, customer_id: 'a2', name: 'Bob Mowing', status: 'active', property_id: 'prop-a2', seasons: [{ from: '04-01', to: '10-31', frequency: 'weekly' }], price: 40, billing_basis: 'per_visit', steps: [], description: 'INTERNAL-NOTE' },
+      { id: 'plan-a1', org_id: A, customer_id: 'a1', name: 'Alice Mowing', status: 'active', property_id: 'prop-a1', seasons: [], price: 50, billing_basis: 'per_visit', steps: [], description: 'INTERNAL-NOTE', one_off: false },
+      { id: 'plan-a2', org_id: A, customer_id: 'a2', name: 'Bob Mowing', status: 'active', property_id: 'prop-a2', seasons: [{ from: '04-01', to: '10-31', frequency: 'weekly' }], price: 40, billing_basis: 'per_visit', steps: [], description: 'INTERNAL-NOTE', one_off: false },
     ],
     work_orders: [
       { id: 'wo-a1', org_id: A, customer_id: 'a1', service_plan_id: 'plan-a1', scheduled_date: day(2), status: 'scheduled', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a1', service_price: 'CREW-COST' },

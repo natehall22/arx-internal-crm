@@ -164,7 +164,7 @@ describe('recurring sales reporting is separate from signed sales', () => {
     const { REPORT_TEMPLATES } = require('@/lib/reporting/templates') as typeof import('@/lib/reporting/templates')
     expect(DATASETS.recurring_sales.view).toBe('rpt_recurring_sales')
     expect(DATASETS.sales.view).toBe('rpt_sales')
-    expect(REPORT_TEMPLATES.filter((t) => t.spec.dataset === 'recurring_sales').map((t) => t.title)).toEqual(['Recurring sales (est.) by closer'])
+    expect(REPORT_TEMPLATES.filter((t) => t.spec.dataset === 'recurring_sales').map((t) => t.title)).toEqual(['Recurring sales (est.) by salesperson'])
     expect(REPORT_TEMPLATES.filter((t) => t.spec.dataset === 'sales').every((t) => !/recurring/i.test(t.title))).toBe(true)
     const { reportDatasetHidden } = jest.requireActual('@/lib/org-features') as typeof import('@/lib/org-features')
     expect(reportDatasetHidden('recurring_sales', { quoteApproval: false } as never)).toBe(true)
