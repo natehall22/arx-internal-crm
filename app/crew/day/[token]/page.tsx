@@ -13,6 +13,7 @@ import { loadClockState } from '@/lib/time-tracking-db'
 import { createServiceClient } from '@/lib/supabase/service'
 import { readCustomerMessageSettings } from '@/lib/customer-messages'
 import { loadScoreboard } from '@/lib/crew-incentives-db'
+import { loadCrewProjectStops } from '@/lib/crew-day-projects'
 import CrewDayList from './CrewDayList'
 
 export const dynamic = 'force-dynamic'
@@ -60,6 +61,15 @@ export default async function CrewDayPage({ params }: { params: { token: string 
         return null
       })
     : null
+  // Project work (a grading job, an install) for a crew that clocks in: the same page covers the whole day. Photos and notes
+  // are the trade's own crew link; a failed read just leaves the visits as they were.
+  const hasClock = !!clock && clock.people.length > 0
+  const projects = hasClock
+    ? await loadCrewProjectStops(admin, { orgId: crew.orgId, subId: crew.subId }, today).catch((e) => {
+        console.error('[crew-day] project stops failed', e)
+        return []
+      })
+    : []
   // "On my way" button: only when the company sends that email (Settings → Customer messages).
   const onTheWay =
     (await isOrgFeatureOn(crew.orgId, 'customerMessages')) &&
@@ -77,6 +87,7 @@ export default async function CrewDayPage({ params }: { params: { token: string 
       crewName={crew.crewName}
       companyName={brand.casualName}
       today={today}
+      projects={projects}
       clock={clock && clock.people.length > 0 ? clock : null}
       visits={visits.map((v) => ({
         id: v.id,

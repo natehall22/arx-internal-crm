@@ -14,6 +14,7 @@ import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
 import { useClock, usePresence, type ClockState } from '@/components/time/useClock'
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
 import type { Scoreboard } from '@/lib/crew-incentives-db'
+import type { CrewProjectStop } from '@/lib/crew-day-projects'
 
 export type CrewDayVisit = {
   id: string
@@ -64,6 +65,7 @@ export default function CrewDayList({
   companyName,
   today,
   visits: initial,
+  projects = [],
   clock: initialClock = null,
   onTheWay = false,
   scoreboard = null,
@@ -73,6 +75,8 @@ export default function CrewDayList({
   companyName: string
   today: string
   visits: CrewDayVisit[]
+  /** Project work today for a crew that clocks in (lib/crew-day-projects.ts): clock, directions, and the trade's photo / notes link. */
+  projects?: CrewProjectStop[]
   /** The crew's time clock (only when the company uses it AND this crew clocks in; subs never get one). */
   clock?: ClockState | null
   /** The company emails the customer when the crew taps "On my way" (Settings → Customer messages). */
@@ -105,6 +109,8 @@ export default function CrewDayList({
   const clockOn = !!initialClock && initialClock.people.length > 0
   const crewAt = (visitId: string) => (clockOn ? (clock.state?.people ?? []).filter((p) => p.open?.workOrderId === visitId).map((p) => p.userId) : [])
   const stopLabel = (workOrderId: string | null) => {
+    const pr = projects.find((x) => x.id === workOrderId)
+    if (pr) return `${pr.tradeLabel}${pr.address ? ` — ${pr.address}` : ''}`
     const i = visits.findIndex((x) => x.id === workOrderId)
     if (i < 0) return null
     const x = visits[i]
@@ -317,7 +323,9 @@ export default function CrewDayList({
           </h1>
           <p className="text-base">
             {visits.length === 0
-              ? 'No visits today.'
+              ? projects.length > 0
+                ? `${projects.length} project job${projects.length === 1 ? '' : 's'} today.`
+                : 'No visits today.'
               : open === 0
                 ? 'All visits finished. Nice work.'
                 : `${open} of ${visits.length} visit${visits.length === 1 ? '' : 's'} left`}
@@ -334,6 +342,40 @@ export default function CrewDayList({
           </p>
         ) : null}
         {clockOn ? <ClockPanel clock={clock} selected={present} setSelected={setPresent} placeLabel={(o) => stopLabel(o.workOrderId)} title="Crew time" /> : null}
+        {projects.length > 0 ? (
+          <section aria-label="Project work today" className="flex flex-col gap-3">
+            <h2 className="text-lg font-bold">Project work today</h2>
+            <ul className="flex flex-col gap-3">
+              {projects.map((p) => {
+                const closed = p.status === 'completed'
+                return (
+                  <li key={p.id} className={`rounded-xl border-2 bg-white p-4 ${closed ? 'border-[#e5e3dc]' : 'border-[#2c2c2a]'}`} data-testid="project-stop">
+                    <p className="text-sm font-semibold uppercase tracking-wide">
+                      {p.tradeLabel}
+                      {p.dayCount ? ` · day ${p.dayNumber} of ${p.dayCount}` : ''}
+                    </p>
+                    <p className="text-lg font-bold break-words">{p.address ?? 'No address on file'}</p>
+                    {p.jobNumber ? <p className="text-base">Job {p.jobNumber}</p> : null}
+                    {closed ? <p className="mt-2 text-base font-bold">Done</p> : null}
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {clockOn && !closed ? <ClockHereButton clock={clock} where={{ workOrderId: p.id }} selected={present} /> : null}
+                      {p.address || (p.lat != null && p.lng != null) ? (
+                        <a href={directionsHref(p)} target="_blank" rel="noopener noreferrer" className={`${btn} border-2 border-[#2c2c2a] bg-white`}>
+                          Directions
+                        </a>
+                      ) : null}
+                      {p.photoLinkPath ? (
+                        <a href={p.photoLinkPath} className={`${btn} col-span-2 border-2 border-[#2c2c2a] bg-white`}>
+                          Photos &amp; notes
+                        </a>
+                      ) : null}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        ) : null}
         <ol className="flex flex-col gap-3">
           {visits.map((v, i) => {
             const closed = v.status !== 'scheduled'

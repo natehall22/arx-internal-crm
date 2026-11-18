@@ -21,6 +21,8 @@ export type JobStageInput = {
   /** Any active trade has a crew and a day. */
   hasScheduledTrade: boolean
   paidInFull: boolean
+  /** false = the company has no materials-ordering step (`materialOrdering` off): no "Materials ordered" stage. Left out = true. */
+  materialsStep?: boolean
 }
 
 /** Statuses that mean "the customer should hear from us, not see a progress bar". */
@@ -35,14 +37,16 @@ export function buildJobStages(i: JobStageInput, terms: StageTerms = BASE_TERMS)
   const installed = INSTALLED.has(i.status)
   const scheduled = installed || AFTER_SCHEDULED.has(i.status) || (i.hasScheduledTrade && !isQuietJobStatus(i.status))
   const materials = scheduled || AFTER_MATERIALS.has(i.status) || i.materialsKey === 'ordered' || i.materialsKey === 'received'
-  const done = [true, materials, scheduled, installed, installed && i.paidInFull]
-  const defs: Array<[JobStageKey, string]> = [
-    ['sold', 'Signed'],
-    ['materials', 'Materials ordered'],
-    ['scheduled', `${terms.install} scheduled`],
-    ['installed', terms.installed],
-    ['complete', 'Complete'],
+  const all: Array<[JobStageKey, string, boolean]> = [
+    ['sold', 'Signed', true],
+    ['materials', 'Materials ordered', materials],
+    ['scheduled', `${terms.install} scheduled`, scheduled],
+    ['installed', terms.installed, installed],
+    ['complete', 'Complete', installed && i.paidInFull],
   ]
+  const kept = all.filter(([key]) => i.materialsStep !== false || key !== 'materials')
+  const done = kept.map((k) => k[2])
+  const defs: Array<[JobStageKey, string]> = kept.map(([k, l]) => [k, l])
   const firstOpen = done.findIndex((d) => !d)
   return defs.map(([key, label], idx) => ({ key, label, state: done[idx] ? 'done' : idx === firstOpen ? 'current' : 'todo' }))
 }

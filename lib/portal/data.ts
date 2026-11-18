@@ -72,19 +72,22 @@ async function soft<T>(label: string, fn: () => PromiseLike<{ data: unknown; err
   return (data ?? []) as Rows<T>
 }
 
+type PlanRow = { id: string; name: string; status: string; property_id: string | null; seasons: unknown; price: number | null; billing_basis: string; steps: unknown; one_off: boolean | null }
+const PLAN_COLS = 'id, name, status, property_id, seasons, price, billing_basis, steps, one_off'
+
 /** The customer's own ids that other lookups hang from. */
 async function ownIds(admin: SupabaseClient, orgId: string, customerId: string) {
   const db = orgDb(admin, orgId)
-  const [jobs, opps, plans, props] = await Promise.all([
+  const [jobs, opps, regularPlans, oneOffPlans, props] = await Promise.all([
     soft<{ id: string; status: string | null }>('jobs', () => db.from('production_jobs').select('id, status').eq('customer_id', customerId).limit(200)),
     soft<{ id: string }>('opportunities', () => db.from('opportunities').select('id').eq('customer_id', customerId).limit(200)),
-    soft<{ id: string; name: string; status: string; property_id: string | null; seasons: unknown; price: number | null; billing_basis: string; steps: unknown }>('plans', () =>
-      db.from('service_plans').select('id, name, status, property_id, seasons, price, billing_basis, steps').eq('customer_id', customerId).in('status', ['active', 'paused']).limit(50)
-    ),
+    soft<PlanRow>('plans', () => db.from('service_plans').select(PLAN_COLS).eq('customer_id', customerId).eq('one_off', false).in('status', ['active', 'paused']).limit(50)),
+    // One-off visits (any status, so a finished one stays in the history) are fetched apart, newest first, so they can never push real plans out of the limit; they are never listed as plans.
+    soft<PlanRow>('one-off plans', () => db.from('service_plans').select(PLAN_COLS).eq('customer_id', customerId).eq('one_off', true).order('start_date', { ascending: false }).limit(50)),
     soft<{ id: string; label: string | null; address_text: string | null }>('properties', () => db.from('properties').select('id, label, address_text').eq('customer_id', customerId).limit(100)),
   ])
   // openJobIds: a cancelled or on-hold job shows the customer nothing of its own (documents, photos, change orders, checkups).
-  return { jobIds: jobs.map((j) => j.id), openJobIds: jobs.filter((j) => !isQuietJobStatus(j.status)).map((j) => j.id), oppIds: opps.map((o) => o.id), plans, props }
+  return { jobIds: jobs.map((j) => j.id), openJobIds: jobs.filter((j) => !isQuietJobStatus(j.status)).map((j) => j.id), oppIds: opps.map((o) => o.id), plans: [...regularPlans, ...oneOffPlans], props }
 }
 
 export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): Promise<PortalHome | null> {
@@ -182,7 +185,7 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
     const cur = nextByPlan.get(v.service_plan_id)
     if (!cur || v.scheduled_date < cur) nextByPlan.set(v.service_plan_id, v.scheduled_date)
   }
-  const plans: PortalPlan[] = ids.plans.map((p) => ({
+  const plans: PortalPlan[] = ids.plans.filter((p) => p.one_off !== true && (p.status === 'active' || p.status === 'paused')).map((p) => ({
     id: p.id,
     name: p.name,
     address: p.property_id ? addressOf.get(p.property_id) ?? null : null,

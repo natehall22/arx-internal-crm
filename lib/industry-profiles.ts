@@ -281,6 +281,12 @@ const SERVICE_NAV_ORDER: readonly NavSectionId[] = ['today', 'dashboard', 'pipel
 const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
 /**
+ * The legacy `crews` screen (roofing crew types, job calendar colors) is roofing-only. Every other profile has ONE crew
+ * list: Settings → Subcontractors (`sub_contractors`, incl. "Our own crew"), which plans, visits, projects and the time clock read.
+ */
+const LEGACY_CREWS_SCREEN = '/admin/crews'
+
+/**
  * Lawn: Settings entries that only make sense with door knocking, closers, lender financing or the Sisu setter program.
  * A hidden entry leaves the Settings hub only; the page keeps its own permission gate. (Cleaning keeps door knocking.)
  */
@@ -291,16 +297,17 @@ const LAWN_SETTINGS_HIDDEN = [
   '/admin/financing-programs',
   '/admin/sisu/incentives',
   '/admin/s/jobs#checkups',
+  LEGACY_CREWS_SCREEN,
 ]
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
   siteVisitType: { name: 'Estimate Visit', description: 'On-site visit to look at the property and give a quote', durationMinutes: 45 },
   proposalContent: LAWN_LANDSCAPE_PROPOSAL_CONTENT,
-  version: 7,
+  version: 8,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
-  features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, areaMeasure: true, ...ROOF_ONLY_OFF },
+  features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, areaMeasure: true, materialOrdering: false, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Lawn care', matchKeywords: ['\\blawn', 'mow', 'edging', 'fertiliz'] },
     { label: 'Landscaping', matchKeywords: ['landscap', 'mulch', 'sod\\b', 'plant', 'shrub', 'hardscape', 'paver'] },
@@ -333,7 +340,6 @@ const lawnLandscape: IndustryProfile = {
     '/admin/scheduling': 'Who takes estimate visits and your calendar settings',
     '/admin/teams': 'Groups of people in your company',
     '/admin/regions': 'The areas your company works in',
-    '/admin/crews': 'In-house crews',
     '/admin/email-blasts': 'Who gets sale and payment emails, and the owner morning update',
   },
   today: {
@@ -386,11 +392,11 @@ const exteriorCleaning: IndustryProfile = {
   id: 'exterior_cleaning',
   siteVisitType: { name: 'Estimate Visit', description: 'On-site visit to look at the property and give a quote', durationMinutes: 30 },
   proposalContent: EXTERIOR_CLEANING_PROPOSAL_CONTENT,
-  version: 4,
+  version: 5,
   label: 'Exterior cleaning',
   description: 'Pressure washing, soft washing, window and gutter cleaning — one-off and repeat.',
   // Door knocking stays on: many cleaning companies sell door to door.
-  features: { incentives: false, servicePlans: true, quoteApproval: true, ...ROOF_ONLY_OFF },
+  features: { incentives: false, servicePlans: true, quoteApproval: true, materialOrdering: false, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Pressure washing', matchKeywords: ['pressure ?wash', 'power ?wash'] },
     { label: 'Soft wash', matchKeywords: ['soft ?wash', 'house wash', 'roof wash'] },
@@ -399,6 +405,7 @@ const exteriorCleaning: IndustryProfile = {
   ],
   terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done', leadName: 'Customer / company name' },
   nav: { order: SERVICE_NAV_ORDER, hidden: SERVICE_NAV_HIDDEN },
+  settingsHidden: [LEGACY_CREWS_SCREEN],
   outcomeText: {
     no_problems_found: { label: 'Nothing needed', description: 'The property looked fine; no work needed' },
     needs_repair: { label: 'Small job', description: 'A small fix, not a full job' },
@@ -479,7 +486,7 @@ const HOME_BUILDER_SCHEDULE_TEMPLATES: readonly ScheduleTemplate[] = [
 const homeBuilder: IndustryProfile = {
   id: 'home_builder',
   proposalContent: HOME_BUILDER_PROPOSAL_CONTENT,
-  version: 3,
+  version: 4,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
   features: { canvassing: false, incentives: false, projectTools: true, customerPortal: true, ...ROOF_ONLY_OFF },
@@ -495,6 +502,7 @@ const homeBuilder: IndustryProfile = {
   ],
   terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners', leadName: 'Client / company name' },
   nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
+  settingsHidden: [LEGACY_CREWS_SCREEN],
   today: {
     order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment', 'unpaid-invoices'],
     hidden: [],

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
-import { crewDayLinkSubIds, ensureServiceVisits, loadVisitsPage } from '@/lib/service-plans-db'
+import { SERVICE_PLANS_NOT_READY, createOneOffVisit, crewDayLinkSubIds, ensureServiceVisits, loadVisitsPage } from '@/lib/service-plans-db'
 import { addDaysYmd, daysBetweenYmd, isYmd, ymdInZone } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 import { loadCrewIncentivesState, loadVisitMarks } from '@/lib/crew-incentives-db'
@@ -54,4 +54,23 @@ export async function GET(request: Request) {
     // Phone only for editors (they send the crew its link by text).
     crews: ((subs.data ?? []) as Array<{ id: string; company_name: string | null; phone: string | null }>).map((s) => ({ id: s.id, name: s.company_name ?? 'Crew', hasPhoneLink: linked.has(s.id), phone: ctx.access.edit ? s.phone : null })),
   })
+}
+
+/**
+ * POST /api/ops/visits — a ONE-OFF visit for a customer's property (the Visits board and the customer page share it).
+ * body: { customer_id, property_id, trade, date, name?, service_lines?, price?, taxable?, sub_id?, notes? }. It is a plan that
+ * starts and ends that day (lib/service-plans-db.ts createOneOffVisit), so the visit has a visit code, a crew-day stop and a
+ * price like any plan visit and is billed the same way. Needs the same permission as starting a plan.
+ */
+export async function POST(request: Request) {
+  const ctx = await servicePlanRouteAuth('edit')
+  if (ctx instanceof Response) return ctx
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  const customerId = typeof body?.customer_id === 'string' ? body.customer_id : ''
+  if (!customerId) return NextResponse.json({ error: 'Pick the customer' }, { status: 400 })
+  const { data: customer } = await orgDb(ctx.admin, ctx.orgId).from('customers').select('id').eq('id', customerId).maybeSingle()
+  if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const result = await createOneOffVisit(ctx.admin, ctx.orgId, ctx.userId, customerId, body)
+  if (!result.ok) return NextResponse.json({ error: result.status === 503 ? SERVICE_PLANS_NOT_READY : result.error }, { status: result.status })
+  return NextResponse.json({ visitId: result.visitId, workOrderNumber: result.workOrderNumber, date: result.date }, { status: 201 })
 }

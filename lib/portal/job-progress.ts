@@ -75,6 +75,7 @@ export async function loadPortalJobs(
   ])
   const jobsWithOpenInvoice = new Set(openInvoices.map((r) => r.job_id))
 
+  const materialsStep = await (await import('@/lib/org-features-server')).isOrgFeatureOn(orgId, 'materialOrdering')
   const out: PortalJob[] = []
   for (const j of jobs) {
     const quiet = isQuietJobStatus(j.status)
@@ -97,7 +98,7 @@ export async function loadPortalJobs(
     })
     out.push({
       ...base,
-      stages: buildJobStages({ status: j.status, materialsKey: materials.key, hasScheduledTrade, paidInFull: collection.paidInFull }, ctx.terms),
+      stages: buildJobStages({ status: j.status, materialsKey: materials.key, hasScheduledTrade, paidInFull: collection.paidInFull, materialsStep }, ctx.terms),
       installs: myTrades
         .filter((t) => t.status === 'completed' || !!t.scheduled_date)
         .sort((a, b) => String(a.scheduled_date ?? '9').localeCompare(String(b.scheduled_date ?? '9')))

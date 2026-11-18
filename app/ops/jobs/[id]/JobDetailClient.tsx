@@ -201,7 +201,7 @@ function unpaidContractBalanceCents(args: {
 
 type WorkflowBtnId = 'resume' | 'schedule' | 'materials' | 'startJob' | 'complete' | 'collected'
 
-function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; secondary: WorkflowBtnId[] } {
+function getWorkflowPrimaryAndSecondaryIds(job: Job, materialsStep = true): { primary: WorkflowBtnId; secondary: WorkflowBtnId[] } {
   // A paused job's only next step is un-pausing it — no crews/invites while it's on hold.
   if (job.status === 'on_hold') return { primary: 'resume', secondary: [] }
   const show: Record<Exclude<WorkflowBtnId, 'resume'>, boolean> = {
@@ -209,7 +209,7 @@ function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; 
     // One tap that records the order (and moves Sold → Material Ordering). The old
     // "Start Material Ordering" / "Materials Ready" pair were status flips nobody used;
     // booking a crew already moves the job to Scheduled (deriveJobSchedule).
-    materials: (job.status === 'sold' || job.status === 'materials') && (job.materials_status || 'not_ordered') === 'not_ordered',
+    materials: materialsStep && (job.status === 'sold' || job.status === 'materials') && (job.materials_status || 'not_ordered') === 'not_ordered',
     startJob: job.status === 'scheduled',
     complete: job.status === 'in_progress',
     collected: job.status === 'complete',
@@ -1118,8 +1118,8 @@ export default function JobDetailClient({
   const todayYmd = useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), [])
   const unpaidForTabs = canViewJobBilling && paymentSummary ? unpaidContractCents : null
   const v2Attention = useMemo(
-    () => tabsNeedingAttention({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs }).filter((t) => v2Tabs.includes(t)),
-    [job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs]
+    () => tabsNeedingAttention({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, materialsStep: orgFeatures.materialOrdering }).filter((t) => v2Tabs.includes(t)),
+    [job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs, orgFeatures.materialOrdering]
   )
   // Until the person picks a tab (or arrives by a deep link), follow the next thing that needs doing as the data arrives.
   useEffect(() => {
@@ -1129,9 +1129,9 @@ export default function JobDetailClient({
     let last: string | null = null
     try { last = localStorage.getItem(LAST_TAB_KEY) } catch { /* private mode */ }
     setJobTabState(
-      pickDefaultJobTab({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, allowed: v2Tabs.filter((t) => t !== 'notes'), lastTab: last })
+      pickDefaultJobTab({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, allowed: v2Tabs.filter((t) => t !== 'notes'), lastTab: last, materialsStep: orgFeatures.materialOrdering })
     )
-  }, [v2, job.status, materialsState.key, jobTrades, tradesLoaded, canViewJobBilling, paymentSummary, todayYmd, unpaidForTabs, v2Tabs])
+  }, [v2, job.status, materialsState.key, jobTrades, tradesLoaded, canViewJobBilling, paymentSummary, todayYmd, unpaidForTabs, v2Tabs, orgFeatures.materialOrdering])
 
   const handleCompleteClick = () => {
     // Warn, don't block: crews finish out one at a time, and ops may know a
@@ -1781,7 +1781,7 @@ export default function JobDetailClient({
           {/* Desktop: one primary CTA + outlined secondaries + More (pause/delete) */}
           <div className="hidden lg:flex flex-wrap items-center gap-2 pt-4 border-t">
             {(() => {
-              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
+              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job, orgFeatures.materialOrdering)
               const wfOpts = {
                 saving,
                 goToCrews,
@@ -1853,7 +1853,7 @@ export default function JobDetailClient({
         <div className="lg:hidden mb-4 bg-white rounded-xl shadow-sm border p-4">
           <div className="flex flex-col gap-2">
             {(() => {
-              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
+              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job, orgFeatures.materialOrdering)
               const wfOpts = {
                 saving,
                 goToCrews,

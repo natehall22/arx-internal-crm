@@ -27,7 +27,7 @@ import { profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { parseCompanySeedInput } from '@/lib/company-seed'
 
 const read = (f: string) => readFileSync(path.join(process.cwd(), f), 'utf8')
-const lawnSettings = { profile: { id: 'lawn_landscape', version: 7 } }
+const lawnSettings = { profile: { id: 'lawn_landscape', version: 8 } }
 
 const flags = { isOpsOnly: false, canSeeOpsDashboard: true, canSeeJobBoard: true, canSeeInsideSales: true, projectsBarred: false, salesDocBarred: false, customerRecords: true, reports: true, isPayrollAdmin: true, earnsPay: true, payWeek: true }
 const owner = (extra: Partial<NavContext> = {}): NavContext => ({ permsReady: true, role: 'owner', fullAccess: true, permissionNames: new Set(), flags, ...extra })
@@ -105,7 +105,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
 
   it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing + customer messages on', () => {
     expect(lawn.id).toBe('lawn_landscape')
-    expect(lawn.storedVersion).toBe(7)
+    expect(lawn.storedVersion).toBe(8)
     for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval' || k === 'areaMeasure'])
   })
 
@@ -381,5 +381,22 @@ describe('review fixes', () => {
     expect(read('app/ops/jobs/[id]/JobDetailClient.tsx')).toContain('← Back to {orgTerms.productionBoard}')
     expect(read('app/admin/subs/page.tsx')).toContain("subsTerm === BASE_TERMS.subs ? 'Sub-Contractors' : subsTerm")
     expect(BASE_TERMS.job.toLowerCase()).toBe('job')
+  })
+})
+
+describe('one crew list, one materials step', () => {
+  it('only roofing keeps the legacy Crews screen; every other profile has one crew list (Subcontractors)', () => {
+    expect(resolveOrgProfile({}).settingsHidden).not.toContain('/admin/crews')
+    expect(resolveOrgProfile({ profile: { id: 'roofing' } }).settingsHidden).not.toContain('/admin/crews')
+    for (const id of ['lawn_landscape', 'exterior_cleaning', 'home_builder'] as const) {
+      expect(resolveOrgProfile({ profile: { id } }).settingsHidden).toContain('/admin/crews')
+    }
+  })
+  it('materials ordering: roofing and home builder on; lawn and exterior cleaning off; a saved switch wins', () => {
+    expect(resolveOrgProfile({}).features.materialOrdering).toBe(true)
+    expect(resolveOrgProfile({ profile: { id: 'home_builder' } }).features.materialOrdering).toBe(true)
+    expect(resolveOrgProfile({ profile: { id: 'lawn_landscape' } }).features.materialOrdering).toBe(false)
+    expect(resolveOrgProfile({ profile: { id: 'exterior_cleaning' } }).features.materialOrdering).toBe(false)
+    expect(resolveOrgProfile({ profile: { id: 'lawn_landscape' }, features: { materialOrdering: true } }).features.materialOrdering).toBe(true)
   })
 })

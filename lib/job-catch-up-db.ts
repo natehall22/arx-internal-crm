@@ -201,7 +201,9 @@ export async function loadJobCatchUps(
   // The Materials tab's answer for the jobs whose next step can be about materials (a few at a time).
   const materialsByJob = new Map<string, MaterialsState>()
   // Capped: each one is the full Materials tab load. Beyond the cap the recorded status answers (Known Redundancy #26).
-  const needMaterials = jobs.filter((j) => MATERIALS_STEP_STATUSES.has(j.status)).slice(0, MATERIALS_MAX_JOBS)
+  // A company with no materials-ordering step never loads the Materials tab per job.
+  const materialsStep = await (await import('@/lib/org-features-server')).isOrgFeatureOn(orgId, 'materialOrdering')
+  const needMaterials = (materialsStep ? jobs : []).filter((j) => MATERIALS_STEP_STATUSES.has(j.status)).slice(0, MATERIALS_MAX_JOBS)
   for (let i = 0; i < needMaterials.length; i += MATERIALS_CONCURRENCY) {
     await Promise.all(
       needMaterials.slice(i, i + MATERIALS_CONCURRENCY).map(async (j) => {
@@ -273,6 +275,7 @@ export async function loadJobCatchUps(
       job: { ...job, owner_name: job.owner_user_id ? ownerName.get(job.owner_user_id) ?? null : null },
       trades: jobTrades,
       materials: materialsByJob.get(job.id) ?? deriveMaterialsState({ stored: job.materials_status }),
+      materialsStep,
       payment: chip?.label ?? null,
       problems: problemsByJob.get(job.id) ?? [],
       events,

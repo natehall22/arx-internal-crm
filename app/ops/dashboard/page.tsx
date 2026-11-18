@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import { loadNeedsYouForViewer, type DataHealthReport } from '@/lib/data-health'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import OpsDashboardView from '@/components/ops/OpsDashboardView'
 import { isOwnerProfile } from '@/lib/super-admin'
 
@@ -147,6 +148,7 @@ export default async function OpsDashboardPage() {
 
   return (
     <OpsDashboardView
+      scheduleBoardHref={(await isOrgFeatureOn(profile.org_id, 'servicePlans')) ? '/ops/schedule?view=board' : '/ops/schedule'}
       today={today}
       canJobBoard={canJobBoard}
       canFixPayPlans={isOwnerProfile(profile)}
