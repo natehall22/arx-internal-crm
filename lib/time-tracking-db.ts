@@ -1521,13 +1521,19 @@ export async function syncTimeFeeds(
           const t = paidTime(entries, { timeZone: config.timeZone })
           let paid = totalSeconds(clipIntervals(t.paid, from, to))
           let carried = 0
-          // "Already paid" is measured at the NEWEST approval in the run (the week right before this one): an end recorded before it
-          // was paid by the first open week after the approval that was live then (an open week between two approvals carried it,
-          // and that week's own approval paid it), so only ends recorded after it are carried here — once, never again by the
-          // next week.
-          const paidBy = approvedBefore.length ? approvedBefore[0].at : 0
-          const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > paidBy))
-          for (const w of approvedBefore) {
+          // "Already paid" is measured per approved week of the run, newest first: an end recorded before an approval was paid by the
+          // first open week after the approval that was live then (an open week between two approvals carried it, and that week's own
+          // approval paid it), so only ends recorded after it are carried here, once, never again by the next week. Weeks can be
+          // approved out of order, so the newest week is not necessarily the last one approved: week w was paid by the LATEST approval
+          // among w and every newer week of the run (a late end lands here only if no week from w up to this one was open when it
+          // was recorded). In order, that is the newest week's approval for every week, as before.
+          // Known gap (accepted): an end recorded just before an approval whose sync runs after the approval started is paid by no
+          // week (the approval's own recompute never saw it); the office adds that time in an open week.
+          let paidBy = 0
+          const paidByWeek = approvedBefore.map((w) => (paidBy = Math.max(paidBy, w.at)))
+          for (const [i, w] of approvedBefore.entries()) {
+            const wPaidBy = paidByWeek[i]
+            const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > wPaidBy))
             // Split at the cutoff: what the approved week should have paid (union over ALL its entries) minus what was paid by
             // then (a day still open then paid nothing for itself). A day clock that ends after approval carries only the
             // time no stop already paid, never the whole day twice.
