@@ -1531,7 +1531,8 @@ export async function syncTimeFeeds(
           // week (the approval's own recompute never saw it); the office adds that time in an open week.
           let paidBy = 0
           const paidByWeek = approvedBefore.map((w) => (paidBy = Math.max(paidBy, w.at)))
-          for (const [i, w] of approvedBefore.entries()) {
+          for (let i = 0; i < approvedBefore.length; i++) {
+            const w = approvedBefore[i]
             const wPaidBy = paidByWeek[i]
             const knownThen = entries.filter((e) => e.endedAt && !(e.endedRecordedAt && Date.parse(e.endedRecordedAt) > wPaidBy))
             // Split at the cutoff: what the approved week should have paid (union over ALL its entries) minus what was paid by
