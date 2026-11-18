@@ -5,6 +5,8 @@
 import type { ThreadViewer } from '@/lib/threads/visibility'
 
 const viewerFor: { current: ThreadViewer } = { current: null as never }
+const mockMaterialOrdering = { current: true }
+jest.mock('@/lib/org-features-server', () => ({ isOrgFeatureOn: jest.fn(async () => mockMaterialOrdering.current) }))
 jest.mock('@/lib/threads/viewer', () => ({ resolveThreadViewer: jest.fn(async () => viewerFor.current) }))
 
 import { attachBoardCatchUps, jobCatchUpDeps, loadJobCatchUps } from '@/lib/job-catch-up-db'
@@ -188,6 +190,21 @@ describe('loadJobCatchUps — review fixes', () => {
     const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     expect((await load(tables)).nextStep).toBe('Order materials')
     spy.mockRestore()
+  })
+
+  it('a company with no materials-ordering step never says "Order materials" and never loads the Materials tab per job', async () => {
+    const tables = seed(1)
+    tables.production_jobs[0].permit_status = 'approved'
+    tables.production_jobs[0].materials_status = 'not_ordered'
+    mockMaterialOrdering.current = false
+    materialsCalls.length = 0
+    try {
+      const c = await load(tables)
+      expect(c.nextStep).not.toBe('Order materials')
+      expect(materialsCalls).toEqual([])
+    } finally {
+      mockMaterialOrdering.current = true
+    }
   })
 
   it('"Payment recorded" is an event only when the viewer sees payments', async () => {

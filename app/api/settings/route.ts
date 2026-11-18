@@ -1,3 +1,5 @@
+import { disconnectCalendar, getCalendarConnectionStatus } from '@/lib/calendar/connection'
+import { microsoftConfigured } from '@/lib/calendar/microsoft-calendar'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
@@ -45,9 +47,13 @@ export async function GET(request: NextRequest) {
     // null unless the company has the AI connector on — the settings page shows the "Connect your AI" card only then.
     const aiConnector = await loadConnectCard(request, profile.org_id).catch(() => null)
 
+    const calendarConnection = await getCalendarConnectionStatus(adminClient, authUser.id)
+
     return NextResponse.json({
       userSettings,
       googleToken,
+      calendarConnection,
+      microsoftAvailable: microsoftConfigured(),
       aiConnector,
       profile: {
         role: profile.role,
@@ -149,17 +155,16 @@ export async function DELETE(request: NextRequest) {
 
     const adminClient = createServiceClient()
 
-    const { error: deleteError } = await adminClient
-      .from('user_google_tokens')
-      .delete()
-      .eq('user_id', authUser.id)
+    const requested = request.nextUrl.searchParams.get('provider')
+    const deleteError = await disconnectCalendar(
+      adminClient,
+      authUser.id,
+      requested === 'google' || requested === 'microsoft' ? requested : undefined
+    )
 
     if (deleteError) {
-      console.error('Failed to delete user_google_tokens:', deleteError)
-      return NextResponse.json(
-        { error: deleteError.message || 'Failed to disconnect Google Calendar' },
-        { status: 500 }
-      )
+      console.error('Failed to disconnect calendar:', deleteError)
+      return NextResponse.json({ error: deleteError || 'Failed to disconnect calendar' }, { status: 500 })
     }
 
     const { error: settingsError } = await adminClient

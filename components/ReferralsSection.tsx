@@ -372,7 +372,7 @@ export default function ReferralsSection({
           {customerId && (
             <button
               onClick={() => openModal()}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+              className="min-h-tap px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
             >
               + Add Referral
             </button>
@@ -460,7 +460,7 @@ export default function ReferralsSection({
             {customerId && (
               <button
                 onClick={() => openModal()}
-                className="mt-3 text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                className="mt-3 inline-flex min-h-tap items-center text-indigo-600 hover:text-indigo-800 text-sm font-medium"
               >
                 Add first referral →
               </button>
@@ -569,7 +569,7 @@ export default function ReferralsSection({
                     <button
                       type="button"
                       onClick={() => setSelectedLink(null)}
-                      className="flex-shrink-0 text-sm font-medium text-indigo-700 hover:text-indigo-900"
+                      className="inline-flex min-h-tap items-center flex-shrink-0 text-sm font-medium text-indigo-700 hover:text-indigo-900"
                     >
                       Change
                     </button>
@@ -593,7 +593,7 @@ export default function ReferralsSection({
                             <button
                               type="button"
                               onClick={() => selectLinkTarget(result)}
-                              className="w-full px-3 py-2 text-left hover:bg-gray-50"
+                              className="min-h-tap w-full px-3 py-2 text-left hover:bg-gray-50"
                             >
                               <span className="block font-medium text-gray-900">{result.name}</span>
                               <span className="block text-sm text-gray-700">
@@ -648,14 +648,14 @@ export default function ReferralsSection({
             <div className="p-6 border-t flex justify-end gap-3">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-900"
+                className="inline-flex min-h-tap items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-900"
               >
                 Cancel
               </button>
               <button
                 onClick={saveReferral}
                 disabled={saving || !form.referred_name.trim()}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                className="min-h-tap px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
               >
                 {saving ? 'Saving...' : editingReferral ? 'Update' : 'Add Referral'}
               </button>
@@ -752,7 +752,7 @@ function ReferralCard({
             {referral.status === 'pending' && (
               <button
                 onClick={() => onUpdateStatus(referral.id, 'qualified')}
-                className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                className="inline-flex min-h-tap items-center text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
               >
                 Mark Qualified
               </button>
@@ -760,7 +760,7 @@ function ReferralCard({
             {referral.status === 'qualified' && (
               <button
                 onClick={() => onUpdateStatus(referral.id, 'installed')}
-                className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+                className="inline-flex min-h-tap items-center text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
               >
                 Mark Installed
               </button>
@@ -768,14 +768,14 @@ function ReferralCard({
             {referral.status === 'installed' && !referral.paid_at && (
               <button
                 onClick={() => onMarkPaid(referral)}
-                className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200"
+                className="inline-flex min-h-tap items-center text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200"
               >
                 Mark Paid
               </button>
             )}
             <button
               onClick={onEdit}
-              className="p-1 text-gray-600 hover:text-indigo-600"
+              className="inline-flex min-h-tap items-center p-1 text-gray-600 hover:text-indigo-600"
               title="Edit"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -817,7 +817,7 @@ function ReferralCard({
               <button
                 onClick={() => onUnlink(referral)}
                 disabled={linkBusy}
-                className="text-gray-700 hover:text-red-700 disabled:opacity-50"
+                className="inline-flex min-h-tap items-center text-gray-700 hover:text-red-700 disabled:opacity-50"
               >
                 {linkBusy ? 'Working…' : 'Unlink'}
               </button>
@@ -832,7 +832,7 @@ function ReferralCard({
               <button
                 onClick={() => onCreateLead(referral)}
                 disabled={convertBusy}
-                className="text-xs font-medium px-2 py-1 rounded bg-indigo-100 text-indigo-800 hover:bg-indigo-200 disabled:opacity-50"
+                className="inline-flex min-h-tap items-center text-xs font-medium px-2 py-1 rounded bg-indigo-100 text-indigo-800 hover:bg-indigo-200 disabled:opacity-50"
               >
                 {convertBusy ? 'Creating…' : 'Create lead'}
               </button>

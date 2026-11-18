@@ -12,11 +12,13 @@ type Status = {
   status: string
   optionalCount: number
   totalCents: number
+  recurringCount?: number
+  pdfHref?: string | null
   deposit: { mode: string; percent: number; fixedCents: number; overridden: boolean; cents: number }
   company: { depositMode: string; depositPercent: number; depositFixedCents: number }
   problems: string[]
   link: { active: boolean; expiresAt: string; revoked: boolean; firstOpenedAt: string | null; lastOpenedAt: string | null; sentTo: string | null; sentAt: string | null } | null
-  approval: { typedName: string; approvedAt: string; ip: string | null; totalCents: number; depositCents: number; finalized: boolean; error: string | null; jobId: string | null; chosen: string[]; declined: string[] } | null
+  approval: { typedName: string; approvedAt: string; ip: string | null; totalCents: number; recurringEstimateCents?: number; planOnly?: boolean; depositCents: number; finalized: boolean; error: string | null; jobId: string | null; chosen: string[]; declined: string[] } | null
 }
 
 const money = (c: number) => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' })
@@ -109,12 +111,13 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
           <div className="flex flex-col gap-1">
             <p className="font-semibold">Approved by {a.typedName}</p>
             <p>{when(a.approvedAt)}{a.ip ? ` · ${a.ip}` : ''}</p>
-            <p>Total {money(a.totalCents)}{a.depositCents > 0 ? ` · deposit ${money(a.depositCents)}` : ''}</p>
+            <p>{a.totalCents > 0 ? `Total ${money(a.totalCents)}` : 'Recurring service only (no job or deposit)'}{a.recurringEstimateCents ? ` · recurring service, about ${money(a.recurringEstimateCents)} est. first season (a separate recurring sale, not part of the job)` : ''}{a.depositCents > 0 ? ` · deposit ${money(a.depositCents)}` : ''}</p>
+            {s.pdfHref ? <p><a href={s.pdfHref} className="inline-flex min-h-tap items-center font-semibold underline">Approved copy (PDF)</a></p> : null}
             {a.chosen.length ? <p>Chose: {a.chosen.join(', ')}</p> : null}
             {a.declined.length ? <p>Left out: {a.declined.join(', ')}</p> : null}
             {!a.finalized ? (
               <div className="flex flex-col gap-2">
-                <p className="font-semibold">{a.error ? `Setup stopped: ${a.error}` : 'Setting up the job…'}</p>
+                <p className="font-semibold">{a.error ? `Setup stopped: ${a.error}` : a.planOnly ? 'Setting up the service plan…' : 'Setting up the job…'}</p>
                 <Button className="min-h-tap self-start" loading={busy} onClick={() => void act({ action: 'finish' }, 'Finished')}>Finish setup</Button>
               </div>
             ) : null}
@@ -125,7 +128,7 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
               <ul className="list-disc pl-5">{s.problems.map((p) => <li key={p}>{p}</li>)}</ul>
             ) : null}
             <p>
-              Total {money(s.totalCents)}{s.optionalCount ? ` with the default choices (${s.optionalCount} optional ${s.optionalCount === 1 ? 'item' : 'items'})` : ''}
+              {s.recurringCount && s.totalCents <= 0 ? 'Recurring service only' : `Total ${money(s.totalCents)}`}{s.optionalCount ? ` with the default choices (${s.optionalCount} optional ${s.optionalCount === 1 ? 'item' : 'items'})` : ''}
               {s.deposit.cents > 0 ? ` · deposit ${money(s.deposit.cents)}` : ' · no deposit'}
             </p>
             <fieldset className="flex flex-col gap-2">

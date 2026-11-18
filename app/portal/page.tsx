@@ -21,7 +21,7 @@ export default async function PortalPage({ searchParams }: { searchParams: { pro
   const company = await loadPortalCompany(admin, orgId)
   const session = await getPortalSession(admin)
   const home = session ? await loadPortalHome(admin, session) : null
-  if (!session || !home) return <PortalSignIn company={company} problem={searchParams.problem === 'link' ? 'link' : searchParams.problem === 'wait' ? 'wait' : null} />
+  if (!session || !home) return <PortalSignIn company={company} problem={searchParams.problem === 'link' || searchParams.problem === 'wait' || searchParams.problem === 'open' ? searchParams.problem : null} />
   const op = await loadOnlinePayments(admin, orgId)
   return <PortalHomeView company={company} home={home} payOnline={op.featureOn && op.ready} texting={await isOrgFeatureOn(orgId, 'texting')} />
 }

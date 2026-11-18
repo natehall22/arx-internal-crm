@@ -758,6 +758,11 @@ export const HARNESS_CREW_DAY = [
   { id: 'v3', planName: 'Clean-up check — Hedges', address: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, accessNotes: null, status: 'scheduled', skipReason: null, photoCount: 0, routePosition: null, resultOptions: [{ key: 'pass', label: 'Passed', tone: 'good' }, { key: 'fail', label: 'Needs a return trip', tone: 'bad' }] },
 ].map((v) => ({ officeNotes: null, checklist: [], money: null, ...v })) // the v2 fields every real visit carries
 
+/** A grading project stop on a clocking crew's day (lib/crew-day-projects.ts): job work order, not a service visit. */
+export const HARNESS_CREW_DAY_PROJECTS = [
+  { id: 'wo-grade-1', jobNumber: '26-0141', tradeLabel: 'Grading', address: '412 Pasture Ln, Crawfordville, FL 32327', lat: 30.18, lng: -84.4, status: 'scheduled', photoLinkPath: '/crew/harness-grading-token-aaaaaaaa', dayNumber: 2, dayCount: 2 },
+]
+
 /** Crew day with the v2 pieces: office notes, a checklist (one unchecked) and money owed (card payment ready). */
 export const HARNESS_CREW_DAY_MONEY = [
   { ...HARNESS_CREW_DAY[0], officeNotes: 'Customer wants the side beds done first.', checklist: [{ label: 'Mow', done: true }, { label: 'Edge', done: true }, { label: 'Blow off drive', done: false }], money: { dueCents: 7000, pendingCents: 0, canPayOnline: true } },
@@ -793,6 +798,29 @@ export const HARNESS_CUSTOMER_INVOICES = {
     { id: 'inv-1', job_id: null, customer_id: 'c1', invoice_number: 'INV-26-00012', invoice_kind: 'service', status: 'sent', issued_at: '2026-11-01', due_at: '2026-11-01', sent_at: '2026-11-01T14:00:00Z', sent_to_email: 'pat@example.com', subtotal_cents: 19000, tax_cents: 700, total_cents: 19700, applied_cents: 0, balance_cents: 19700, created_at: '2026-11-01T14:00:00Z' },
     { id: 'inv-2', job_id: null, customer_id: 'c1', invoice_number: 'INV-26-00004', invoice_kind: 'service', status: 'paid', issued_at: '2026-10-01', due_at: '2026-10-01', sent_at: '2026-10-01T14:00:00Z', sent_to_email: 'pat@example.com', subtotal_cents: 18000, tax_cents: 0, total_cents: 18000, applied_cents: 18000, balance_cents: 0, created_at: '2026-10-01T14:00:00Z' },
     { id: 'inv-3', job_id: null, customer_id: 'c1', invoice_number: 'INV-26-00015', invoice_kind: 'service', status: 'draft', issued_at: null, due_at: null, sent_at: null, sent_to_email: null, subtotal_cents: 4500, tax_cents: 0, total_cents: 4500, applied_cents: 0, balance_cents: 4500, created_at: '2026-11-10T14:00:00Z' },
+  ],
+}
+
+/** Billing → All invoices (GET /api/invoices): job and service invoices, every status, owed and late computed server side. */
+export const HARNESS_ALL_INVOICES = {
+  today: '2026-11-11',
+  capped: false,
+  canExport: true,
+  rows: [
+    { id: 'inv-1', invoiceNumber: 'INV-26-00012', customerId: 'c1', customerName: 'Pat Lee', jobId: null, jobNumber: null, status: 'sent', createdAt: '2026-11-01T14:00:00Z', createdDay: '2026-11-01', issuedAt: '2026-11-01', dueAt: '2026-11-01', totalCents: 19700, paidCents: 0, balanceCents: 19700, daysOverdue: 10 },
+    { id: 'inv-2', invoiceNumber: 'INV-26-00004', customerId: 'c1', customerName: 'Pat Lee', jobId: null, jobNumber: null, status: 'paid', createdAt: '2026-10-01T14:00:00Z', issuedAt: '2026-10-01', dueAt: '2026-10-31', totalCents: 18000, paidCents: 18000, balanceCents: 0, daysOverdue: 0 },
+    { id: 'inv-3', invoiceNumber: 'INV-26-00015', customerId: 'c2', customerName: 'Sam Ortiz', jobId: null, jobNumber: null, status: 'draft', createdAt: '2026-11-10T14:00:00Z', issuedAt: null, dueAt: null, totalCents: 4500, paidCents: 0, balanceCents: 0, daysOverdue: 0 },
+    { id: 'inv-4', invoiceNumber: 'INV-26-00016', customerId: 'c3', customerName: 'Hollis Property Management LLC', jobId: 'j1', jobNumber: '26-0030', status: 'sent', createdAt: '2026-11-05T14:00:00Z', issuedAt: '2026-11-05', dueAt: '2026-12-05', totalCents: 1632500, paidCents: 816250, balanceCents: 816250, daysOverdue: 0 },
+  ],
+}
+
+/** The New invoice sheet (GET /api/customers/[id]/invoices/new): this customer's price book, properties, tax on. */
+export const HARNESS_NEW_INVOICE_OFFER = {
+  salesTaxOn: true,
+  properties: [{ id: 'p1', address: '14 Oak Hollow Rd, Crawfordville' }, { id: 'p2', address: '2 Elm St, Crawfordville' }],
+  items: [
+    { id: 'mow', name: 'Standard yard mowing', unit: 'visit', unitPriceCents: 4000, taxable: true, options: [{ key: 's', label: 'Small lot', priceCents: 3000 }, { key: 'l', label: 'Large lot', priceCents: 6000 }] },
+    { id: 'edge', name: 'Edging', unit: 'each', unitPriceCents: 1550, taxable: false, options: [] },
   ],
 }
 

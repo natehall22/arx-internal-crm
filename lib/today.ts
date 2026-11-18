@@ -274,6 +274,8 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string, opts: 
     const r = ok(await base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(LIST_CAP))
     return [jobQueue('jobs-to-schedule', 'Jobs to schedule', (r.data ?? []) as JobRow[], r.count ?? 0, 'Every sold job has an install date.')]
   }
+  // No materials-ordering step (mowing, grading): there is no "Orders to send" queue, here or in the morning email.
+  const materialsStep = await (await import('@/lib/org-features-server')).isOrgFeatureOn(orgId, 'materialOrdering')
   const [toSchedule, toOrder, awaiting] = await Promise.all([
     base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(LIST_CAP),
     base().in('status', ['sold', 'materials', 'scheduled', 'in_progress']).eq('materials_status', 'not_ordered').order('scheduled_date', { ascending: true, nullsFirst: false }).limit(LIST_CAP),
@@ -288,7 +290,7 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string, opts: 
   const owingCount = Math.max(0, (awaiting.count ?? 0) - (finished.length - owing.length))
   return [
     jobQueue('jobs-to-schedule', 'Jobs to schedule', (toSchedule.data ?? []) as JobRow[], toSchedule.count ?? 0, 'Every sold job has an install date.'),
-    jobQueue('orders-to-send', 'Orders to send', (toOrder.data ?? []) as JobRow[], toOrder.count ?? 0, 'Materials are ordered on every open job.'),
+    ...(materialsStep ? [jobQueue('orders-to-send', 'Orders to send', (toOrder.data ?? []) as JobRow[], toOrder.count ?? 0, 'Materials are ordered on every open job.')] : []),
     jobQueue('awaiting-payment', 'Finished, waiting on payment', owing, owingCount, 'Nothing is waiting on payment.'),
   ]
 }

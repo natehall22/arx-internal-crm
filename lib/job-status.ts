@@ -91,6 +91,21 @@ export const JOB_STATUS_CONFIG: Record<
   cancelled: { label: 'Cancelled', color: 'text-rose-800', pillClass: 'bg-rose-100', panelClass: 'bg-rose-50 border-rose-200' },
 }
 
+/** The board's stage columns, in order. `materials` is the "Material Ordering" stage (the company's `materialOrdering` switch). */
+export const BOARD_COLUMN_STATUSES = ['sold', 'materials', 'scheduled', 'in_progress', 'complete'] as const
+
+/** The board columns a company sees: without a materials-ordering step there is no "Material Ordering" column. */
+export function boardColumnStatuses(materialsOn: boolean): Array<(typeof BOARD_COLUMN_STATUSES)[number]> {
+  return BOARD_COLUMN_STATUSES.filter((s) => materialsOn || s !== 'materials')
+}
+
+/** The column a job sits in. A job already marked `materials` before the step was turned off waits in Sold (nothing is rewritten). */
+export function boardColumnForStatus(status: string, materialsOn: boolean): (typeof BOARD_COLUMN_STATUSES)[number] | null {
+  if (!(BOARD_COLUMN_STATUSES as readonly string[]).includes(status)) return null
+  if (status === 'materials' && !materialsOn) return 'sold'
+  return status as (typeof BOARD_COLUMN_STATUSES)[number]
+}
+
 /** Unknown/legacy status strings render as themselves in gray — never crash, never mislabel. */
 export function jobStatusConfig(status: string | null | undefined) {
   return (

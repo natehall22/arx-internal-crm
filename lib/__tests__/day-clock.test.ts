@@ -761,6 +761,25 @@ describe('approved weeks: late ends, late breaks, spanning the cutoff, several w
     expect(r.reason).toBe('Time clock')
   })
 
+  it('approvals out of order: A approved after B, a late end inside B recorded after both: C still carries it', async () => {
+    const db = seed()
+    const cA = weekCutoffContaining(T('07:00', '2026-06-02'), pw)
+    const cB = nextWeekCutoff(cA, pw)
+    const cC = nextWeekCutoff(cB, pw)
+    const atB = new Date(cB.getTime() + 60_000)
+    const atA = new Date(cB.getTime() + 2 * 86_400_000) // A is approved after B
+    const recorded = new Date(cB.getTime() + 3 * 86_400_000) // the late end arrives after both approvals
+    db.tables.payroll_periods.push(
+      { id: 'pB', org_id: 'org1', cutoff_at: cB.toISOString(), status: 'locked', locked_at: atB.toISOString(), lock_claimed_at: null, approval_claimed_at: atB.toISOString() },
+      { id: 'pA', org_id: 'org1', cutoff_at: cA.toISOString(), status: 'locked', locked_at: atA.toISOString(), lock_claimed_at: null, approval_claimed_at: atA.toISOString() }
+    )
+    db.tables.time_entries.push({ ...base, id: 'day', kind: 'shift', started_at: T('07:00', '2026-06-09').toISOString(), ended_at: T('17:00', '2026-06-09').toISOString(), ended_recorded_at: recorded.toISOString() })
+    await sync(db, new Date(cC.getTime() - 86_400_000))
+    const r = lastFor(U1)
+    expect(r.regular_hours + r.overtime_hours).toBe(10)
+    expect(r.reason).toMatch(/approved week/)
+  })
+
   it('a split extension row with a stop and a break inside the extension: carries the extension minus the break only', async () => {
     const db = seed()
     const cutoff = weekCutoffContaining(T('07:00', '2026-06-09'), pw)

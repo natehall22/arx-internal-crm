@@ -204,7 +204,7 @@ export default function InvoiceDetailModal({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            className="w-11 h-11 flex items-center justify-center rounded-full text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors"
           >
             <span className="text-lg">✕</span>
           </button>
@@ -543,7 +543,7 @@ export default function InvoiceDetailModal({
                   <button
                     onClick={handleDuplicate}
                     disabled={saving}
-                    className={`text-sm px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded font-medium hover:bg-gray-50 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`text-sm px-4 py-2 min-h-tap bg-white border border-gray-300 text-gray-700 rounded font-medium hover:bg-gray-50 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     Duplicate as Draft
                   </button>
@@ -551,7 +551,7 @@ export default function InvoiceDetailModal({
               </div>
               <button
                 onClick={onClose}
-                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
+                className="px-4 py-2 min-h-tap bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
               >
                 Close
               </button>

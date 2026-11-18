@@ -20,7 +20,7 @@ import CheckupList from '@/components/checkups/CheckupList'
 import MoveFromJobber from '@/components/jobber-import/MoveFromJobber'
 import MoveSignedDocuments from '@/components/signed-import/MoveSignedDocuments'
 import { HARNESS_CHECKUPS } from '@/e2e/fixtures'
-import { HARNESS_CREW_DAY, HARNESS_CREW_DAY_MONEY, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_DAY, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
+import { HARNESS_CREW_DAY, HARNESS_CREW_DAY_MONEY, HARNESS_CREW_DAY_PROJECTS, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_DAY, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
 import JobClockCard from '@/components/time/JobClockCard'
 import MyDayClock from '@/components/time/MyDayClock'
 import TimeWeekClient from '@/components/time/TimeWeekClient'
@@ -105,6 +105,10 @@ import type { CustomFieldDefinition } from '@/lib/custom-fields'
 import type { Property } from '@/lib/properties'
 import { visibleSettingsGroups } from '@/lib/settings-registry'
 import { QueueCard, KpiTiles } from '@/components/today/QueueCard'
+import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
+import ContactActions from '@/components/customer/ContactActions'
+import AccountCard from '@/components/customer-file/AccountCard'
+import ReferralsSection from '@/components/ReferralsSection'
 import FileHeader from '@/components/customer-file/FileHeader'
 import FileTabs from '@/components/customer-file/FileTabs'
 import ThreadPanel from '@/components/customer-file/ThreadPanel'
@@ -133,6 +137,7 @@ import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSetting
 import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSettingsCard'
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
 import { HARNESS_CREW_SCOREBOARD } from '@/e2e/fixtures'
+import AllInvoices from '@/components/billing/AllInvoices'
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import PayClient from '@/components/pay/PayClient'
 import PortalHomeView from '@/components/portal/PortalHomeView'
@@ -218,6 +223,7 @@ const HARNESS_PORTAL_HOME = {
     { id: 'i1', jobId: null, number: 'INV-26-00012', status: 'sent' as const, totalCents: 9500, balanceCents: 9500, issuedAt: '2026-11-10', dueAt: '2026-11-24' },
     { id: 'i2', jobId: null, number: 'INV-26-00009', status: 'paid' as const, totalCents: 9500, balanceCents: 0, issuedAt: '2026-10-10', dueAt: null },
   ],
+  quotes: [{ id: 'q1', number: 'P-00042', title: 'Spring lawn and beds', address: '12 Maple Ct', totalCents: 180000, expiresAt: '2026-12-09', date: '2026-11-09' }],
   contracts: [{ id: 'c1', address: '2410 Crawfordville Hwy', totalCents: 420000, state: 'to_sign' as const, signUrl: '/contracts/sign/x', downloadUrl: null, date: '2026-11-09' }],
   documents: [{ id: 'd1', title: 'Service agreement with a rather long file name that must wrap on a phone.pdf', kind: 'document' as const, date: '2026-11-01' }],
   paperwork: [] as Array<{ id: string; title: string; href: string; date: string }>,
@@ -236,6 +242,7 @@ const HARNESS_PORTAL_ROOFING_HOME = {
   visits: { upcoming: [], recent: [] },
   invoices: [{ id: 'i7', jobId: 'j1', number: 'INV-26-00031', status: 'sent' as const, totalCents: 1632500, balanceCents: 816250, issuedAt: '2026-11-10', dueAt: '2026-11-24' }],
   contracts: [],
+  quotes: [],
   plans: [],
   card: null,
   documents: [{ id: 'p9', title: 'Front', kind: 'photo' as const, date: '2026-11-11' }],
@@ -286,7 +293,7 @@ const HARNESS_QUOTE_VIEW: QuoteView = {
   title: 'Spring lawn and beds',
   number: 'P-00042',
   scope: 'Weekly mowing, edging and bed cleanup.',
-  required: [{ id: 'r1', name: 'Mowing, edging and blowing (weekly)', description: 'April to October', cents: 120000 }],
+  required: [{ id: 'r1', name: 'Mowing, edging and blowing (weekly)', description: 'April to October', cents: 120000, quantity: 30, unit: 'visit' }],
   hiddenRequiredCents: 0,
   options: [
     { id: 'o1', name: 'Mulch refresh (6 yards)', description: 'Hardwood mulch, spread by hand', cents: 48000, defaultOn: true },
@@ -306,6 +313,20 @@ const HARNESS_QUOTE_VIEW: QuoteView = {
   terms: 'Work is scheduled within two weeks of approval. Weather may move a visit.',
   fingerprint: 'harness0',
   approval: null,
+  recurring: [],
+  recurringTerms: [],
+  hasOneTime: true,
+}
+
+/** Same quote with a recurring service line (a plan template) shown apart from the one-time total, one of them optional. */
+const HARNESS_QUOTE_RECURRING_VIEW: QuoteView = {
+  ...HARNESS_QUOTE_VIEW,
+  recurring: [
+    { id: 'p1', name: 'Bi-weekly mowing', description: 'Mow, edge and blow', detail: '$45 per visit · Apr 1–Oct 31 · about 15 visits', optional: false, defaultOn: false },
+    { id: 'p2', name: 'Monthly shrub trimming', description: '', detail: '$60 per visit · Apr 1–Oct 31 · about 7 visits', optional: true, defaultOn: false },
+  ],
+  recurringTerms: ['Billed after each visit. Cancel anytime.'],
+  lines: [...HARNESS_QUOTE_VIEW.lines, { id: 'p1', line_total: 0, unit_price: 45, unit: 'visit', price_type: null, taxable: null, service_plan_template_id: 'tpl-1' }, { id: 'p2', line_total: 0, unit_price: 60, unit: 'visit', price_type: null, taxable: null, is_optional: true, optional_default_on: false, service_plan_template_id: 'tpl-2' }],
 }
 
 export default function Harness({ params }: { params: { screen: string } }) {
@@ -474,7 +495,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false, materialOrdering: true }} />
         </div>
       )
     case 'org-features-plan': {
@@ -659,6 +680,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <WorkOrdersClient initialWorkOrders={HARNESS_WORK_ORDERS as never} />
     case 'customers':
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS} query="" /></div>
+    case 'customers-empty-lawn':
+      return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={[]} query="" customerFile showLinkTools={false} /></div>
     case 'customers-recurring':
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS.map((c) => ({ ...c, recurring: c.id === 'c1' }))} query="" showRecurring /></div>
     case 'proposals':
@@ -797,10 +820,16 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><CompanyLogoCard initialLogoUrl="/dev-harness-logo.svg" initialDarkLogoUrl={null} confirmRemove={async () => true} /></div>
     case 'hourly-settings':
       return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
+    case 'all-invoices':
+      return <div className="mx-auto max-w-2xl p-4"><AllInvoices /></div>
     case 'customer-invoices':
       return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
     case 'portal-signin':
       return <PortalSignIn company={HARNESS_PORTAL_COMPANY} />
+    case 'portal-link-problem':
+      return <PortalSignIn company={HARNESS_PORTAL_COMPANY} problem="link" />
+    case 'portal-open-problem':
+      return <PortalSignIn company={HARNESS_PORTAL_COMPANY} problem="open" />
     case 'portal-roofing':
       return <PortalHomeView company={HARNESS_PORTAL_COMPANY} home={HARNESS_PORTAL_ROOFING_HOME} payOnline />
     case 'portal-home':
@@ -825,6 +854,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><OnlinePaymentsCard /></div>
     case 'quote-page':
       return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={HARNESS_QUOTE_VIEW} />
+    case 'quote-page-recurring':
+      return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={HARNESS_QUOTE_RECURRING_VIEW} />
+    case 'quote-page-recurring-only':
+      return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={{ ...HARNESS_QUOTE_RECURRING_VIEW, required: [], options: [], hasOneTime: false, lines: HARNESS_QUOTE_RECURRING_VIEW.lines.filter((l) => l.service_plan_template_id) }} />
     case 'quote-page-approved':
       return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={{ ...HARNESS_QUOTE_VIEW, state: 'approved', approval: { typedName: 'Pat Doe', approvedAt: '2026-11-11T15:00:00.000Z', totalCents: 180000, depositCents: 45000, taxCents: 11800, chosenNames: ['Mulch refresh (6 yards)'], depositState: 'due', canPayOnline: true, copyHref: '/api/files/signed/contract/harness' } }} />
     case 'quote-send-card':
@@ -861,6 +894,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-4"><MyDayClock /></div>
     case 'crew-day-shift':
       return <CrewDayList token="harness-token-harness-token-harness-4" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} clock={HARNESS_CLOCK_STATE_DAY as unknown as ClockState} />
+    case 'crew-day-project':
+      return <CrewDayList token="harness-token-harness-token-harness-6" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} projects={HARNESS_CREW_DAY_PROJECTS} clock={HARNESS_CLOCK_STATE as unknown as ClockState} />
     case 'job-clock':
       return <div className="mx-auto max-w-md p-4"><JobClockCard jobId="dddddddd-0000-4000-8000-000000000001" jobLabel="job 26-0141" /></div>
     case 'time-week':
@@ -874,6 +909,39 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-lg p-4"><CrewTimeSetup subId="s1" /></div>
     case 'plan-templates':
       return <div className="mx-auto max-w-2xl p-4"><ServicePlanTemplatesCard /></div>
+    case 'customer-page-no-deal':
+      // /c/<id> for a customer with no deal (most customers at a lawn company): the same contact card, with Call / Text / Email on it.
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <CustomerInfoCard customer={{ id: 'cust-1', name: 'Dana Whitfield', phone: '7045550101', email: 'dana@example.com', address_text: '412 Oak Ridge Rd, Concord, NC 28025' }} canEdit actions={<ContactActions dealId={null} phone="7045550101" email="dana@example.com" surface="overview" />} />
+          <p className="px-1 text-ui-base text-ink">No deals yet.</p>
+          <PropertiesCard customerId="cust-1" initial={HARNESS_PROPERTIES as Property[]} ready canEdit accessNotes propertyFields={[]} />
+        </div>
+      )
+    case 'customer-account':
+      // The Account card and Referrals card of the Customer File (company-wide viewer).
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <AccountCard
+            customerId="c1"
+            customerName="Ashley Gaines"
+            leads={[{ id: 'l1', homeowner_name: 'Ashley Gaines', address_text: '9 Elm St, Concord, NC', status: 'new' }]}
+            projects={[{ id: 'p1', project_type: 'roofing', address_text: '9 Elm St, Concord, NC' }]}
+            activities={[{ id: 'a1', type: 'call', body: 'Left a voicemail about the estimate.', created_at: '2026-11-03T15:00:00Z', users: { full_name: 'Riley Ops' } }]}
+          />
+          <div id="referrals"><ReferralsSection customerId="c1" customerName="Ashley Gaines" orgId="org-1" canManage /></div>
+        </div>
+      )
+    case 'customer-page-with-deal':
+      // /c/<id>/d/<deal>/overview: the deal header (actions live there) over the same contact card.
+      return (
+        <div className="min-h-screen bg-surface-subtle">
+          <FileHeader ctx={HARNESS_FILE_CTX as never} canEditCustomer />
+          <main className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+            <CustomerInfoCard customer={{ id: 'c1', name: 'Ashley Gaines', phone: '7045550102', email: 'ashley@example.com', address_text: '9 Elm St, Concord, NC' }} canEdit={false} />
+          </main>
+        </div>
+      )
     case 'customer-records-plain':
       // A one-home customer at a company that doesn't use properties: only the small add links.
       return (
@@ -896,6 +964,36 @@ export default function Harness({ params }: { params: { screen: string } }) {
           cannotSaveReason={null}
           settings={{ mulchDepthIn: 3, strawSqftPerBale: 50 }}
           canEditSettings
+          backHref="/dev-harness/yard-card"
+          mapsApiKey="harness-key"
+        />
+      )
+    case 'area-measure-saved':
+      return (
+        <AreaMeasureClient
+          address="1 Harness Way, Crawfordville, FL"
+          lat={30.176}
+          lng={-84.375}
+          refs={{ customerId: 'cust-1', propertyId: null, opportunityId: null, leadId: null }}
+          forLabel="Pat Lee"
+          canSave
+          cannotSaveReason={null}
+          settings={{ mulchDepthIn: 3, strawSqftPerBale: 50 }}
+          canEditSettings
+          initialShapes={[
+            {
+              id: 'saved-lawn',
+              type: 'lawn',
+              name: 'Front yard',
+              sqft: 2400,
+              points: [
+                { lat: 30.17595, lng: -84.37505 },
+                { lat: 30.17595, lng: -84.37485 },
+                { lat: 30.17612, lng: -84.37485 },
+                { lat: 30.17612, lng: -84.37505 },
+              ],
+            },
+          ]}
           backHref="/dev-harness/yard-card"
           mapsApiKey="harness-key"
         />

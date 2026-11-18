@@ -15,6 +15,7 @@ import { featuresFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { insideSalesFeatureTabs } from '@/lib/inside-sales-follow-up'
 
 let storedFeatures: unknown = undefined
+let storedProfile: unknown = undefined
 let readError: { message: string } | null = null
 let reads = 0
 let failNextReads = 0
@@ -28,7 +29,7 @@ jest.mock('@/lib/supabase/service', () => ({
           reads++
           if (readError) return { data: null, error: readError }
           if (failNextReads > 0) { failNextReads--; return { data: null, error: { message: 'blip' } } }
-          return { data: { features: storedFeatures }, error: null }
+          return { data: { features: storedFeatures, profile: storedProfile }, error: null }
         },
       }
       return q
@@ -40,6 +41,7 @@ import { orgFeatureChecker, orgFeatureOffResponse } from '@/lib/org-features-ser
 
 beforeEach(() => {
   storedFeatures = undefined
+  storedProfile = undefined
   readError = null
   reads = 0
   failNextReads = 0
@@ -119,6 +121,18 @@ describe('loadOrgFeatures / orgFeatureOffResponse', () => {
     expect(after.roofMeasure).toBe(false)
     expect(after.canvassing).toBe(true) // not failed closed
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('retrying once'), 'org-1', expect.anything())
+    failNextReads = 3 // the plan read twice and the profile read once: nothing is known, so fail closed
+    expect(Object.values(await loadOrgFeatures(client, 'org-1')).some(Boolean)).toBe(false)
+    spy.mockRestore()
+  })
+  it('after two failed plan reads a roofing / no-profile company keeps its normal defaults; a service profile fails closed', async () => {
+    const client = jest.requireMock('@/lib/supabase/service').createServiceClient()
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    failNextReads = 2
+    const roofing = await loadOrgFeatures(client, 'org-1')
+    expect(roofing.insurance).toBe(true)
+    expect(roofing.canvassing).toBe(true)
+    storedProfile = { id: 'lawn_landscape' }
     failNextReads = 2
     expect(Object.values(await loadOrgFeatures(client, 'org-1')).some(Boolean)).toBe(false)
     spy.mockRestore()

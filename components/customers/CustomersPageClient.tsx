@@ -6,6 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import LinkCreateCustomerModal from './LinkCreateCustomerModal'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { customerHref } from '@/lib/customer-file/links'
 import { categoryLabel, orderedCategories, type Category } from '@/lib/categories'
 
 interface Customer {
@@ -47,6 +48,10 @@ interface Props {
   isAdmin?: boolean
   /** Company uses service plans: add the Recurring / One-time column and filter. */
   showRecurring?: boolean
+  /** Rows open the Customer File (/c/<id>) — set where it is the company's customer page. Off = the older account page. */
+  customerFile?: boolean
+  /** Show "Link / Create Customer" (links customers to projects and deals; companies that price from a roof). Off: the empty list says "Add your first customer". */
+  showLinkTools?: boolean
 }
 
 // A prospect (never bought, no plan) is neither: '' shows a dash and matches no Plan filter.
@@ -76,7 +81,7 @@ function withCategory(categories: Category[], customers: Customer[]) {
   }
 }
 
-export default function CustomersPageClient({ customers, categories = [], query, isAdmin = false, showRecurring = false }: Props) {
+export default function CustomersPageClient({ customers, categories = [], query, isAdmin = false, showRecurring = false, customerFile = false, showLinkTools = true }: Props) {
   const withCat = withCategory(categories, customers)
   const columns = showRecurring ? [...withCat.columns, planKindColumn] : withCat.columns
   const filters = showRecurring ? [...withCat.filters, planKindFilter] : withCat.filters
@@ -125,12 +130,14 @@ export default function CustomersPageClient({ customers, categories = [], query,
               {isBackfilling ? 'Running...' : 'Backfill Missing Links'}
             </button>
           )}
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="min-h-[44px] bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
-          >
-            Link / Create Customer
-          </button>
+          {showLinkTools && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="min-h-[44px] bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+            >
+              Link / Create Customer
+            </button>
+          )}
         </div>
       </div>
       
@@ -145,14 +152,18 @@ export default function CustomersPageClient({ customers, categories = [], query,
         data={customers}
         tableKey="customers"
         getRowId={(c) => c.id}
-        getRowHref={(c) => `/customers/${c.id}`}
+        getRowHref={(c) => customerHref(c.id, customerFile)}
         searchPlaceholder="Search name, phone, email or address"
         filters={filters}
         systemViews={systemViews}
-        defaultViewId={query ? 'sys:everyone' : 'sys:customers'}
+        defaultViewId={query || !showLinkTools ? 'sys:everyone' : 'sys:customers'}
         initialSearch={query}
         initialSorting={[{ id: 'name', desc: false }]}
-        empty={{ title: 'No customers match', body: 'Customers appear when an inspection is booked; the Customers view shows people who have bought.' }}
+        empty={showLinkTools
+          ? { title: 'No customers match', body: 'Customers appear when an inspection is booked; the Customers view shows people who have bought.' }
+          : customers.length === 0 && !query
+            ? { title: 'Add your first customer', body: 'Use + New customer above to add who and where. They show up here.' }
+            : { title: 'No customers match', body: 'Try another name, phone or address, or switch to Everyone.' }}
       />
 
       <LinkCreateCustomerModal

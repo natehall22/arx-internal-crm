@@ -6,6 +6,7 @@ import PrintButton from './PrintButton'
 import { formatPhone } from '@/lib/format'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { findPrintableInvoice, loadInvoiceDocument } from '@/lib/invoice-document'
+import { termsLabelFor } from '@/lib/payment-terms'
 import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
 
 export default async function PrintInvoicePage({
@@ -123,6 +124,12 @@ export default async function PrintInvoicePage({
                 <div className="invoice-meta">
                   <span className="invoice-meta-label">Due Date: </span>
                   <span className="invoice-meta-value">{formatInvoiceDisplayDate(invoice.due_at)}</span>
+                </div>
+              )}
+              {invoice.due_at && invoice.issued_at && termsLabelFor(invoice.issued_at, invoice.due_at) && (
+                <div className="invoice-meta">
+                  <span className="invoice-meta-label">Terms: </span>
+                  <span className="invoice-meta-value">{termsLabelFor(invoice.issued_at, invoice.due_at)}</span>
                 </div>
               )}
             </div>

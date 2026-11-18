@@ -4,6 +4,7 @@ import { clientLinkBase } from '@/lib/app-url'
 import WebsiteFormBox from '@/components/admin/WebsiteFormBox'
 import { readServiceOptions } from '@/lib/lead-intake'
 import { useEffect, useState } from 'react'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { createClientBrowser } from '@/lib/supabase/client'
@@ -58,7 +59,7 @@ type User = {
   email: string
 }
 
-const sourceTypes = [
+const allSourceTypes = [
   { value: 'website', label: 'Website' },
   { value: 'google_ads', label: 'Google Ads' },
   { value: 'facebook', label: 'Facebook' },
@@ -82,6 +83,9 @@ const channelTypes = [
 ]
 
 export default function CampaignsPage() {
+  /** Canvass / Door Knock sources only exist for a company that door-knocks (feature switch Canvassing). */
+  const canvassing = useOrgFeatures().canvassing
+  const sourceTypes = canvassing ? allSourceTypes : allSourceTypes.filter((t) => t.value !== 'canvass' && t.value !== 'door_knock')
   const [activeTab, setActiveTab] = useState<'campaigns' | 'sources'>('campaigns')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [leadSources, setLeadSources] = useState<LeadSource[]>([])

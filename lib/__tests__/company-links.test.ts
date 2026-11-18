@@ -263,6 +263,7 @@ describe('guard: server links are built for a company', () => {
     'lib/app-url.ts',
     'lib/company-links.ts',
     'lib/google-calendar.ts',
+    'lib/calendar/microsoft-calendar.ts', // the OAuth callback is one fixed address, like Google's
     'lib/files/files-object.ts',
     'lib/morning-update-email.ts',
   ])

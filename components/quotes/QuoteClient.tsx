@@ -8,6 +8,9 @@ import { depositCents } from '@/lib/quotes/settings'
 import { legacyTaxLabel, taxLineLabel } from '@/lib/sales-tax'
 import type { QuoteView } from '@/lib/quotes/load'
 
+/** "3 hours" / "12 yd" for a line bought in more than one: nothing for a single item. */
+const qtyLabel = (q: number | null | undefined, unit: string | undefined) => (q != null && q !== 1 && q > 0 ? `${q}${unit && unit !== 'each' ? ` ${unit}` : ''}` : '')
+
 const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 
 /**
@@ -17,13 +20,16 @@ const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'curren
  * 44px+ tap targets, inputs 16px+.
  */
 export default function QuoteClient({ token, view }: { token: string; view: QuoteView | null }) {
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(view?.options.filter((o) => o.defaultOn).map((o) => o.id) ?? []))
+  const [picked, setPicked] = useState<Set<string>>(() => new Set([...(view?.options.filter((o) => o.defaultOn).map((o) => o.id) ?? []), ...(view?.recurring.filter((r) => r.optional && r.defaultOn).map((r) => r.id) ?? [])]))
   const [name, setName] = useState('')
   const [agree, setAgree] = useState(false)
   const [termsOpen, setTermsOpen] = useState(false)
   const [busy, setBusy] = useState<'approve' | 'deposit' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+  const [askOpen, setAskOpen] = useState(false)
+  const [askText, setAskText] = useState('')
+  const [askState, setAskState] = useState<'idle' | 'sending' | 'sent'>('idle')
 
   const price = useMemo(
     () =>
@@ -71,6 +77,19 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
     window.location.reload()
   }
 
+  async function sendChanges() {
+    setError(null)
+    if (!askText.trim()) return setError('Write what you would like changed first.')
+    setAskState('sending')
+    const res = await fetch(`/api/q/${token}/changes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: askText }) }).catch(() => null)
+    const data = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : {}
+    if (!res || !res.ok) {
+      setAskState('idle')
+      return setError(data.error || 'Something went wrong. Please try again or call us.')
+    }
+    setAskState('sent')
+  }
+
   async function payDeposit() {
     setError(null)
     setBusy('deposit')
@@ -103,7 +122,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
           <p className="mt-1 text-base text-[#2c2c2a]">Approved by {a.typedName} on {formatDate(a.approvedAt)}.</p>
           {a.copyHref ? <p className="mt-2"><a href={a.copyHref} className="inline-flex min-h-[44px] items-center text-base font-semibold text-[#1f2937] underline">Download your approved copy (PDF)</a></p> : null}
           {a.chosenNames.length > 0 ? <p className="mt-2 text-base text-[#2c2c2a]">Included: {a.chosenNames.join(', ')}</p> : null}
-          <p className="mt-2 text-lg font-bold text-[#2c2c2a]">Total {money(a.totalCents)}</p>
+          {view.hasOneTime ? <p className="mt-2 text-lg font-bold text-[#2c2c2a]">Total {money(a.totalCents)}</p> : null}
           {a.depositState === 'paid' ? <p className="mt-1 text-base font-semibold text-[#2c2c2a]">Deposit {money(a.depositCents)} paid. Thank you!</p> : null}
           {a.depositState === 'due' ? (
             <>
@@ -128,7 +147,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
           <ul className="mt-2 divide-y divide-[#e5e3dc] rounded-xl border border-[#d6d3c9]">
             {view.required.map((l) => (
               <li key={l.id} className="flex items-start justify-between gap-3 p-3">
-                <span className="text-base text-[#2c2c2a]"><span className="font-semibold">{l.name}</span>{l.description ? <span className="block text-sm">{l.description}</span> : null}</span>
+                <span className="text-base text-[#2c2c2a]"><span className="font-semibold">{l.name}</span>{qtyLabel(l.quantity, l.unit) ? <span data-testid="line-qty" className="block text-sm">Quantity: {qtyLabel(l.quantity, l.unit)}</span> : null}{l.description ? <span className="block text-sm">{l.description}</span> : null}</span>
                 <span className="shrink-0 text-base font-semibold tabular-nums text-[#2c2c2a]">{money(l.cents)}</span>
               </li>
             ))}
@@ -165,7 +184,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
                         })
                       }
                     />
-                    <span className="flex-1 text-base text-[#2c2c2a]"><span className="font-semibold">{o.name}</span>{o.description ? <span className="block text-sm">{o.description}</span> : null}</span>
+                    <span className="flex-1 text-base text-[#2c2c2a]"><span className="font-semibold">{o.name}</span>{qtyLabel(o.quantity, o.unit) ? <span data-testid="line-qty" className="block text-sm">Quantity: {qtyLabel(o.quantity, o.unit)}</span> : null}{o.description ? <span className="block text-sm">{o.description}</span> : null}</span>
                     <span className="shrink-0 text-base font-semibold tabular-nums text-[#2c2c2a]">{money(o.cents)}</span>
                   </label>
                 </li>
@@ -175,6 +194,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
         </section>
       ) : null}
 
+      {view.hasOneTime ? (
       <section className="mt-6 rounded-xl bg-[#f1efe8] p-4" aria-label="Total" aria-live="polite">
         {a ? null : (
           <>
@@ -189,6 +209,46 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
         </div>
         {!a && dep > 0 ? <Row label="Deposit due after you approve" value={money(dep)} bold /> : null}
       </section>
+      ) : null}
+
+      {view.recurring.length > 0 ? (
+        <section className="mt-6" aria-label="Recurring service">
+          <h2 className="text-lg font-bold text-[#2c2c2a]">Recurring service</h2>
+          <ul className="mt-2 space-y-2">
+            {view.recurring.map((r) => {
+              const on = !r.optional || (a ? a.chosenNames.includes(r.name) : picked.has(r.id))
+              return (
+                <li key={r.id}>
+                  <label className={`flex min-h-[56px] items-start gap-3 rounded-xl border p-3 ${on ? 'border-[#1f2937] bg-[#f1efe8]' : 'border-[#d6d3c9]'} ${r.optional && !a ? 'cursor-pointer' : ''}`}>
+                    {r.optional ? (
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-6 w-6 shrink-0"
+                        checked={on}
+                        disabled={!!a}
+                        onChange={(e) =>
+                          setPicked((prev) => {
+                            const next = new Set(prev)
+                            if (e.target.checked) next.add(r.id)
+                            else next.delete(r.id)
+                            return next
+                          })
+                        }
+                      />
+                    ) : null}
+                    <span className="flex-1 text-base text-[#2c2c2a]">
+                      <span className="font-semibold">{r.name}</span>
+                      <span data-testid="recurring-detail" className="block text-base">{r.detail}</span>
+                      {r.description ? <span className="block text-sm">{r.description}</span> : null}
+                    </span>
+                  </label>
+                </li>
+              )
+            })}
+          </ul>
+          {view.recurringTerms.map((t) => <p key={t} className="mt-2 text-base text-[#2c2c2a]">{t}</p>)}
+        </section>
+      ) : null}
 
       {!a ? (
         <>
@@ -200,6 +260,24 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
               {termsOpen ? <p className="mt-2 whitespace-pre-line rounded-lg border border-[#d6d3c9] p-3 text-sm text-[#2c2c2a]">{view.terms}</p> : null}
             </section>
           ) : null}
+          <section className="mt-5" aria-label="Ask for changes">
+            {askState === 'sent' ? (
+              <p role="status" className="rounded-lg border border-[#1f7a3d] bg-[#e8f5ec] p-3 text-base font-semibold text-[#2c2c2a]">Thanks. We got your message and will get back to you.</p>
+            ) : askOpen ? (
+              <div>
+                <label className="block">
+                  <span className="text-base font-semibold text-[#2c2c2a]">What would you like changed?</span>
+                  <textarea value={askText} onChange={(e) => setAskText(e.target.value)} rows={4} maxLength={1500} className="mt-1 w-full rounded-lg border border-[#a8a69f] p-3 text-base text-[#2c2c2a]" />
+                </label>
+                <div className="mt-2 flex gap-3">
+                  <button type="button" onClick={() => void sendChanges()} disabled={askState === 'sending'} className="min-h-[48px] flex-1 rounded-xl border-2 border-[#1f2937] px-4 text-base font-bold text-[#1f2937] disabled:opacity-60">{askState === 'sending' ? 'Sending…' : 'Send to us'}</button>
+                  <button type="button" onClick={() => setAskOpen(false)} className="min-h-[48px] px-4 text-base font-semibold text-[#2c2c2a] underline">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setAskOpen(true)} className="min-h-[48px] w-full rounded-xl border-2 border-[#1f2937] px-4 text-base font-bold text-[#1f2937]">Ask for changes</button>
+            )}
+          </section>
           <section className="mt-5" aria-label="Approve">
             <label className="block">
               <span className="text-base font-semibold text-[#2c2c2a]">Type your full name to approve</span>
@@ -207,7 +285,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
             </label>
             <label className="mt-3 flex min-h-[44px] items-start gap-3 text-base text-[#2c2c2a]">
               <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-1 h-6 w-6 shrink-0" />
-              <span>I approve this quote for {money(price.totalCents)}{view.terms ? ' and agree to the terms' : ''}.</span>
+              <span>{view.hasOneTime ? `I approve this quote for ${money(price.totalCents)}${view.recurring.length > 0 ? ' and the recurring service above' : ''}` : 'I approve the recurring service above'}{view.terms ? ' and agree to the terms' : ''}.</span>
             </label>
             {error ? <p role="alert" className="mt-3 text-base font-semibold text-[#9b1c1c]">{error}</p> : null}
           </section>
@@ -219,7 +297,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
       {!a ? (
         <div className="fixed inset-x-0 bottom-0 z-10 border-t border-[#d6d3c9] bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className="mx-auto flex max-w-xl items-center gap-3">
-            <div className="min-w-0 flex-1 text-[#2c2c2a]"><div className="text-sm font-semibold">Total</div><div className="text-xl font-bold tabular-nums">{money(price.totalCents)}</div></div>
+            <div className="min-w-0 flex-1 text-[#2c2c2a]">{view.hasOneTime ? <><div className="text-sm font-semibold">Total</div><div className="text-xl font-bold tabular-nums">{money(price.totalCents)}</div></> : <div className="text-base font-semibold">Nothing due today</div>}</div>
             <button type="button" onClick={() => void approve()} disabled={busy !== null || done} className="min-h-[52px] flex-1 rounded-xl bg-[#1f2937] px-4 text-lg font-bold text-white disabled:opacity-60">
               {busy === 'approve' ? 'Approving…' : 'Approve'}
             </button>

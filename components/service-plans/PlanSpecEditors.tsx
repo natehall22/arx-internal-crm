@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useRoofingWord } from '@/hooks/useOrgFeatures'
 
 import { Button, Input, Select } from '@/components/ui'
 import {
@@ -169,6 +169,7 @@ export function PricingEditor({ value, onChange }: { value: PlanPricing; onChang
 
 /** Follow-on steps after each visit (cleaning → inspection), who does them, and their result options. */
 export function StepsEditor({ value, onChange, crews, people }: { value: PlanStep[]; onChange: (v: PlanStep[]) => void; crews: Array<{ id: string; name: string }>; people: Array<{ id: string; name: string }> }) {
+  const rw = useRoofingWord()
   const set = (i: number, patch: Partial<PlanStep>) => onChange(value.map((s, j) => (j === i ? { ...s, ...patch } : s)))
   return (
     <fieldset className={box}>
@@ -177,7 +178,7 @@ export function StepsEditor({ value, onChange, crews, people }: { value: PlanSte
       {value.map((s, i) => (
         <div key={s.key} className="flex flex-col gap-2 rounded-ui bg-surface-subtle p-2">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_7rem]">
-            <Input aria-label="Step name" className="text-base" maxLength={60} placeholder="Roof inspection" value={s.label} onChange={(e) => set(i, { label: e.target.value })} />
+            <Input aria-label="Step name" className="text-base" maxLength={60} placeholder={rw('Roof inspection', 'Follow-up visit')} value={s.label} onChange={(e) => set(i, { label: e.target.value })} />
             <Input aria-label="Days after" type="number" inputMode="numeric" min={0} max={60} className="text-base" value={s.daysAfter} onChange={(e) => set(i, { daysAfter: Number(e.target.value) })} />
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[9rem_1fr]">

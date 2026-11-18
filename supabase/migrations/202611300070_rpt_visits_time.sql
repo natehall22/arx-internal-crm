@@ -50,3 +50,5 @@ left join public.sub_contractors sc on sc.id = t.sub_id
 left join public.production_jobs j on j.id = t.production_job_id
 left join public.work_orders w on w.id = t.work_order_id
 where t.kind = 'work' and t.removed_at is null and t.ended_at is not null;
+
+revoke all on public.rpt_visits, public.rpt_time from anon, authenticated;

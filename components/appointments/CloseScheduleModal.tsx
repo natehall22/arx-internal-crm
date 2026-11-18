@@ -60,6 +60,7 @@ export default function CloseScheduleModal({
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [slotsError, setSlotsError] = useState<string | null>(null)
+  const [calendarNotice, setCalendarNotice] = useState<'reconnect' | 'unknown' | null>(null)
   const [closerTimezone, setCloserTimezone] = useState('America/New_York')
 
   useEffect(() => {
@@ -117,6 +118,7 @@ export default function CloseScheduleModal({
   const loadTimeSlots = async (closerOrTeamId: string, date: string, isRetry = false) => {
     setLoadingSlots(true)
     setSlotsError(null)
+    setCalendarNotice(null)
     try {
       let res: Response
       const d = closeDurationMinutes
@@ -131,6 +133,7 @@ export default function CloseScheduleModal({
         const data = await res.json()
         const slots = data.slots || []
         setTimeSlots(slots)
+        setCalendarNotice(data.calendarNeedsReconnect ? 'reconnect' : data.calendarUnknown ? 'unknown' : null)
         setCloserTimezone(data.timezone || 'America/New_York')
         if (slots.length === 0 && !isRetry && data.hasCalendar !== false) {
           await new Promise((r) => setTimeout(r, 800))
@@ -273,6 +276,13 @@ export default function CloseScheduleModal({
                       </button>
                     )}
                   </div>
+                  {calendarNotice && (
+                    <p className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-gray-900">
+                      {calendarNotice === 'reconnect'
+                        ? "This person's calendar needs reconnecting \u2014 times may be wrong"
+                        : "Couldn't read this person's calendar \u2014 tap Refresh"}
+                    </p>
+                  )}
                   {loadingSlots ? (
                     <div className="flex items-center justify-center py-6 text-gray-700 text-sm">
                       Loading available times…

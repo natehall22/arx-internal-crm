@@ -196,6 +196,27 @@ export default function CustomerMessagesSettings({ initial = null }: { initial?:
 
       <Card>
         <CardContent className="flex flex-col gap-3 pt-4">
+          <label className="flex min-h-tap cursor-pointer items-center justify-between gap-3">
+            <span className="text-ui-lg font-bold text-ink">Payment receipt</span>
+            <span className="flex items-center gap-2 text-ui-base font-semibold text-ink">
+              {s.paymentReceipt ? 'On' : 'Off'}
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={`Payment receipt ${s.paymentReceipt ? 'on' : 'off'}`}
+                className="h-7 w-7"
+                checked={s.paymentReceipt}
+                disabled={busy}
+                onChange={(e) => void save({ paymentReceipt: e.target.checked }).then((ok) => ok && toast.success(e.target.checked ? 'Payment receipt is on' : 'Payment receipt is off'))}
+              />
+            </span>
+          </label>
+          <p className="text-ui-base text-ink">Right after a payment from the customer is recorded (cash, check, card or online), they get an email receipt with the amount, how they paid and what is still owed. Not sent for refunds, or for payments made by someone other than the customer (a lender, for example). Sent at once, even in quiet hours.</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-4">
           <p className="text-ui-lg font-bold text-ink">Quiet hours</p>
           <p className="text-ui-base text-ink">{view.quiet}</p>
           <div className="grid grid-cols-2 gap-3">

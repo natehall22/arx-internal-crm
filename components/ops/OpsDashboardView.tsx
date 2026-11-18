@@ -23,12 +23,14 @@ export type OpsDashboardViewProps = {
   crews: any[] | null
   materialsNeeded: any[] | null
   recentNotes: any[] | null
+  /** Service-plans company: "Install Schedule" must open the install Board, not the Visits view the page opens on. */
+  scheduleBoardHref?: string
 }
 
 /** The Operations Dashboard screen. Presentational only: the page loads the data, the phone check renders it with fixtures. */
 export default function OpsDashboardView({
   today, canJobBoard, canFixPayPlans, needsYou, needsYouAudience, pipelineStats, totalActive, urgentJobs, onHoldJobs,
-  todaysJobsList, upcomingJobsList, crews, materialsNeeded, recentNotes,
+  todaysJobsList, upcomingJobsList, crews, materialsNeeded, recentNotes, scheduleBoardHref = '/ops/schedule',
 }: OpsDashboardViewProps) {
   return (
     <div className="min-h-screen bg-gray-50">
@@ -55,7 +57,7 @@ export default function OpsDashboardView({
               </Link>
             )}
             <Link
-              href="/ops/schedule"
+              href={scheduleBoardHref}
               className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium"
             >
               Install Schedule

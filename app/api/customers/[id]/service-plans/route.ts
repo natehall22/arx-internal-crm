@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
-import { SERVICE_PLANS_NOT_READY, createServicePlan, loadServicePlans } from '@/lib/service-plans-db'
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import { SERVICE_PLANS_NOT_READY, createServicePlan, loadServicePlans, loadVisits } from '@/lib/service-plans-db'
 import { hideTierPrices, loadPlanEditorOptions } from '@/lib/service-plans-options'
-import { redactPlanPrices } from '@/lib/service-plans'
+import { isOneOffPlan, redactPlanPrices, visitHorizon, ymdInZone } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export const dynamic = 'force-dynamic'
@@ -24,9 +25,23 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     loadServicePlans(ctx.admin, ctx.orgId, { customerId: params.id }),
     loadPlanEditorOptions(ctx.admin, ctx.orgId, ctx.access, params.id),
   ])
+  // Upcoming one-off visits (a one-off is a plan that makes one visit): listed apart from the recurring plans, each with its visit
+  // so the card can move it, change its crew or cancel it.
+  const oneOffPlans = plans.plans.filter((p) => isOneOffPlan(p) && p.status === 'active')
+  let oneOffs: Array<{ planId: string; visitId: string; name: string; date: string; crew: string | null; subId: string | null; workOrderNumber: string | null; planStart: string | null }> = []
+  if (oneOffPlans.length) {
+    const today = ymdInZone(new Date(), await loadOrgTimeZone(ctx.admin, ctx.orgId))
+    const { from, to } = visitHorizon(today)
+    const byPlan = new Map(oneOffPlans.map((p) => [p.id, p]))
+    const visits = await loadVisits(ctx.admin, ctx.orgId, { from, to, customerId: params.id, accessNotes: false })
+    oneOffs = visits
+      .filter((v) => v.status === 'scheduled' && byPlan.has(v.planId))
+      .map((v) => ({ planId: v.planId, visitId: v.id, name: v.planName, date: v.scheduledDate, crew: v.subName, subId: v.subId, workOrderNumber: v.workOrderNumber, planStart: byPlan.get(v.planId)?.start_date ?? null }))
+  }
   return NextResponse.json({
     ready: plans.ready,
-    plans: plans.plans.map((p) => ({ ...redactPlanPrices(p, ctx.access.prices), pricing: hideTierPrices(p.pricing, ctx.access.prices) })),
+    oneOffs,
+    plans: plans.plans.filter((p) => !isOneOffPlan(p)).map((p) => ({ ...redactPlanPrices(p, ctx.access.prices), pricing: hideTierPrices(p.pricing, ctx.access.prices) })),
     canEdit: ctx.access.edit,
     ...options,
   })

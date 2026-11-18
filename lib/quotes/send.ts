@@ -14,6 +14,8 @@ import { emailChannel, normalizeEmail } from '@/lib/customer-message-channels'
 import { BLOCK_REASON_TEXT, companyIdentity } from '@/lib/customer-messages-db'
 import { formatCents } from '@/lib/format'
 import type { ApprovalRow } from '@/lib/quotes/approve'
+import { approvalOneTimeCents } from '@/lib/quotes/recurring'
+import { saveCardLinkFor, type QuotePlanResult } from '@/lib/quotes/recurring-plans'
 
 export type SendResult = { ok: true } | { ok: false; error: string }
 
@@ -53,24 +55,35 @@ export async function sendQuoteLinkEmail(
   }))
 }
 
-export async function sendApprovalConfirmation(admin: SupabaseClient, orgId: string, approval: ApprovalRow, to: string, pageUrl: string | null, copyUrl: string | null = null): Promise<boolean> {
+export async function sendApprovalConfirmation(admin: SupabaseClient, orgId: string, approval: ApprovalRow, to: string, pageUrl: string | null, copyUrl: string | null = null, plans: QuotePlanResult[] = []): Promise<boolean> {
   const dep = approval.deposit_cents
+  const oneTime = approvalOneTimeCents(approval)
   const chosen = approval.snapshot.lines.filter((l) => l.chosen).map((l) => l.name)
+  const recurring = (approval.snapshot.recurring ?? []).filter((r) => r.chosen)
+  const firstVisit = plans.map((p) => p.firstVisit).filter((d): d is string => !!d).sort()[0] ?? null
+  const cardUrl = plans.length > 0 ? await saveCardLinkFor(admin, orgId, plans[0].customerId) : null
+  const terms = Array.from(new Set(recurring.map((r) => r.termsLine)))
   const r = await send(admin, orgId, to, (c) => ({
     subject: `Approved: thank you, ${approval.typed_name.split(' ')[0]}`,
     heading: 'Your quote is approved',
     paragraphs: [
       `Thank you! ${c.name} has your approval and will be in touch to schedule the work.`,
-      dep > 0 ? `A deposit of ${formatCents(dep)} is due. You can pay it by card from your quote page.` : 'No deposit is due now.',
+      dep > 0 ? `A deposit of ${formatCents(dep)} is due. You can pay it by card from your quote page.` : oneTime > 0 ? 'No deposit is due now.' : 'Nothing is due now.',
+      ...(recurring.length > 0 ? [`Your recurring service is set up${firstVisit ? `, with the first visit planned for ${formatDate(firstVisit)}` : ''}. ${terms.join(' ')}`] : []),
     ],
     rows: [
       { label: 'Approved by', value: approval.typed_name },
-      { label: 'Work included', value: chosen.join('\n') },
-      { label: 'Total', value: formatCents(approval.total_cents) },
+      ...(chosen.length > 0 ? [{ label: 'Work included', value: chosen.join('\n') }] : []),
+      ...(oneTime > 0 ? [{ label: 'Total', value: formatCents(oneTime) }] : []),
+      ...(recurring.length > 0 ? [{ label: 'Recurring service', value: recurring.map((x) => `${x.name}: ${x.detail}`).join('\n') }] : []),
+      ...(firstVisit ? [{ label: 'First visit', value: formatDate(firstVisit) }] : []),
       ...(dep > 0 ? [{ label: 'Deposit', value: formatCents(dep) }] : []),
     ],
     button: copyUrl ? { label: 'Download your approved copy (PDF)', href: copyUrl } : pageUrl ? { label: 'Open your quote', href: pageUrl } : null,
-    footnote: copyUrl && pageUrl ? `You can also open your quote page: ${pageUrl}` : undefined,
+    footnote: [
+      copyUrl && pageUrl ? `You can also open your quote page: ${pageUrl}` : '',
+      cardUrl ? `Optional: save a card so your service invoices are paid automatically. You enter it yourself on a secure page and can say no: ${cardUrl}` : '',
+    ].filter(Boolean).join('\n\n') || undefined,
   }))
   if (!r.ok) console.error('quote approval confirmation not sent:', r.error)
   return r.ok

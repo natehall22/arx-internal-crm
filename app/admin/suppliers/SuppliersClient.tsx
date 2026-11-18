@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import { useCallback, useEffect, useState } from 'react'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
 
@@ -41,6 +42,7 @@ const splitList = (v: string) => v.split(/[,;\n]/).map((x) => x.trim()).filter(B
 const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '')
 
 export default function SuppliersClient() {
+  const rw = useRoofingWord()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loaded, setLoaded] = useState(false)
   const [unlinkedSubs, setUnlinkedSubs] = useState<UnlinkedSub[]>([])
@@ -200,7 +202,7 @@ export default function SuppliersClient() {
               <label className="block text-sm font-medium">Phone
                 <input className={ctl} type="tel" inputMode="tel" value={draft.phone ?? ''} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
               </label>
-              <label className="block text-sm font-medium">Trades they cover (e.g. landscaping, gutters)
+              <label className="block text-sm font-medium">{rw('Trades they cover (e.g. landscaping, gutters)', 'Trades they cover (e.g. landscaping, irrigation)')}
                 <input className={ctl} value={vendorTradesText} onChange={(e) => setVendorTradesText(e.target.value)} />
               </label>
               <label className="block text-sm font-medium">Account number
@@ -212,7 +214,7 @@ export default function SuppliersClient() {
               <label className="block text-sm font-medium">Delivery notes (added to every order)
                 <textarea className={ctl} rows={3} value={draft.default_delivery_notes ?? ''} onChange={(e) => setDraft({ ...draft, default_delivery_notes: e.target.value })} />
               </label>
-              <label className="block text-sm font-medium">Default for trades (e.g. roofing, gutters)
+              <label className="block text-sm font-medium">{rw('Default for trades (e.g. roofing, gutters)', 'Default for trades (e.g. mowing, irrigation)')}
                 <input className={ctl} value={tradesText} onChange={(e) => setTradesText(e.target.value)} />
               </label>
               <label className="block text-sm font-medium">How orders are sent

@@ -29,7 +29,15 @@ function gapFrequency(days: number): ServiceFrequency {
   if (days <= 20) return 'every_2_weeks'
   if (days <= 27) return 'every_4_weeks'
   if (days <= 35) return days === 28 ? 'every_4_weeks' : 'monthly'
+  // About every 3 months (75–105 days) and about once a year (330–400 days); anything in between stays monthly.
+  if (days >= 75 && days <= 105) return 'quarterly'
+  if (days >= 330 && days <= 400) return 'yearly'
   return 'monthly'
+}
+
+/** A long gap (> 45 days) that is a real cadence: about quarterly or about yearly. Any other long gap is an off season. */
+function isCadenceGap(days: number): boolean {
+  return (days >= 75 && days <= 105) || (days >= 330 && days <= 400)
 }
 
 function median(xs: number[]): number {
@@ -42,6 +50,8 @@ export function frequencyFromWords(text: string): ServiceFrequency | null {
   const t = text.toLowerCase()
   if (/\b(bi-?weekly|every (other|2nd|second|two|2) weeks?|fortnight)/.test(t)) return 'every_2_weeks'
   if (/\bevery (4|four) weeks?/.test(t)) return 'every_4_weeks'
+  if (/\bquarterly|every (3|three) months?/.test(t)) return 'quarterly'
+  if (/(?<!-)\b(yearly|annual(ly)?)|once a year|every year/.test(t)) return 'yearly'
   if (/\bmonthly|every month|once a month/.test(t)) return 'monthly'
   if (/\bweekly|every week|once a week/.test(t)) return 'weekly'
   return null
@@ -56,9 +66,12 @@ export function seasonsFromVisits(dates: string[]): { seasons: Season[]; weekday
   const days = Array.from(new Set(dates.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))).sort()
   if (days.length < 2) return null
   const gapsByMonth = new Map<number, number[]>()
+  const gaps = days.slice(1).map((d, i) => Math.round((toMs(d) - toMs(days[i])) / DAY))
+  // When every gap is long the visits ARE the cadence (every 3 months / yearly); otherwise a long gap is the off season.
+  const allLong = gaps.every((g) => g > 45)
   for (let i = 1; i < days.length; i++) {
-    const gap = Math.round((toMs(days[i]) - toMs(days[i - 1])) / DAY)
-    if (gap > 45) continue // the off season, not a frequency
+    const gap = gaps[i - 1]
+    if (gap > 45 && !(allLong && isCadenceGap(gap))) continue // the off season (or a gap that is no known cadence), not a frequency
     const m = +days[i - 1].slice(5, 7)
     gapsByMonth.set(m, [...(gapsByMonth.get(m) ?? []), gap])
   }

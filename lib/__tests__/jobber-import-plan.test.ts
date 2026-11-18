@@ -5,7 +5,7 @@ import { join } from 'path'
 import { parseCsv } from '@/lib/csv'
 import { detectFileKind } from '@/lib/jobber-import/columns'
 import { addressesOf, buildPlan, invoiceStatus, readJobberFiles, type ExistingSnapshot, type ImportOptions, type RunFile } from '@/lib/jobber-import/plan'
-import { seasonsFromVisits, inferSchedule } from '@/lib/jobber-import/schedule'
+import { seasonsFromVisits, inferSchedule, frequencyFromWords } from '@/lib/jobber-import/schedule'
 
 function file(name: string): RunFile {
   const rows = parseCsv(readFileSync(join(__dirname, 'fixtures/jobber', name), 'utf8'))
@@ -186,3 +186,26 @@ describe('CSV bytes', () => {
     expect(decodeCsvBytes(cp1252)).toEqual({ text: 'Name\nJosé – ’\n', encoding: 'windows-1252' })
   })
 })
+
+describe('quarterly and yearly from Jobber', () => {
+  it('about 90 days between visits is every 3 months, about 365 is yearly, words too', () => {
+    const q = seasonsFromVisits(['2026-01-06', '2026-04-07', '2026-07-07', '2026-10-06'])
+    expect(q?.seasons.map((s) => s.frequency)).toContain('quarterly')
+    const y = seasonsFromVisits(['2024-03-05', '2025-03-04', '2026-03-03'])
+    expect(y?.seasons.map((s) => s.frequency)).toContain('yearly')
+    expect(frequencyFromWords('Quarterly gutter cleaning')).toBe('quarterly')
+    expect(frequencyFromWords('Annual inspection')).toBe('yearly')
+    expect(frequencyFromWords('Monthly mow')).toBe('monthly')
+  })
+})
+
+describe('seasonsFromVisits odd gaps / bi-yearly', () => {
+  it('does not turn gaps outside the known bands into monthly', () => {
+    expect(seasonsFromVisits(['2026-01-01', '2026-04-20', '2026-08-30'])).toBeNull()
+  })
+  it('does not read bi-yearly as yearly', () => {
+    expect(frequencyFromWords('Bi-yearly gutter clean')).toBeNull()
+    expect(frequencyFromWords('Yearly gutter clean')).toBe('yearly')
+  })
+})
+

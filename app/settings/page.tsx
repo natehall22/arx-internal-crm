@@ -1,5 +1,6 @@
 'use client'
 
+import OutlookConnectCard from '@/components/OutlookConnectCard'
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -69,6 +70,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
   const [googleToken, setGoogleToken] = useState<any>(null)
+  const [outlookConnected, setOutlookConnected] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [aiConnector, setAiConnector] = useState<AiConnectorInfo>(null)
   const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'connect' | 'reports' | 'suppliers' | 'announcements' | 'display'>('notifications')
@@ -94,17 +96,18 @@ export default function SettingsPage() {
     const error = searchParams.get('error')
     
     if (success === 'calendar_connected') {
-      setCalendarMessage({ type: 'success', text: 'Google Calendar connected successfully!' })
+      setCalendarMessage({ type: 'success', text: 'Calendar connected successfully!' })
       setActiveTab('calendar')
       // Clear URL params
       router.replace('/settings')
     } else if (error) {
       const errorMessages: Record<string, string> = {
-        oauth_denied: 'Google Calendar authorization was denied.',
+        oauth_denied: 'Calendar authorization was denied.',
         missing_params: 'Missing OAuth parameters. Please try again.',
         no_profile: 'User profile not found.',
         token_storage: 'Failed to store calendar tokens.',
         callback_failed: 'Calendar connection failed. Please try again.',
+        calendar_switch_blocked: 'Your calendar is the install-scheduling account and has upcoming installs on it, so it cannot be switched yet. Move or unschedule upcoming installs first, or keep using your current calendar.',
       }
       setCalendarMessage({ type: 'error', text: errorMessages[error] || 'An error occurred.' })
       setActiveTab('calendar')
@@ -153,6 +156,8 @@ export default function SettingsPage() {
         setAiEnabled(data.userSettings.ai_enabled ?? defaultSettings.ai_enabled)
       }
 
+      setOutlookConnected(data.calendarConnection?.provider === 'microsoft')
+
       if (data.googleToken) {
         setGoogleToken(data.googleToken)
         setSettings(prev => ({ ...prev, google_calendar_connected: true }))
@@ -192,7 +197,8 @@ export default function SettingsPage() {
     setSaving(false)
   }
 
-  const connectGoogleCalendar = () => {
+  const connectGoogleCalendar = async () => {
+    if (outlookConnected && !(await confirmDialog({ title: 'Connect Google Calendar? This disconnects your Outlook Calendar. Only one calendar can be connected at a time.', destructive: true }))) return
     window.location.href = '/api/auth/google'
   }
 
@@ -447,6 +453,8 @@ export default function SettingsPage() {
                   )}
                 </div>
               </div>
+
+              <OutlookConnectCard />
 
               <h3 className="font-medium text-gray-900 mb-3">Scheduling Preferences</h3>
               

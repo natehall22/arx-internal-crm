@@ -29,7 +29,7 @@ import { addDays, eachDayOfInterval, format } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
-import type { FreeBusyCalendarResult, FreeBusySlot } from '@/lib/google-calendar'
+import type { FreeBusyCalendarResult, FreeBusySlot } from '@/lib/calendar/provider'
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 

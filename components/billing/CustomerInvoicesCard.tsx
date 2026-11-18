@@ -3,12 +3,14 @@
 import CardOnFile from '@/components/billing/CardOnFile'
 import * as React from 'react'
 
+import NewInvoiceSheet from '@/components/billing/NewInvoiceSheet'
 import InvoiceDetailModal from '@/components/ops/InvoiceDetailModal'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Dialog, DialogContent, DialogFooter, Field, Input, Select, toast } from '@/components/ui'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { CUSTOMER_PAYMENT_METHOD_LABELS, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from '@/lib/invoice-lines'
 import { formatCurrency } from '@/lib/job-payments'
 import { formatDate } from '@/lib/format'
+import { PAYMENT_TERMS, PAYMENT_TERMS_LABELS, type PaymentTerms } from '@/lib/payment-terms'
 import { INVOICE_STATUS_LABELS, type InvoiceStatus, type JobInvoice } from '@/lib/types/invoices'
 
 type Row = JobInvoice & { applied_cents: number; balance_cents: number }
@@ -40,6 +42,8 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
   const [pay, setPay] = React.useState<PaySheet | null>(null)
   const [busy, setBusy] = React.useState<string | null>(null)
   const [showAll, setShowAll] = React.useState(false)
+  const [newOpen, setNewOpen] = React.useState(false)
+  const [terms, setTerms] = React.useState<{ orgDefault: PaymentTerms; override: PaymentTerms | null } | null>(null)
 
   const load = React.useCallback(async () => {
     const res = await fetch(`/api/customers/${customerId}/invoices`, { cache: 'no-store' }).catch(() => null)
@@ -54,13 +58,14 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
     }
     setRows(body.invoices as Row[])
     setAddresses((body.addresses ?? {}) as Record<string, string>)
+    setTerms((body.terms ?? null) as { orgDefault: PaymentTerms; override: PaymentTerms | null } | null)
   }, [customerId])
 
   React.useEffect(() => {
     void load()
   }, [load])
 
-  if (hidden || !rows || rows.length === 0) return null
+  if (hidden || !rows) return null
 
   async function email(inv: Row) {
     const again = inv.status !== 'draft'
@@ -75,6 +80,27 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
     } finally {
       setBusy(null)
     }
+  }
+
+  async function emailStatement() {
+    if (!(await confirmDialog({ title: 'Email this customer their statement?' }))) return
+    setBusy('statement')
+    try {
+      const res = await fetch(`/api/customers/${customerId}/statement`, { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) toast.error(body.error || 'Could not email the statement')
+      else toast.success(`Statement emailed to ${body.to}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function saveTerms(value: string) {
+    const res = await fetch(`/api/customers/${customerId}/payment-terms`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ terms: value || null }) })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) return toast.error(body.error || 'Could not save the terms')
+    toast.success('Payment terms saved for new invoices')
+    await load()
   }
 
   async function savePayment() {
@@ -114,6 +140,28 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
         <CardTitle>Invoices</CardTitle>
         {owed > 0 ? <Badge tone="warning">{formatCurrency(owed)} owed</Badge> : null}
       </CardHeader>
+      <div className="flex flex-wrap items-center gap-2 border-b border-surface-line px-4 py-3">
+        <Button size="sm" onClick={() => setNewOpen(true)}>New invoice</Button>
+        {rows.length > 0 ? (
+          <>
+            <Button size="sm" variant="secondary" asChild>
+              <a href={`/customers/${customerId}/statement`} target="_blank" rel="noreferrer">Statement</a>
+            </Button>
+            <Button size="sm" variant="secondary" loading={busy === 'statement'} onClick={() => void emailStatement()}>Email statement</Button>
+          </>
+        ) : null}
+        {terms ? (
+          <label className="flex min-h-tap items-center gap-2 text-ui-sm text-ink">
+            Terms
+            <Select aria-label="Payment terms" value={terms.override ?? ''} onChange={(e) => void saveTerms(e.target.value)} className="w-auto">
+              <option value="">Company default ({PAYMENT_TERMS_LABELS[terms.orgDefault]})</option>
+              {PAYMENT_TERMS.map((t) => (
+                <option key={t} value={t}>{PAYMENT_TERMS_LABELS[t]}</option>
+              ))}
+            </Select>
+          </label>
+        ) : null}
+      </div>
       <CardContent className="p-0">
         {/* Online payments: the customer's card on file for automatic payments (hidden when the company doesn't use them). */}
         <CardOnFile customerId={customerId} />
@@ -163,6 +211,18 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
           </button>
         ) : null}
       </CardContent>
+
+      {newOpen ? (
+        <NewInvoiceSheet
+          customerId={customerId}
+          onClose={() => setNewOpen(false)}
+          onCreated={(id) => {
+            setNewOpen(false)
+            setOpenId(id)
+            void load()
+          }}
+        />
+      ) : null}
 
       {openId ? (
         <InvoiceDetailModal

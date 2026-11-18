@@ -125,3 +125,25 @@ export const HOME_BUILDER_PROPOSAL_CONTENT: ProposalContentDefaults = {
     { title: 'Professional Process', body: 'Clean job sites, final walkthroughs, and a step-by-step approach from start to finish.' },
   ],
 }
+
+/** Placeholder examples in the proposal-template form (Settings → Proposals → Create Template). Roofing = the original wording. */
+export type ProposalTemplateHints = { description: string; scope: string; warranty: string }
+export const ROOFING_TEMPLATE_HINTS: Readonly<ProposalTemplateHints> = Object.freeze({
+  description: 'Default template for residential roofing',
+  scope: 'Complete tear-off and replacement of existing roofing system...',
+  warranty: '10-year workmanship warranty...',
+})
+/** Every other profile: wording that fits any trade. */
+export const NEUTRAL_TEMPLATE_HINTS: Readonly<ProposalTemplateHints> = Object.freeze({
+  description: 'Default template for standard proposals',
+  scope: 'Describe the work included in this proposal...',
+  warranty: 'Describe the warranty or service guarantee, if any...',
+})
+const PROFILE_TEMPLATE_HINTS: Readonly<Record<string, ProposalTemplateHints>> = {
+  lawn_landscape: { description: 'Default template for lawn and landscape work', scope: 'Mowing, edging, bed maintenance and cleanup at each visit...', warranty: 'Plant replacement or service guarantee, if any...' },
+  exterior_cleaning: { description: 'Default template for exterior cleaning', scope: 'Soft wash or pressure wash the areas listed, with rinse and cleanup...', warranty: 'Re-clean guarantee, if any...' },
+}
+export function proposalTemplateHints(profileId: string | null | undefined): ProposalTemplateHints {
+  if (!profileId || profileId === 'roofing') return ROOFING_TEMPLATE_HINTS
+  return PROFILE_TEMPLATE_HINTS[profileId] ?? NEUTRAL_TEMPLATE_HINTS
+}

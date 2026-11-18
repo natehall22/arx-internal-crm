@@ -2,6 +2,9 @@ import { redirect } from 'next/navigation'
 
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
+import { DEFAULT_INDUSTRY_PROFILE } from '@/lib/industry-profiles'
+import { loadOrgProfile } from '@/lib/org-profile'
 import { canOpenDeal } from '@/lib/threads/api'
 import { dealRefsFor } from '@/lib/threads/get-thread'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
@@ -18,6 +21,16 @@ export function fileRedirectsEnabledFor(role: string, env = process.env.CUSTOMER
   if (!v || v === 'off' || v === 'false' || v === '0') return false
   if (v === 'all' || v === 'true' || v === '1') return true
   return v.split(',').map((s) => s.trim()).includes(role.toLowerCase())
+}
+
+/**
+ * Is the Customer File this viewer's customer page? Yes when the rollout switch above is on for their role, or when the
+ * company is not on the default (roofing) profile — a company that starts on another profile (lawn, cleaning, builder) has
+ * no old habits to keep and most of its customers have no deal, which the old account page cannot show. Roofing with the
+ * switch unset is false, so its customer list, search and links behave exactly as before.
+ */
+export function customerFileDefaultFor(role: string, profileId: string, env = process.env.CUSTOMER_FILE_REDIRECTS): boolean {
+  return fileRedirectsEnabledFor(role, env) || profileId !== DEFAULT_INDUSTRY_PROFILE
 }
 
 type Target = { customerId: string; dealId: string; tab: 'sales' | 'job' | 'overview' }
@@ -92,4 +105,23 @@ export async function redirectJobToFile(id: string) {
   const { data: opp } = await admin.from('opportunities').select('id, customer_id').eq('id', project.opportunity_id).eq('org_id', profile.org_id).maybeSingle()
   if (!opp?.customer_id || !(await canOpen(admin, profile, opp.id))) return
   go('/ops/jobs/[id]', profile.role, { customerId: opp.customer_id, dealId: opp.id, tab: 'job' })
+}
+
+/** /customers/[id] → the Customer File, where it is the default and the viewer can open it (else the old page stays). */
+export async function redirectCustomerToFile(id: string, tab?: string) {
+  const { profile } = await requireAuth()
+  const admin = createServiceClient()
+  const orgProfile = await loadOrgProfile(admin, profile.org_id)
+  if (!customerFileDefaultFor(profile.role, orgProfile.id)) return
+  const viewer = await resolveThreadViewer(admin, profile)
+  const access = await resolveCustomerAccess(admin, viewer, id)
+  if (!access?.read) return
+  console.info('[customer-file] redirect', JSON.stringify({ route: '/customers/[id]', role: profile.role }))
+  // ?tab=referrals (older links) lands on the Referrals card of the file's Overview.
+  if (tab === 'referrals') {
+    const { pickDefaultDeal } = await import('@/lib/customer-file/load')
+    const dealId = await pickDefaultDeal(id)
+    redirect(dealId ? `/c/${id}/d/${dealId}/overview#referrals` : `/c/${id}#referrals`)
+  }
+  redirect(`/c/${id}`)
 }

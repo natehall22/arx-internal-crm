@@ -120,6 +120,7 @@ export default function LeadModal({
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [slotsError, setSlotsError] = useState<string | null>(null)
+  const [calendarNotice, setCalendarNotice] = useState<'reconnect' | 'unknown' | null>(null)
   const [closerTimezone, setCloserTimezone] = useState('America/New_York')
 
   useEffect(() => {
@@ -183,6 +184,7 @@ export default function LeadModal({
   const loadTimeSlots = async (closerOrTeamId: string, date: string, isRetry = false) => {
     setLoadingSlots(true)
     setSlotsError(null)
+    setCalendarNotice(null)
     try {
       let res: Response
       
@@ -197,6 +199,7 @@ export default function LeadModal({
         const data = await res.json()
         const slots = data.slots || []
         setTimeSlots(slots)
+        setCalendarNotice(data.calendarNeedsReconnect ? 'reconnect' : data.calendarUnknown ? 'unknown' : null)
         setCloserTimezone(data.timezone || 'America/New_York')
         if (slots.length === 0 && !isRetry && data.hasCalendar !== false) {
           // First attempt returned empty - retry once after short delay (fixes cold-start / auth race)
@@ -520,6 +523,13 @@ export default function LeadModal({
                         </button>
                       )}
                     </div>
+                    {calendarNotice && (
+                    <p className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-gray-900">
+                      {calendarNotice === 'reconnect'
+                        ? "This person's calendar needs reconnecting \u2014 times may be wrong"
+                        : "Couldn't read this person's calendar \u2014 tap Refresh"}
+                    </p>
+                  )}
                     {/* One fixed-height box for every state (loading, error, empty, slots), so the contact fields below never
                         jump when slots arrive late (the empty-result retry lands ~1s after the modal opens; a jump then put the
                         rep's tap on First Name when they meant Phone). */}

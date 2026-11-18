@@ -8,6 +8,29 @@ import JobProgressCard from '@/components/portal/JobProgressCard'
 import PortalShell, { Panel, type PortalCompany } from '@/components/portal/PortalShell'
 import type { PortalHome } from '@/lib/portal/data'
 
+/** Opens a pending quote: the portal makes a fresh quote link (the stored one is hashed) and goes there. */
+function OpenQuote({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  async function open() {
+    setBusy(true)
+    setErr(null)
+    const res = await fetch(`/api/portal/quotes/${id}/open`, { method: 'POST' }).catch(() => null)
+    const data = res ? ((await res.json().catch(() => ({}))) as { url?: string; error?: string }) : {}
+    if (!res || !res.ok || !data.url) {
+      setBusy(false)
+      return setErr(data.error || 'Something went wrong. Please try again or call us.')
+    }
+    window.location.assign(data.url)
+  }
+  return (
+    <>
+      <button type="button" onClick={() => void open()} disabled={busy} className={`${link} disabled:opacity-60`}>{busy ? 'Opening…' : 'Review and approve'}</button>
+      {err ? <p role="alert" className="text-base font-semibold text-[#9b1c1c]">{err}</p> : null}
+    </>
+  )
+}
+
 const link = 'inline-flex min-h-[44px] items-center text-base font-bold text-[#1d4ed8] underline'
 const Empty = ({ children }: { children: React.ReactNode }) => <p className="text-base">{children}</p>
 
@@ -64,6 +87,20 @@ export default function PortalHomeView({ company, home, payOnline, texting = fal
           </details>
         ) : null}
       </Panel>
+
+      {(home.quotes ?? []).length > 0 ? (
+        <Panel title="Quotes waiting for you">
+          <ul className="divide-y divide-[#e5e3dc]">
+            {home.quotes.map((q) => (
+              <li key={q.id} className="py-3">
+                <p className="text-lg font-bold">{q.title}{q.number ? ` · ${q.number}` : ''}</p>
+                <p className="text-base">{q.address ? `${q.address} · ` : ''}{q.totalCents > 0 ? `${money(q.totalCents)} · ` : ''}Waiting for your approval</p>
+                <OpenQuote id={q.id} />
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
 
       {home.contracts.length > 0 ? (
         <Panel title="Quotes and contracts">

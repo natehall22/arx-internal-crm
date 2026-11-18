@@ -39,7 +39,7 @@ import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { DATASETS } from '@/lib/reporting/catalog'
 import type { ReportSpec } from '@/lib/reporting/report-spec'
 import { ReportAccessError, buildReportContext, runReport, type ReportContext, type ReportResult } from '@/lib/reporting/run'
-import { SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
+import { SKIP_REASON_LABELS, addDaysYmd, isOneOffPlan, ymdInZone } from '@/lib/service-plans'
 import { loadServicePlans, loadVisits, loadVisitsPage, type VisitView } from '@/lib/service-plans-db'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { isSuperAdmin } from '@/lib/super-admin'
@@ -316,8 +316,9 @@ export async function loadDashboardCardData(
         return tile(card, goal, owed, `${loaded.rows.length} unpaid · ${overdue} overdue${loaded.capped ? ' (oldest checked)' : ''}`)
       }
       if (src.loader === 'servicePlans') {
-        const { ready, plans: all } = await plans()
+        const { ready, plans: allPlans } = await plans()
         if (!ready) return tile(card, goal, null)
+        const all = allPlans.filter((p) => !isOneOffPlan(p)) // a one-off visit is not a recurring plan
         const value = src.measure === 'active'
           ? all.filter((p) => p.status === 'active').length
           : all.filter((p) => p.created_at && ymdInZone(new Date(p.created_at), win.timeZone) >= win.monthStart).length

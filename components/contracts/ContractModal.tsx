@@ -11,7 +11,7 @@ import {
 import SignaturePad from './SignaturePad'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { formatPhone } from '@/lib/format'
-import { useOrgBrandNames, useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useIsRoofingProfile, useOrgBrandNames, useOrgFeatures, useRoofingWord } from '@/hooks/useOrgFeatures'
 import { creditLaneWords } from '@/lib/sale-credit-words'
 import type { OrgFeatures } from '@/lib/org-features'
 
@@ -80,6 +80,9 @@ export default function ContractModal({
   const insuranceOn = useOrgFeatures(orgFeatures).insurance
   const laneWords = creditLaneWords(useOrgFeatures(orgFeatures).canvassing)
   const brandNames = useOrgBrandNames()
+  const rw = useRoofingWord()
+  /** Roof scope checkboxes, roofing system / color / squares: roofing profile only. */
+  const isRoofing = useIsRoofingProfile()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -137,12 +140,13 @@ export default function ContractModal({
         totalSquares: totalSquares || prev.totalSquares,
         financeCompany: defaultFinanceCompany?.trim() || prev.financeCompany || '',
         paymentMethod: defaultFinanceCompany?.trim() ? 'finance' : prev.paymentMethod,
+        scopeRoofReplacement: isRoofing ? prev.scopeRoofReplacement : false,
       }))
       setStep(1)
       setError(null)
       setSuccess(false)
     }
-  }, [isOpen, customerName, customerEmail, customerPhone, projectAddress, projectCost, totalSquares, defaultFinanceCompany])
+  }, [isOpen, customerName, customerEmail, customerPhone, projectAddress, projectCost, totalSquares, defaultFinanceCompany, isRoofing])
 
   useEffect(() => {
     if (!isOpen || !opportunityId) return
@@ -191,7 +195,7 @@ export default function ContractModal({
           setError('Please fill in customer name and project address')
           return false
         }
-        if (formData.agreementType === 'installation' && !formData.roofColor.trim()) {
+        if (isRoofing && formData.agreementType === 'installation' && !formData.roofColor.trim()) {
           setError('Enter the color the customer chose')
           return false
         }
@@ -380,7 +384,7 @@ export default function ContractModal({
                       }`}
                     >
                       <p className="font-semibold text-gray-900">Repair Agreement</p>
-                      <p className="text-sm text-gray-600 mt-1">Small jobs: roof, gutters, siding, etc.—only what you list.</p>
+                      <p className="text-sm text-gray-600 mt-1">{rw('Small jobs: roof, gutters, siding, etc.—only what you list.', 'Small jobs—only what you list.')}</p>
                     </button>
                     {insuranceOn && (
                     <button
@@ -453,6 +457,8 @@ export default function ContractModal({
                     Scope Of Work *
                   </label>
                   <div className="flex flex-wrap gap-4">
+                    {isRoofing && (
+                    <>
                     <label className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -489,6 +495,8 @@ export default function ContractModal({
                       />
                       <span className="text-sm">Siding</span>
                     </label>
+                    </>
+                    )}
                   </div>
                   <div className="mt-2">
                     <input
@@ -504,6 +512,7 @@ export default function ContractModal({
                 {formData.agreementType === 'installation' && (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {isRoofing && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Primary Roofing System
@@ -516,6 +525,8 @@ export default function ContractModal({
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                       </div>
+                      )}
+                      {isRoofing && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Color *
@@ -530,6 +541,8 @@ export default function ContractModal({
                         />
                         <p className="mt-1 text-sm text-gray-700">The customer initials a line confirming this color.</p>
                       </div>
+                      )}
+                      {isRoofing && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Total Squares
@@ -543,6 +556,7 @@ export default function ContractModal({
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                       </div>
+                      )}
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Project Cost *

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createAnonClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { disconnectCalendar, getCalendarConnectionStatus } from '@/lib/calendar/connection'
+import { microsoftConfigured } from '@/lib/calendar/microsoft-calendar'
 
 export const dynamic = 'force-dynamic'
 
@@ -93,6 +95,8 @@ export async function GET(request: NextRequest) {
         team: profile.teams,
       },
       teams: teams || [],
+      calendarConnection: await getCalendarConnectionStatus(adminClient, user.id),
+      microsoftAvailable: microsoftConfigured(),
     })
 
   } catch (error) {
@@ -119,10 +123,12 @@ export async function DELETE(request: NextRequest) {
     const adminClient = createServiceClient()
 
     // Delete Google token for current user
-    const { error: deleteError } = await adminClient
-      .from('user_google_tokens')
-      .delete()
-      .eq('user_id', user.id)
+    const requested = request.nextUrl.searchParams.get('provider')
+    const deleteError = await disconnectCalendar(
+      adminClient,
+      user.id,
+      requested === 'google' || requested === 'microsoft' ? requested : undefined
+    )
 
     if (deleteError) {
       console.error('Failed to disconnect calendar:', deleteError)

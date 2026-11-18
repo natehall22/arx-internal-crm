@@ -30,6 +30,8 @@ import type { PortalSession } from '@/lib/portal/server'
 export type PortalVisit = { id: string; date: string | null; service: string; address: string | null; done: boolean }
 export type PortalInvoice = { id: string; jobId: string | null; number: string; status: 'sent' | 'partially_paid' | 'paid'; totalCents: number; balanceCents: number; issuedAt: string | null; dueAt: string | null }
 export type PortalContract = { id: string; address: string; totalCents: number; state: 'to_sign' | 'link_expired' | 'signed'; signUrl: string | null; downloadUrl: string | null; date: string }
+/** A quote the company sent and the customer has not approved yet (the link opens through a portal route that makes a fresh quote link). */
+export type PortalQuote = { id: string; number: string; title: string; address: string; totalCents: number; expiresAt: string; date: string }
 export type PortalDocument = { id: string; title: string; kind: 'document' | 'photo'; date: string }
 /** A signed change order or a shared inspection report: opens through its own existing link. */
 export type PortalPaperwork = { id: string; title: string; href: string; date: string }
@@ -44,6 +46,7 @@ export type PortalHome = {
   visits: { upcoming: PortalVisit[]; recent: PortalVisit[] }
   invoices: PortalInvoice[]
   contracts: PortalContract[]
+  quotes: PortalQuote[]
   documents: PortalDocument[]
   paperwork: PortalPaperwork[]
   jobs: PortalJob[]
@@ -53,7 +56,7 @@ export type PortalHome = {
   messages: PortalMessage[]
 }
 
-const MAX = { paperwork: 40, visits: 12, recent: 5, invoices: 50, contracts: 20, documents: 60, messages: 50 }
+const MAX = { paperwork: 40, visits: 12, recent: 5, invoices: 50, contracts: 20, quotes: 10, documents: 60, messages: 50 }
 const CHUNK = 150
 const chunk = <T,>(l: readonly T[]): T[][] => {
   const out: T[][] = []
@@ -72,19 +75,22 @@ async function soft<T>(label: string, fn: () => PromiseLike<{ data: unknown; err
   return (data ?? []) as Rows<T>
 }
 
+type PlanRow = { id: string; name: string; status: string; property_id: string | null; seasons: unknown; price: number | null; billing_basis: string; steps: unknown; one_off: boolean | null }
+const PLAN_COLS = 'id, name, status, property_id, seasons, price, billing_basis, steps, one_off'
+
 /** The customer's own ids that other lookups hang from. */
 async function ownIds(admin: SupabaseClient, orgId: string, customerId: string) {
   const db = orgDb(admin, orgId)
-  const [jobs, opps, plans, props] = await Promise.all([
+  const [jobs, opps, regularPlans, oneOffPlans, props] = await Promise.all([
     soft<{ id: string; status: string | null }>('jobs', () => db.from('production_jobs').select('id, status').eq('customer_id', customerId).limit(200)),
     soft<{ id: string }>('opportunities', () => db.from('opportunities').select('id').eq('customer_id', customerId).limit(200)),
-    soft<{ id: string; name: string; status: string; property_id: string | null; seasons: unknown; price: number | null; billing_basis: string; steps: unknown }>('plans', () =>
-      db.from('service_plans').select('id, name, status, property_id, seasons, price, billing_basis, steps').eq('customer_id', customerId).in('status', ['active', 'paused']).limit(50)
-    ),
+    soft<PlanRow>('plans', () => db.from('service_plans').select(PLAN_COLS).eq('customer_id', customerId).eq('one_off', false).in('status', ['active', 'paused']).limit(50)),
+    // One-off visits (any status, so a finished one stays in the history) are fetched apart, newest first, so they can never push real plans out of the limit; they are never listed as plans.
+    soft<PlanRow>('one-off plans', () => db.from('service_plans').select(PLAN_COLS).eq('customer_id', customerId).eq('one_off', true).order('start_date', { ascending: false }).limit(50)),
     soft<{ id: string; label: string | null; address_text: string | null }>('properties', () => db.from('properties').select('id, label, address_text').eq('customer_id', customerId).limit(100)),
   ])
   // openJobIds: a cancelled or on-hold job shows the customer nothing of its own (documents, photos, change orders, checkups).
-  return { jobIds: jobs.map((j) => j.id), openJobIds: jobs.filter((j) => !isQuietJobStatus(j.status)).map((j) => j.id), oppIds: opps.map((o) => o.id), plans, props }
+  return { jobIds: jobs.map((j) => j.id), openJobIds: jobs.filter((j) => !isQuietJobStatus(j.status)).map((j) => j.id), oppIds: opps.map((o) => o.id), plans: [...regularPlans, ...oneOffPlans], props }
 }
 
 export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): Promise<PortalHome | null> {
@@ -158,6 +164,22 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
     })
   }
 
+  // ---- online quotes waiting for the customer's approval (sent with a live link, not approved yet) ----
+  const quotes: PortalQuote[] = []
+  if (ids.oppIds.length) {
+    type P = { id: string; proposal_number: string | null; title: string | null; customer_address: string | null; total: number | null; created_at: string }
+    const props = await soft<P>('quotes', () => db.from('proposals').select('id, proposal_number, title, customer_address, total, created_at').in('opportunity_id', ids.oppIds.slice(0, CHUNK)).in('status', ['sent', 'viewed']).order('created_at', { ascending: false }).limit(MAX.quotes))
+    if (props.length) {
+      const links = await soft<{ proposal_id: string; expires_at: string }>('quote links', () => db.from('quote_links').select('proposal_id, expires_at').in('proposal_id', props.map((x) => x.id)).is('revoked_at', null).gt('expires_at', new Date().toISOString()))
+      const approved = new Set((await soft<{ proposal_id: string }>('quote approvals', () => db.from('quote_approvals').select('proposal_id').in('proposal_id', props.map((x) => x.id)))).map((a) => a.proposal_id))
+      for (const x of props) {
+        const l = links.find((k) => k.proposal_id === x.id)
+        if (!l || approved.has(x.id)) continue
+        quotes.push({ id: x.id, number: x.proposal_number ?? '', title: x.title ?? 'Quote', address: x.customer_address ?? '', totalCents: money(x.total), expiresAt: l.expires_at, date: x.created_at })
+      }
+    }
+  }
+
   // ---- documents and photos the company chose to share ----
   const documents: PortalDocument[] = []
   {
@@ -182,7 +204,7 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
     const cur = nextByPlan.get(v.service_plan_id)
     if (!cur || v.scheduled_date < cur) nextByPlan.set(v.service_plan_id, v.scheduled_date)
   }
-  const plans: PortalPlan[] = ids.plans.map((p) => ({
+  const plans: PortalPlan[] = ids.plans.filter((p) => p.one_off !== true && (p.status === 'active' || p.status === 'paused')).map((p) => ({
     id: p.id,
     name: p.name,
     address: p.property_id ? addressOf.get(p.property_id) ?? null : null,
@@ -243,7 +265,7 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
 
   const messages = (await loadPortalThread(admin, orgId, customerId, MAX.messages)).map((m) => ({ id: m.id, fromCustomer: m.fromCustomer, body: m.body, date: m.date }))
 
-  return { customerName: (cust as { name?: string | null }).name || '', today, visits: { upcoming, recent }, invoices, contracts, documents, paperwork, jobs, checkups, plans, card, messages }
+  return { customerName: (cust as { name?: string | null }).name || '', today, visits: { upcoming, recent }, invoices, contracts, quotes, documents, paperwork, jobs, checkups, plans, card, messages }
 }
 
 /** Jobs of this customer whose crew walk-around photos staff chose to show (one tap per job). Needs migration 202611150010; before it, none. */

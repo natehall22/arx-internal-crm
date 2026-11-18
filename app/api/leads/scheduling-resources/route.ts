@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { calendarConnectedUserIds } from '@/lib/calendar/connection'
 
 import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 import {
@@ -104,10 +105,7 @@ export async function GET(request: NextRequest) {
 
     // Only this company's users (the token table spans every company).
     const candidateIds = filteredUsers.map((u) => u.id)
-    const { data: calendarTokens } = candidateIds.length
-      ? await admin.from('user_google_tokens').select('user_id').in('user_id', candidateIds)
-      : { data: [] as Array<{ user_id: string }> }
-    const calendarUserIds = new Set((calendarTokens || []).map((t) => t.user_id))
+    const calendarUserIds = await calendarConnectedUserIds(admin, candidateIds)
 
     const usersWithCalendar = filteredUsers
       .filter((u) => calendarUserIds.has(u.id))

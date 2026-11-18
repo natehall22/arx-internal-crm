@@ -1,62 +1,12 @@
 import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
-import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
+import { calendarConnectedUserIds, getCalendarClient } from '@/lib/calendar/connection'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import { hasBufferedConflict, type BusyInterval } from '@/lib/scheduling-buffer'
 import { resolveSlotKindBufferAfter, parseSlotKindParam } from '@/lib/scheduling-slot-kind'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-// Helper to get valid access token (refresh if needed)
-async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
-  console.log(`getValidAccessToken: Looking up token for user ${userId}`)
-  
-  const { data: tokenData, error: tokenError } = await adminClient
-    .from('user_google_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  console.log(`getValidAccessToken: Query result - found: ${!!tokenData}, error: ${tokenError?.message || 'none'}`)
-
-  if (!tokenData) {
-    console.log(`getValidAccessToken: No token found for user ${userId}`)
-    return null
-  }
-
-  const expiresAt = new Date(tokenData.expires_at)
-  const now = new Date()
-
-  // If token expires in less than 5 minutes, try to refresh it
-  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-    console.log(`Token for user ${userId} expires soon (${expiresAt.toISOString()}), attempting refresh...`)
-    try {
-      const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      
-      await adminClient
-        .from('user_google_tokens')
-        .update({
-          access_token: refreshed.access_token,
-          expires_at: refreshed.expires_at.toISOString(),
-        })
-        .eq('user_id', userId)
-
-      console.log(`Token refreshed successfully for user ${userId}`)
-      return refreshed.access_token
-    } catch (error) {
-      console.error(`Failed to refresh token for user ${userId}:`, error)
-      // If refresh fails but token hasn't actually expired yet, try using it anyway
-      if (expiresAt > now) {
-        console.log(`Token refresh failed but token not yet expired, trying existing token`)
-        return tokenData.access_token
-      }
-      return null
-    }
-  }
-
-  return tokenData.access_token
-}
 
 // Helper to get timezone for a user based on their team
 async function getTimezoneForUser(adminClient: any, userId: string): Promise<string> {
@@ -236,17 +186,23 @@ export async function GET(request: NextRequest) {
 
     // Get access token for closer
     console.log(`Availability check for closer ${closerId} on ${dateStr}`)
-    const accessToken = await getValidAccessToken(adminClient, closerId)
+    const calendar = await getCalendarClient(adminClient, closerId)
     
     let busySlots: BusyInterval[] = []
     let hasCalendar = false
+    // A connected calendar we could not read (token unusable, call failed) is UNKNOWN, never "free": the whole day is
+    // held as busy (same rule as team availability) and the response says so.
+    let calendarUnknown = false
+    // A token row exists but no usable client (refresh failed / revoked): booking must keep working, so slots are shown
+    // as before and the response flags that the closer's calendar needs reconnecting.
+    let calendarNeedsReconnect = false
 
-    if (accessToken) {
+    if (calendar) {
       hasCalendar = true
       console.log(`Availability: Found calendar token for ${closerId}`)
       try {
         // Use UTC times for Google Calendar API
-        busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
+        busySlots = await calendar.getFreeBusy(dayStartUTC, dayEndUTC)
         console.log(`Availability: ${closerId} has ${busySlots.length} Google Calendar busy slots`)
         
         // Log each busy slot with local time conversion for debugging
@@ -262,9 +218,16 @@ export async function GET(request: NextRequest) {
         }
       } catch (error: any) {
         console.error('Failed to get free/busy:', error?.message || error)
+        calendarUnknown = true
       }
+    } else if ((await calendarConnectedUserIds(adminClient, [closerId])).has(closerId)) {
+      console.error(`Availability: ${closerId} has a connected calendar but no usable client`)
+      calendarNeedsReconnect = true
     } else {
       console.log(`Availability: No calendar token found for ${closerId}`)
+    }
+    if (calendarUnknown) {
+      busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
     }
 
     // Also check scheduled_appointments table for appointments that may not be synced to calendar
@@ -416,6 +379,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       slots,
       hasCalendar,
+      ...(calendarUnknown ? { calendarUnknown: true } : {}),
+      ...(calendarNeedsReconnect ? { calendarNeedsReconnect: true } : {}),
       timezone,
       workingHours: {
         start: workingHoursStart,

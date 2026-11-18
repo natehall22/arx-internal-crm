@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import Link from 'next/link'
 import { memo } from 'react'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
@@ -30,6 +31,8 @@ export interface OpsBoardJobCardProps {
   onJobStatus: (jobId: string, status: JobStatus) => void
   /** The company's squaresPricing switch, read once by the board (roof squares are a roofing idea). */
   squaresOn?: boolean
+  /** The company's materialOrdering switch: off = no Start Materials / Mark Ordered buttons. */
+  materialsOn?: boolean
 }
 
 function OpsBoardJobCardInner({
@@ -41,7 +44,9 @@ function OpsBoardJobCardInner({
   onMarkOrdered,
   onJobStatus,
   squaresOn = true,
+  materialsOn = true,
 }: OpsBoardJobCardProps) {
+  const rw = useRoofingWord()
   const priority = priorityConfig[job.priority] || priorityConfig.normal
   const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
   const hasOpsSnapshot = hasOperationsSnapshotData(job.project ?? null)
@@ -115,7 +120,7 @@ function OpsBoardJobCardInner({
 
       {boardEquation != null && (
         <div className="mb-2.5 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-2">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700">Sold roof squares</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700">{rw('Sold roof squares', 'Sold quantity')}</div>
           <p className="text-sm text-sky-900 leading-snug tabular-nums mt-0.5">
             <span className="text-[11px] font-normal text-sky-700">Measure </span>
             <span className="font-semibold">{formatSqPart(boardEquation.measure)}</span>
@@ -139,7 +144,7 @@ function OpsBoardJobCardInner({
             </div>
           )}
           {soldSquaresFromMeasure && (
-            <div className="text-[10px] text-sky-700 mt-1">Sold total from roof measure</div>
+            <div className="text-[10px] text-sky-700 mt-1">{rw('Sold total from roof measure', 'Sold total from measurement')}</div>
           )}
           {!soldSquaresFromMeasure && enrichedTotal == null && projectLegacyTotal != null && (
             <div className="text-[10px] text-sky-700 mt-1">From project record</div>
@@ -219,7 +224,7 @@ function OpsBoardJobCardInner({
       )}
 
       <div className="flex flex-wrap gap-1.5 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
-        {job.status === 'sold' && (
+        {materialsOn && job.status === 'sold' && (
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -230,7 +235,7 @@ function OpsBoardJobCardInner({
             Start Materials
           </button>
         )}
-        {needsMaterials && job.status === 'materials' && (
+        {materialsOn && needsMaterials && job.status === 'materials' && (
           <button
             onClick={(e) => {
               e.stopPropagation()

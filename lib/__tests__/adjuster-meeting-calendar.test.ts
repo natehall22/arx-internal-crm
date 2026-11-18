@@ -1,3 +1,4 @@
+import { CalendarApiError } from '@/lib/calendar/provider'
 import {
   ADJUSTER_MEETING_SEND_UPDATES,
   adjusterMeetingGoogleEventId,
@@ -120,7 +121,7 @@ describe('calendar persistence failures', () => {
     const saveFailure = jest.fn().mockResolvedValue(undefined)
     const result = await syncAdjusterMeetingToGoogle(
       {
-        getAccessToken: jest.fn().mockResolvedValue('token'),
+        getClient: jest.fn().mockResolvedValue('token'),
         getTimezone: jest.fn().mockResolvedValue('America/New_York'),
         formatLocal: (date) => date.toISOString().slice(0, 19),
         createEvent: jest.fn().mockResolvedValue({ id: 'google-event-1' }),
@@ -153,7 +154,7 @@ describe('calendar persistence failures', () => {
     const saveSuccess = jest.fn().mockResolvedValue(undefined)
     const result = await syncAdjusterMeetingToGoogle(
       {
-        getAccessToken: jest.fn().mockResolvedValue('token'),
+        getClient: jest.fn().mockResolvedValue('token'),
         getTimezone: jest.fn().mockResolvedValue('America/New_York'),
         formatLocal: (date) => date.toISOString().slice(0, 19),
         createEvent: jest.fn().mockRejectedValue(new Error('Google Calendar create failed (409)')),
@@ -174,6 +175,41 @@ describe('calendar persistence failures', () => {
     expect(result).toEqual({ ok: true, error: null, eventId: deterministicId })
     expect(updateEvent).toHaveBeenCalledWith('token', deterministicId, expect.any(Object))
     expect(saveSuccess).toHaveBeenCalledWith(APPOINTMENT_ID, deterministicId)
+  })
+})
+
+describe('stored event id staleness', () => {
+  const GRAPH_ID = 'AAMkAGI2TGuLAAA=' + 'x'.repeat(100) + '-_='
+  const run = async (existingEventId: string, provider: 'google' | 'microsoft') => {
+    const createEvent = jest.fn().mockResolvedValue({ id: 'newevent1' })
+    const saveFailure = jest.fn().mockResolvedValue(undefined)
+    const result = await syncAdjusterMeetingToGoogle(
+      {
+        getClient: jest.fn().mockResolvedValue({ provider }),
+        getTimezone: jest.fn().mockResolvedValue('America/New_York'),
+        formatLocal: (date: Date) => date.toISOString().slice(0, 19),
+        createEvent,
+        updateEvent: jest.fn().mockRejectedValue(new CalendarApiError('bad request', 400)),
+        getUserEmail: jest.fn().mockResolvedValue(null),
+        saveSuccess: jest.fn().mockResolvedValue(undefined),
+        saveFailure,
+      } as never,
+      { appointmentId: APPOINTMENT_ID, attendeeUserId: 'rep-1', scheduledForIso: '2026-08-08T12:00:00.000Z', durationMinutes: 60, customerName: 'C', existingEventId }
+    )
+    return { result, createEvent, saveFailure }
+  }
+
+  it('a Google 400 on a Google-shaped id is a real failure: no new event, id kept', async () => {
+    const { result, createEvent, saveFailure } = await run('abcdefghijklmnop12345', 'google')
+    expect(createEvent).not.toHaveBeenCalled()
+    expect(result.ok).toBe(false)
+    expect(saveFailure).toHaveBeenCalledWith(APPOINTMENT_ID, expect.any(String), 'abcdefghijklmnop12345')
+  })
+
+  it("an Outlook id on a Google calendar (provider switched) is recreated", async () => {
+    const { result, createEvent } = await run(GRAPH_ID, 'google')
+    expect(createEvent).toHaveBeenCalledTimes(1)
+    expect(result.ok).toBe(true)
   })
 })
 

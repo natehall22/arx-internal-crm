@@ -5,6 +5,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatPhonesInText } from '@/lib/format'
+import { customerHref } from '@/lib/customer-file/links'
 
 export type SearchKind = 'customer' | 'job' | 'proposal' | 'opportunity'
 export type SearchGroup = { kinds: SearchKind[]; owner: string | null }
@@ -55,11 +56,11 @@ export async function runSearch(admin: SupabaseClient, orgId: string, q: string,
   return hits.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, limit)
 }
 
-/** Where each kind opens. (Phase C moves customers to the Customer File.) */
-export function hrefForHit(h: Pick<SearchHit, 'kind' | 'id'>): string {
+/** Where each kind opens. Customers open the Customer File where it is the company's default (lib/customer-file/links.ts). */
+export function hrefForHit(h: Pick<SearchHit, 'kind' | 'id'>, customerFileDefault = false): string {
   switch (h.kind) {
     case 'customer':
-      return `/customers/${h.id}`
+      return customerHref(h.id, customerFileDefault)
     case 'job':
       return `/ops/jobs/${h.id}`
     case 'proposal':

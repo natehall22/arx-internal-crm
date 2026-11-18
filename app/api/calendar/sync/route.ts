@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import {
-  createCalendarEvent,
-  refreshAccessToken,
-  isSlotAvailable,
-  getAvailableSlots,
-  CalendarEvent,
-} from '@/lib/google-calendar'
+import { getCalendarClient } from '@/lib/calendar/connection'
+import type { CalendarEvent } from '@/lib/calendar/provider'
 import { getOrgDefaultSchedulingGapMinutes } from '@/lib/org-scheduling-gap'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -62,43 +57,6 @@ function getAuthClient(req: NextRequest) {
     }),
     accessToken: sessionData?.access_token,
   }
-}
-
-// Helper to get valid access token (refresh if needed)
-async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
-  const { data: tokenData } = await adminClient
-    .from('user_google_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  if (!tokenData) return null
-
-  const expiresAt = new Date(tokenData.expires_at)
-  const now = new Date()
-
-  // If token expires in less than 5 minutes, refresh it
-  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-    try {
-      const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      
-      // Update token in database
-      await adminClient
-        .from('user_google_tokens')
-        .update({
-          access_token: refreshed.access_token,
-          expires_at: refreshed.expires_at.toISOString(),
-        })
-        .eq('user_id', userId)
-
-      return refreshed.access_token
-    } catch (error) {
-      console.error('Failed to refresh token:', error)
-      return null
-    }
-  }
-
-  return tokenData.access_token
 }
 
 /** The closer must be an active user in the caller's own company: this route writes to / reads their Google calendar. */
@@ -157,14 +115,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Get closer's Google token
-    const googleAccessToken = await getValidAccessToken(adminClient, closer_user_id)
+    const calendar = await getCalendarClient(adminClient, closer_user_id)
     
-    if (!googleAccessToken) {
+    if (!calendar) {
       // Closer doesn't have Google Calendar connected - that's okay, just skip sync
       return NextResponse.json({ 
         success: true, 
         calendar_synced: false,
-        message: 'Closer does not have Google Calendar connected'
+        message: 'Closer does not have a calendar connected'
       })
     }
 
@@ -235,7 +193,7 @@ export async function POST(request: NextRequest) {
       },
     }
 
-    const createdEvent = await createCalendarEvent(googleAccessToken, event)
+    const createdEvent = await calendar.createEvent(event)
 
     return NextResponse.json({ 
       success: true, 
@@ -281,14 +239,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Get closer's Google token
-    const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
+    const calendar = await getCalendarClient(adminClient, closerUserId)
     
-    if (!googleAccessToken) {
+    if (!calendar) {
       // No Google Calendar - assume available
       return NextResponse.json({ 
         available: true,
         has_calendar: false,
-        message: 'Closer does not have Google Calendar connected'
+        message: 'Closer does not have a calendar connected'
       })
     }
 
@@ -316,8 +274,7 @@ export async function GET(request: NextRequest) {
     if (action === 'slots' && date) {
       // Get available slots for a date
       const targetDate = new Date(date)
-      const slots = await getAvailableSlots(
-        googleAccessToken,
+      const slots = await calendar.getAvailableSlots(
         targetDate,
         60, // duration
         bufferMinutes,
@@ -337,7 +294,7 @@ export async function GET(request: NextRequest) {
       const start = new Date(startTime)
       const end = new Date(endTime)
       
-      const available = await isSlotAvailable(googleAccessToken, start, end, bufferMinutes)
+      const available = await calendar.isSlotAvailable(start, end, bufferMinutes)
 
       return NextResponse.json({
         has_calendar: true,

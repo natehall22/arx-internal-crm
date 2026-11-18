@@ -8,6 +8,7 @@ import { getManagerSpoRoleSummary } from '@/lib/manager-commission-roles'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
+import { proposalTemplateHints } from '@/lib/industry-profiles-proposal'
 import { readPriceOptions, unitLabelForDisplay, type PriceOption } from '@/lib/price-list'
 import { canEditPriceLists, PRICE_LIST_NAME_MAX } from '@/lib/price-list-access'
 
@@ -85,7 +86,9 @@ export default function AdminProposalsPage() {
   /** Roof squares pricing switched off (Settings → Features): no roof-square add-on units. */
   const squaresOn = useOrgFeatures().squaresPricing
   /** Add-on categories and units come from the company's industry profile (lib/industry-profiles.ts; roofing = the old lists). */
-  const pricebookProfile = useOrgProfile().pricebook
+  const orgProfile = useOrgProfile()
+  const pricebookProfile = orgProfile.pricebook
+  const templateHints = proposalTemplateHints(orgProfile.id)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('pricing')
   const [pricebookItems, setPricebookItems] = useState<PricebookItem[]>([])
@@ -1350,7 +1353,7 @@ export default function AdminProposalsPage() {
                     value={templateForm.description}
                     onChange={(e) => setTemplateForm(prev => ({ ...prev, description: e.target.value }))}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    placeholder="Default template for residential roofing"
+                    placeholder={templateHints.description}
                   />
                 </div>
                 <div>
@@ -1373,7 +1376,7 @@ export default function AdminProposalsPage() {
                     onChange={(e) => setTemplateForm(prev => ({ ...prev, default_scope_of_work: e.target.value }))}
                     rows={3}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    placeholder="Complete tear-off and replacement of existing roofing system..."
+                    placeholder={templateHints.scope}
                   />
                 </div>
                 <div>
@@ -1383,7 +1386,7 @@ export default function AdminProposalsPage() {
                     onChange={(e) => setTemplateForm(prev => ({ ...prev, default_warranty_info: e.target.value }))}
                     rows={3}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    placeholder="10-year workmanship warranty..."
+                    placeholder={templateHints.warranty}
                   />
                 </div>
                 <label className="flex items-center gap-3">

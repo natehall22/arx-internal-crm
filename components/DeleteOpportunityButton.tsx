@@ -1,5 +1,6 @@
 'use client'
 
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from '@/components/ui/toast'
@@ -10,6 +11,7 @@ interface DeleteOpportunityButtonProps {
 }
 
 export default function DeleteOpportunityButton({ opportunityId, customerName }: DeleteOpportunityButtonProps) {
+  const rw = useRoofingWord()
   const router = useRouter()
   const [deleting, setDeleting] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -74,7 +76,7 @@ export default function DeleteOpportunityButton({ opportunityId, customerName }:
                 <li>All proposals linked to this opportunity</li>
                 <li>All projects linked to this opportunity</li>
                 <li>All appointments and activities</li>
-                <li>All roof measurements</li>
+                <li>{rw('All roof measurements', 'All measurements')}</li>
               </ul>
             </div>
 

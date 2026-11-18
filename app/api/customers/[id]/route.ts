@@ -6,6 +6,9 @@ import { loadCustomerForCaller } from '@/lib/customer-file/customer-read'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { withoutCustomFields } from '@/lib/custom-fields'
 import { CATEGORIES_NOT_READY, setCustomerCategory } from '@/lib/categories-db'
+import { enqueueCustomerUpserted } from '@/lib/integrations'
+import { createQbLinks } from '@/lib/quickbooks/links'
+import { textKey } from '@/lib/text-key'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,7 +63,7 @@ export async function PATCH(
     // Verify customer exists and belongs to org
     const { data: existingCustomer, error: fetchError } = await adminClient
       .from('customers')
-      .select('id')
+      .select('id, name, email, phone, address_text')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -116,12 +119,49 @@ export async function PATCH(
       .from('customers')
       .update(updateData)
       .eq('id', params.id)
+      .eq('org_id', profile.org_id)
       .select()
       .single()
 
     if (updateError) {
       console.error('Error updating customer:', updateError)
       return NextResponse.json({ error: 'Failed to update customer' }, { status: 500 })
+    }
+
+    // Edited from a deal's file with "also update this deal's address": the linked lead's copy follows only if it still holds the
+    // old value (equality guard, so a lead someone changed on purpose is left alone) and the lead really belongs to this customer's deal.
+    const alsoLead = body.also_lead as { lead_id?: unknown; old_address?: unknown } | undefined
+    if (alsoLead && typeof alsoLead.lead_id === 'string' && typeof alsoLead.old_address === 'string' && alsoLead.old_address && updateData.address_text) {
+      const { data: link } = await adminClient
+        .from('opportunities')
+        .select('id')
+        .eq('org_id', profile.org_id)
+        .eq('customer_id', params.id)
+        .eq('lead_id', alsoLead.lead_id)
+        .limit(1)
+        .maybeSingle()
+      if (link) {
+        // old_address is the DEAL's address before the edit; the lead matches when it holds that same text (case / spacing aside),
+        // and the write is guarded on the exact value read, so a lead someone changed in between is left alone.
+        const { data: lead } = await adminClient.from('leads').select('address_text').eq('id', alsoLead.lead_id).eq('org_id', profile.org_id).maybeSingle()
+        const held = (lead as { address_text: string | null } | null)?.address_text
+        if (held && textKey(held) === textKey(alsoLead.old_address)) {
+          await adminClient.from('leads').update({ address_text: updateData.address_text }).eq('id', alsoLead.lead_id).eq('org_id', profile.org_id).eq('address_text', held)
+        }
+      }
+    }
+
+    // QuickBooks: a customer already sent there (a qb_links row exists, i.e. signed and synced) gets its edit re-queued. Anyone else is
+    // not in QuickBooks yet, so nothing is queued. The helper itself checks the company's QuickBooks switch and plan and never throws.
+    // Only a field that really changed counts (a save that sends the same values back queues nothing).
+    const before = existingCustomer as Record<string, unknown>
+    if (['name', 'email', 'phone', 'address_text'].some((k) => k in updateData && (updateData[k] ?? null) !== ((before[k] as string | null | undefined) ?? null))) {
+      try {
+        const sent = await createQbLinks(adminClient, profile.org_id).get('customers', params.id, 'Customer')
+        if (sent) await enqueueCustomerUpserted(adminClient, profile.org_id, params.id, customer as Record<string, unknown>)
+      } catch (e) {
+        console.error('QuickBooks customer re-queue failed (customer saved):', e)
+      }
     }
 
     return NextResponse.json({ customer })

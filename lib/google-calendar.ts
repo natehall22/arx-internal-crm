@@ -2,6 +2,18 @@
 // Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI in env
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAppUrl } from '@/lib/app-url'
+import { microsoftConfigured } from '@/lib/calendar/microsoft-calendar'
+import { calendarSwitchBlockReason } from '@/lib/calendar/switch-guard'
+import {
+  CalendarApiError,
+  isWindowFree,
+  pickOpenSlots,
+  workingWindow,
+  type CalendarEvent,
+  type CalendarEventListItem,
+  type FreeBusyCalendarResult,
+  type FreeBusySlot,
+} from '@/lib/calendar/provider'
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -20,53 +32,8 @@ export interface GoogleTokens {
   scope: string
 }
 
-/**
- * A timed instant (used by every existing caller — appointment sync, adjuster
- * meetings, closer calendar sync): a specific time plus an IANA timezone.
- */
-export interface CalendarEventDateTime {
-  dateTime: string
-  timeZone?: string
-  /**
-   * Send `null` when PATCHing an event that was all-day: events.patch merges
-   * nested objects field by field, so an omitted `date` survives next to the new
-   * `dateTime` and Google rejects the update.
-   */
-  date?: null
-}
-
-/**
- * An all-day date (used by install scheduling): a bare `YYYY-MM-DD`, no time
- * or timezone component at all — this is Google's own representation of an
- * all-day event and must never be constructed from a JS `Date`/`toISOString()`
- * round-trip, which can shift the calendar day.
- */
-export interface CalendarEventDate {
-  date: string
-  /** Send `null` when PATCHing an event that was timed — see {@link CalendarEventDateTime.date}. */
-  dateTime?: null
-  timeZone?: null
-}
-
-export interface CalendarEvent {
-  id?: string
-  summary: string
-  description?: string
-  location?: string
-  start: CalendarEventDateTime | CalendarEventDate
-  end: CalendarEventDateTime | CalendarEventDate
-  attendees?: { email: string }[]
-  /** Explicit reminder overrides. For all-day events Google counts back from midnight of the start date. */
-  reminders?: {
-    useDefault: boolean
-    overrides?: { method: 'popup' | 'email'; minutes: number }[]
-  }
-}
-
-export interface FreeBusySlot {
-  start: string
-  end: string
-}
+// The event/free-busy shapes live in the provider contract; re-exported so every existing import keeps working.
+export type { CalendarEventDateTime, CalendarEventDate, CalendarEvent, FreeBusySlot, FreeBusyCalendarResult, CalendarEventListItem } from '@/lib/calendar/provider'
 
 /**
  * Carries Google's HTTP status so callers can react to it rather than
@@ -74,20 +41,15 @@ export interface FreeBusySlot {
  * event is gone and the caller should create a fresh one instead of retrying
  * a dead id forever.
  */
-export class GoogleCalendarError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number
-  ) {
-    super(message)
+export class GoogleCalendarError extends CalendarApiError {
+  constructor(message: string, status: number) {
+    super(message, status)
     this.name = 'GoogleCalendarError'
   }
 }
 
 /** True when Google says the event no longer exists, so a stored id is stale. */
-export function isMissingEventError(error: unknown): boolean {
-  return error instanceof GoogleCalendarError && (error.status === 404 || error.status === 410)
-}
+export { isMissingEventError } from '@/lib/calendar/provider'
 
 /** The OAuth callback Google redirects to. Must be listed exactly in the Google OAuth client (see docs/domain-cutover.md). */
 function googleRedirectUri(): string {
@@ -312,16 +274,6 @@ export async function getFreeBusy(
   return allBusySlots
 }
 
-/**
- * Per-calendar free/busy result for {@link getFreeBusyForCalendars}: either the
- * calendar's busy blocks, or the error Google returned for it (e.g. `notFound`
- * when it was never shared with this account, `forbidden` when access was
- * revoked). Callers MUST branch on `'error' in result` before reading `busy` —
- * a calendar that errored has no `busy` array, and must never be treated as
- * "no busy blocks found" (i.e. free). See `lib/sub-availability.ts`, which
- * turns this into a per-sub share status instead of an availability answer.
- */
-export type FreeBusyCalendarResult = { busy: FreeBusySlot[] } | { error: string }
 
 /**
  * Free/busy for a specific, caller-supplied list of calendars — unlike
@@ -394,11 +346,6 @@ export async function getFreeBusyForCalendars(
   return result
 }
 
-/** One event as returned by {@link listCalendarEventsInRange} — only the fields that route needs. */
-export interface CalendarEventListItem {
-  id: string
-  attendees?: { email: string; responseStatus?: string }[]
-}
 
 /**
  * List events on `calendarId` overlapping `[timeMinIso, timeMaxIso)`, paging
@@ -461,7 +408,7 @@ export async function isSlotAvailable(
   const busySlots = await getFreeBusy(accessToken, bufferedStart, bufferedEnd)
   
   // If no busy slots in range, the time is available
-  return busySlots.length === 0
+  return isWindowFree(busySlots)
 }
 
 /**
@@ -574,7 +521,7 @@ export async function deleteCalendarEvent(
 
   if (!response.ok && response.status !== 404) {
     const detail = await response.text().catch(() => '')
-    throw new Error(`Failed to delete event: ${response.status} ${detail}`)
+    throw new GoogleCalendarError(`Failed to delete event: ${response.status} ${detail}`, response.status)
   }
 }
 
@@ -589,43 +536,12 @@ export async function getAvailableSlots(
   workingHoursStart: number = 8, // 8 AM
   workingHoursEnd: number = 20 // 8 PM
 ): Promise<Date[]> {
-  // Get start and end of the day
-  const dayStart = new Date(date)
-  dayStart.setHours(workingHoursStart, 0, 0, 0)
-  
-  const dayEnd = new Date(date)
-  dayEnd.setHours(workingHoursEnd, 0, 0, 0)
+  const { dayStart, dayEnd } = workingWindow(date, workingHoursStart, workingHoursEnd)
 
   // Get busy slots for the day
   const busySlots = await getFreeBusy(accessToken, dayStart, dayEnd)
 
-  // Generate potential slots (every 30 minutes)
-  const slots: Date[] = []
-  const slotInterval = 30 * 60 * 1000 // 30 minutes
-  
-  let currentSlot = new Date(dayStart)
-  
-  while (currentSlot.getTime() + durationMinutes * 60 * 1000 <= dayEnd.getTime()) {
-    const slotEnd = new Date(currentSlot.getTime() + durationMinutes * 60 * 1000)
-    
-    // Check if slot conflicts with any busy period (including buffer)
-    const bufferedStart = new Date(currentSlot.getTime() - bufferMinutes * 60 * 1000)
-    const bufferedEnd = new Date(slotEnd.getTime() + bufferMinutes * 60 * 1000)
-    
-    const hasConflict = busySlots.some(busy => {
-      const busyStart = new Date(busy.start)
-      const busyEnd = new Date(busy.end)
-      return bufferedStart < busyEnd && bufferedEnd > busyStart
-    })
-    
-    if (!hasConflict) {
-      slots.push(new Date(currentSlot))
-    }
-    
-    currentSlot = new Date(currentSlot.getTime() + slotInterval)
-  }
-
-  return slots
+  return pickOpenSlots(busySlots, dayStart, dayEnd, durationMinutes, bufferMinutes)
 }
 
 /**
@@ -633,6 +549,8 @@ export async function getAvailableSlots(
  * the legacy callback and the company-address finish step. Returns false when storing failed.
  */
 export async function saveGoogleConnection(admin: SupabaseClient, code: string, userId: string, orgId: string): Promise<boolean> {
+  // Refuse before spending the one-time code when this would orphan the install schedule (lib/calendar/switch-guard.ts).
+  if (await calendarSwitchBlockReason(admin, userId, orgId, 'google')) return false
   const tokens = await exchangeCodeForTokens(code)
   // org-scope-ok: upsert key user_id is the signed-in user (both callers: callback + finish) and orgId is that user's own profile org; a user belongs to one company, so the row cannot be re-homed
   const { error } = await admin.from('user_google_tokens').upsert(
@@ -650,6 +568,13 @@ export async function saveGoogleConnection(admin: SupabaseClient, code: string, 
   if (error) {
     console.error('Failed to store Google tokens:', error)
     return false
+  }
+  // One calendar provider per user: connecting Google clears an Outlook connection.
+  // Only when Outlook is on at all: with it off there is no such connection to clear (and no extra query).
+  if (microsoftConfigured()) {
+    // org-scope-ok: the signed-in user's own row
+    const { error: clearError } = await admin.from('user_microsoft_tokens').delete().eq('user_id', userId)
+    if (clearError) console.error('Failed to clear Outlook connection after Google connect:', clearError.message)
   }
   return true
 }

@@ -201,7 +201,7 @@ function unpaidContractBalanceCents(args: {
 
 type WorkflowBtnId = 'resume' | 'schedule' | 'materials' | 'startJob' | 'complete' | 'collected'
 
-function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; secondary: WorkflowBtnId[] } {
+function getWorkflowPrimaryAndSecondaryIds(job: Job, materialsStep = true): { primary: WorkflowBtnId; secondary: WorkflowBtnId[] } {
   // A paused job's only next step is un-pausing it — no crews/invites while it's on hold.
   if (job.status === 'on_hold') return { primary: 'resume', secondary: [] }
   const show: Record<Exclude<WorkflowBtnId, 'resume'>, boolean> = {
@@ -209,7 +209,7 @@ function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; 
     // One tap that records the order (and moves Sold → Material Ordering). The old
     // "Start Material Ordering" / "Materials Ready" pair were status flips nobody used;
     // booking a crew already moves the job to Scheduled (deriveJobSchedule).
-    materials: (job.status === 'sold' || job.status === 'materials') && (job.materials_status || 'not_ordered') === 'not_ordered',
+    materials: materialsStep && (job.status === 'sold' || job.status === 'materials') && (job.materials_status || 'not_ordered') === 'not_ordered',
     startJob: job.status === 'scheduled',
     complete: job.status === 'in_progress',
     collected: job.status === 'complete',
@@ -359,6 +359,8 @@ interface FinancialSourceProposalOption {
 }
 
 interface JobDetailClientProps {
+  /** Service plans started by this job's approved quote (not ended). Cancelling the job leaves them running. */
+  quotePlanCount?: number
   /** Rendered inside the Customer File: no Nav, back link, or legacy notes card (the file's thread replaces it). */
   embedded?: boolean
   initialJob: Job
@@ -424,8 +426,8 @@ interface OrgUser {
 // ─── Insurance Card ────────────────────────────────────────────────────────────
 const INSURANCE_STAGES: { value: string; label: string; probability: number }[] = [
   { value: 'contingency_signed',    label: 'Contingency signed',       probability: 35 },
-  { value: 'claim_filed',           label: 'Claim filed',              probability: 50 },
-  { value: 'claim_approved',        label: 'Claim approved',           probability: 88 },
+  { value: 'claim_filed',           label: 'Claim filed',              probability: 50 }, // roofing-ok: insurance-gated
+  { value: 'claim_approved',        label: 'Claim approved',           probability: 88 }, // roofing-ok: insurance-gated
   { value: 'acv_received',          label: 'ACV received',             probability: 95 },
   { value: 'job_complete',          label: 'Job complete',             probability: 95 },
   { value: 'depreciation_filed',    label: 'Depreciation filed',       probability: 82 },
@@ -461,6 +463,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
                 : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
             }`}
           >
+            {/* roofing-ok: insurance-gated */}
             Insurance
           </button>
         </div>
@@ -470,6 +473,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
         <div className="space-y-4">
           {/* Stage */}
           <div>
+            {/* roofing-ok: insurance-gated */}
             <label className="block text-xs font-medium text-gray-700 mb-1">Claim stage</label>
             <select
               value={job.insurance_stage || ''}
@@ -491,6 +495,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
           {/* Claim info */}
           <div className="grid grid-cols-2 gap-3">
             <div>
+              {/* roofing-ok: insurance-gated */}
               <label className="block text-xs font-medium text-gray-700 mb-1">Claim number</label>
               <input
                 type="text"
@@ -501,6 +506,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
               />
             </div>
             <div>
+              {/* roofing-ok: insurance-gated */}
               <label className="block text-xs font-medium text-gray-700 mb-1">Insurance company</label>
               <input
                 type="text"
@@ -626,6 +632,7 @@ export default function JobDetailClient({
   catchUp = null,
   detailsSlot = null,
   orgFeatures: serverOrgFeatures = null,
+  quotePlanCount = 0,
   orgProfile: serverOrgProfile = null,
 }: JobDetailClientProps) {
   const router = useRouter()
@@ -1114,8 +1121,8 @@ export default function JobDetailClient({
   const todayYmd = useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), [])
   const unpaidForTabs = canViewJobBilling && paymentSummary ? unpaidContractCents : null
   const v2Attention = useMemo(
-    () => tabsNeedingAttention({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs }).filter((t) => v2Tabs.includes(t)),
-    [job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs]
+    () => tabsNeedingAttention({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, materialsStep: orgFeatures.materialOrdering }).filter((t) => v2Tabs.includes(t)),
+    [job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs, orgFeatures.materialOrdering]
   )
   // Until the person picks a tab (or arrives by a deep link), follow the next thing that needs doing as the data arrives.
   useEffect(() => {
@@ -1125,9 +1132,9 @@ export default function JobDetailClient({
     let last: string | null = null
     try { last = localStorage.getItem(LAST_TAB_KEY) } catch { /* private mode */ }
     setJobTabState(
-      pickDefaultJobTab({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, allowed: v2Tabs.filter((t) => t !== 'notes'), lastTab: last })
+      pickDefaultJobTab({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, allowed: v2Tabs.filter((t) => t !== 'notes'), lastTab: last, materialsStep: orgFeatures.materialOrdering })
     )
-  }, [v2, job.status, materialsState.key, jobTrades, tradesLoaded, canViewJobBilling, paymentSummary, todayYmd, unpaidForTabs, v2Tabs])
+  }, [v2, job.status, materialsState.key, jobTrades, tradesLoaded, canViewJobBilling, paymentSummary, todayYmd, unpaidForTabs, v2Tabs, orgFeatures.materialOrdering])
 
   const handleCompleteClick = () => {
     // Warn, don't block: crews finish out one at a time, and ops may know a
@@ -1777,7 +1784,7 @@ export default function JobDetailClient({
           {/* Desktop: one primary CTA + outlined secondaries + More (pause/delete) */}
           <div className="hidden lg:flex flex-wrap items-center gap-2 pt-4 border-t">
             {(() => {
-              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
+              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job, orgFeatures.materialOrdering)
               const wfOpts = {
                 saving,
                 goToCrews,
@@ -1849,7 +1856,7 @@ export default function JobDetailClient({
         <div className="lg:hidden mb-4 bg-white rounded-xl shadow-sm border p-4">
           <div className="flex flex-col gap-2">
             {(() => {
-              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
+              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job, orgFeatures.materialOrdering)
               const wfOpts = {
                 saving,
                 goToCrews,
@@ -1955,6 +1962,11 @@ export default function JobDetailClient({
                 The job comes off the board and the install schedule, and the signed agreement is voided so it no
                 longer counts as a sale. A new signed agreement brings it back.
               </p>
+              {quotePlanCount > 0 && (
+                <p className="mt-2 text-sm font-medium text-[#2c2c2a]">
+                  This sale started {quotePlanCount === 1 ? 'a recurring service plan' : `${quotePlanCount} recurring service plans`}. Cancelling the job does not end {quotePlanCount === 1 ? 'it' : 'them'}. End {quotePlanCount === 1 ? 'it' : 'them'} on the customer’s plan page if the customer is also stopping the recurring service.
+                </p>
+              )}
               <fieldset className="mt-4">
                 <legend className="text-sm font-medium text-[#2c2c2a]">Reason (required)</legend>
                 <div className="mt-2 flex flex-col gap-1">
@@ -2390,6 +2402,7 @@ export default function JobDetailClient({
                         >
                           <option value="cash">Cash</option>
                           <option value="finance">Finance</option>
+                          {/* roofing-ok: insurance-gated */}
                           {(orgFeatures.insurance || financialSourceDraft.paymentMethod === 'insurance') && <option value="insurance">Insurance</option>}
                           <option value="other">Other</option>
                         </select>

@@ -6,6 +6,8 @@ import { customerSignedDocPath } from '@/lib/files/files-object'
 import { loadOrgFeatures } from '@/lib/org-features'
 import { depositStateFor, finalizeApproval, loadApproval } from '@/lib/quotes/approve'
 import { resolvePublicQuoteLink, touchQuoteLink } from '@/lib/quotes/links'
+import { approvalOneTimeCents } from '@/lib/quotes/recurring'
+import { approvalPdfPath } from '@/lib/quotes/approval-pdf-path'
 import { buildQuoteView, companyForQuote, loadQuoteContext, type QuoteView } from '@/lib/quotes/load'
 import { orgDb } from '@/lib/supabase/org-db'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -47,15 +49,19 @@ export default async function QuotePage({ params }: { params: { token: string } 
       const row = c as { signing_token?: string | null; signing_token_enc?: string | null; pdf_url?: string | null } | null
       const copyToken = signingTokenOf(row)
       if (copyToken && row?.pdf_url) copyHref = customerSignedDocPath('contract', copyToken)
+    } else if (approval.finalized_at && (await approvalPdfPath(admin, orgId, approval))) {
+      // A plan-only approval has no contract: the copy comes through the quote link itself.
+      copyHref = `/api/q/${params.token}/pdf`
     }
     const dep = approval.finalized_at ? await depositStateFor(admin, orgId, approval) : null
     approvalView = {
       typedName: approval.typed_name,
       approvedAt: approval.approved_at,
-      totalCents: approval.total_cents,
+      // The one-time total the customer sees; a plan-only approval stores its recurring estimate in total_cents as a placeholder, so this reads 0 there.
+      totalCents: approvalOneTimeCents(approval),
       depositCents: approval.deposit_cents,
       taxCents: approval.tax_cents,
-      chosenNames: approval.snapshot.lines.filter((l) => l.chosen && l.optional).map((l) => l.name),
+      chosenNames: [...approval.snapshot.lines.filter((l) => l.chosen && l.optional).map((l) => l.name), ...(approval.snapshot.recurring ?? []).filter((r) => r.chosen && r.optional).map((r) => r.name)],
       depositState: !dep ? 'pending' : dep.state,
       canPayOnline: dep?.canPayOnline ?? false,
       copyHref,

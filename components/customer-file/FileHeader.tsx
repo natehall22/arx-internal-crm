@@ -1,12 +1,13 @@
 import Link from 'next/link'
 
 import ContactActions from '@/components/customer/ContactActions'
+import EditCustomerButton from '@/components/customers/EditCustomerSheet'
 import { StatusPill } from '@/components/ui'
 import type { FileContext } from '@/lib/customer-file/load'
 import { TAB_LABELS } from '@/lib/customer-file/access'
 
 /** Sticky identity block: who, where, how to reach them, which deal, where the deal stands, what's next, pinned alerts. */
-export default function FileHeader({ ctx, canSendForSignature = false }: { ctx: FileContext; canSendForSignature?: boolean }) {
+export default function FileHeader({ ctx, canSendForSignature = false, canEditCustomer = false }: { ctx: FileContext; canSendForSignature?: boolean; canEditCustomer?: boolean }) {
   const { customer, deal, deals, job, stages, next, pinned } = ctx
   const base = `/c/${customer.id}/d/${deal.id}`
   const signHref = `/signing/new?${new URLSearchParams({ customerId: customer.id, opportunityId: deal.id, ...(customer.name ? { name: customer.name } : {}), ...(customer.email ? { email: customer.email } : {}) }).toString()}`
@@ -25,6 +26,7 @@ export default function FileHeader({ ctx, canSendForSignature = false }: { ctx: 
           </div>
           <div className="flex flex-wrap gap-2">
             <ContactActions dealId={deal.id} phone={customer.phone} email={customer.email} surface={job ? 'job' : 'overview'} />
+            {canEditCustomer && <EditCustomerButton customer={customer} deal={{ id: deal.id, address_text: deal.address_text, lead_id: deal.lead_id }} />}
             {canSendForSignature && (
               <Link href={signHref} className="inline-flex min-h-tap items-center rounded-ui border border-surface-line px-4 text-ui-sm font-semibold text-ink">Send for signature</Link>
             )}

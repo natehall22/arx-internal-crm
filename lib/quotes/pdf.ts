@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { QuoteApprovalPDF, type QuoteApprovalPdfData } from '@/components/QuoteApprovalPDF'
 import { getOrgBrand } from '@/lib/org-brand'
 import type { ApprovalRow } from '@/lib/quotes/approve'
+import { approvalOneTimeCents } from '@/lib/quotes/recurring'
 
 export function approvalPdfData(
   approval: Pick<ApprovalRow, 'snapshot' | 'typed_name' | 'approved_at' | 'approved_ip' | 'subtotal_cents' | 'discount_cents' | 'tax_cents' | 'total_cents' | 'deposit_cents'>,
@@ -31,9 +32,13 @@ export function approvalPdfData(
     discountCents: approval.discount_cents,
     taxLines: s.taxLines,
     taxCents: approval.tax_cents,
-    totalCents: approval.total_cents,
+    // The one-time total: a plan-only approval keeps its recurring estimate in total_cents as a placeholder (reads 0 here).
+    totalCents: approvalOneTimeCents(approval),
     deposit: { cents: approval.deposit_cents, label: s.deposit.mode === 'percent' ? `Deposit (${s.deposit.percent}%)` : 'Deposit' },
     terms: s.terms,
+    ...(s.recurring && s.recurring.length > 0
+      ? { recurring: s.recurring.map((r) => ({ name: r.name, description: r.description ?? '', detail: r.detail, termsLine: r.termsLine, optional: r.optional, chosen: r.chosen, firstSeasonCents: r.firstSeasonCents })) }
+      : {}),
     approval: { typedName: approval.typed_name, approvedAt: approval.approved_at, ip: approval.approved_ip },
   }
 }
@@ -47,7 +52,7 @@ export async function storeApprovalPdf(
   admin: SupabaseClient,
   orgId: string,
   approval: ApprovalRow,
-  contractId: string,
+  contractId: string | null,
   customer: { name: string; address: string }
 ): Promise<string> {
   const path = `org/${orgId}/quotes/${approval.id}.pdf`
@@ -58,7 +63,10 @@ export async function storeApprovalPdf(
   const buffer = await renderApprovalPdf(data)
   const { error } = await admin.storage.from('files').upload(path, buffer, { contentType: 'application/pdf', upsert: false })
   if (error && !/already exists|duplicate|resource already/i.test(`${error.message} ${(error as { statusCode?: string }).statusCode ?? ''}`)) throw new Error(`quote pdf upload: ${error.message}`)
-  const { error: up } = await admin.from('order_form_contracts').update({ pdf_url: path, pdf_storage_path: path }).eq('id', contractId).eq('org_id', orgId)
+  // A plan-only quote has no contract: the path goes on the approval itself.
+  const { error: up } = contractId
+    ? await admin.from('order_form_contracts').update({ pdf_url: path, pdf_storage_path: path }).eq('id', contractId).eq('org_id', orgId)
+    : await admin.from('quote_approvals').update({ pdf_path: path }).eq('id', approval.id).eq('org_id', orgId)
   if (up) throw new Error(`quote pdf link: ${up.message}`)
   return path
 }
