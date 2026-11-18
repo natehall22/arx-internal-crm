@@ -28,7 +28,7 @@ import {
   type ClockTap,
   type TimeEntry,
 } from '@/lib/time-tracking'
-import { LEGACY_PAY_WEEK, weekCutoffContaining } from '@/lib/payroll-week-schedule'
+import { LEGACY_PAY_WEEK, nextWeekCutoff, weekCutoffContaining } from '@/lib/payroll-week-schedule'
 
 const TZ = DEFAULT_TIMEZONE
 const U1 = 'aaaaaaaa-0000-4000-8000-000000000001'
@@ -200,7 +200,7 @@ function seed(extra: Record<string, unknown[]> = {}) {
       payroll_rep_hours: [],
       ...extra,
     },
-    { unique: { time_entries: [['org_id', 'client_tap_id', 'kind', 'user_id']] } }
+    { unique: { time_entries: [{ name: 'time_entries_tap_once', cols: ['org_id', 'client_tap_id', 'kind', 'user_id'] }] } }
   )
 }
 type Db = ReturnType<typeof seed>
@@ -564,5 +564,242 @@ describe('paid today shown with the day clock', () => {
     await applyClockTap(db.client, crew, tap('day_start', T('06:00'), { userIds: [U1] }), T('06:00'))
     const p = (await loadClockState(db.client, crew, T('12:00'))).people.find((x) => x.userId === U1)!
     expect(p.paidTodaySeconds).toBe(6 * 3600)
+  })
+})
+
+describe('a forgotten day is closed at its own day’s last tap, never at a tap made after it', () => {
+  async function run(dayYmd: string, nextYmd: string, extraTapAt: string | null) {
+    const db = seed()
+    await applyClockTap(db.client, crew, tap('day_start', T('19:30', dayYmd), { userIds: [U1] }), T('19:30', dayYmd))
+    if (extraTapAt) {
+      await applyClockTap(db.client, crew, tap('clock_in', T(extraTapAt, dayYmd), { workOrderId: WO1, userIds: [U1] }), T(extraTapAt, dayYmd))
+      await applyClockTap(db.client, crew, tap('clock_out', T('23:55', dayYmd), { userIds: [U1] }), T('23:55', dayYmd))
+    }
+    // The next morning: a stop tap at 06:50, then Start day.
+    await applyClockTap(db.client, crew, tap('clock_in', T('06:50', nextYmd), { workOrderId: WO1, userIds: [U1] }), T('06:50', nextYmd))
+    await applyClockTap(db.client, crew, tap('clock_out', T('06:55', nextYmd), { userIds: [U1] }), T('06:55', nextYmd))
+    await applyClockTap(db.client, crew, tap('day_start', T('07:00', nextYmd), { userIds: [U1] }), T('07:00', nextYmd))
+    const old = db.tables.time_entries.find((e) => e.kind === 'shift' && e.end_source === 'auto_closed')!
+    return { old, dayYmd, nextYmd }
+  }
+  it('day started 19:30, no end, no other tap that day → ends at its start (pays 0), not at 06:50 today', async () => {
+    const { old } = await run('2026-06-09', '2026-06-10', null)
+    expect(new Date(String(old.ended_at)).toISOString()).toBe(T('19:30', '2026-06-09').toISOString())
+    expect(old.review_note).toMatch(/pays 0/)
+  })
+  it('a stop tapped that evening is the last tap (23:55), still not today’s 06:55', async () => {
+    const { old } = await run('2026-06-09', '2026-06-10', '21:00')
+    expect(new Date(String(old.ended_at)).toISOString()).toBe(T('23:55', '2026-06-09').toISOString())
+  })
+  it('over the November clock change (25-hour day) and the March one (23-hour day)', async () => {
+    const nov = await run('2026-11-01', '2026-11-02', null)
+    expect(new Date(String(nov.old.ended_at)).toISOString()).toBe(T('19:30', '2026-11-01').toISOString())
+    const novTap = await run('2026-11-01', '2026-11-02', '21:00')
+    expect(new Date(String(novTap.old.ended_at)).toISOString()).toBe(T('23:55', '2026-11-01').toISOString())
+    const mar = await run('2026-03-08', '2026-03-09', '21:00')
+    expect(new Date(String(mar.old.ended_at)).toISOString()).toBe(T('23:55', '2026-03-08').toISOString())
+  })
+  it('a stop tapped after local midnight is not evidence for the night before: the day ends at its last tap that day', async () => {
+    const db = seed()
+    const startedAt = T('19:30', '2026-06-09')
+    db.tables.time_entries.push({ id: 'old', org_id: 'org1', user_id: U1, sub_id: 's1', kind: 'shift', started_at: startedAt.toISOString(), ended_at: null, source: 'lead_tap' })
+    db.tables.time_entries.push({ id: 'early', org_id: 'org1', user_id: U1, sub_id: 's1', kind: 'work', work_order_id: WO1, production_job_id: JOB1, started_at: T('21:00', '2026-06-09').toISOString(), ended_at: T('22:00', '2026-06-09').toISOString(), source: 'lead_tap', end_source: 'lead_tap' })
+    db.tables.time_entries.push({ id: 'late', org_id: 'org1', user_id: U1, sub_id: 's1', kind: 'work', work_order_id: WO1, production_job_id: JOB1, started_at: T('01:00', '2026-06-10').toISOString(), ended_at: T('02:00', '2026-06-10').toISOString(), source: 'lead_tap', end_source: 'lead_tap' })
+    expect(await autoCloseForgotten(db.client, 'org1', { now: T('09:00', '2026-06-10') })).toBe(1)
+    expect(new Date(String(db.tables.time_entries[0].ended_at)).toISOString()).toBe(T('22:00', '2026-06-09').toISOString())
+  })
+})
+
+const F1 = '33333333-3333-4333-8333-000000000001'
+describe('approved weeks: late ends, late breaks, spanning the cutoff, several weeks in a row', () => {
+  const pw = { ...LEGACY_PAY_WEEK, timeZone: TZ }
+  const base = { org_id: 'org1', user_id: U1, sub_id: 's1', source: 'lead_tap', end_source: 'lead_tap', needs_review: false }
+  const approve = (db: Db, id: string, cutoff: Date) => {
+    const at = new Date(cutoff.getTime() + 60_000).toISOString()
+    db.tables.payroll_periods.push({ id, org_id: 'org1', cutoff_at: cutoff.toISOString(), status: 'locked', locked_at: at, lock_claimed_at: null, approval_claimed_at: at })
+  }
+  const sync = (db: Db, at: Date) => syncTimeFeeds(db.client, 'org1', { userIds: [U1], instants: [at.toISOString()], jobIds: [], actorUserId: U1 })
+
+  it('a forgotten day answered after its week was approved is recorded, and carried into the next open week', async () => {
+    const db = seed()
+    const cutoff = weekCutoffContaining(T('07:00', '2026-06-09'), pw)
+    approve(db, 'p1', cutoff)
+    db.tables.time_entries.push({ ...base, id: F1, kind: 'shift', started_at: T('07:00', '2026-06-09').toISOString(), ended_at: T('07:00', '2026-06-09').toISOString(), end_source: 'auto_closed', needs_review: true, ended_recorded_at: T('07:00', '2026-06-09').toISOString() })
+    const r = await applyClockTap(db.client, crew, tap('finish_answer', T('09:00', '2026-06-15'), { entryId: F1, finishTime: '17:00', userIds: undefined }), T('09:00', '2026-06-15'))
+    expect(r).toEqual({ ok: true, done: 1 })
+    const e = db.tables.time_entries[0]
+    expect(new Date(String(e.ended_at)).toISOString()).toBe(T('17:00', '2026-06-09').toISOString())
+    expect(Date.parse(String(e.ended_recorded_at))).toBeGreaterThan(cutoff.getTime())
+    const saved = lastFor(U1)
+    expect(saved.regular_hours + saved.overtime_hours).toBe(10)
+    expect(saved.reason).toMatch(/from the approved week/)
+    // the office’s own edit of an entry in that week is still refused
+    expect(await editTimeEntry(db.client, 'org1', U2, F1, { endedAt: T('16:00', '2026-06-09').toISOString() }, 'Fix')).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it('a second sync after a carry writes the same total (nothing doubled, nothing lost)', async () => {
+    const db = seed()
+    const cutoff = weekCutoffContaining(T('07:00', '2026-06-09'), pw)
+    approve(db, 'p1', cutoff)
+    db.tables.time_entries.push(
+      { ...base, id: 'stop', kind: 'work', work_order_id: WO1, production_job_id: JOB1, started_at: T('08:00', '2026-06-09').toISOString(), ended_at: T('16:00', '2026-06-09').toISOString(), ended_recorded_at: T('16:00', '2026-06-09').toISOString() },
+      { ...base, id: 'day', kind: 'shift', started_at: T('07:00', '2026-06-09').toISOString(), ended_at: T('17:00', '2026-06-09').toISOString(), ended_recorded_at: T('09:00', '2026-06-15').toISOString() }
+    )
+    await sync(db, T('09:00', '2026-06-15'))
+    const first = lastFor(U1)
+    await sync(db, T('10:00', '2026-06-15'))
+    expect(lastFor(U1)).toMatchObject({ regular_hours: first.regular_hours, overtime_hours: first.overtime_hours })
+    expect(first.regular_hours + first.overtime_hours).toBe(2)
+  })
+
+  it('an entry spanning the cutoff: the part inside the approved week is carried, the rest is this week’s (5 h total)', async () => {
+    const db = seed()
+    const cutoff = weekCutoffContaining(T('07:00', '2026-06-09'), pw)
+    approve(db, 'p1', cutoff)
+    db.tables.time_entries.push({ ...base, id: 'span', kind: 'shift', started_at: new Date(cutoff.getTime() - 2 * H).toISOString(), ended_at: new Date(cutoff.getTime() + 3 * H).toISOString(), ended_recorded_at: new Date(cutoff.getTime() + 3 * H).toISOString() })
+    await sync(db, new Date(cutoff.getTime() + 3 * H))
+    const r = lastFor(U1)
+    expect(r.regular_hours + r.overtime_hours).toBe(5)
+    expect(r.reason).toMatch(/2 h from the approved week/)
+  })
+
+  it('a break recorded after approval never claws pay back: carries 0, never negative', async () => {
+    const db = seed()
+    const cutoff = weekCutoffContaining(T('07:00', '2026-06-09'), pw)
+    approve(db, 'p1', cutoff)
+    db.tables.time_entries.push(
+      { ...base, id: 'day', kind: 'shift', started_at: T('07:00', '2026-06-09').toISOString(), ended_at: T('17:00', '2026-06-09').toISOString(), ended_recorded_at: T('17:00', '2026-06-09').toISOString() },
+      { ...base, id: 'brk', kind: 'break', started_at: T('12:00', '2026-06-09').toISOString(), ended_at: T('12:30', '2026-06-09').toISOString(), ended_recorded_at: T('09:00', '2026-06-15').toISOString() }
+    )
+    await sync(db, T('09:00', '2026-06-15'))
+    const r = lastFor(U1)
+    expect(r.regular_hours + r.overtime_hours).toBe(0)
+    expect(r.reason).toBe('Time clock')
+  })
+
+  it('two approved weeks in a row: the late time is carried into the first OPEN week after both', async () => {
+    const db = seed()
+    const c1 = weekCutoffContaining(T('07:00', '2026-06-02'), pw)
+    const c2 = nextWeekCutoff(c1, pw)
+    approve(db, 'p1', c1)
+    approve(db, 'p2', c2)
+    db.tables.time_entries.push({ ...base, id: 'day', kind: 'shift', started_at: T('07:00', '2026-06-02').toISOString(), ended_at: T('17:00', '2026-06-02').toISOString(), ended_recorded_at: T('09:00', '2026-06-20').toISOString() })
+    await sync(db, T('17:00', '2026-06-02'))
+    const r = lastFor(U1)
+    expect(r.regular_hours + r.overtime_hours).toBe(10)
+    const saved = saveHoursEntries.mock.calls.map((c) => c[1] as Saved & { cutoffAt: string })
+    expect(new Date(saved.at(-1)!.cutoffAt).getTime()).toBe(nextWeekCutoff(c2, pw).getTime())
+  })
+
+  it('a late end for approved week A is carried once: B (open) carries it, then B is approved and C carries 0', async () => {
+    const db = seed()
+    const cA = weekCutoffContaining(T('07:00', '2026-06-02'), pw)
+    const cB = nextWeekCutoff(cA, pw)
+    approve(db, 'pA', cA)
+    db.tables.payroll_periods.push({ id: 'pB', org_id: 'org1', cutoff_at: cB.toISOString(), status: 'open', locked_at: null, lock_claimed_at: null })
+    db.tables.time_entries.push({ ...base, id: 'day', kind: 'shift', started_at: T('07:00', '2026-06-02').toISOString(), ended_at: T('17:00', '2026-06-02').toISOString(), ended_recorded_at: T('09:00', '2026-06-08').toISOString() })
+    await sync(db, T('17:00', '2026-06-02'))
+    const first = saveHoursEntries.mock.calls.map((c) => c[1] as Saved & { periodId: string }).at(-1)!
+    expect(first.periodId).toBe('pB')
+    expect(first.entries[0].regular_hours + first.entries[0].overtime_hours).toBe(10)
+    // B is approved (after the end was recorded); C syncs.
+    const atB = new Date(cB.getTime() + 60_000).toISOString()
+    Object.assign(db.tables.payroll_periods.find((x) => x.id === 'pB')!, { status: 'locked', locked_at: atB, approval_claimed_at: atB })
+    saveHoursEntries.mockClear()
+    await sync(db, T('09:00', '2026-06-12'))
+    const c = lastFor(U1)
+    expect(c.regular_hours + c.overtime_hours).toBe(0)
+    expect(c.reason).toBe('Time clock')
+  })
+
+  it('a 12-week chain: the late end lands on the first open week after its approval, never again', async () => {
+    const db = seed()
+    const cuts: Date[] = [weekCutoffContaining(T('07:00', '2026-06-02'), pw)]
+    for (let i = 1; i <= 12; i++) cuts.push(nextWeekCutoff(cuts[i - 1], pw))
+    db.tables.time_entries.push({ ...base, id: 'day', kind: 'shift', started_at: T('07:00', '2026-06-02').toISOString(), ended_at: T('17:00', '2026-06-02').toISOString(), ended_recorded_at: new Date(cuts[0].getTime() + 2 * 86_400_000).toISOString() })
+    for (let k = 1; k <= 12; k++) {
+      approve(db, `p${k - 1}`, cuts[k - 1])
+      saveHoursEntries.mockClear()
+      await sync(db, new Date(cuts[k].getTime() - 86_400_000))
+      const r = lastFor(U1)
+      expect(r.regular_hours + r.overtime_hours).toBe(k === 1 ? 10 : 0)
+    }
+  })
+
+  it('a forgotten day auto-closed at 15:00 and approved, answered 17:00: only the 2 h extension is carried', async () => {
+    const db = seed()
+    const cutoff = weekCutoffContaining(T('07:00', '2026-06-09'), pw)
+    approve(db, 'p1', cutoff)
+    db.tables.time_entries.push({ ...base, id: F1, kind: 'shift', started_at: T('07:00', '2026-06-09').toISOString(), ended_at: T('15:00', '2026-06-09').toISOString(), end_source: 'auto_closed', needs_review: true, ended_recorded_at: T('15:00', '2026-06-09').toISOString() })
+    const r = await applyClockTap(db.client, crew, tap('finish_answer', T('09:00', '2026-06-15'), { entryId: F1, finishTime: '17:00', userIds: undefined }), T('09:00', '2026-06-15'))
+    expect(r).toEqual({ ok: true, done: 1 })
+    const saved = lastFor(U1)
+    expect(saved.regular_hours + saved.overtime_hours).toBe(2)
+    expect(saved.reason).toMatch(/2 h from the approved week/)
+    // the original span keeps its recorded time; the extension is its own row recorded now
+    expect(db.tables.time_entries).toHaveLength(2)
+    expect(new Date(String(db.tables.time_entries[0].ended_at)).toISOString()).toBe(T('15:00', '2026-06-09').toISOString())
+    expect(new Date(String(db.tables.time_entries[1].started_at)).toISOString()).toBe(T('15:00', '2026-06-09').toISOString())
+    expect(new Date(String(db.tables.time_entries[1].ended_at)).toISOString()).toBe(T('17:00', '2026-06-09').toISOString())
+  })
+
+  it('approvals out of order: B approved, an entry in A ended, then A approved; syncing C carries 0 (A\u2019s approval paid it)', async () => {
+    const db = seed()
+    const cA = weekCutoffContaining(T('07:00', '2026-06-02'), pw)
+    const cB = nextWeekCutoff(cA, pw)
+    const atB = new Date(cB.getTime() + 60_000)
+    const atA = new Date(cB.getTime() + 2 * 86_400_000)
+    const recorded = new Date(cB.getTime() + 86_400_000) // after B was approved, before A was
+    db.tables.payroll_periods.push(
+      { id: 'pB', org_id: 'org1', cutoff_at: cB.toISOString(), status: 'locked', locked_at: atB.toISOString(), lock_claimed_at: null, approval_claimed_at: atB.toISOString() },
+      { id: 'pA', org_id: 'org1', cutoff_at: cA.toISOString(), status: 'locked', locked_at: atA.toISOString(), lock_claimed_at: null, approval_claimed_at: atA.toISOString() }
+    )
+    db.tables.time_entries.push({ ...base, id: 'day', kind: 'shift', started_at: T('07:00', '2026-06-02').toISOString(), ended_at: T('17:00', '2026-06-02').toISOString(), ended_recorded_at: recorded.toISOString() })
+    await sync(db, new Date(nextWeekCutoff(cB, pw).getTime() - 86_400_000))
+    const r = lastFor(U1)
+    expect(r.regular_hours + r.overtime_hours).toBe(0)
+    expect(r.reason).toBe('Time clock')
+  })
+
+  it('a split extension row with a stop and a break inside the extension: carries the extension minus the break only', async () => {
+    const db = seed()
+    const cutoff = weekCutoffContaining(T('07:00', '2026-06-09'), pw)
+    approve(db, 'p1', cutoff)
+    const late = T('09:00', '2026-06-15').toISOString()
+    db.tables.time_entries.push(
+      { ...base, id: 'orig', kind: 'shift', started_at: T('07:00', '2026-06-09').toISOString(), ended_at: T('15:00', '2026-06-09').toISOString(), end_source: 'auto_closed', needs_review: true, ended_recorded_at: T('15:00', '2026-06-09').toISOString() },
+      { ...base, id: 'ext', kind: 'shift', started_at: T('15:00', '2026-06-09').toISOString(), ended_at: T('17:00', '2026-06-09').toISOString(), ended_recorded_at: late },
+      { ...base, id: 'stop', kind: 'work', work_order_id: WO1, production_job_id: JOB1, started_at: T('15:30', '2026-06-09').toISOString(), ended_at: T('16:30', '2026-06-09').toISOString(), ended_recorded_at: late },
+      { ...base, id: 'brk', kind: 'break', started_at: T('16:00', '2026-06-09').toISOString(), ended_at: T('16:15', '2026-06-09').toISOString(), ended_recorded_at: late }
+    )
+    await sync(db, T('09:00', '2026-06-15'))
+    const r = lastFor(U1)
+    expect(r.regular_hours + r.overtime_hours).toBe(1.75)
+    expect(r.reason).toMatch(/approved week/)
+  })
+
+  // A approved, a late end recorded after it; B open carries it; B approved; C carries 0. Over a clock change, in the week itself.
+  it.each([
+    ['March (spring-forward, 7 h night)', '2026-03-07', '2026-03-08', 7],
+    ['November (fall-back, 9 h night)', '2026-10-31', '2026-11-01', 9],
+  ])('A\u2192B\u2192C chain over the %s clock change: carried once, by B, never again by C', async (_n, dayYmd, endYmd, hours) => {
+    const db = seed()
+    const cA = weekCutoffContaining(T('22:00', dayYmd), pw)
+    const cB = nextWeekCutoff(cA, pw)
+    const cC = nextWeekCutoff(cB, pw)
+    approve(db, 'pA', cA)
+    db.tables.payroll_periods.push({ id: 'pB', org_id: 'org1', cutoff_at: cB.toISOString(), status: 'open', locked_at: null, lock_claimed_at: null })
+    db.tables.time_entries.push({ ...base, id: 'night', kind: 'shift', started_at: T('22:00', dayYmd).toISOString(), ended_at: T('06:00', endYmd).toISOString(), ended_recorded_at: new Date(cA.getTime() + 86_400_000).toISOString() })
+    await sync(db, T('06:00', endYmd))
+    const first = saveHoursEntries.mock.calls.map((c) => c[1] as Saved).at(-1)!
+    expect(first.periodId).toBe('pB')
+    expect(first.entries[0].regular_hours + first.entries[0].overtime_hours).toBe(hours)
+    const atB = new Date(cB.getTime() + 60_000).toISOString()
+    Object.assign(db.tables.payroll_periods.find((x) => x.id === 'pB')!, { status: 'locked', locked_at: atB, approval_claimed_at: atB })
+    saveHoursEntries.mockClear()
+    await sync(db, new Date(cC.getTime() - 86_400_000))
+    const c = lastFor(U1)
+    expect(c.regular_hours + c.overtime_hours).toBe(0)
+    expect(c.reason).toBe('Time clock')
   })
 })

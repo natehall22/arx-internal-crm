@@ -156,7 +156,7 @@ export function DayClockCard({
         </button>
       ) : null}
 
-      {paidHours > 0 ? <p className="text-center text-base font-semibold">{`Paid today so far: ${hoursLabel(paidHours)}`}</p> : null}
+      {paidHours > 0 ? <p className="text-center text-base font-semibold">{`${multi ? 'Crew paid today' : 'Paid today so far'}: ${hoursLabel(paidHours)}`}</p> : null}
 
       {multi && (started || idle.length > 0) ? (
         <div className="flex flex-col gap-2">

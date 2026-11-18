@@ -366,7 +366,7 @@ Switch `timeTracking` (`ORG_FEATURE_DEFS`, **default OFF**; ARX unchanged). Migr
   email. (6) A typed labor line on the same job/week: the clock line says CHECK; adding one returns a `warning`. (7) Office
   add/edit and finish answers refuse overlapping time (`overlapRefusal`). (8) Payroll recompute holds a per-person lease
   (`time_feed_try_lock` / `time_feed_unlock`). (9) Time recorded after its week's approval began (`ended_recorded_at` >
-  `lock_claimed_at ?? locked_at`) is carried into the next open week, split at the cutoff. (10) The outbox queues the tap
+  `lock_claimed_at ?? locked_at`) is carried into the next open week, split at the cutoff. "Already paid" is per approved week: week w was paid by the LATEST approval among w and every newer week of the run (approvals can happen out of order). Known gap, accepted: an end recorded just before an approval whose sync runs after the approval starts is paid by no week; the office adds it in an open week. (10) The outbox queues the tap
   first; a tap waiting for its location holds its place (≤ 5 s).
 
 **Known Redundancy additions (2026-11-11, time clock):** (36) The old `crews` table (`20260213_operations_tables.sql`,
