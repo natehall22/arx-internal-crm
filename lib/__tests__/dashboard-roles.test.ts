@@ -1,3 +1,4 @@
+import type { OrgFeatures } from '@/lib/org-features'
 /** @jest-environment node */
 import { DASHBOARD_CARDS, applyDashboardWords, cardsForViewer, dashboardIsEmpty, resolveDashboard, type CardData, type DashboardAudience, type DashboardViewer } from '@/lib/dashboard-cards'
 import { DATASETS } from '@/lib/reporting/catalog'
@@ -172,12 +173,16 @@ describe('the catalog has no card without a real source', () => {
 })
 
 describe('review fixes', () => {
-  it('the visits and time report datasets are not offered or runnable until their views are applied; time is finance-only', () => {
-    expect(DATASETS.visits.viewPending).toBe(true)
-    expect(DATASETS.time.viewPending).toBe(true)
+  it('the visits and time report views are applied (no longer pending) but still need their features; time is finance-only', () => {
+    expect(DATASETS.visits.viewPending).toBeFalsy()
+    expect(DATASETS.time.viewPending).toBeFalsy()
     expect(DATASETS.time.financeOnly).toBe(true)
-    expect(datasetOffered({ features: undefined }, 'visits')).toBe(false)
-    expect(datasetOffered({ features: undefined }, 'time')).toBe(false)
+    const off = { servicePlans: false, timeTracking: false } as unknown as OrgFeatures
+    const on = { servicePlans: true, timeTracking: true } as unknown as OrgFeatures
+    expect(datasetOffered({ features: off }, 'visits')).toBe(false)
+    expect(datasetOffered({ features: off }, 'time')).toBe(false)
+    expect(datasetOffered({ features: on }, 'visits')).toBe(true)
+    expect(datasetOffered({ features: on }, 'time')).toBe(true)
     expect(datasetOffered({ features: undefined }, 'revenue')).toBe(true)
   })
   it('hours that add up everyone’s clocked time are called person-hours', () => {

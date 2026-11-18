@@ -28,14 +28,14 @@ const row = (division: string, line: string, revenue: number, cost: number) => (
   sort_key: `${division === 'No division' ? '1' : '0'}|${division.toLowerCase()}|${line === 'Revenue' ? '0' : '1|' + line.toLowerCase()}`,
 })
 
-// The dataset is flagged viewPending until the release commit applies the migration; these tests run it as if applied.
+// The view is applied (migration 202611300150), so the dataset is not pending; the flag mechanism is still checked below.
 const pending = DATASETS.division_pnl.viewPending
 beforeAll(() => { DATASETS.division_pnl.viewPending = false })
 afterAll(() => { DATASETS.division_pnl.viewPending = pending })
 
 describe('release flag', () => {
-  it('is flagged viewPending (not offered, not runnable) until the migration is applied', async () => {
-    expect(pending).toBe(true)
+  it('is no longer pending, and a pending flag would hide it (not offered, not runnable)', async () => {
+    expect(pending).toBeFalsy()
     DATASETS.division_pnl.viewPending = true
     try {
       const { admin } = fakeAdmin([])
