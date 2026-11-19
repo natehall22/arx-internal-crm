@@ -14,6 +14,7 @@ import { isCrewLinkExpired } from '@/lib/crew-link'
 import { calendarDaySpan } from '@/lib/job-trades'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { orgDb } from '@/lib/supabase/org-db'
+import { loadWorkOrderRollCounts } from '@/lib/work-order-moves-db'
 
 export type CrewProjectStop = {
   /** The trade work order id: what the clock taps. */
@@ -29,6 +30,8 @@ export type CrewProjectStop = {
   /** 1-based day of a multi-day crew ("Day 2 of 2"); null for a one-day crew. */
   dayNumber: number | null
   dayCount: number | null
+  /** Times this crew work was rolled to a later day. */
+  rolls?: number
 }
 
 type WoRow = { id: string; job_id: string | null; trade: string | null; status: string; scheduled_date: string | null; install_days: unknown; crew_link_token: string | null; work_order_number: string | null }
@@ -71,6 +74,7 @@ export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId:
   if (jobErr) throw jobErr
   const byJob = new Map(((jobs ?? []) as JobRow[]).map((j) => [j.id, j]))
   const trades = await loadOrgTrades(admin, crew.orgId)
+  const rolls = await loadWorkOrderRollCounts(admin, crew.orgId, rows.map((r) => r.id))
   return rows
     .filter((r) => {
       const j = r.job_id ? byJob.get(r.job_id) : null
@@ -90,6 +94,7 @@ export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId:
         photoLinkPath: r.crew_link_token && r.scheduled_date && !isCrewLinkExpired(r.scheduled_date, r.install_days, today) ? `/crew/${r.crew_link_token}` : null,
         dayNumber: r.dayNumber,
         dayCount: r.dayCount,
+        rolls: rolls.get(r.id) ?? 0,
       }
     })
 }

@@ -105,6 +105,7 @@ export default async function CrewDayPage({ params }: { params: { token: string 
         officeNotes: v.status === 'scheduled' ? v.officeNotes : null,
         checklist: v.checklist,
         money: money[v.id] ?? null,
+        rolls: v.rolls,
       }))}
     />
   )

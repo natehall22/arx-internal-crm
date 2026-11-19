@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import ProductionCalendarClient, { type ProductionCalendarCrew, type ProductionCalendarJob } from '../calendar/ProductionCalendarClient'
 import InstallScheduleClient from './InstallScheduleClient'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
+import AllWorkCalendar from '@/components/schedule/AllWorkCalendar'
 import { scheduleViewFor } from '@/lib/schedule-view'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 
@@ -44,6 +45,7 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
   const view = scheduleViewFor(visitsOn, searchParams?.view)
   const visits = view === 'visits'
   const calendar = view === 'calendar'
+  const all = view === 'all'
   let calendarJobs: ProductionCalendarJob[] = []
   let crews: ProductionCalendarCrew[] = []
   if (calendar) {
@@ -74,12 +76,15 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
       <Nav />
       <nav aria-label="Schedule views" className="mx-auto flex max-w-[1800px] flex-wrap gap-2 px-4 pt-4">
         {visitsOn ? (
+          <Link href="/ops/schedule?view=all" className={tab(all)} aria-current={all ? 'page' : undefined}>All work</Link>
+        ) : null}
+        {visitsOn ? (
           <Link href="/ops/schedule" className={tab(visits)} aria-current={visits ? 'page' : undefined}>Visits</Link>
         ) : null}
-        <Link href={visitsOn ? '/ops/schedule?view=board' : '/ops/schedule'} className={tab(!calendar && !visits)} aria-current={!calendar && !visits ? 'page' : undefined}>Board</Link>
+        <Link href={visitsOn ? '/ops/schedule?view=board' : '/ops/schedule'} className={tab(!calendar && !visits && !all)} aria-current={!calendar && !visits && !all ? 'page' : undefined}>Board</Link>
         <Link href="/ops/schedule?view=calendar" className={tab(calendar)} aria-current={calendar ? 'page' : undefined}>Calendar</Link>
       </nav>
-      {visits ? <VisitsBoard /> : calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
+      {all ? <AllWorkCalendar /> : visits ? <VisitsBoard /> : calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
     </div>
   )
 }

@@ -8,6 +8,8 @@ import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 import { checklistSummary, unchecked, type ChecklistItem } from '@/lib/visit-checklist'
 import { formatCents } from '@/lib/format'
 import { QrCode } from '@/components/ui/QrCode'
+import RollButton, { type RollOutcome } from '@/components/schedule/RollButton'
+import type { RollReason } from '@/lib/work-order-rolls'
 import type { CrewMoney } from '@/lib/visit-collections'
 import { CrewPhotoButtons } from './CrewPhotoButtons'
 import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
@@ -36,6 +38,8 @@ export type CrewDayVisit = {
   checklist: ChecklistItem[]
   /** What the customer still owes, when anything (never a price line). */
   money: CrewMoney | null
+  /** Times this visit was rolled to a later day. */
+  rolls?: number
 }
 
 /** Money tap state for the visit whose panel is open. */
@@ -87,6 +91,9 @@ export default function CrewDayList({
 }) {
   const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(() => initial.map((v) => ({ ...v, checklist: v.checklist ?? [] })))
   const [busy, setBusy] = useState<string | null>(null)
+  /** Stops this crew rolled away today (they now sit on a later day, so they leave this list). */
+  const [rolledAway, setRolledAway] = useState<Set<string>>(new Set())
+  const [rolledNote, setRolledNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [skipping, setSkipping] = useState<{ id: string; reason: SkipReason | ''; notes: string } | null>(null)
   const [finishing, setFinishing] = useState<string | null>(null)
@@ -220,6 +227,16 @@ export default function CrewDayList({
     )
   }
 
+  /** "Not ready — roll": the stop moves to the crew's next working day (server picks the day); the office sees the reason. */
+  async function rollStop(id: string, label: string, reason: RollReason | null): Promise<RollOutcome> {
+    const res = await fetch(`/api/crew/day/${token}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, reason }) }).catch(() => null)
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; to?: string }
+    if (!res || !res.ok || !out.to) return { ok: false, error: out.error || 'Could not roll — try again' }
+    setRolledAway((s) => new Set(s).add(id))
+    setRolledNote(`${label} rolled to ${formatDateWeekday(out.to)}.`)
+    return { ok: true, to: out.to }
+  }
+
   async function act(id: string, body: Record<string, unknown>): Promise<boolean> {
     setBusy(id)
     setError(null)
@@ -342,13 +359,18 @@ export default function CrewDayList({
             {error}
           </p>
         ) : null}
+        {rolledNote ? (
+          <p role="status" className="rounded-lg border-2 border-[#2c2c2a] bg-white p-3 text-base font-semibold">
+            {rolledNote}
+          </p>
+        ) : null}
         {clockOn ? <DayClockCard clock={clock} selected={present} setSelected={setPresent} title="Crew day" /> : null}
         {clockOn ? <ClockPanel clock={clock} selected={present} setSelected={setPresent} placeLabel={(o) => stopLabel(o.workOrderId)} title="Crew time" notices={false} hidePicker /> : null}
         {projects.length > 0 ? (
           <section aria-label="Project work today" className="flex flex-col gap-3">
             <h2 className="text-lg font-bold">Project work today</h2>
             <ul className="flex flex-col gap-3">
-              {projects.map((p) => {
+              {projects.filter((p) => !rolledAway.has(p.id)).map((p) => {
                 const closed = p.status === 'completed'
                 return (
                   <li key={p.id} className={`rounded-xl border-2 bg-white p-4 ${closed ? 'border-[#e5e3dc]' : 'border-[#2c2c2a]'}`} data-testid="project-stop">
@@ -372,6 +394,7 @@ export default function CrewDayList({
                         </a>
                       ) : null}
                     </div>
+                    {p.status === 'scheduled' ? <RollButton className="mt-3" rolls={p.rolls ?? 0} onRoll={(r) => rollStop(p.id, `${p.tradeLabel}${p.jobNumber ? ` ${p.jobNumber}` : ''}`, r)} /> : null}
                   </li>
                 )
               })}
@@ -379,7 +402,7 @@ export default function CrewDayList({
           </section>
         ) : null}
         <ol className="flex flex-col gap-3">
-          {visits.map((v, i) => {
+          {visits.filter((v) => !rolledAway.has(v.id)).map((v, i) => {
             const closed = v.status !== 'scheduled'
             const crewHere = crewAt(v.id)
             return (
@@ -470,6 +493,7 @@ export default function CrewDayList({
                     </>
                   ) : null}
                 </div>
+                {v.status === 'scheduled' && confirmDone !== v.id && skipping?.id !== v.id ? <RollButton className="mt-3" rolls={v.rolls ?? 0} onRoll={(r) => rollStop(v.id, v.planName, r)} /> : null}
                 {told[v.id] && !closed ? (
                   <p role="status" className="mt-2 text-base font-semibold">
                     {told[v.id]}

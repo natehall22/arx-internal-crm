@@ -64,6 +64,8 @@ import {
   type VisitEffect,
 } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
+import { loadWorkOrderRollCounts, recordWorkOrderMoves } from '@/lib/work-order-moves-db'
+import type { MoveKind, RollReason } from '@/lib/work-order-rolls'
 import { upsertCustomer } from '@/lib/customers'
 import { createProperty, loadCustomerProperties } from '@/lib/properties-db'
 import { cleanPropertyInput } from '@/lib/properties'
@@ -1397,6 +1399,8 @@ export type VisitView = {
   /** The services sold, with what the crew has checked (lib/visit-checklist.ts); empty for a follow-on step visit. */
   checklist: ChecklistItem[]
   photoCount: number
+  /** Times this visit was pushed to a later day ("Rolled 3×"); 0 when never. */
+  rolls: number
   updatedAt: string
 }
 
@@ -1501,7 +1505,7 @@ async function viewsFor(admin: SupabaseClient, orgId: string, rows: Array<Record
   const opts = { accessNotes }
   const ids = rows.map((r) => String(r.id))
   const uniq = (k: string) => Array.from(new Set(rows.map((r) => r[k]).filter((v): v is string => typeof v === 'string' && !!v)))
-  const [plansData, custsData, propsData, subsData, photosData, usersData] = await Promise.all([
+  const [plansData, custsData, propsData, subsData, photosData, usersData, rollCounts] = await Promise.all([
     selectInChunks<{
       id: string
       name: string
@@ -1520,6 +1524,7 @@ async function viewsFor(admin: SupabaseClient, orgId: string, rows: Array<Record
     selectInChunks<{ id: string; company_name: string | null }>(admin, orgId, 'sub_contractors', 'id, company_name', 'id', uniq('assigned_sub_id')),
     selectInChunks<{ work_order_id: string }>(admin, orgId, 'photos', 'work_order_id', 'work_order_id', ids, (q) => q.is('deleted_at', null)),
     selectInChunks<{ id: string; full_name: string | null }>(admin, orgId, 'users', 'id, full_name', 'id', uniq('assigned_user_id')),
+    loadWorkOrderRollCounts(admin, orgId, ids),
   ])
   const plans = { data: plansData }
   const custs = { data: custsData }
@@ -1605,6 +1610,7 @@ async function viewsFor(admin: SupabaseClient, orgId: string, rows: Array<Record
       officeNotes: ((r.description as string | null) ?? '').trim() || null,
       checklist: !r.visit_step || r.visit_step === SERVICE_STEP ? visitChecklist(plan?.lines ?? [], readChecklist(r.visit_checklist), r.status === 'scheduled') : [],
       photoCount: photoCount.get(String(r.id)) ?? 0,
+      rolls: rollCounts.get(String(r.id)) ?? 0,
       updatedAt: String(r.updated_at ?? ''),
     }
   })
@@ -1723,7 +1729,7 @@ export async function applyVisitAction(
   visitId: string,
   a: VisitAction,
   by: { userId: string | null; subId: string | null },
-  opts: { onlySubId?: string; now?: Date } = {}
+  opts: { onlySubId?: string; now?: Date; /** 'roll' when the one-tap button made this move (default: a plain move). */ moveKind?: MoveKind } = {}
 ): Promise<VisitActResult> {
   const db = orgDb(admin, orgId)
   let q = db
@@ -1790,6 +1796,7 @@ export async function applyVisitAction(
     await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
   }
   if (a.action === 'move') {
+    await recordWorkOrderMoves(admin, orgId, [{ workOrderId: visitId, from: r.scheduled_date, to: a.date, reason: a.reason ?? null, kind: opts.moveKind ?? 'move', userId: by.userId, subId: by.subId }])
     const errs = await syncOneOffPlansAfterMove(admin, orgId, [visitId])
     if (errs.length) return { ok: false, status: 409, error: errs[0] }
   }
@@ -1930,7 +1937,7 @@ export async function bulkShiftVisits(
   admin: SupabaseClient,
   orgId: string,
   s: BulkShift,
-  opts: { expectKey?: string; now?: Date } = {}
+  opts: { expectKey?: string; now?: Date; /** Who pressed the button, and why (default: weather) — for the move log. */ userId?: string | null; reason?: RollReason | null } = {}
 ): Promise<{ moved: number } | { error: string; status: 409 | 400 }> {
   const db = orgDb(admin, orgId)
   const now = opts.now ?? new Date()
@@ -1958,6 +1965,11 @@ export async function bulkShiftVisits(
         .select('id')
       if (uErr) throw uErr
       moved += (done ?? []).length
+      await recordWorkOrderMoves(
+        admin,
+        orgId,
+        ((done ?? []) as Array<{ id: string }>).map((d) => ({ workOrderId: d.id, from: day, to, reason: opts.reason === undefined ? 'weather' : opts.reason, kind: 'shift' as const, userId: opts.userId ?? null }))
+      )
       syncErrors.push(...(await syncOneOffPlansAfterMove(admin, orgId, ((done ?? []) as Array<{ id: string }>).map((d) => d.id))))
     }
   }
