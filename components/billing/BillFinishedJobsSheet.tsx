@@ -3,6 +3,7 @@
 import * as React from 'react'
 
 import { Button, Dialog, DialogContent, DialogFooter, Field, Input, Select, toast } from '@/components/ui'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { batchLineWhere, developmentOptions, filterByDevelopment } from '@/lib/invoice-batch'
 import { formatCurrency } from '@/lib/job-payments'
 import type { BillableJob } from '@/lib/invoice-batch-db'
@@ -61,12 +62,20 @@ export default function BillFinishedJobsSheet({ customerId: fixedCustomerId, onC
   }
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
-  async function make() {
+  async function make(useBillable: string[] = []) {
     if (!customerId || chosen.length === 0) return
     setBusy(true)
     try {
-      const res = await fetch('/api/invoice-batches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerId, jobIds: chosen.map((j) => j.jobId) }) })
+      const res = await fetch('/api/invoice-batches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerId, jobIds: chosen.map((j) => j.jobId), useBillable }) })
       const body = await res.json().catch(() => ({}))
+      if (res.status === 409 && body.code === 'draft_differs') {
+        // A draft invoice says a different amount than what is still owed: show it, and only change it if the office says so.
+        const rows = (body.drafts ?? []) as Array<{ jobId: string; jobNumber: string; draftCents: number; billableCents: number }>
+        const lines = rows.map((d) => `Job ${d.jobNumber}: draft says ${formatCurrency(d.draftCents)}, owed ${formatCurrency(d.billableCents)}`).join('; ')
+        setBusy(false)
+        if (await confirmDialog({ title: 'A draft invoice has a different amount', description: `${lines}  Use the amount owed?`, confirmLabel: rows.length === 1 ? `Use ${formatCurrency(rows[0].billableCents)}` : 'Use amounts owed' })) return void make(rows.map((d) => d.jobId))
+        return
+      }
       if (!res.ok) return toast.error(body.error || 'Could not make the master invoice')
       toast.success(`Master invoice ${body.number} made — review it, then send it`)
       onCreated(String(body.batchId))
@@ -124,6 +133,7 @@ export default function BillFinishedJobsSheet({ customerId: fixedCustomerId, onC
                     <span className="min-w-0 flex-1">
                       <span className="block font-semibold">Job {j.jobNumber}{j.customerPo ? ` · PO ${j.customerPo}` : ''}</span>
                       <span className="block break-words text-ui-sm">{batchLineWhere(j, !development) || '—'}</span>
+                      {j.draftInvoiceId && j.draftCents !== j.amountCents ? <span className="block text-ui-sm font-semibold">Draft invoice says {formatCurrency(j.draftCents ?? 0)}</span> : null}
                     </span>
                     <span className="font-semibold tabular-nums">{formatCurrency(j.amountCents)}</span>
                   </label>

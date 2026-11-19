@@ -512,7 +512,7 @@ const homeBuilder: IndustryProfile = {
   version: 4,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
-  features: { canvassing: false, incentives: false, projectTools: true, customerPortal: true, ...ROOF_ONLY_OFF },
+  features: { canvassing: false, incentives: false, projectTools: true, customerPortal: true, masterInvoices: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Site work', matchKeywords: ['site work', 'grading', 'excavat', 'clearing'] },
     { label: 'Foundation', matchKeywords: ['foundation', 'footing', 'slab'] },

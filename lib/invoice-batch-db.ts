@@ -14,7 +14,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { tryOrgAppUrl } from '@/lib/company-links'
-import { createFinalInvoice, computeInvoiceBalance, finalizeAndSendInvoice, issueDatesFor, type CustomerPaymentMethod, CUSTOMER_PAYMENT_METHODS } from '@/lib/invoices'
+import { computeInvoiceBalance, createCustomAmountInvoice, finalizeAndSendInvoice, issueDatesFor, updateInvoiceItem, voidInvoice, type CustomerPaymentMethod, CUSTOMER_PAYMENT_METHODS } from '@/lib/invoices'
+import { evaluateJobCollection } from '@/lib/job-collection'
+import { formatCurrency } from '@/lib/job-payments'
 import { invoicePaidCents } from '@/lib/invoice-lines'
 import { isUsableCustomerEmail, loadInvoiceDocument } from '@/lib/invoice-document'
 import { resolveInvoiceSender } from '@/lib/invoice-email'
@@ -34,7 +36,7 @@ const NOT_SET_UP: Err = { ok: false, status: 503, error: 'Master invoices are no
 
 const asRows = <T>(data: unknown): T[] => (Array.isArray(data) ? (data as T[]) : [])
 
-/** What a job still lets a master invoice bill: the contract left after the deposit already collected on it. */
+/** One finished house a master invoice can bill. `amountCents` is what will really be billed: the job's collection rule (sale minus collected). */
 export type BillableJob = {
   jobId: string
   jobNumber: string
@@ -42,10 +44,13 @@ export type BillableJob = {
   lot: string | null
   community: string | null
   customerPo: string | null
+  /** lib/job-collection.ts remaining (sale amount − payments in hand). Jobs already paid in full are never listed. */
   amountCents: number
   completedAt: string | null
-  /** A draft job invoice already exists (the batch reuses it instead of making a second). */
+  /** A draft job invoice already exists (the batch reuses it instead of making a second)... */
   draftInvoiceId: string | null
+  /** ...and what that draft says before tax; when it differs from `amountCents` the office is asked to "Use" the real amount. */
+  draftCents: number | null
 }
 
 /** Soft read of properties.community / .lot (feat/precision-lots): absent columns = no development filter, never an error. */
@@ -59,49 +64,62 @@ async function loadDevelopments(admin: SupabaseClient, orgId: string, propertyId
 }
 
 /**
- * The customer's finished (status 'complete'), not-yet-billed fixed-price jobs. Billed = a live job invoice other than a deposit
- * (a draft not yet in a master invoice does not count: it is reused). Time & materials jobs are billed from Hours to bill.
+ * The customer's finished (status 'complete'), not-yet-billed fixed-price jobs, in a fixed number of queries (no per-job reads).
+ * What each would bill is the ONE collection rule (evaluateJobCollection: sale amount minus payments in hand); a job already
+ * paid in full is left out. Billed = a live job invoice other than a deposit (a draft not yet in a master invoice does not
+ * count: it is reused). Time & materials jobs are billed from Hours to bill.
  * `developmentsAvailable` = the properties columns exist (the screen offers the development filter only then).
  */
 export async function loadBillableJobs(admin: SupabaseClient, orgId: string, customerId: string): Promise<{ jobs: BillableJob[]; developmentsAvailable: boolean }> {
   const db = orgDb(admin, orgId)
-  let jobsRes = await db.from('production_jobs').select('id, job_number, address_text, sale_amount, customer_po, completed_at, property_id, billing_mode').eq('customer_id', customerId).eq('status', 'complete').limit(500)
-  if (isMissingColumn(jobsRes.error, 'customer_po')) jobsRes = await db.from('production_jobs').select('id, job_number, address_text, sale_amount, completed_at, property_id, billing_mode').eq('customer_id', customerId).eq('status', 'complete').limit(500)
+  const cols = 'id, job_number, address_text, sale_amount, completed_at, property_id, billing_mode, allow_close_with_balance, close_balance_by'
+  let jobsRes = await db.from('production_jobs').select(`${cols}, customer_po`).eq('customer_id', customerId).eq('status', 'complete').limit(500)
+  if (isMissingColumn(jobsRes.error, 'customer_po')) jobsRes = await db.from('production_jobs').select(cols).eq('customer_id', customerId).eq('status', 'complete').limit(500)
   if (jobsRes.error) throw new Error(`master invoice: read jobs: ${jobsRes.error.message}`)
-  const jobs = asRows<{ id: string; job_number: string; address_text: string | null; sale_amount: number | null; customer_po?: string | null; completed_at: string | null; property_id: string | null; billing_mode?: string | null }>(jobsRes.data).filter((j) => j.billing_mode !== 'time_materials')
+  const jobs = asRows<{ id: string; job_number: string; address_text: string | null; sale_amount: number | null; customer_po?: string | null; completed_at: string | null; property_id: string | null; billing_mode?: string | null; allow_close_with_balance: boolean | null; close_balance_by: string | null }>(jobsRes.data).filter((j) => j.billing_mode !== 'time_materials')
   if (jobs.length === 0) return { jobs: [], developmentsAvailable: false }
   const ids = jobs.map((j) => j.id)
-  const { data: invs, error: invErr } = await db.from('job_invoices').select('id, job_id, status, invoice_kind, batch_id').in('job_id', ids).neq('status', 'void')
+  const { data: invs, error: invErr } = await db.from('job_invoices').select('id, job_id, status, invoice_kind, batch_id, subtotal_cents').in('job_id', ids).neq('status', 'void')
   if (invErr) throw new Error(`master invoice: read invoices: ${invErr.message}`)
-  const live = asRows<{ id: string; job_id: string; status: string; invoice_kind: string; batch_id?: string | null }>(invs).filter((i) => i.invoice_kind !== 'deposit')
+  const live = asRows<{ id: string; job_id: string; status: string; invoice_kind: string; batch_id?: string | null; subtotal_cents: number | null }>(invs).filter((i) => i.invoice_kind !== 'deposit')
   const blocked = new Set<string>()
-  const draftOf = new Map<string, string>()
+  const draftOf = new Map<string, { id: string; cents: number }>()
   for (const i of live) {
-    if (i.status === 'draft' && !i.batch_id && !draftOf.has(i.job_id)) draftOf.set(i.job_id, i.id)
+    if (i.status === 'draft' && !i.batch_id && !draftOf.has(i.job_id)) draftOf.set(i.job_id, { id: i.id, cents: i.subtotal_cents ?? 0 })
     else blocked.add(i.job_id)
   }
   const open = jobs.filter((j) => !blocked.has(j.id))
+  if (open.length === 0) return { jobs: [], developmentsAvailable: false }
+  const openIds = open.map((j) => j.id)
+  // org-scope-ok: job_payments has no org_id for job payments; the job ids were just read company-scoped (orgDb above)
+  const { data: pays, error: payErr } = await admin.from('job_payments').select('job_id, amount_cents, funding_status').in('job_id', openIds)
+  if (payErr) throw new Error(`master invoice: read payments: ${payErr.message}`)
+  const paysByJob = new Map<string, Array<{ amount_cents: number; funding_status: string | null }>>()
+  for (const p of asRows<{ job_id: string; amount_cents: number; funding_status: string | null }>(pays)) paysByJob.set(p.job_id, [...(paysByJob.get(p.job_id) ?? []), p])
   const dev = await loadDevelopments(admin, orgId, Array.from(new Set(open.map((j) => j.property_id).filter((x): x is string => !!x))))
   const out: BillableJob[] = []
   for (const j of open) {
-    const saleCents = Math.round(Number(j.sale_amount ?? 0) * 100)
-    if (saleCents <= 0) continue
-    // org-scope-ok: job_payments has no org_id for job payments; j.id is a job of this company (loaded with orgDb above)
-    const { data: dep } = await admin.from('job_payments').select('amount_cents').eq('job_id', j.id).eq('payment_type', 'deposit').gt('amount_cents', 0)
-    const depositCents = asRows<{ amount_cents: number }>(dep).reduce((s, p) => s + p.amount_cents, 0)
-    const remaining = saleCents - depositCents
-    if (remaining <= 0) continue
+    const c = evaluateJobCollection({ saleAmount: j.sale_amount, payments: paysByJob.get(j.id) ?? [], allowCloseWithBalance: j.allow_close_with_balance, closeBalanceBy: j.close_balance_by })
+    if (c.missingSaleAmount || c.paidInFull || c.remainingCents <= 0) continue
     const d = j.property_id ? dev.byProperty.get(j.property_id) : undefined
-    out.push({ jobId: j.id, jobNumber: j.job_number, address: j.address_text ?? '', lot: d?.lot ?? null, community: d?.community ?? null, customerPo: j.customer_po?.trim() || null, amountCents: remaining, completedAt: j.completed_at, draftInvoiceId: draftOf.get(j.id) ?? null })
+    const draft = draftOf.get(j.id)
+    out.push({ jobId: j.id, jobNumber: j.job_number, address: j.address_text ?? '', lot: d?.lot ?? null, community: d?.community ?? null, customerPo: j.customer_po?.trim() || null, amountCents: c.remainingCents, completedAt: j.completed_at, draftInvoiceId: draft?.id ?? null, draftCents: draft ? draft.cents : null })
   }
   out.sort((a, b) => (a.completedAt ?? '').localeCompare(b.completedAt ?? '') || a.jobNumber.localeCompare(b.jobNumber))
   return { jobs: out, developmentsAvailable: dev.available }
 }
 
-export type CreateBatchResult = { ok: true; batchId: string; number: string } | Err
+export type DraftMismatch = { jobId: string; jobNumber: string; draftCents: number; billableCents: number }
+export type CreateBatchResult = { ok: true; batchId: string; number: string } | (Err & { code?: 'draft_differs'; drafts?: DraftMismatch[] })
 
-/** "Bill finished jobs": one master invoice over the chosen jobs (each must still be billable). Drafts only; nothing is sent. */
-export async function createInvoiceBatch(admin: SupabaseClient, orgId: string, userId: string, input: { customerId: string; jobIds: string[]; publicNote?: string | null }): Promise<CreateBatchResult> {
+/**
+ * "Bill finished jobs": one master invoice over the chosen jobs (each must still be billable), at each job's real remaining
+ * amount. A house with a draft invoice that says a DIFFERENT amount is refused (409, code 'draft_differs') unless its job id is
+ * in `useBillable` ("Use $X"): then that draft's single line is set to the real amount. Drafts only; nothing is sent.
+ * Claim: linking is conditional (`batch_id IS NULL`) and a job can hold only one live link (unique index), so two calls racing
+ * for the same house cannot both win; the loser rolls back what it made and answers 409.
+ */
+export async function createInvoiceBatch(admin: SupabaseClient, orgId: string, userId: string, input: { customerId: string; jobIds: string[]; publicNote?: string | null; useBillable?: string[] }): Promise<CreateBatchResult> {
   const jobIds = Array.from(new Set(input.jobIds))
   if (jobIds.length === 0) return { ok: false, status: 400, error: 'Pick at least one job.' }
   if (jobIds.length > MAX_BATCH_JOBS) return { ok: false, status: 400, error: `A master invoice holds up to ${MAX_BATCH_JOBS} jobs.` }
@@ -114,22 +132,51 @@ export async function createInvoiceBatch(admin: SupabaseClient, orgId: string, u
   const { jobs } = await loadBillableJobs(admin, orgId, input.customerId)
   const byId = new Map(jobs.map((j) => [j.jobId, j]))
   const picked = jobIds.map((id) => byId.get(id))
-  if (picked.some((j) => !j)) return { ok: false, status: 409, error: 'One of those jobs is already billed or is not finished. Refresh the list.' }
+  if (picked.some((j) => !j)) return { ok: false, status: 409, error: 'One of those jobs is already billed, paid, or not finished. Refresh the list.' }
+  const chosen = picked as BillableJob[]
+
+  // A draft that disagrees with what is really owed: ask before anything is made or changed.
+  const use = new Set(input.useBillable ?? [])
+  const drafts = chosen.filter((j) => j.draftInvoiceId && j.draftCents !== j.amountCents && !use.has(j.jobId)).map((j) => ({ jobId: j.jobId, jobNumber: j.jobNumber, draftCents: j.draftCents ?? 0, billableCents: j.amountCents }))
+  if (drafts.length > 0) {
+    const first = drafts[0]
+    return { ok: false, status: 409, code: 'draft_differs', drafts, error: `Job ${first.jobNumber}'s draft invoice says ${formatCurrency(first.draftCents)} but ${formatCurrency(first.billableCents)} is still owed${drafts.length > 1 ? ` (and ${drafts.length - 1} more differ)` : ''}. Use the amount owed?` }
+  }
 
   const invoiceIds: string[] = []
-  for (const j of picked as BillableJob[]) {
+  const madeHere: string[] = []
+  for (const j of chosen) {
     if (j.draftInvoiceId) {
+      if (j.draftCents !== j.amountCents) {
+        const { data: items } = await db.from('job_invoice_items').select('id').eq('invoice_id', j.draftInvoiceId)
+        const rows = asRows<{ id: string }>(items)
+        if (rows.length !== 1) return { ok: false, status: 409, error: `Job ${j.jobNumber}'s draft invoice has ${rows.length} lines, so it cannot be set to ${formatCurrency(j.amountCents)} automatically. Fix that invoice, then bill again.` }
+        try {
+          await updateInvoiceItem(admin, j.draftInvoiceId, rows[0].id, { qty: 1, unit_price_cents: j.amountCents })
+        } catch (e) {
+          return { ok: false, status: 409, error: `Could not update job ${j.jobNumber}'s draft: ${(e as Error).message}` }
+        }
+      }
       invoiceIds.push(j.draftInvoiceId)
       continue
     }
     try {
-      invoiceIds.push((await createFinalInvoice(admin, j.jobId, userId)).id)
+      const inv = await createCustomAmountInvoice(admin, j.jobId, userId, j.amountCents)
+      invoiceIds.push(inv.id)
+      madeHere.push(inv.id)
     } catch (e) {
       // Invoices already made stay as drafts: a retry reuses them (loadBillableJobs lists them with draftInvoiceId).
       return { ok: false, status: 409, error: `Could not bill job ${j.jobNumber}: ${(e as Error).message}` }
     }
   }
 
+  const undo = async (batchId: string | null) => {
+    if (batchId) {
+      await db.from('job_invoices').update({ batch_id: null }).eq('batch_id', batchId)
+      await db.from('invoice_batches').delete().eq('id', batchId)
+    }
+    for (const id of madeHere) await voidInvoice(admin, id, 'Duplicate master invoice attempt').catch(() => null)
+  }
   for (let attempt = 0; attempt < 5; attempt++) {
     const { data: nums } = await db.from('invoice_batches').select('batch_number')
     const number = batchNumberFor(nextBatchSeq(asRows<{ batch_number: string }>(nums).map((r) => r.batch_number)))
@@ -139,14 +186,16 @@ export async function createInvoiceBatch(admin: SupabaseClient, orgId: string, u
       throw new Error(`master invoice: create: ${error.message}`)
     }
     const batchId = String((row as { id: string }).id)
-    const { error: linkErr } = await db.from('job_invoices').update({ batch_id: batchId }).in('id', invoiceIds)
-    if (linkErr) {
-      // A batch holds no money, so an empty one is safe to remove; the drafts stay and are reused by the retry.
-      await db.from('invoice_batches').delete().eq('id', batchId)
-      return { ok: false, status: 500, error: 'Could not group the invoices. Try again.' }
+    const { data: linked, error: linkErr } = await db.from('job_invoices').update({ batch_id: batchId }).in('id', invoiceIds).is('batch_id', null).select('id')
+    if (linkErr || asRows<{ id: string }>(linked).length !== invoiceIds.length) {
+      await undo(batchId)
+      return linkErr && linkErr.code !== '23505'
+        ? { ok: false, status: 500, error: 'Could not group the invoices. Try again.' }
+        : { ok: false, status: 409, error: 'Another master invoice just took one of those houses. Refresh the list.' }
     }
     return { ok: true, batchId, number }
   }
+  await undo(null)
   return { ok: false, status: 409, error: 'Could not number the master invoice. Try again.' }
 }
 
@@ -211,16 +260,19 @@ export async function loadBatchDocument(admin: SupabaseClient, orgId: string, ba
   }
 }
 
-export type SendBatchResult = { ok: true; to: string } | Err
+export type SendBatchResult = { ok: true; to: string; alreadySent?: boolean } | Err
 
 /**
- * Email the master invoice once, then issue every draft member (each is queued for QuickBooks by finalizeAndSendInvoice exactly
- * as a single send would). Email first, status second. Sending again just re-emails it.
+ * Send the master invoice. Order: check the address and sender, ISSUE every draft house (each queued for QuickBooks by
+ * finalizeAndSendInvoice exactly as a single send would), THEN send the one email, then record `sent_at` on the batch.
+ * A retry never re-sends an email that went (sent_at is set) unless `resend` is true (the office's "Email again"); a retry after
+ * an email failure only sends the email, because the houses are already issued.
  */
-export async function sendInvoiceBatch(admin: SupabaseClient, orgId: string, batch: BatchRow, toOverride?: string | null): Promise<SendBatchResult> {
+export async function sendInvoiceBatch(admin: SupabaseClient, orgId: string, batch: BatchRow, opts: { to?: string | null; resend?: boolean } = {}): Promise<SendBatchResult> {
   const doc = await loadBatchDocument(admin, orgId, batch)
   if (!doc || doc.totalCents <= 0) return { ok: false, status: 400, error: 'This master invoice has nothing to bill.' }
-  const address = (toOverride ?? doc.billTo.email ?? '').trim()
+  if (batch.sent_at && !opts.resend) return { ok: true, to: batch.sent_to_email ?? doc.billTo.email ?? '', alreadySent: true }
+  const address = (opts.to ?? doc.billTo.email ?? '').trim()
   if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
   const sender = await resolveInvoiceSender(admin, orgId, address)
   if (!sender.ok) return sender
@@ -228,17 +280,22 @@ export async function sendInvoiceBatch(admin: SupabaseClient, orgId: string, bat
   const drafts = members.filter((i) => i.status === 'draft')
   const datesById = new Map<string, { issuedAt: string; dueAt: string }>()
   for (const d of drafts) datesById.set(d.id, await issueDatesFor(admin, d))
-  const dueAfter = Array.from(datesById.values()).map((d) => d.dueAt).sort().pop() ?? doc.dueAt
-  const portalBase = await tryOrgAppUrl(orgId, 'master invoice portal link')
-  const mail = renderBatchEmail({ ...doc, dueAt: dueAfter }, { portalUrl: portalBase ? `${portalBase}/portal/batches/${batch.id}` : null })
-  await getMailTransport(orgId).sendMail({ from: sender.from, to: address, replyTo: sender.replyTo, subject: mail.subject, html: mail.html, text: mail.text })
   for (const d of drafts) {
     try {
       await finalizeAndSendInvoice(admin, d.id, address, { dates: datesById.get(d.id) })
     } catch (e) {
       console.error('master invoice: could not issue a member', d.id, (e as Error).message)
-      return { ok: false, status: 500, error: `The email went out, but invoice ${d.invoice_number} could not be marked sent. Send the master invoice again.` }
+      return { ok: false, status: 500, error: `Invoice ${d.invoice_number} could not be issued, so nothing was emailed. Press send again.` }
     }
+  }
+  const dueAfter = Array.from(datesById.values()).map((d) => d.dueAt).sort().pop() ?? doc.dueAt
+  const portalBase = await tryOrgAppUrl(orgId, 'master invoice portal link')
+  const mail = renderBatchEmail({ ...doc, dueAt: dueAfter }, { portalUrl: portalBase ? `${portalBase}/portal/batches/${batch.id}` : null })
+  try {
+    await getMailTransport(orgId).sendMail({ from: sender.from, to: address, replyTo: sender.replyTo, subject: mail.subject, html: mail.html, text: mail.text })
+  } catch (e) {
+    console.error('master invoice: email failed', batch.id, (e as Error).message)
+    return { ok: false, status: 503, error: 'The invoices are issued but the email did not go. Press send again.' }
   }
   await orgDb(admin, orgId).from('invoice_batches').update({ sent_at: new Date().toISOString(), sent_to_email: address }).eq('id', batch.id)
   return { ok: true, to: address }
@@ -246,48 +303,64 @@ export async function sendInvoiceBatch(admin: SupabaseClient, orgId: string, bat
 
 export type BatchPaymentInput = { amountCents: number; paidAt: string; method: CustomerPaymentMethod; note?: string | null; clientKey: string }
 export type BatchPaymentResult = { ok: true; parts: number; alreadyRecorded: boolean } | Err
+type Allocation = { invoice_id: string; job_id: string | null; cents: number; payment_id: string | null }
+type PaymentRow = { id: string; amount_cents: number; method: string; paid_on: string; note: string | null; allocations: unknown; receipt_claimed_at: string | null }
 
 /**
- * ONE payment against the master invoice, split over its job invoices oldest first by the existing per-invoice writer. The
- * split is safe to retry: each member invoice has its own key (`batch-pay:<batch>:<clientKey>:<invoice>`), and what a key
- * already wrote counts toward the amount, so a retry after a failure finishes the same payment and never pays twice.
+ * ONE payment against the master invoice. The split over the houses (oldest first) is decided ONCE and saved on a
+ * `batch_payments` row before any money is written; every house is then paid through the existing per-invoice writer
+ * (`payPart`, idempotent by `batch-pay:<batch>:<key>:<invoice>`) and its payment id saved back. A retry (same `clientKey`) applies
+ * each saved allocation exactly — it never re-splits live balances — so a failure half-way is finished, never doubled. The
+ * receipt is claimed on the row (compare-and-set), so exactly one goes out however many times it is tapped.
  */
 export async function recordBatchPayment(admin: SupabaseClient, orgId: string, userId: string, batch: BatchRow, p: BatchPaymentInput): Promise<BatchPaymentResult> {
   if (!Number.isInteger(p.amountCents) || p.amountCents <= 0) return { ok: false, status: 400, error: 'Enter an amount above zero' }
   if (!(CUSTOMER_PAYMENT_METHODS as readonly string[]).includes(p.method)) return { ok: false, status: 400, error: 'Pick how it was paid' }
   if (!/^[0-9A-Za-z_-]{8,64}$/.test(p.clientKey)) return { ok: false, status: 400, error: 'Missing payment key' }
-  const members = await memberInvoices(admin, orgId, batch.id)
-  if (members.length === 0) return { ok: false, status: 409, error: 'This master invoice has no invoices.' }
-  if (members.some((i) => i.status === 'draft')) return { ok: false, status: 409, error: 'Send the master invoice before recording a payment.' }
+  const db = orgDb(admin, orgId)
+  const readRow = async () => (await db.from('batch_payments').select('id, amount_cents, method, paid_on, note, allocations, receipt_claimed_at').eq('batch_id', batch.id).eq('client_key', p.clientKey).maybeSingle()).data as PaymentRow | null
+  const probe = await db.from('batch_payments').select('id', { head: true, count: 'exact' }).limit(1)
+  if (probe.error) return isMissingTable(probe.error) ? NOT_SET_UP : { ok: false, status: 500, error: 'Could not record the payment.' }
 
-  const prefix = `batch-pay:${batch.id}:${p.clientKey}:`
-  const jobIds = members.map((i) => i.job_id).filter((x): x is string => !!x)
-  // org-scope-ok: job_payments has no org_id for job payments; the job ids are this company's (member invoices loaded with orgDb)
-  const { data: written } = await admin.from('job_payments').select('amount_cents').in('job_id', jobIds).like('idempotency_key', `${prefix}%`)
-  const writtenCents = asRows<{ amount_cents: number }>(written).reduce((s, r) => s + r.amount_cents, 0)
-  const remaining = p.amountCents - writtenCents
-  if (remaining <= 0) return { ok: true, parts: 0, alreadyRecorded: true }
-
-  const open: Array<{ id: string; balanceCents: number; jobId: string | null }> = []
-  for (const i of members) {
-    const b = await computeInvoiceBalance(admin, i.id)
-    if (b.balance_cents > 0) open.push({ id: i.id, balanceCents: b.balance_cents, jobId: i.job_id })
+  let row = await readRow()
+  if (row && row.amount_cents !== p.amountCents) return { ok: false, status: 409, error: 'That payment key was already used for a different amount. Reopen the payment and try again.' }
+  if (!row) {
+    const members = await memberInvoices(admin, orgId, batch.id)
+    if (members.length === 0) return { ok: false, status: 409, error: 'This master invoice has no invoices.' }
+    if (members.some((i) => i.status === 'draft')) return { ok: false, status: 409, error: 'Send the master invoice before recording a payment.' }
+    const open: Array<{ id: string; balanceCents: number }> = []
+    for (const i of members) {
+      const b = await computeInvoiceBalance(admin, i.id)
+      if (b.balance_cents > 0) open.push({ id: i.id, balanceCents: b.balance_cents })
+    }
+    const split = splitBatchPayment(p.amountCents, open)
+    if (split.leftoverCents > 0 || split.parts.length === 0) return { ok: false, status: 400, error: 'That is more than the master invoice balance.' }
+    const jobOf = new Map(members.map((i) => [i.id, i.job_id]))
+    const allocations: Allocation[] = split.parts.map((s) => ({ invoice_id: s.invoiceId, job_id: jobOf.get(s.invoiceId) ?? null, cents: s.cents, payment_id: null }))
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(p.paidAt) ? p.paidAt : ymdInZone(new Date(), await loadOrgTimeZone(admin, orgId))
+    const ins = await db.from('batch_payments').insert({ batch_id: batch.id, client_key: p.clientKey, amount_cents: p.amountCents, method: p.method, paid_on: day, note: p.note?.trim().slice(0, 400) || null, allocations, created_by: userId }).select('id, amount_cents, method, paid_on, note, allocations, receipt_claimed_at').single()
+    if (ins.error) {
+      if (ins.error.code !== '23505') throw new Error(`master invoice: save payment: ${ins.error.message}`)
+      row = await readRow() // a double tap saved the same payment first: finish THAT one
+    } else row = ins.data as PaymentRow
   }
-  const split = splitBatchPayment(remaining, open)
-  if (split.leftoverCents > 0) return { ok: false, status: 400, error: 'That is more than the master invoice balance.' }
+  if (!row) return { ok: false, status: 500, error: 'Could not record the payment.' }
 
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(p.paidAt) ? p.paidAt : ymdInZone(new Date(), await loadOrgTimeZone(admin, orgId))
-  const jobOf = new Map(open.map((o) => [o.id, o.jobId]))
-  const note = `${p.note?.trim().slice(0, 400) || 'Payment'} · master invoice ${batch.batch_number}`
-  let firstPaymentId = ''
-  for (const part of split.parts) {
-    const r = await payPart(admin, orgId, { invoice_id: part.invoiceId, cents: part.cents, payment_id: null, job_id: jobOf.get(part.invoiceId) ?? null }, { day, method: p.method, note, userId, key: `${prefix}${part.invoiceId}` })
-    if (!r.ok) return { ok: false, status: r.status === 500 ? 500 : 409, error: `${r.error} Parts already recorded stay recorded — try again to finish the rest.` }
-    firstPaymentId ||= r.paymentId
+  const allocations = (Array.isArray(row.allocations) ? (row.allocations as Allocation[]) : []).filter((a) => a && typeof a.invoice_id === 'string' && Number.isInteger(a.cents))
+  const pending = allocations.filter((a) => !a.payment_id)
+  const note = `${row.note || 'Payment'} · master invoice ${batch.batch_number}`
+  for (const a of pending) {
+    const r = await payPart(admin, orgId, { invoice_id: a.invoice_id, cents: a.cents, payment_id: null, job_id: a.job_id }, { day: row.paid_on, method: row.method as CustomerPaymentMethod, note, userId, key: `batch-pay:${batch.id}:${p.clientKey}:${a.invoice_id}` })
+    if (!r.ok) return { ok: false, status: r.status === 500 ? 500 : 409, error: `${r.error} Houses already paid stay paid — press save again to finish the rest.` }
+    a.payment_id = r.paymentId
+    await db.from('batch_payments').update({ allocations }).eq('id', row.id)
   }
-  // ONE receipt for the whole payment (the parts sent none).
-  await sendPaymentReceipt(admin, orgId, { paymentId: firstPaymentId, payer: 'homeowner', amountCents: p.amountCents, paidAt: day, method: p.method, ...(split.parts.length === 1 ? { invoiceId: split.parts[0].invoiceId } : { customerId: batch.customer_id }) })
-  return { ok: true, parts: split.parts.length, alreadyRecorded: false }
+  // One receipt: whoever flips the claim from empty sends it; a second tap finds it taken.
+  const { data: claimed } = await db.from('batch_payments').update({ receipt_claimed_at: new Date().toISOString() }).eq('id', row.id).is('receipt_claimed_at', null).select('id')
+  if (asRows<{ id: string }>(claimed).length > 0) {
+    await sendPaymentReceipt(admin, orgId, { paymentId: allocations[0]?.payment_id ?? row.id, payer: 'homeowner', amountCents: row.amount_cents, paidAt: row.paid_on, method: row.method, ...(allocations.length === 1 ? { invoiceId: allocations[0].invoice_id } : { customerId: batch.customer_id }) })
+  }
+  return { ok: true, parts: pending.length, alreadyRecorded: pending.length === 0 }
 }
 
 export type BatchSummary = { id: string; number: string; customerId: string; createdAt: string; sentAt: string | null; jobCount: number; totalCents: number; paidCents: number; balanceCents: number }

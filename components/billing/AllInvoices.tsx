@@ -22,7 +22,7 @@ import type { InvoiceListRow } from '@/lib/service-billing-db'
 
 const TONE = { overdue: 'danger', open: 'info', paid: 'success', draft: 'neutral', void: 'neutral' } as const
 
-type Load = { rows: InvoiceListRow[]; capped: boolean; today: string; canExport: boolean; fullHistory?: boolean }
+type Load = { rows: InvoiceListRow[]; capped: boolean; today: string; canExport: boolean; fullHistory?: boolean; masterInvoices?: boolean }
 
 const SYSTEM_VIEWS: TableView[] = [
   { id: 'sys-overdue', name: 'Overdue', state: { sorting: [{ id: 'due', desc: false }], search: '', filters: { status: 'overdue' } } },
@@ -85,18 +85,18 @@ export default function AllInvoices() {
         meta: { mobile: 'title' },
       },
       { id: 'customer', header: 'Customer', enableGlobalFilter: false, accessorFn: (r) => r.customerName, cell: ({ row }) => <span>{row.original.customerName}{row.original.jobNumber ? ` · Job ${row.original.jobNumber}` : ''}{row.original.customerPo ? ` · PO ${row.original.customerPo}` : ''}</span> },
-      {
+      ...(data?.masterInvoices ? [{
         id: 'master',
         header: 'Master invoice',
         enableGlobalFilter: false,
-        accessorFn: (r) => r.batchNumber ?? '',
-        cell: ({ row }) =>
+        accessorFn: (r: InvoiceListRow) => r.batchNumber ?? '',
+        cell: ({ row }: { row: { original: InvoiceListRow } }) =>
           row.original.batchId && row.original.batchNumber ? (
             <button type="button" className="min-h-tap text-left font-semibold underline" onClick={() => setOpenBatch(row.original.batchId)}>{row.original.batchNumber}</button>
           ) : (
             '—'
           ),
-      },
+      }] : []),
       { id: 'issued', header: 'Issued', enableGlobalFilter: false, accessorFn: (r) => r.issuedAt ?? r.createdAt, cell: ({ row }) => (row.original.issuedAt ? invoiceItemDateLabel(row.original.issuedAt) : '—') },
       { id: 'due', header: 'Due', enableGlobalFilter: false, accessorFn: (r) => r.dueAt ?? '9999', cell: ({ row }) => (row.original.dueAt ? invoiceItemDateLabel(row.original.dueAt) : '—') },
       {
@@ -109,7 +109,7 @@ export default function AllInvoices() {
       { id: 'total', header: 'Total', enableGlobalFilter: false, accessorFn: (r) => r.totalCents, cell: ({ row }) => formatCurrency(row.original.totalCents), meta: { align: 'right' } },
       { id: 'owed', header: 'Owed', enableGlobalFilter: false, accessorFn: (r) => r.balanceCents, cell: ({ row }) => (row.original.balanceCents > 0 ? formatCurrency(row.original.balanceCents) : '—'), meta: { align: 'right' } },
     ],
-    []
+    [data?.masterInvoices]
   )
 
   function exportCsv() {
@@ -140,7 +140,7 @@ export default function AllInvoices() {
         )}
         toolbar={
           <>
-            <Button size="sm" onClick={() => setBillSheet(true)}>Bill finished jobs</Button>
+            {data?.masterInvoices ? <Button size="sm" onClick={() => setBillSheet(true)}>Bill finished jobs</Button> : null}
             {data?.canExport ? <Button variant="secondary" size="sm" onClick={exportCsv}>Download CSV</Button> : null}
           </>
         }

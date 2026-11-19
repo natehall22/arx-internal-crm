@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { loadBillableJobs } from '@/lib/invoice-batch-db'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -15,6 +16,8 @@ export async function GET(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const off = await orgFeatureOffResponse(profile.org_id, 'masterInvoices')
+  if (off) return off
   const admin = createServiceClient()
   if (!(await callerCanAccessJobBilling(admin, profile))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const customerId = new URL(request.url).searchParams.get('customerId') ?? ''

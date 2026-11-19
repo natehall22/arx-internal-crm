@@ -3,14 +3,16 @@ import { redirect } from 'next/navigation'
 import PrintButton from '@/app/invoices/[invoiceId]/print/PrintButton'
 import { requireAuth } from '@/lib/auth'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
-import { batchLineWhere } from '@/lib/invoice-batch'
+import { batchLineWhere, rollLabel } from '@/lib/invoice-batch'
 import { findBatch, loadBatchDocument } from '@/lib/invoice-batch-db'
 import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
+import { requireOrgFeaturePage } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /** The master invoice as one printable page: a block per house (job, lot / address, PO, amount) and one total. Same gate as the invoice print. */
 export default async function PrintBatchPage({ params }: { params: { batchId: string } }) {
   const { profile } = await requireAuth()
+  await requireOrgFeaturePage(profile.org_id, 'masterInvoices')
   const admin = createServiceClient()
   if (!(await callerCanAccessJobBilling(admin, profile))) redirect('/dashboard')
   const batch = await findBatch(admin, profile.org_id, params.batchId)
@@ -58,7 +60,7 @@ export default async function PrintBatchPage({ params }: { params: { batchId: st
               {doc.lines.map((l) => (
                 <tr key={l.invoiceId}>
                   <td style={td}>{l.jobNumber}</td>
-                  <td style={td}>{batchLineWhere(l, showCommunity)}{l.rollCount != null ? ` · ${l.rollCount} roll${l.rollCount === 1 ? '' : 's'}` : ''}</td>
+                  <td style={td}>{batchLineWhere(l, showCommunity)}{rollLabel(l.rollCount) ? ` · ${rollLabel(l.rollCount)}` : ''}</td>
                   <td style={td}>{l.customerPo ?? ''}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{formatCurrency(l.amountCents)}</td>
                 </tr>

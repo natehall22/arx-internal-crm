@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { emailInvoicePayLink } from '@/lib/invoice-email'
+import { emailInvoicePayLink, ON_MASTER_INVOICE } from '@/lib/invoice-email'
 import { finalizeAndSendInvoice, findOrgInvoice } from '@/lib/invoices'
 import { orgDb } from '@/lib/supabase/org-db'
 import type { JobInvoice } from '@/lib/types/invoices'
@@ -37,6 +37,8 @@ export async function POST(request: Request, { params }: { params: { invoiceId: 
   }
   let invoice = await load()
   if (!invoice) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
+  // A house on a master invoice is issued and sent with it, never on its own (checked before a draft could be issued here).
+  if (invoice.batch_id) return NextResponse.json({ error: ON_MASTER_INVOICE }, { status: 409 })
   if (invoice.status === 'draft' && invoice.job_id) {
     try {
       invoice = await finalizeAndSendInvoice(a.admin, invoice.id, to ?? '')

@@ -138,6 +138,11 @@ import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSetting
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
 import { HARNESS_CREW_SCOREBOARD } from '@/e2e/fixtures'
 import AllInvoices from '@/components/billing/AllInvoices'
+import BillFinishedJobsSheet from '@/components/billing/BillFinishedJobsSheet'
+import BatchDetailDialog from '@/components/billing/BatchDetailDialog'
+import PortalBatchBody from '@/components/portal/PortalBatchBody'
+import PortalShell from '@/components/portal/PortalShell'
+import { HARNESS_BATCH_DOC } from '@/e2e/fixtures'
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import PayClient from '@/components/pay/PayClient'
 import PortalHomeView from '@/components/portal/PortalHomeView'
@@ -495,7 +500,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false, materialOrdering: true }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, masterInvoices: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false, materialOrdering: true }} />
         </div>
       )
     case 'org-features-plan': {
@@ -820,6 +825,12 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><CompanyLogoCard initialLogoUrl="/dev-harness-logo.svg" initialDarkLogoUrl={null} confirmRemove={async () => true} /></div>
     case 'hourly-settings':
       return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
+    case 'bill-finished-jobs':
+      return <BillFinishedJobsSheet customerId="c1" onClose={() => undefined} onCreated={() => undefined} />
+    case 'batch-detail':
+      return <BatchDetailDialog batchId="b1" onClose={() => undefined} />
+    case 'portal-batch':
+      return <PortalShell company={HARNESS_PORTAL_COMPANY} wide><PortalBatchBody doc={HARNESS_BATCH_DOC as never} /></PortalShell>
     case 'all-invoices':
       return <div className="mx-auto max-w-2xl p-4"><AllInvoices /></div>
     case 'customer-invoices':

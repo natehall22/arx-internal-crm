@@ -22,19 +22,19 @@ export default function BatchInvoicesCard({ customerId }: { customerId: string }
   const [openId, setOpenId] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
-    const [a, b] = await Promise.all([
-      fetch(`/api/invoice-batches?customerId=${customerId}`, { cache: 'no-store' }).catch(() => null),
-      fetch(`/api/invoice-batches/billable?customerId=${customerId}`, { cache: 'no-store' }).catch(() => null),
-    ])
-    if (!a?.ok || !b?.ok) return setHidden(true)
-    setBatches(((await a.json()) as { batches: BatchSummary[] }).batches)
-    setWaiting(((await b.json()) as { jobs: unknown[] }).jobs.length)
+    // ONE request: this customer's master invoices and how many finished jobs wait (the server reads them in a fixed number of queries).
+    const res = await fetch(`/api/invoice-batches?customerId=${customerId}&waiting=1`, { cache: 'no-store' }).catch(() => null)
+    if (!res?.ok) return setHidden(true) // feature off (403), no billing access, or not set up yet
+    const body = (await res.json()) as { batches: BatchSummary[]; waiting?: number }
+    setBatches(body.batches)
+    setWaiting(body.waiting ?? 0)
   }, [customerId])
   React.useEffect(() => {
     void load()
   }, [load])
 
-  if (hidden || !batches || (batches.length === 0 && waiting === 0)) return null
+  // Offered only where it pays off: a customer with master invoices already, or 2+ finished jobs waiting (a single house is billed on its job).
+  if (hidden || !batches || (batches.length === 0 && waiting < 2)) return null
   return (
     <Card>
       <CardHeader>
@@ -42,7 +42,7 @@ export default function BatchInvoicesCard({ customerId }: { customerId: string }
         {waiting > 0 ? <Badge tone="warning">{waiting} finished job{waiting === 1 ? '' : 's'} to bill</Badge> : null}
       </CardHeader>
       <div className="border-b border-surface-line px-4 py-3">
-        <Button size="sm" disabled={waiting === 0} onClick={() => setSheet(true)}>Bill finished jobs</Button>
+        <Button size="sm" disabled={waiting < 2} onClick={() => setSheet(true)}>Bill finished jobs</Button>
       </div>
       <CardContent className="p-0">
         <ul>

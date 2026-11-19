@@ -21,7 +21,6 @@ import { recordJobInvoicePayment } from '@/lib/job-invoice-payment'
 import { loadInvoiceOnlineSummary } from '@/lib/online-payments/summary'
 import type { JobInvoice } from '@/lib/types/invoices'
 import { normalizeCustomerPo } from '@/lib/invoice-batch'
-import { findBatch } from '@/lib/invoice-batch-db'
 import { defaultTaxRates } from '@/lib/sales-tax'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 
@@ -154,11 +153,7 @@ export async function PATCH(
         // invoice without a job). Email first, status second: a failed send leaves the invoice as it was.
         const current = await getInvoiceWithDetails(adminClient, params.invoiceId)
         if (!current) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-        // One document per master invoice: a house on a master invoice goes out with it, not on its own.
-        if (current.batch_id) {
-          const batch = await findBatch(adminClient, profile.org_id, current.batch_id)
-          if (batch) return NextResponse.json({ error: `This invoice is on master invoice ${batch.batch_number}. Send that one instead.` }, { status: 409 })
-        }
+        // One document per master invoice: a house on a master invoice goes out with it (refused in sendCustomerInvoice / sendCustomerInvoiceOnline, on the row itself).
         const sent = await sendCustomerInvoiceOnline(adminClient, profile.org_id, current as JobInvoice, typeof email === 'string' ? email : null, profile.id)
         if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: sent.status })
         // Issued now: a time & materials job's commission base counts it (drafts don't).

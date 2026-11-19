@@ -26,6 +26,9 @@ import type { JobInvoice } from '@/lib/types/invoices'
 
 const money = formatCurrency
 
+/** A house on a master invoice goes out with it, never on its own (checked on the invoice row itself, so it fails closed). */
+export const ON_MASTER_INVOICE = 'This invoice is part of a master invoice. Send the master invoice instead.'
+
 function dateLabel(ymd: string | null | undefined): string {
   return invoiceItemDateLabel(ymd ?? null)
 }
@@ -136,6 +139,7 @@ export async function sendCustomerInvoice(
   opts: { payUrl?: string | null } = {}
 ): Promise<SendInvoiceResult> {
   if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
+  if (invoice.batch_id) return { ok: false, status: 409, error: ON_MASTER_INVOICE }
   const doc = await loadInvoiceDocument(admin, orgId, invoice)
   const address = (to ?? doc.billTo.email ?? '').trim()
   if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
@@ -180,6 +184,7 @@ export async function emailInvoicePayLink(
   to?: string | null
 ): Promise<{ ok: true; to: string } | { ok: false; status: 400 | 409 | 503; error: string }> {
   if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
+  if (invoice.batch_id) return { ok: false, status: 409, error: ON_MASTER_INVOICE }
   const doc = await loadInvoiceDocument(admin, orgId, invoice)
   if (doc.isPaid) return { ok: false, status: 409, error: 'This invoice is already paid' }
   const address = (to ?? doc.billTo.email ?? '').trim()
