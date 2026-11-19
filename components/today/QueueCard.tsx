@@ -5,6 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ReminderDoneButton } from '@/components/reminders/ReminderDoneButton'
 import type { Queue } from '@/lib/today'
 
+function QueueRow({ item: i }: { item: Queue['items'][number] }) {
+  return (
+    <li className={i.reminderId ? 'flex items-center gap-2' : undefined}>
+      <Link href={i.href} className="flex min-h-tap min-w-0 flex-1 flex-col justify-center py-2 hover:bg-surface-subtle">
+        <span className="font-semibold text-ink">{i.title}</span>
+        {i.detail ? <span className="text-ui-sm text-ink-muted">{i.detail}</span> : null}
+      </Link>
+      {i.reminderId ? <ReminderDoneButton id={i.reminderId} /> : null}
+    </li>
+  )
+}
+
 /** One work queue: title + count, the first few rows (each a link to where the work is done). */
 export function QueueCard({ queue }: { queue: Queue }) {
   const more = queue.count - queue.items.length
@@ -20,16 +32,20 @@ export function QueueCard({ queue }: { queue: Queue }) {
         ) : (
           <ul className="divide-y divide-surface-line">
             {queue.items.map((i) => (
-              <li key={i.id} className={i.reminderId ? 'flex items-center gap-2' : undefined}>
-                <Link href={i.href} className="flex min-h-tap min-w-0 flex-1 flex-col justify-center py-2 hover:bg-surface-subtle">
-                  <span className="font-semibold text-ink">{i.title}</span>
-                  {i.detail ? <span className="text-ui-sm text-ink-muted">{i.detail}</span> : null}
-                </Link>
-                {i.reminderId ? <ReminderDoneButton id={i.reminderId} /> : null}
-              </li>
+              <QueueRow key={i.id} item={i} />
             ))}
           </ul>
         )}
+        {queue.upcoming && queue.upcoming.length > 0 ? (
+          <details className="pt-2">
+            <summary className="min-h-tap cursor-pointer py-2 text-ui-sm font-semibold text-ink">Upcoming ({queue.upcoming.length})</summary>
+            <ul className="divide-y divide-surface-line">
+              {queue.upcoming.map((i) => (
+                <QueueRow key={i.id} item={i} />
+              ))}
+            </ul>
+          </details>
+        ) : null}
         {more > 0 ? <p className="pt-2 text-ui-sm text-ink-muted">+ {more} more</p> : null}
       </CardContent>
     </Card>

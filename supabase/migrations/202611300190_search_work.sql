@@ -8,7 +8,7 @@
 --   job      production_jobs whose  (a) trade label matches (org_trades via job_type or a work order's trade),
 --                                    (b) sold proposal line item name / description matches (linked, accepted, or the project's accepted proposal),
 --                                    (c) work order title / description matches,
---                                    (d) a human job note matches — ONLY notes the viewer may read (arx_private.message_visible_to, the
+--                                    (d) a human job note matches (shown as a snippet around the word) — ONLY notes the viewer may read (arx_private.message_visible_to, the
 --                                        same evaluator as search_messages), never a restricted Production / pricing note.
 --   customer customers with a service plan whose name / description matches.
 -- Org-scoped on every table; p_owner narrows to a rep's own records like search_all. At most p_limit hits PER KIND.
@@ -53,11 +53,12 @@ AS $$
            OR q.t <% lower(coalesce(l.name, '') || ' ' || coalesce(l.description, '')))
   ),
   work_hits AS (
-    -- (a) trade label: the job's own type, or a crew (work order) trade on the job
-    SELECT j.id AS job_id, 'Trade: ' || tr.label AS why, 0.88::real AS sc
+    -- (a) trade label: the job's own type, or a crew (work order) trade on the job. Scored BELOW every text match (a trade is a
+    -- weak signal: it is every job of that type), so a job whose line items / notes really mention the word ranks above it.
+    SELECT j.id AS job_id, 'Trade: ' || tr.label AS why, 0.55::real AS sc
     FROM trades tr JOIN production_jobs j ON j.org_id = p_org AND j.job_type = tr.slug
     UNION ALL
-    SELECT w.job_id, 'Trade: ' || tr.label, 0.88::real
+    SELECT w.job_id, 'Trade: ' || tr.label, 0.55::real
     FROM trades tr JOIN work_orders w ON w.org_id = p_org AND w.trade = tr.slug AND w.job_id IS NOT NULL
     UNION ALL
     -- (b) sold line items
@@ -77,7 +78,11 @@ AS $$
            OR q.t <% lower(coalesce(w.title, '') || ' ' || coalesce(w.description, '')))
     UNION ALL
     -- (d) job notes the viewer may read (same visibility evaluator as search_messages)
-    SELECT a.production_job_id, 'Note: ' || left(regexp_replace(a.body, '\s+', ' ', 'g'), 60),
+    -- the snippet is the text AROUND the matched word (the start of the note when only a fuzzy match), with … where it is cut
+    SELECT a.production_job_id,
+           'Note: ' || CASE WHEN strpos(lower(regexp_replace(a.body, '\s+', ' ', 'g')), q.t) > 30 THEN '…' ELSE '' END
+                    || substr(regexp_replace(a.body, '\s+', ' ', 'g'), greatest(1, strpos(lower(regexp_replace(a.body, '\s+', ' ', 'g')), q.t) - 30), 70)
+                    || CASE WHEN length(regexp_replace(a.body, '\s+', ' ', 'g')) > greatest(1, strpos(lower(regexp_replace(a.body, '\s+', ' ', 'g')), q.t) - 30) + 69 THEN '…' ELSE '' END,
            greatest(word_similarity(q.t, lower(a.body)), CASE WHEN a.body ILIKE q.pat THEN 0.8 ELSE 0 END)::real
     FROM activities a, q
     WHERE 'job' = ANY (p_kinds) AND length(q.t) >= 3 AND a.org_id = p_org

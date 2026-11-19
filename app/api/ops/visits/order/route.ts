@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   if (b?.action !== 'best' && b?.action !== 'set') return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   const order = Array.isArray(b?.order) && b.order.every((x) => typeof x === 'string') ? (b.order as string[]) : undefined
   if (b?.action === 'set' && !order) return NextResponse.json({ error: 'Send the order' }, { status: 400 })
-  const res = await orderCrewDay(ctx.admin, ctx.orgId, ctx.userId, { subId: crew, day: b.day as string, mode: b.action, order })
+  const res = await orderCrewDay(ctx.admin, ctx.orgId, { subId: crew, day: b.day as string, mode: b.action, order })
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
   return NextResponse.json(res)
 }

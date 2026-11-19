@@ -9,11 +9,14 @@
  *    the record through its own access rules.
  *  - A person sees reminders assigned to them or made by them; owner / admin / operations (`canSeeAllReminders`) see everyone's.
  *  - Nothing is deleted: done sets `done_at` (and can be undone).
- *  - Each bell rings once: `assigned_notified_at` / `due_notified_at` are claimed with a conditional update before the insert.
+ *  - Each bell rings once: the notification is inserted FIRST (a unique index on reminder id + type makes a second insert a no-op),
+ *    then `assigned_notified_at` / `due_notified_at` is set. A failed insert leaves the claim empty, so the next run retries.
+ *  - The person who makes a reminder must be able to open the record it is about (`viewerMaySee`); ids must be real UUIDs.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgTodayYmd } from '@/lib/project-tools/org-today'
+import type { ThreadViewer } from '@/lib/threads/visibility'
 import { isYmd } from '@/lib/service-plans'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -38,6 +41,10 @@ export type ReminderRow = {
 
 export type ReminderTarget = { jobId?: string | null; customerId?: string | null; partnerId?: string | null; propertyId?: string | null }
 export type ReminderInput = ReminderTarget & { assigneeId: string; dueOn: string; body: string }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** True for a well-formed UUID; anything else is a 400, never a database error. */
+export const isReminderId = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v)
 
 const COLUMNS = 'id, body, due_on, assignee_user_id, created_by, done_at, job_id, customer_id, partner_id, property_id'
 
@@ -67,11 +74,12 @@ export function parseReminderInput(raw: unknown, today: string): { ok: true; inp
   if (!isYmd(dueOn)) return { ok: false, status: 400, error: 'Pick a day' }
   if (dueOn < today) return { ok: false, status: 400, error: 'Pick today or a day after' }
   const assigneeId = typeof b.assigneeId === 'string' ? b.assigneeId : ''
-  if (!assigneeId) return { ok: false, status: 400, error: 'Pick who to remind' }
-  const id = (k: string) => (typeof b[k] === 'string' && b[k] ? (b[k] as string) : null)
+  if (!isReminderId(assigneeId)) return { ok: false, status: 400, error: 'Pick who to remind' }
+  const id = (k: string): string | null | 'bad' => (b[k] === undefined || b[k] === null || b[k] === '' ? null : isReminderId(b[k]) ? (b[k] as string) : 'bad')
   const target = { jobId: id('jobId'), customerId: id('customerId'), partnerId: id('partnerId'), propertyId: id('propertyId') }
+  if (Object.values(target).includes('bad')) return { ok: false, status: 400, error: 'That record is not valid' }
   if (!target.jobId && !target.customerId && !target.partnerId && !target.propertyId) return { ok: false, status: 400, error: 'A reminder needs a job, customer or partner' }
-  return { ok: true, input: { assigneeId, dueOn, body, ...target } }
+  return { ok: true, input: { assigneeId, dueOn, body, ...(target as ReminderTarget) } }
 }
 
 async function namesFor(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Map<string, string | null>> {
@@ -139,18 +147,47 @@ async function targetsExist(admin: SupabaseClient, orgId: string, t: ReminderTar
   return true
 }
 
-function bellText(r: { body: string }, dueOn: string, today: string): string {
-  return `${dueOn === today ? 'Due today' : `Due ${dueOn}`}: ${r.body}`.slice(0, 200)
+/**
+ * The person making a reminder must be able to open the record it names — the same rules as the record's own page, so a reminder
+ * can never be used to probe or attach to a record they cannot see. Job = the job board (owner / admin / job-board people);
+ * customer (and a property, through its customer) = `resolveCustomerAccess`; a referral partner is visible to everyone in the
+ * company (phone / email are redacted by the partner pages themselves).
+ */
+export async function viewerMaySee(admin: SupabaseClient, viewer: ThreadViewer, t: ReminderTarget): Promise<boolean> {
+  if (t.jobId && !(viewer.ownerLike || viewer.jobBoard)) return false
+  const customerIds = new Set<string>()
+  if (t.customerId) customerIds.add(t.customerId)
+  if (t.propertyId) {
+    const { data } = await orgDb(admin, viewer.orgId).from('properties').select('customer_id').eq('id', t.propertyId).maybeSingle()
+    const cid = (data as { customer_id: string | null } | null)?.customer_id
+    if (!cid) return false
+    customerIds.add(cid)
+  }
+  // Loaded when needed: this module is imported by lib/today.ts, which must not drag the thread / route stack into every page and test.
+  const { resolveCustomerAccess } = await import('@/lib/customer-file/customer-access')
+  for (const cid of Array.from(customerIds)) {
+    const access = await resolveCustomerAccess(admin, viewer, cid)
+    if (!access?.read) return false
+  }
+  return true
 }
 
-/** Ring one bell (+ push). Claimed first with a conditional update so it can never ring twice. */
+function bellText(r: { body: string }, dueOn: string, today: string): string {
+  const when = dueOn === today ? 'Due today' : dueOn < today ? `Overdue (was due ${dueOn})` : `Due ${dueOn}`
+  return `${when}: ${r.body}`.slice(0, 200)
+}
+
+/**
+ * Ring one bell (+ push). The notification goes in FIRST: the unique index (reminder id + type) turns a second insert into a
+ * no-op, and only then is the claim column set — so a failed insert is retried on the next run instead of being lost, and a
+ * crash between the two cannot ring twice. A reminder that was due on an earlier day says "overdue", never "due today".
+ */
 async function ring(admin: SupabaseClient, orgId: string, r: { id: string; assigneeId: string; body: string; dueOn: string; jobId: string | null; customerId: string | null; partnerId: string | null }, kind: 'assigned' | 'due', actor: { id: string; name: string | null } | null, today: string): Promise<boolean> {
   const column = kind === 'assigned' ? 'assigned_notified_at' : 'due_notified_at'
-  const { data: claimed } = await orgDb(admin, orgId).from('reminders').update({ [column]: new Date().toISOString() }).eq('id', r.id).is(column, null).select('id')
-  if (!claimed || claimed.length === 0) return false
   const link = reminderHref(r) ?? '/today'
-  const title = kind === 'assigned' ? `${actor?.name ?? 'Someone'} set a reminder for you` : 'Reminder due today'
-  const { error } = await orgDb(admin, orgId).from('notifications').insert({
+  const title = kind === 'assigned' ? `${actor?.name ?? 'Someone'} set a reminder for you` : r.dueOn < today ? 'Reminder overdue' : 'Reminder due today'
+  const db = orgDb(admin, orgId)
+  const { error } = await db.from('notifications').insert({
     recipient_user_id: r.assigneeId,
     actor_user_id: actor?.id ?? null,
     type: kind === 'assigned' ? 'reminder_assigned' : 'reminder_due',
@@ -159,10 +196,14 @@ async function ring(admin: SupabaseClient, orgId: string, r: { id: string; assig
     link_url: link,
     data: { reminder_id: r.id },
   })
-  if (error) {
+  const alreadyRung = error?.code === '23505'
+  if (error && !alreadyRung) {
     console.error('[reminders] bell failed', { reminderId: r.id, message: error.message })
     return false
   }
+  const { error: claimError } = await db.from('reminders').update({ [column]: new Date().toISOString() }).eq('id', r.id).is(column, null)
+  if (claimError) console.error('[reminders] bell claim failed', { reminderId: r.id, message: claimError.message })
+  if (alreadyRung) return false
   // Loaded when needed: the push module pulls in a JWT library that lib/today.ts (which imports this file) must not drag into every page and test.
   const { sendPushToUserBackground } = await import('@/lib/push-apns')
   sendPushToUserBackground(r.assigneeId, title, bellText(r, r.dueOn, today), { type: `reminder_${kind}`, url: link })
@@ -173,7 +214,7 @@ async function ring(admin: SupabaseClient, orgId: string, r: { id: string; assig
 export async function createReminder(
   admin: SupabaseClient,
   orgId: string,
-  actor: { id: string; name: string | null },
+  actor: { id: string; name: string | null; viewer: ThreadViewer },
   input: ReminderInput,
   now = new Date()
 ): Promise<{ ok: true; reminder: ReminderRow } | Fail> {
@@ -183,6 +224,8 @@ export async function createReminder(
   const i = parsed.input
   if (!(await activeMember(admin, orgId, i.assigneeId))) return { ok: false, status: 400, error: 'Pick someone from your company' }
   if (!(await targetsExist(admin, orgId, i))) return { ok: false, status: 404, error: 'Not found' }
+  // Same answer as a missing record, so existence is not leaked.
+  if (!(await viewerMaySee(admin, actor.viewer, i))) return { ok: false, status: 404, error: 'Not found' }
   const { data, error } = await orgDb(admin, orgId)
     .from('reminders')
     .insert({
@@ -218,6 +261,7 @@ export async function setReminderDone(
   done: boolean
 ): Promise<{ ok: true } | Fail> {
   const db = orgDb(admin, orgId)
+  if (!isReminderId(reminderId)) return { ok: false, status: 400, error: 'Not a valid reminder' }
   const { data: r } = await db.from('reminders').select('id, assignee_user_id, created_by').eq('id', reminderId).maybeSingle()
   const row = r as { assignee_user_id: string; created_by: string | null } | null
   // Not yours = the same answer as not found.

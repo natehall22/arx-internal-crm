@@ -8,7 +8,7 @@ import { addDaysYmd, weekdayOfYmd } from '@/lib/service-plans'
 import { formatDateWeekday } from '@/lib/format'
 
 type Target = { jobId?: string; customerId?: string; partnerId?: string }
-type Item = { id: string; body: string; dueOn: string; assigneeId: string; assigneeName: string | null; createdByName: string | null }
+type Item = { id: string; body: string; dueOn: string; assigneeId: string; assigneeName: string | null; createdById: string | null; createdByName: string | null }
 type Load = { reminders: Item[]; today: string; seesAll: boolean; meId: string }
 
 /** Next Monday after `today` (the "Next week" chip). */
@@ -107,7 +107,7 @@ export default function RemindButton({ target, className }: { target: Target; cl
                       <p className="min-w-0 break-words text-ui-base text-ink">
                         <span className="font-semibold">{formatDateWeekday(r.dueOn)}</span> · {r.assigneeName ?? 'Someone'} — {r.body}
                       </p>
-                      {r.assigneeId === data?.meId || data?.seesAll ? <Button size="sm" variant="secondary" onClick={() => void done(r.id)}>Done</Button> : null}
+                      {r.assigneeId === data?.meId || r.createdById === data?.meId || data?.seesAll ? <Button size="sm" variant="secondary" onClick={() => void done(r.id)}>Done</Button> : null}
                     </li>
                   ))}
                 </ul>

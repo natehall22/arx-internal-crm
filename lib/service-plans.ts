@@ -652,10 +652,11 @@ export function visitPatch(
       return { status: 'scheduled', completed_at: null, completed_by: null, completed_by_sub_id: null, skip_reason: null, skipped_at: null, step_result: null }
     case 'move':
       if (!open) return { error: 'Only a scheduled visit can be moved' }
-      return { scheduled_date: a.date }
+      // The stop number was for the old day / crew; the visit falls back to its plan's number there.
+      return { scheduled_date: a.date, stop_order: null }
     case 'assign':
       if (!open) return { error: 'Only a scheduled visit can change crew' }
-      return { assigned_sub_id: a.subId }
+      return { assigned_sub_id: a.subId, stop_order: null }
   }
 }
 

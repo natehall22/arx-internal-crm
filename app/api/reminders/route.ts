@@ -3,12 +3,13 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { orgTodayYmd } from '@/lib/project-tools/org-today'
-import { canSeeAllReminders, createReminder, listReminders } from '@/lib/reminders'
+import { canSeeAllReminders, createReminder, isReminderId, listReminders } from '@/lib/reminders'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
-type Profile = { id: string; org_id: string; full_name: string | null; role: string; is_super_admin?: boolean | null; active?: boolean | null }
+type Profile = { id: string; org_id: string; full_name: string | null; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null; active?: boolean | null }
 
 async function signedIn(): Promise<{ profile: Profile } | Response> {
   try {
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
   const admin = createServiceClient()
   const seesAll = canSeeAllReminders(profile)
   const target = { jobId: url.searchParams.get('jobId'), customerId: url.searchParams.get('customerId'), partnerId: url.searchParams.get('partnerId') }
+  if ([target.jobId, target.customerId, target.partnerId].some((v) => v !== null && !isReminderId(v))) return NextResponse.json({ error: 'That record is not valid' }, { status: 400 })
   const onRecord = !!(target.jobId || target.customerId || target.partnerId)
   try {
     const [reminders, today] = await Promise.all([
@@ -54,7 +56,9 @@ export async function POST(request: Request) {
   const off = await orgFeatureOffResponse(profile.org_id, 'reminders')
   if (off) return off
   const body = await request.json().catch(() => null)
-  const result = await createReminder(createServiceClient(), profile.org_id, { id: profile.id, name: profile.full_name }, body)
+  const admin = createServiceClient()
+  const viewer = await resolveThreadViewer(admin, profile)
+  const result = await createReminder(admin, profile.org_id, { id: profile.id, name: profile.full_name, viewer }, body)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json({ reminder: result.reminder }, { status: 201 })
 }

@@ -129,6 +129,7 @@ import PriceListCard from '@/components/customer/PriceListCard'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
+import RemindButton from '@/components/reminders/RemindButton'
 import ReadyToBill from '@/components/billing/ReadyToBill'
 import HoursToBill from '@/components/billing/HoursToBill'
 import JobHourlyCard from '@/components/billing/JobHourlyCard'
@@ -750,6 +751,13 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'visits-board':
       return <VisitsBoard />
+    case 'remind':
+      // The Remind sheet as the job page / Customer File header shows it (mocked /api/reminders, needs the `reminders` feature on).
+      return (
+        <div className="p-3">
+          <RemindButton target={{ customerId: 'cust-1' }} />
+        </div>
+      )
     case 'ready-to-bill':
       return <ReadyToBill />
     case 'hours-to-bill':

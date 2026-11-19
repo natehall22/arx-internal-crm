@@ -1401,7 +1401,7 @@ export type VisitView = {
 }
 
 const VISIT_COLS =
-  'id, work_order_number, service_plan_id, visit_step, step_result, status, scheduled_date, service_planned_date, trade, customer_id, property_id, assigned_sub_id, assigned_user_id, skip_reason, completion_notes, completed_at, updated_at, address, title, description, visit_checklist'
+  'id, work_order_number, service_plan_id, visit_step, step_result, status, scheduled_date, service_planned_date, trade, customer_id, property_id, assigned_sub_id, assigned_user_id, skip_reason, completion_notes, completed_at, updated_at, address, title, description, visit_checklist, stop_order'
 
 /** Visits on [from, to] (by the day they sit on), ordered by day, then the crew's stop number, then address. */
 export type VisitFilter = {
@@ -1577,7 +1577,7 @@ async function viewsFor(admin: SupabaseClient, orgId: string, rows: Array<Record
       accessNotes: opts.accessNotes ? (prop?.access_notes ?? null) : null,
       subId: (r.assigned_sub_id as string | null) ?? null,
       subName: r.assigned_sub_id ? (subBy.get(String(r.assigned_sub_id)) ?? null) : null,
-      routePosition: plan?.route_position ?? null,
+      routePosition: (r.stop_order as number | null | undefined) ?? plan?.route_position ?? null,
       step: String(r.visit_step ?? SERVICE_STEP),
       ...(() => {
         const st = plan?.steps.find((x) => x.key === r.visit_step)

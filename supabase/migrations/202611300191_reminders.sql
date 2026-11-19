@@ -5,7 +5,7 @@
 --   done_at  = set when done (kept, never deleted); a reminder can be reopened.
 --   assigned_notified_at / due_notified_at = the bell on assign and on the due morning, each sent once (claimed with a conditional
 --   update, so a re-run of the morning job never rings twice).
--- Rollback: DROP TABLE public.reminders;
+-- Rollback: DROP INDEX notifications_reminder_once; DROP TABLE public.reminders;
 CREATE TABLE IF NOT EXISTS public.reminders (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
@@ -31,3 +31,9 @@ CREATE INDEX IF NOT EXISTS reminders_by_job ON public.reminders (job_id) WHERE j
 CREATE INDEX IF NOT EXISTS reminders_by_partner ON public.reminders (partner_id) WHERE partner_id IS NOT NULL;
 ALTER TABLE public.reminders ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.reminders FROM anon, authenticated;
+
+-- One bell per reminder and kind: the app inserts the notification first and sets the claim column second (lib/reminders.ts `ring`),
+-- so a failed insert retries and a double run cannot ring twice. Same pattern as notifications_lead_waiting_once.
+CREATE UNIQUE INDEX IF NOT EXISTS notifications_reminder_once
+  ON public.notifications ((data->>'reminder_id'), type)
+  WHERE type IN ('reminder_assigned', 'reminder_due');

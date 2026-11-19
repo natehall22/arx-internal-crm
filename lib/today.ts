@@ -33,7 +33,7 @@ export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer' | 'crew'
  * list and carries the customer's name and `phone` (owner "Everything" email only; Nathan, 2026-11-06).
  */
 export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string; phone?: string | null; /** A reminder row: the card shows a Done button for it. */ reminderId?: string }
-export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string }
+export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string; /** Collapsed under the list ("Upcoming (N)"); not part of `count`. */ upcoming?: QueueItem[] }
 
 export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean; customRoleName?: string | null; customRoleDisplayName?: string | null }): TodayKind {
   // A super admin is the owner whatever their role slug says (Precision's owner holds role 'operations').
@@ -661,7 +661,7 @@ export async function loadRemindersQueue(
   const today = await orgTodayYmd(admin, orgId, now)
   const rows = await listReminders(admin, orgId, { viewerId: viewer.id, all: scope === 'others', limit: 200 })
   const picked = rows.filter((r) => (scope === 'mine' ? r.assigneeId === viewer.id : r.assigneeId !== viewer.id))
-  const items: QueueItem[] = picked.slice(0, LIST_CAP).map((r) => ({
+  const asItem = (r: (typeof picked)[number]): QueueItem => ({
     id: r.id,
     reminderId: r.id,
     title: r.body,
@@ -669,8 +669,11 @@ export async function loadRemindersQueue(
     href: reminderHref(r) ?? '/today',
     ref: 'Reminder',
     note: r.dueOn < today ? 'Overdue' : r.dueOn === today ? 'Due today' : 'Coming up',
-  }))
-  return scope === 'mine'
-    ? { id: 'my-reminders', title: 'My reminders', count: picked.length, items, empty: 'No reminders.' }
-    : { id: 'all-reminders', title: 'Everyone’s reminders', count: picked.length, items, empty: 'No reminders.' }
+  })
+  // What needs attention now (due today + overdue) is the list and the count; later days sit collapsed under it.
+  const due = picked.filter((r) => r.dueOn <= today)
+  const later = picked.filter((r) => r.dueOn > today)
+  const upcoming = later.map(asItem)
+  const base = { count: due.length, items: due.slice(0, LIST_CAP).map(asItem), empty: 'Nothing due.', ...(later.length > 0 ? { upcoming } : {}) }
+  return scope === 'mine' ? { id: 'my-reminders', title: 'My reminders', ...base } : { id: 'all-reminders', title: 'Everyone’s reminders', ...base }
 }
