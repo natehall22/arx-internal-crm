@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
 import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
-import { inspectionsSetLabel, pageHidden, sitsLabel, type ClientOrgProfile } from '@/lib/org-profile'
+import { inspectionsSetLabel, pageHidden, roofingOr, sitsLabel, type ClientOrgProfile } from '@/lib/org-profile'
 import type { OrgFeatures } from '@/lib/org-features'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
@@ -551,6 +551,7 @@ export default function DashboardClient({
   /** Company feature switches (Settings → Features), resolved on the server: hides Start Canvassing / badges when off. */
   const orgFeatures = useOrgFeatures(serverOrgFeatures)
   const orgProfile = useOrgProfile(serverOrgProfile)
+  const rw = <T extends string>(roofing: T, other: T): T => roofingOr(orgProfile, roofing, other)
   const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null
@@ -1024,7 +1025,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-700 truncate">Doors Knocked</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">{rw('Doors Knocked', 'Properties Visited')}</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.doorsKnocked}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1099,7 +1100,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-700 truncate">Doors Knocked</p>
+                  <p className="text-xs sm:text-sm text-gray-700 truncate">{rw('Doors Knocked', 'Properties Visited')}</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.doorsKnocked}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -1261,7 +1262,7 @@ export default function DashboardClient({
                   {isManager && distinctDealCounts && !loadingStats && (
                     <span
                       className="block sm:inline sm:ml-2 text-gray-600 text-[11px] sm:text-xs mt-0.5 sm:mt-0"
-                      title="Setter and closer tables can both credit the same job, so unique totals are shown separately."
+                      title={rw('Setter and closer tables can both credit the same job, so unique totals are shown separately.', 'Field and sales tables can both credit the same job, so unique totals are shown separately.')}
                     >
                       Unique: {distinctDealCounts.sitOpportunitiesInPeriod} sits ·{' '}
                       {distinctDealCounts.saleOpportunitiesInPeriod} sales
@@ -1285,7 +1286,7 @@ export default function DashboardClient({
               <>
                 {orgFeatures.canvassing && showSetterStack && filteredSetterStats.length > 0 && (
                   <div className="border-t border-gray-100">
-                    <h3 className="px-3 sm:px-4 pt-4 pb-2 text-sm font-semibold text-gray-800">Setter stats</h3>
+                    <h3 className="px-3 sm:px-4 pt-4 pb-2 text-sm font-semibold text-gray-800">{rw('Setter stats', 'Field rep stats')}</h3>
                     <div className="block sm:hidden divide-y divide-gray-100">
                       {filteredSetterStats.map((member, index) => (
                         <div
@@ -1445,7 +1446,7 @@ export default function DashboardClient({
 
                 {showCloserStack && filteredCloserStats.length > 0 && (
                   <div className="border-t border-gray-100">
-                    <h3 className="px-3 sm:px-4 pt-4 pb-2 text-sm font-semibold text-gray-800">Closer stats</h3>
+                    <h3 className="px-3 sm:px-4 pt-4 pb-2 text-sm font-semibold text-gray-800">{rw('Closer stats', 'Salesperson stats')}</h3>
                     <div className="block sm:hidden divide-y divide-gray-100">
                       {filteredCloserStats.map((member, index) => (
                         <div
@@ -1560,7 +1561,7 @@ export default function DashboardClient({
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Insp. set</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Insp. recv.
-                              <span className="block font-normal normal-case text-gray-600">(assigned closer)</span>
+                              <span className="block font-normal normal-case text-gray-600">({rw('assigned closer', 'assigned salesperson')})</span>
                             </th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">{sitsLabel(orgProfile)}</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Sales</th>
@@ -1572,7 +1573,7 @@ export default function DashboardClient({
                             </th>
                             <th
                               className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider"
-                              title="Sales ÷ appointments on this closer's calendar in the period (not the same as sits ÷ insp. received)."
+                              title={rw("Sales ÷ appointments on this closer's calendar in the period (not the same as sits ÷ insp. received).", "Sales ÷ appointments on this salesperson's calendar in the period (not the same as visits done ÷ visits received).")}
                             >
                               Effic. %
                               <span className="block font-normal normal-case text-gray-600">
@@ -1683,7 +1684,7 @@ export default function DashboardClient({
               {orgFeatures.canvassing && (
                 <>
               <GoalBar
-                label="Doors Knocked"
+                label={rw('Doors Knocked', 'Properties Visited')}
                 current={progressForTimeFrame.doors_knocked.current}
                 goal={progressForTimeFrame.doors_knocked.goal}
                 color="bg-blue-500"

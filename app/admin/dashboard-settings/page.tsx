@@ -7,6 +7,8 @@ import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import Link from 'next/link'
 import DashboardCardsEditor from '@/components/dashboard/DashboardCardsEditor'
 import type { DashboardMode } from '@/lib/dashboard-cards'
+import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import { inspectionsSetLabel, roofingOr } from '@/lib/org-profile'
 
 interface DashboardSettingsData {
   widgets: string[]
@@ -29,6 +31,8 @@ interface SettingsRecord {
 
 export default function DashboardSettingsPage() {
   const router = useRouter()
+  const orgProfile = useOrgProfile()
+  const rw = <T extends string>(roofing: T, other: T): T => roofingOr(orgProfile, roofing, other)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -184,7 +188,7 @@ export default function DashboardSettingsPage() {
   }
 
   const widgetOptions = [
-    { id: 'stats', label: 'Quick Stats', description: 'Doors knocked, inspections, sales, close rate' },
+    { id: 'stats', label: 'Quick Stats', description: rw('Doors knocked, inspections, sales, close rate', 'Activity, visits, sales, close rate') },
     { id: 'progress', label: 'Weekly Progress', description: 'Progress bars toward weekly goals' },
     { id: 'appointments', label: 'Upcoming Appointments', description: 'List of scheduled appointments' },
     { id: 'activity', label: 'Recent Activity', description: 'Activity feed from team members' },
@@ -386,7 +390,7 @@ export default function DashboardSettingsPage() {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Doors Knocked
+                {rw('Doors Knocked', 'Properties Visited')}
               </label>
               <input
                 type="number"
@@ -400,7 +404,7 @@ export default function DashboardSettingsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Inspections Set
+                {inspectionsSetLabel(orgProfile)}
               </label>
               <input
                 type="number"

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useRoofingWord } from '@/hooks/useOrgFeatures'
 import { creditLaneWords } from '@/lib/sale-credit-words'
 import { Button, Card, CardContent, CardHeader, CardTitle, toast } from '@/components/ui'
 
@@ -36,6 +36,7 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
   const [value, setValue] = useState('')
   const [url, setUrl] = useState('')
   const laneWords = creditLaneWords(useOrgFeatures().canvassing)
+  const rw = useRoofingWord()
   const [credit, setCredit] = useState<{ closerUserId: string; setterUserId: string; isSelfGenerated: boolean } | null>(null)
   const [canChange, setCanChange] = useState(true)
   const [users, setUsers] = useState<Array<{ id: string; full_name: string | null }>>([])
@@ -153,13 +154,13 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
                 </select>
                 {laneWords.showSetter && (
                   <>
-                <select value={credit.isSelfGenerated ? '' : credit.setterUserId} disabled={!canChange || credit.isSelfGenerated} onChange={(e) => setCredit({ ...credit, setterUserId: e.target.value })} aria-label="Setter" className="min-h-tap rounded-ui border border-surface-line px-3 text-base text-ink disabled:bg-gray-100">
-                  <option value="">No setter</option>
+                <select value={credit.isSelfGenerated ? '' : credit.setterUserId} disabled={!canChange || credit.isSelfGenerated} onChange={(e) => setCredit({ ...credit, setterUserId: e.target.value })} aria-label={rw('Setter', 'Field rep')} className="min-h-tap rounded-ui border border-surface-line px-3 text-base text-ink disabled:bg-gray-100">
+                  <option value="">{rw('No setter', 'No field rep')}</option>
                   {users.map((u) => <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>)}
                 </select>
                 <label className="flex min-h-tap items-center gap-3">
                   <input type="checkbox" className="h-5 w-5" checked={credit.isSelfGenerated} disabled={!canChange} onChange={(e) => setCredit({ ...credit, isSelfGenerated: e.target.checked })} />
-                  <span>The closer found this customer themselves</span>
+                  <span>{rw('The closer found this customer themselves', 'The salesperson found this customer themselves')}</span>
                 </label>
                   </>
                 )}

@@ -6,6 +6,7 @@ import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import { permissionCategories, type PermissionCategory } from '@/lib/permissions'
 import type { CustomRole, Permission, User } from '@/lib/types/database'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { useRoofingWord } from '@/hooks/useOrgFeatures'
 
 type RoleWithPermissions = CustomRole & {
   permissions: Permission[]
@@ -17,6 +18,7 @@ type UserWithPermissions = User & {
 }
 
 export default function RolesPage() {
+  const rw = useRoofingWord()
   const [activeTab, setActiveTab] = useState<'roles' | 'users'>('roles')
   const [roles, setRoles] = useState<RoleWithPermissions[]>([])
   const [users, setUsers] = useState<UserWithPermissions[]>([])
@@ -659,7 +661,7 @@ export default function RolesPage() {
                       type="text"
                       value={formDisplayName}
                       onChange={(e) => setFormDisplayName(e.target.value)}
-                      placeholder="e.g., Setter Manager"
+                      placeholder={rw('e.g., Setter Manager', 'e.g., Field Manager')}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
@@ -692,11 +694,11 @@ export default function RolesPage() {
                       <option value={80}>80 - Regional Sales Manager</option>
                       <option value={75}>75 - Operations</option>
                       <option value={70}>70 - Sales Manager</option>
-                      <option value={65}>65 - Regional Setter Manager</option>
-                      <option value={60}>60 - Setter Manager</option>
+                      <option value={65}>{rw('65 - Regional Setter Manager', '65 - Regional Field Manager')}</option>
+                      <option value={60}>{rw('60 - Setter Manager', '60 - Field Manager')}</option>
                       <option value={55}>55 - Field Operations</option>
                       <option value={50}>50 - Sales Rep</option>
-                      <option value={40}>40 - Setter</option>
+                      <option value={40}>{rw('40 - Setter', '40 - Field Rep')}</option>
                       <option value={30}>30 - Sub Contractor</option>
                     </select>
                     <p className="mt-1 text-xs text-gray-700">Higher levels can manage lower levels</p>
@@ -1032,11 +1034,11 @@ export default function RolesPage() {
               <div><strong>80</strong> Regional Sales Manager</div>
               <div><strong>75</strong> Operations</div>
               <div><strong>70</strong> Sales Manager</div>
-              <div><strong>65</strong> Regional Setter Manager</div>
-              <div><strong>60</strong> Setter Manager</div>
+              <div><strong>65</strong> {rw('Regional Setter Manager', 'Regional Field Manager')}</div>
+              <div><strong>60</strong> {rw('Setter Manager', 'Field Manager')}</div>
               <div><strong>55</strong> Field Operations</div>
               <div><strong>50</strong> Sales Rep</div>
-              <div><strong>40</strong> Setter</div>
+              <div><strong>40</strong> {rw('Setter', 'Field Rep')}</div>
               <div><strong>30</strong> Sub Contractor</div>
             </div>
             <ul className="text-sm text-blue-800 space-y-2">

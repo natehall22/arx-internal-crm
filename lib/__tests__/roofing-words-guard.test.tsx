@@ -16,7 +16,7 @@ import { resetOrgFeaturesCacheForTests } from '@/hooks/useOrgFeatures'
 import { INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { NEUTRAL_TEMPLATE_HINTS, proposalTemplateHints, ROOFING_TEMPLATE_HINTS } from '@/lib/industry-profiles-proposal'
 import { visibleOutcomeRows, DEFAULT_INSPECTION_OUTCOMES } from '@/lib/inspection-outcomes'
-import { resolveOrgProfile, roofingOr } from '@/lib/org-profile'
+import { resolveOrgProfile, roofingOr, t } from '@/lib/org-profile'
 
 jest.mock('@/components/Nav', () => ({ __esModule: true, default: () => <nav /> }))
 
@@ -68,6 +68,34 @@ describe('profile-gated wording', () => {
     expect(roofingOr(null, 'Roof', 'Neutral')).toBe('Roof')
     expect(roofingOr({ id: 'roofing' }, 'Roof', 'Neutral')).toBe('Roof')
     expect(roofingOr({ id: 'lawn_landscape' }, 'Roof', 'Neutral')).toBe('Neutral')
+  })
+
+  it('customer-impact wording keeps the roofing builder output byte-for-byte', () => {
+    const roof = resolveOrgProfile({})
+    const lawn = resolveOrgProfile({ profile: { id: 'lawn_landscape', version: 8 } })
+
+    expect(roofingOr(roof, 'Roofing Proposal', t(roof, 'proposal'))).toBe('Roofing Proposal')
+    expect(t(roof, 'leadName')).toBe('Homeowner Name')
+    expect(t(roof, 'inspection').toLowerCase()).toBe('inspection')
+    expect(roofingOr(roof, 'Roof Measurement Loaded', 'Measurement Loaded')).toBe('Roof Measurement Loaded')
+    expect(roofingOr(roof, 'Continue to Roofing Type', 'Continue to Service Type')).toBe('Continue to Roofing Type')
+    expect(roofingOr(roof, true, false)).toBe(true)
+    expect(INDUSTRY_PROFILES.roofing.pricebook.adderCategories).toEqual([
+      'Ventilation',
+      'Gutters',
+      'Skylights',
+      'Chimney',
+      'Decking',
+      'Flashing',
+      'Other',
+    ])
+
+    expect(roofingOr(lawn, 'Roofing Proposal', t(lawn, 'proposal'))).toBe('Quote')
+    expect(t(lawn, 'leadName')).toBe('Customer / company name')
+    expect(t(lawn, 'inspection').toLowerCase()).toBe('estimate visit')
+    expect(roofingOr(lawn, 'Roof Measurement Loaded', 'Measurement Loaded')).toBe('Measurement Loaded')
+    expect(roofingOr(lawn, 'Continue to Roofing Type', 'Continue to Service Type')).toBe('Continue to Service Type')
+    expect(roofingOr(lawn, true, false)).toBe(false)
   })
 
   it('insurance outcomes are hidden without the Insurance feature and untouched with it', () => {

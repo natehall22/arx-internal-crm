@@ -13,6 +13,8 @@ import LeadInspectionScheduleModal from '@/components/leads/LeadInspectionSchedu
 import { MANUAL_LEAD_SOURCES } from '@/lib/lead-sources'
 import { toast } from '@/components/ui/toast'
 import { formatPhone } from '@/lib/format'
+import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import { t } from '@/lib/org-profile'
 
 interface ReferrerResult {
   id: string
@@ -53,13 +55,16 @@ export default function LeadFormWithReferral({
   userId,
   defaultBonusAmount = 100,
   canScheduleInspection = false,
-  nameLabel = 'Homeowner Name',
-  inspectionWord = 'inspection',
+  nameLabel,
+  inspectionWord,
   serviceChoices = [],
   ownerChoices = null,
   leadSources = MANUAL_LEAD_SOURCES,
 }: LeadFormWithReferralProps) {
   const router = useRouter()
+  const orgProfile = useOrgProfile()
+  const effectiveNameLabel = nameLabel ?? t(orgProfile, 'leadName')
+  const effectiveInspectionWord = inspectionWord ?? t(orgProfile, 'inspection').toLowerCase()
   const [saving, setSaving] = useState(false)
   const [savedLeadId, setSavedLeadId] = useState<string | null>(null)
   /** Snapshot at save-time: address is required so scheduling can place a map pin. */
@@ -195,13 +200,13 @@ export default function LeadFormWithReferral({
 
     if (selectedSchedule) {
       const missingScheduleFields = [
-        !form.homeowner_name.trim() ? nameLabel.toLowerCase() : null,
+        !form.homeowner_name.trim() ? effectiveNameLabel.toLowerCase() : null,
         !form.phone.trim() ? 'phone' : null,
         !form.address_text.trim() ? 'address' : null,
       ].filter(Boolean)
 
       if (missingScheduleFields.length > 0) {
-        toast(`Add ${missingScheduleFields.join(', ')} before saving the scheduled ${inspectionWord}.`)
+        toast(`Add ${missingScheduleFields.join(', ')} before saving the scheduled ${effectiveInspectionWord}.`)
         return
       }
     }
@@ -338,7 +343,7 @@ export default function LeadFormWithReferral({
                 onClick={() => setScheduleModalOpen(true)}
                 className="inline-flex rounded-md border border-green-700 bg-white px-4 py-2 text-sm font-semibold text-green-900 hover:bg-green-50"
               >
-                Schedule {inspectionWord}…
+                Schedule {effectiveInspectionWord}…
               </button>
             )}
             <button
@@ -351,7 +356,7 @@ export default function LeadFormWithReferral({
           </div>
           {canScheduleInspection && !savedEligibleForSchedule && (
             <p className="mt-3 text-xs text-amber-800">
-              Add an address on the lead record, then use <strong>Schedule {inspectionWord}</strong> from the lead page.
+              Add an address on the lead record, then use <strong>Schedule {effectiveInspectionWord}</strong> from the lead page.
             </p>
           )}
         </div>
@@ -375,10 +380,10 @@ export default function LeadFormWithReferral({
           closeDurationMinutes={schedulingResources.inspectionDurationMinutes}
           users={schedulingResources.users}
           teams={schedulingResources.teams}
-          modalTitle={`Pick ${inspectionWord} time`}
+          modalTitle={`Pick ${effectiveInspectionWord} time`}
           intro={
             <p>
-              Pick an open {inspectionWord} slot. It is booked when you create the lead.
+              Pick an open {effectiveInspectionWord} slot. It is booked when you create the lead.
             </p>
           }
           summaryHint="This slot will be booked when you create the lead."
@@ -389,7 +394,7 @@ export default function LeadFormWithReferral({
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="text-sm font-medium text-[#2c2c2a]">{nameLabel}</label>
+          <label className="text-sm font-medium text-[#2c2c2a]">{effectiveNameLabel}</label>
           <input
             value={form.homeowner_name}
             onChange={(e) => setForm(prev => ({ ...prev, homeowner_name: e.target.value }))}
@@ -487,7 +492,7 @@ export default function LeadFormWithReferral({
         <div className="rounded-lg border border-green-200 bg-green-50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-green-950">Schedule {inspectionWord}</h3>
+              <h3 className="text-sm font-semibold text-green-950">Schedule {effectiveInspectionWord}</h3>
               <p className="mt-1 text-sm text-green-950/80">
                 Optional. Pick a time now and it is booked when you save.
               </p>

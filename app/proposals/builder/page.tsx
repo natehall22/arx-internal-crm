@@ -6,7 +6,8 @@ import Nav from '@/components/Nav'
 import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
 import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
-import { t } from '@/lib/org-profile'
+import { roofingOr, t } from '@/lib/org-profile'
+import { BASE_TERMS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { findStaleSquareLines, isPerSquareUnit, keepLinesWhenRoofingTypeChanges } from '@/lib/proposal-line-squares'
 import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { toast } from '@/components/ui/toast'
@@ -139,13 +140,21 @@ interface FinancingProgramOption {
 
 const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
 const fromCents = (cents: number) => cents / 100
+const ROOFING_PROPOSAL_TITLE = `${INDUSTRY_PROFILES.roofing.label} ${BASE_TERMS.proposal}`
+const ROOFING_CATEGORY = INDUSTRY_PROFILES.roofing.label
+// roofing-ok: roofing-only line name used only inside the roofing profile's squares-pricing flow
+const FIELD_SHINGLE_LINE_NAME = 'Field Shingles'
+// roofing-ok: roofing-only line name used only inside the roofing profile's squares-pricing flow
+const RIDGE_CAP_LINE_NAME = 'Ridge Cap Shingles'
+// roofing-ok: roofing-only line name used only inside the roofing profile's squares-pricing flow
+const HIP_CAP_LINE_NAME = 'Hip Cap Shingles'
 
 const defaultForm: ProposalForm = {
   customer_name: '',
   customer_email: '',
   customer_phone: '',
   customer_address: '',
-  title: 'Roofing Proposal',
+  title: ROOFING_PROPOSAL_TITLE,
   scope_of_work: '',
   materials_description: '',
   warranty_info: '',
@@ -159,16 +168,6 @@ const defaultForm: ProposalForm = {
   accent_color: '#4f46e5',
   roofing_type_id: null,
 }
-
-const adderCategories = [
-  'Ventilation',
-  'Gutters',
-  'Skylights',
-  'Chimney',
-  'Decking',
-  'Flashing',
-  'Other',
-]
 
 const RIDGE_CAP_LF_PER_BUNDLE = CAP_LF_PER_BUNDLE
 const HIP_CAP_LF_PER_BUNDLE = CAP_LF_PER_BUNDLE
@@ -193,16 +192,17 @@ export default function ProposalBuilderPage() {
   const [step, setStep] = useState(1)
   /** Roof squares pricing switched off (Settings → Features): no waste-factor (squares) step, no Squares figure. */
   const orgFeatures = useOrgFeatures()
-  const squaresOn = orgFeatures.squaresPricing
+  const orgProfile = useOrgProfile()
+  const squaresOn = roofingOr(orgProfile, orgFeatures.squaresPricing, false)
   /**
    * A company whose quote is not priced from a roof measurement (lawn, cleaning, builders) gets the simple quote:
    * Customer → Items (its price list) → Review. No roofing type, tear-off or waste steps; email optional. Roofing is untouched.
    */
   const simple = !squaresOn
   /** The company's word for a proposal ("Proposal" for roofing, "Quote" for lawn / cleaning). */
-  const orgProfile = useOrgProfile()
   const pw = t(orgProfile, 'proposal')
   const pwLower = pw.toLowerCase()
+  const rw = <T extends string>(roofing: T, other: T): T => roofingOr(orgProfile, roofing, other)
   useEffect(() => {
     if (!squaresOn && step === 2) setStep(3)
   }, [squaresOn, step])
@@ -269,7 +269,7 @@ export default function ProposalBuilderPage() {
   const effectiveOpportunityId = opportunityId || resolvedOpportunityId
   // Simple quote: a NEW quote starts titled with the company's word ("Quote"), not the roofing default.
   useEffect(() => {
-    if (simple && !loading && !editingProposalId) setForm((prev) => (prev.title === 'Roofing Proposal' ? { ...prev, title: pw } : prev))
+    if (simple && !loading && !editingProposalId) setForm((prev) => (prev.title === ROOFING_PROPOSAL_TITLE ? { ...prev, title: pw } : prev))
   }, [simple, loading, editingProposalId, pw])
 
   useEffect(() => {
@@ -430,7 +430,7 @@ export default function ProposalBuilderPage() {
           customer_email: String(p.customer_email || ''),
           customer_phone: String(p.customer_phone || ''),
           customer_address: String(p.customer_address || ''),
-          title: String(p.title || 'Roofing Proposal'),
+          title: String(p.title || roofingOr(orgProfile, ROOFING_PROPOSAL_TITLE, pw)),
           scope_of_work: String(p.scope_of_work || ''),
           materials_description: String(p.materials_description || ''),
           warranty_info: String(p.warranty_info || ''),
@@ -527,7 +527,7 @@ export default function ProposalBuilderPage() {
     return {
       id: `roofing-${type.id}`,
       pricebook_item_id: null,
-      category: 'Roofing',
+      category: ROOFING_CATEGORY,
       name: `${type.name} Installation`,
       description: `${baseSquares.toFixed(2)} sq + ${effectiveWastePercent}% waste = ${quantity.toFixed(2)} sq (order rec: ${recommendedOrderSquares} sq)`,
       unit: 'square',
@@ -577,9 +577,9 @@ export default function ProposalBuilderPage() {
 
     setLineItems(prev => {
       const isRidgeCap = (i: { id: string; name?: string; category?: string; is_adder?: boolean }) =>
-        i.id === 'ridge-cap-auto' || (i.name === 'Ridge Cap Shingles' && !i.is_adder)
+        i.id === 'ridge-cap-auto' || (i.name === RIDGE_CAP_LINE_NAME && !i.is_adder)
       const isHipCap = (i: { id: string; name?: string; category?: string; is_adder?: boolean }) =>
-        i.id === 'hip-cap-auto' || (i.name === 'Hip Cap Shingles' && !i.is_adder)
+        i.id === 'hip-cap-auto' || (i.name === HIP_CAP_LINE_NAME && !i.is_adder)
       const hasRidge = prev.some(isRidgeCap)
       const hasHip = prev.some(isHipCap)
       if (hasRidge && hasHip) return prev
@@ -589,8 +589,8 @@ export default function ProposalBuilderPage() {
         next.push({
           id: 'ridge-cap-auto',
           pricebook_item_id: null,
-          category: 'Roofing',
-          name: 'Ridge Cap Shingles',
+          category: ROOFING_CATEGORY,
+          name: RIDGE_CAP_LINE_NAME,
           description: `${capOrder.ridgeCapSq.toFixed(2)} sq cap order (${ridgesLf} LF measured · ${ridgeCapBundles} bundles @ ${RIDGE_CAP_LF_PER_BUNDLE} LF)`,
           unit: 'square',
           quantity: capOrder.ridgeCapSq,
@@ -603,8 +603,8 @@ export default function ProposalBuilderPage() {
         next.push({
           id: 'hip-cap-auto',
           pricebook_item_id: null,
-          category: 'Roofing',
-          name: 'Hip Cap Shingles',
+          category: ROOFING_CATEGORY,
+          name: HIP_CAP_LINE_NAME,
           description: `${capOrder.hipCapSq.toFixed(2)} sq cap order (${hipsLf} LF measured · ${hipCapBundles} bundles @ ${HIP_CAP_LF_PER_BUNDLE} LF)`,
           unit: 'square',
           quantity: capOrder.hipCapSq,
@@ -1172,7 +1172,7 @@ export default function ProposalBuilderPage() {
                 : [
                     { num: 1, label: 'Customer Info' },
                     ...(squaresOn ? [{ num: 2, label: 'Waste' }] : []),
-                    { num: 3, label: 'Roofing Type' },
+                    { num: 3, label: rw('Roofing Type', 'Service Type') },
                     { num: 4, label: 'Items' },
                     { num: 5, label: 'Add-Ons' },
                     { num: 6, label: 'Review' },
@@ -1227,18 +1227,18 @@ export default function ProposalBuilderPage() {
         </div>
 
         {/* Measurement Summary Banner */}
-        {measurementData && (
+        {measurementData && !simple && (
           <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-6 mb-6 text-white">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold mb-1">Roof Measurement Loaded</h3>
+                <h3 className="text-lg font-semibold mb-1">{rw('Roof Measurement Loaded', 'Measurement Loaded')}</h3>
                 <p className="text-indigo-100 text-sm">{measurementData.address_text}</p>
               </div>
               <div className="flex flex-wrap gap-x-6 gap-y-2 text-center">
                 {squaresOn && (
                 <div>
                   <div className="text-3xl font-bold">{measurementData.total_squares?.toFixed(1) || urlSquares}</div>
-                  <div className="text-xs text-indigo-200 uppercase tracking-wider">Squares</div>
+                  <div className="text-xs text-indigo-200 uppercase tracking-wider">{rw('Squares', 'Area')}</div>
                 </div>
                 )}
                 <div>
@@ -1321,7 +1321,7 @@ export default function ProposalBuilderPage() {
                   value={form.title}
                   onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl"
-                  placeholder={simple ? pw : 'Roofing Proposal'}
+                  placeholder={simple ? pw : roofingOr(orgProfile, ROOFING_PROPOSAL_TITLE, pw)}
                 />
               </div>
 
@@ -1369,22 +1369,22 @@ export default function ProposalBuilderPage() {
                 <div>
                   <p className="text-sm text-gray-700 mb-1">Measured Area</p>
                   <p className="text-2xl font-bold text-gray-900">{baseSquares.toFixed(1)}</p>
-                  <p className="text-xs text-gray-600">squares</p>
+                  <p className="text-xs text-gray-600">{rw('squares', 'area units')}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-700 mb-1">Waste Factor</p>
                   <p className="text-2xl font-bold text-amber-600">+{effectiveWastePercent}%</p>
-                  <p className="text-xs text-gray-600">{wasteSquares.toFixed(1)} squares</p>
+                  <p className="text-xs text-gray-600">{wasteSquares.toFixed(1)} {rw('squares', 'area units')}</p>
                 </div>
                 <div className="col-span-2 md:col-span-1">
                   <p className="text-sm text-gray-700 mb-1">Total Material</p>
                   <p className="text-2xl font-bold text-indigo-600">{totalSquaresWithWaste.toFixed(1)}</p>
-                  <p className="text-xs text-gray-600">squares needed</p>
+                  <p className="text-xs text-gray-600">{rw('squares needed', 'area units needed')}</p>
                 </div>
                 <div className="col-span-2 md:col-span-1">
                   <p className="text-sm text-gray-700 mb-1">Total Sq Ft</p>
                   <p className="text-2xl font-bold text-gray-700">{(totalSquaresWithWaste * 100).toLocaleString()}</p>
-                  <p className="text-xs text-gray-600">square feet</p>
+                  <p className="text-xs text-gray-600">{rw('square feet', 'sq ft')}</p>
                 </div>
               </div>
             </div>
@@ -1437,23 +1437,23 @@ export default function ProposalBuilderPage() {
               <h3 className="text-sm font-semibold text-gray-700 mb-4">Material Breakdown</h3>
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Measured Roof Area</span>
-                  <span className="font-semibold text-gray-900">{baseSquares.toFixed(1)} squares</span>
+                  <span className="text-gray-600">{rw('Measured Roof Area', 'Measured Area')}</span>
+                  <span className="font-semibold text-gray-900">{baseSquares.toFixed(1)} {rw('squares', 'area units')}</span>
                 </div>
                 <div className="flex justify-between items-center text-amber-700">
                   <span>Waste ({effectiveWastePercent}%)</span>
-                  <span className="font-semibold">+{wasteSquares.toFixed(1)} squares</span>
+                  <span className="font-semibold">+{wasteSquares.toFixed(1)} {rw('squares', 'area units')}</span>
                 </div>
                 <div className="border-t border-indigo-200 pt-3 flex justify-between items-center">
                   <span className="font-semibold text-gray-900">Total Material Needed</span>
-                  <span className="text-xl font-bold text-indigo-600">{totalSquaresWithWaste.toFixed(1)} squares</span>
+                  <span className="text-xl font-bold text-indigo-600">{totalSquaresWithWaste.toFixed(1)} {rw('squares', 'area units')}</span>
                 </div>
                 <div className="flex justify-between items-center text-gray-700">
                   <span>Recommended order (bundle-rounded)</span>
-                  <span className="font-semibold">{recommendedOrderSquares} squares</span>
+                  <span className="font-semibold">{recommendedOrderSquares} {rw('squares', 'area units')}</span>
                 </div>
                 <div className="text-xs text-gray-700">
-                  {roundedBundles} bundles ({BUNDLES_PER_SQUARE} bundles/square), rounded up from {rawBundleCount.toFixed(2)} bundles.
+                  {roundedBundles} bundles ({BUNDLES_PER_SQUARE} {rw('bundles/square', 'bundles/unit')}), rounded up from {rawBundleCount.toFixed(2)} bundles.
                 </div>
               </div>
             </div>
@@ -1464,7 +1464,7 @@ export default function ProposalBuilderPage() {
               <div className="space-y-3">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="font-semibold text-white">Field Shingles</p>
+                    <p className="font-semibold text-white">{FIELD_SHINGLE_LINE_NAME}</p>
                     <p className="text-xs text-gray-400">{baseSquares.toFixed(2)} sq + {effectiveWastePercent}% waste</p>
                   </div>
                   <p className="text-lg font-bold text-white">{roundedBundles} bundles</p>
@@ -1473,8 +1473,8 @@ export default function ProposalBuilderPage() {
                 {capOrder && capOrder.ridgeCapSq > 0 && (
                   <div className="flex justify-between items-start border-t border-gray-700 pt-3">
                     <div>
-                      <p className="font-semibold text-white">Ridge Cap Shingles</p>
-                      <p className="text-xs text-amber-400 font-medium">Order separately — cap squares, not field LF</p>
+                      <p className="font-semibold text-white">{RIDGE_CAP_LINE_NAME}</p>
+                      <p className="text-xs text-amber-400 font-medium">{rw('Order separately — cap squares, not field LF', 'Order separately — cap units, not field LF')}</p>
                       <p className="text-xs text-gray-400">
                         {capOrder.ridgeCapSq.toFixed(2)} sq ({ridgesLf} LF measured · {ridgeCapBundles} bundles @ {RIDGE_CAP_LF_PER_BUNDLE} LF)
                       </p>
@@ -1486,8 +1486,8 @@ export default function ProposalBuilderPage() {
                 {capOrder && capOrder.hipCapSq > 0 && (
                   <div className="flex justify-between items-start border-t border-gray-700 pt-3">
                     <div>
-                      <p className="font-semibold text-white">Hip Cap Shingles</p>
-                      <p className="text-xs text-amber-400 font-medium">Order separately — cap squares, not field LF</p>
+                      <p className="font-semibold text-white">{HIP_CAP_LINE_NAME}</p>
+                      <p className="text-xs text-amber-400 font-medium">{rw('Order separately — cap squares, not field LF', 'Order separately — cap units, not field LF')}</p>
                       <p className="text-xs text-gray-400">
                         {capOrder.hipCapSq.toFixed(2)} sq ({hipsLf} LF measured · {hipCapBundles} bundles @ {HIP_CAP_LF_PER_BUNDLE} LF)
                       </p>
@@ -1514,7 +1514,7 @@ export default function ProposalBuilderPage() {
                 onClick={() => setStep(3)}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
               >
-                Continue to Roofing Type
+                {rw('Continue to Roofing Type', 'Continue to Service Type')}
               </button>
             </div>
           </div>
@@ -1524,16 +1524,16 @@ export default function ProposalBuilderPage() {
         {step === 3 && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Roofing Type</h2>
-              <p className="text-gray-700 mb-6">Choose the type of roofing material for this project. Pricing will be calculated based on your selection.</p>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">{rw('Select Roofing Type', 'Select Service Type')}</h2>
+              <p className="text-gray-700 mb-6">{rw('Choose the type of roofing material for this project. Pricing will be calculated based on your selection.', 'Choose the service type for this project. Pricing will be calculated based on your selection.')}</p>
 
               {roofingTypes.length === 0 ? (
                 <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
                   <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                   </svg>
-                  <p className="text-gray-700 mb-2">No roofing types configured</p>
-                  <p className="text-sm text-gray-600">Ask your admin to set up roofing types in Admin → Pricing & Costs</p>
+                  <p className="text-gray-700 mb-2">{rw('No roofing types configured', 'No service types configured')}</p>
+                  <p className="text-sm text-gray-600">{rw('Ask your admin to set up roofing types in Admin → Pricing & Costs', 'Ask your admin to set up service types in Admin → Pricing & Costs')}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1616,7 +1616,7 @@ export default function ProposalBuilderPage() {
                     <div>
                       <p className="text-sm font-medium text-gray-700">Estimated Base Price</p>
                       <p className="text-xs text-gray-700">
-                        {totalSquaresWithWaste.toFixed(1)} squares (incl. {effectiveWastePercent}% waste) × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
+                        {totalSquaresWithWaste.toFixed(1)} {rw('squares (incl.', 'area units (incl.')} {effectiveWastePercent}% waste) × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
                       </p>
                     </div>
                     <p className="text-2xl font-bold text-indigo-600">
@@ -1629,9 +1629,9 @@ export default function ProposalBuilderPage() {
               {/* Tear-off Question - shown after roofing type is selected */}
               {selectedRoofingType && (
                 <div className="mt-8 p-6 bg-amber-50 border border-amber-200 rounded-xl">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Is this a tear-off job?</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">{rw('Is this a tear-off job?', 'Does existing material need removal?')}</h3>
                   <p className="text-sm text-gray-600 mb-4">
-                    Does the existing roof need to be removed before installing the new roof?
+                    {rw('Does the existing roof need to be removed before installing the new roof?', 'Does existing material need to be removed before the new work?')}
                   </p>
                   <div className="flex flex-col sm:flex-row gap-3">
                     <button
@@ -1656,7 +1656,7 @@ export default function ProposalBuilderPage() {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        Yes, Tear-off Required
+                        {rw('Yes, Tear-off Required', 'Yes, Removal Required')}
                       </div>
                     </button>
                     <button
@@ -1683,7 +1683,7 @@ export default function ProposalBuilderPage() {
                   {/* Tear-off Options - shown when tear-off is selected */}
                   {isTearOff === true && tearOffOptions.length > 0 && (
                     <div className="mt-6">
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">Select Tear-off Option:</h4>
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">{rw('Select Tear-off Option:', 'Select Removal Option:')}</h4>
                       <div className="space-y-2">
                         {tearOffOptions.map((option) => (
                           <button
@@ -1718,8 +1718,7 @@ export default function ProposalBuilderPage() {
                   {isTearOff === true && tearOffOptions.length === 0 && (
                     <div className="mt-4 p-4 bg-white rounded-lg border border-amber-200">
                       <p className="text-sm text-amber-700">
-                        <strong>Note:</strong> No tear-off options are configured. You can add tear-off line items manually in the next step, 
-                        or ask your admin to create tear-off adders in Admin → Proposal Settings → Adders.
+                        <strong>Note:</strong> {rw('No tear-off options are configured. You can add tear-off line items manually in the next step, or ask your admin to create tear-off adders in Admin → Proposal Settings → Adders.', 'No removal options are configured. You can add removal line items manually in the next step, or ask your admin to create removal adders in Admin → Proposal Settings → Adders.')}
                       </p>
                     </div>
                   )}
@@ -1744,7 +1743,7 @@ export default function ProposalBuilderPage() {
                       pricebook_item_id: selectedTearOff.id,
                       category: 'Tear-off',
                       name: selectedTearOff.name,
-                      description: 'Removal of existing roofing material',
+                      description: rw('Removal of existing roofing material', 'Removal of existing material'),
                       unit: selectedTearOff.unit,
                       quantity: quantity,
                       unit_price: selectedTearOff.unit_price,
@@ -1808,7 +1807,7 @@ export default function ProposalBuilderPage() {
                             {stale && (
                               <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-lg" data-testid="stale-squares-warning">
                                 <p className="text-sm text-gray-900">
-                                  This line is {stale.quantity} sq. The roof is now {stale.soldSquares} sq (waste included).
+                                  This line is {stale.quantity} {rw('sq. The roof is now', 'units. The measured area is now')} {stale.soldSquares} {rw('sq (waste included).', 'units (waste included).')}
                                 </p>
                                 <button
                                   type="button"
@@ -1871,7 +1870,7 @@ export default function ProposalBuilderPage() {
                         <h3 className="text-lg font-semibold text-gray-900">Base Project Price</h3>
                         <p className="text-sm text-gray-700 mt-1">
                           {measurementData ? (
-                            <>Based on {measurementData.total_squares?.toFixed(1) || urlSquares} squares</>
+                            <>Based on {measurementData.total_squares?.toFixed(1) || urlSquares} {rw('squares', 'area units')}</>
                           ) : (
                             <>Calculated from measurement data</>
                           )}
@@ -1887,8 +1886,7 @@ export default function ProposalBuilderPage() {
 
                   <div className="p-4 bg-gray-50 rounded-lg">
                     <p className="text-sm text-gray-600">
-                      <strong>Note:</strong> The base price is automatically calculated from the roof measurement and your company's pricing. 
-                      You can add optional upgrades on the next step.
+                      <strong>Note:</strong> {rw("The base price is automatically calculated from the roof measurement and your company's pricing. You can add optional upgrades on the next step.", "The base price is automatically calculated from the measurement and your company's pricing. You can add optional upgrades on the next step.")}
                     </p>
                   </div>
                 </div>
@@ -1935,7 +1933,7 @@ export default function ProposalBuilderPage() {
                 >
                   All
                 </button>
-                {(simple ? simpleCategories : adderCategories).map((cat) => (
+                {(simple ? simpleCategories : orgProfile.pricebook.adderCategories).map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedAdderCategory(cat)}
@@ -2709,7 +2707,7 @@ export default function ProposalBuilderPage() {
               <div className="p-6 border-b">
                 <h2 className="text-xl font-bold text-gray-900">
                   {isPerSqftUnit(quantityModalItem.unit)
-                    ? 'Enter square feet'
+                    ? rw('Enter square feet', 'Enter area')
                     : quantityModalItem.unit?.toLowerCase() === 'lf' ||
                         quantityModalItem.unit?.toLowerCase() === 'linear foot' ||
                         quantityModalItem.unit?.toLowerCase() === 'linear feet'
@@ -2718,7 +2716,7 @@ export default function ProposalBuilderPage() {
                 </h2>
                 <p className="text-gray-700 text-sm mt-1">
                   {isPerSqftUnit(quantityModalItem.unit)
-                    ? 'Use the actual coverage area (e.g. siding). This is separate from roof squares.'
+                    ? rw('Use the actual coverage area (e.g. siding). This is separate from roof squares.', 'Use the actual coverage area for this item.')
                     : quantityModalItem.unit?.toLowerCase() === 'lf' ||
                         quantityModalItem.unit?.toLowerCase() === 'linear foot' ||
                         quantityModalItem.unit?.toLowerCase() === 'linear feet'
@@ -2764,7 +2762,7 @@ export default function ProposalBuilderPage() {
 
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     {isPerSqftUnit(quantityModalItem.unit)
-                      ? 'Square feet'
+                      ? rw('Square feet', 'Area')
                       : `Quantity (${getUnitLabel(quantityModalItem.unit)})`}
                   </label>
                   {isPerSqftUnit(quantityModalItem.unit) ? (

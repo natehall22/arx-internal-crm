@@ -11,6 +11,7 @@ import type { User, Team, Region, UserRole, CustomRole } from '@/lib/types/datab
 import EmployeeAgreementPanel from '@/components/employee-agreements/EmployeeAgreementPanel'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { roofingOr } from '@/lib/org-profile'
 
 type Permission = {
   id: string
@@ -68,7 +69,9 @@ export default function UsersPage() {
   /** Door knocking switched off (Settings → Features): no canvass pin-visibility settings. */
   const orgFeatures = useOrgFeatures()
   const canvassingOn = orgFeatures.canvassing
-  const orgTerms = useOrgProfile().terms
+  const orgProfile = useOrgProfile()
+  const orgTerms = orgProfile.terms
+  const rw = <T extends string>(roofing: T, other: T): T => roofingOr(orgProfile, roofing, other)
   const [users, setUsers] = useState<UserWithDetails[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [regions, setRegions] = useState<Region[]>([])
@@ -1175,7 +1178,7 @@ export default function UsersPage() {
                         }`}
                       >
                         <span className="block">Sales Dashboard</span>
-                        <span className="block text-xs font-normal opacity-80">Reps, setters, closers, and sales managers</span>
+                        <span className="block text-xs font-normal opacity-80">{rw('Reps, setters, closers, and sales managers', 'Salespeople and sales managers')}</span>
                       </button>
                       <button
                         type="button"
@@ -1195,9 +1198,9 @@ export default function UsersPage() {
                   {/* Canvass Pin Visibility */}
                   {canvassingOn && (
                   <div className="border-t pt-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-2">Canvass Map Pin Visibility</h3>
+                    <h3 className="text-sm font-medium text-gray-900 mb-2">{rw('Canvass Map Pin Visibility', 'Field Map Pin Visibility')}</h3>
                     <p className="text-xs text-gray-700 mb-3">
-                      Control which pins this user can see in the canvassing app. This helps prevent data overload in large organizations.
+                      {rw('Control which pins this user can see in the canvassing app. This helps prevent data overload in large organizations.', 'Control which field map pins this user can see. This helps prevent data overload in large organizations.')}
                     </p>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                       {[
@@ -1235,7 +1238,7 @@ export default function UsersPage() {
                     <p className="mt-2 text-xs text-gray-600">
                       <strong>Work areas:</strong> managers draw polygons and assign reps or teams in the{' '}
                       <a href="/canvass?areas=1" className="text-indigo-600 hover:underline">
-                        Canvass app → Work areas
+                        {rw('Canvass app → Work areas', 'Field map → Work areas')}
                       </a>
                       , then set visibility to Work areas here.
                     </p>
@@ -1580,10 +1583,10 @@ export default function UsersPage() {
                 {canvassingOn && (
                 <div className="border-t pt-4 mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Canvass Map Pin Visibility
+                    {rw('Canvass Map Pin Visibility', 'Field Map Pin Visibility')}
                   </label>
                   <p className="text-xs text-gray-700 mb-3">
-                    Control which pins this user can see in the canvassing app.
+                    {rw('Control which pins this user can see in the canvassing app.', 'Control which field map pins this user can see.')}
                   </p>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {[
@@ -1666,7 +1669,7 @@ export default function UsersPage() {
                         />
                         <div>
                           <span className="text-sm text-gray-700">Yes - Can Receive Appointments</span>
-                          <p className="text-xs text-gray-700">User appears in closer selection and round-robin</p>
+                          <p className="text-xs text-gray-700">{rw('User appears in closer selection and round-robin', 'User appears in salesperson selection and round-robin')}</p>
                         </div>
                       </label>
                       <label className="flex items-center gap-3 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
@@ -1679,7 +1682,7 @@ export default function UsersPage() {
                         />
                         <div>
                           <span className="text-sm text-gray-700">No - Cannot Receive Appointments</span>
-                          <p className="text-xs text-gray-700">User will not appear in closer selection</p>
+                          <p className="text-xs text-gray-700">{rw('User will not appear in closer selection', 'User will not appear in salesperson selection')}</p>
                         </div>
                       </label>
                     </div>

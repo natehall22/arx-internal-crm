@@ -1,6 +1,6 @@
 'use client'
 
-import { useOrgBrandNames } from '@/hooks/useOrgFeatures'
+import { useOrgBrandNames, useRoofingWord } from '@/hooks/useOrgFeatures'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, usePathname } from 'next/navigation'
@@ -36,7 +36,7 @@ const AUDIENCE_LABEL: Record<Audience, string> = { team: 'Team', sales: 'Sales',
 const AUDIENCE_HINT: Record<Audience, string> = {
   team: 'Everyone on this deal',
   sales: 'The sales side. Ops can look it up.',
-  production: 'Ops, owners and the closer. Never setters.',
+  production: 'Operations and owners.',
   crew: 'Crew will see this on their link',
   customer: 'Sent to the customer (email or text) and shown in their account',
 }
@@ -295,6 +295,7 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
 }
 
 function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: string; data: Payload; replyTo: ThreadMessage | null; onClearReply: () => void; onSent: () => void }) {
+  const rw = useRoofingWord()
   const [body, setBody] = useState('')
   const [audience, setAudience] = useState<Audience>(data.defaultAudience)
   const [priority, setPriority] = useState<'fyi' | 'needs_reply' | 'urgent'>('fyi')
@@ -358,7 +359,7 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
           <option value="needs_reply">Needs reply</option>
           <option value="urgent">Urgent !</option>
         </select>
-        <span className="text-ui-sm text-ink-muted">{AUDIENCE_HINT[effective]}</span>
+        <span className="text-ui-sm text-ink-muted">{effective === 'production' ? rw('Ops, owners and the closer. Never setters.', AUDIENCE_HINT.production) : AUDIENCE_HINT[effective]}</span>
       </div>
       {toCustomer && data.texting && (
         <div className="mb-2 flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Send by">
@@ -383,8 +384,8 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
       {effective === 'crew' && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">👷 Crew will see this on their link. No prices.</p>}
       {pricing && (
         <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm text-ink">
-          Looks like pricing. Setters won&apos;t see this.{' '}
-          <label className="inline-flex min-h-tap items-center gap-2 font-semibold"><input type="checkbox" checked={allowSetters} onChange={(e) => setAllowSetters(e.target.checked)} /> Let setters see it</label>
+          {rw('Looks like pricing. Setters won\'t see this.', 'Looks like pricing. Field reps won\'t see this.')} {' '}
+          <label className="inline-flex min-h-tap items-center gap-2 font-semibold"><input type="checkbox" checked={allowSetters} onChange={(e) => setAllowSetters(e.target.checked)} /> {rw('Let setters see it', 'Let field reps see it')}</label>
         </p>
       )}
       <textarea

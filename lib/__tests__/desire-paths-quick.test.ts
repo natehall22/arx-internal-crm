@@ -49,7 +49,7 @@ describe('small screens cleaned up', () => {
   it('proposal builder: no debug panel; step bar lists the six real steps with Review', () => {
     const s = src('app/proposals/builder/page.tsx')
     expect(s).not.toContain('Order Debug')
-    expect(s).toMatch(/label: 'Waste'[\s\S]*label: 'Roofing Type'[\s\S]*label: 'Items'[\s\S]*label: 'Add-Ons'[\s\S]*label: 'Review'/)
+    expect(s).toMatch(/label: 'Waste'[\s\S]*label: rw\('Roofing Type', 'Service Type'\)[\s\S]*label: 'Items'[\s\S]*label: 'Add-Ons'[\s\S]*label: 'Review'/)
     // the circle shows its position, so a company without the Waste step reads 1-5, not 1,3,4,5,6
     expect(s).toContain("{step > s.num ? '✓' : idx + 1}")
   })
@@ -58,8 +58,8 @@ describe('small screens cleaned up', () => {
     const s = src('components/LeadFormWithReferral.tsx')
     expect(s).not.toContain('leadStatuses')
     expect(s).not.toContain('>Status<')
-    expect(s).toContain('Schedule {inspectionWord}')
-    expect(s.indexOf('Schedule {inspectionWord}</h3>')).toBeGreaterThan(s.indexOf('{nameLabel}</label>'))
+    expect(s).toContain('Schedule {effectiveInspectionWord}')
+    expect(s.indexOf('Schedule {effectiveInspectionWord}</h3>')).toBeGreaterThan(s.indexOf('{effectiveNameLabel}</label>'))
     expect(src('app/leads/new/page.tsx')).toContain("t(profile_, 'inspection').toLowerCase()")
   })
 

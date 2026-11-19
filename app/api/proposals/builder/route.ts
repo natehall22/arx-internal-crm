@@ -14,6 +14,7 @@ import { builderPlanTemplates, cleanRecurringLines } from '@/lib/quotes/recurrin
 import { isRecurringLine } from '@/lib/quotes/recurring'
 import { readSalesTaxSettings } from '@/lib/sales-tax'
 import { proposalSalesTaxFields } from '@/lib/sales-tax-server'
+import { loadOrgProfile, resolveOrgProfile, roofingOr, t } from '@/lib/org-profile'
 
 export const dynamic = 'force-dynamic'
 
@@ -293,6 +294,7 @@ export async function GET(request: NextRequest) {
       .single()
 
     const orgPricing = org?.settings?.pricing || {}
+    const orgProfile = resolveOrgProfile(org?.settings)
 
     // Load opportunity data if provided (URL or from proposal being edited)
     let opportunity = null
@@ -372,8 +374,8 @@ export async function GET(request: NextRequest) {
       if (orgPricing.price_per_square_installed) {
         defaultItems.push({
           id: 'default-roofing-install',
-          name: 'Roofing Installation',
-          category: 'Roofing',
+          name: roofingOr(orgProfile, 'Roofing Installation', `${t(orgProfile, 'install')} service`),
+          category: roofingOr(orgProfile, 'Roofing', 'Service'),
           unit: 'square',
           unit_price: orgPricing.price_per_square_installed,
           is_adder: false,
@@ -505,6 +507,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { proposal, lineItems } = body
+    const orgProfile = await loadOrgProfile(adminClient, profile.org_id)
 
     // Validate required fields
     if (!proposal.customer_name?.trim()) {
@@ -532,7 +535,7 @@ export async function POST(request: NextRequest) {
       customer_phone: proposal.customer_phone?.trim() || null,
       customer_address: proposal.customer_address.trim(),
       opportunity_id: proposal.opportunity_id || null,
-      title: proposal.title || 'Roofing Proposal',
+      title: proposal.title || roofingOr(orgProfile, 'Roofing Proposal', t(orgProfile, 'proposal')),
       status: 'draft',
       subtotal: roundMoney(proposal.subtotal || 0),
       discount_amount: roundMoney(proposal.discount_amount || 0),
@@ -660,6 +663,7 @@ export async function PUT(request: NextRequest) {
       proposal: Record<string, unknown>
       lineItems?: unknown[]
     }
+    const orgProfile = await loadOrgProfile(adminClient, profile.org_id)
 
     if (!proposal_id || typeof proposal_id !== 'string') {
       return NextResponse.json({ error: 'proposal_id is required' }, { status: 400 })
@@ -713,7 +717,7 @@ export async function PUT(request: NextRequest) {
       customer_phone: proposal.customer_phone ? String(proposal.customer_phone).trim() : null,
       customer_address: String(proposal.customer_address).trim(),
       opportunity_id: proposal.opportunity_id ? String(proposal.opportunity_id) : null,
-      title: proposal.title ? String(proposal.title) : 'Roofing Proposal',
+      title: proposal.title ? String(proposal.title) : roofingOr(orgProfile, 'Roofing Proposal', t(orgProfile, 'proposal')),
       status: proposal.status ? String(proposal.status) : 'draft',
       subtotal: roundMoney(Number(proposal.subtotal) || 0),
       discount_amount: roundMoney(Number(proposal.discount_amount) || 0),

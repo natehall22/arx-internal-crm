@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useRoofingWord } from '@/hooks/useOrgFeatures'
 import { offeredPresets } from '@/lib/role-presets'
 import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
@@ -50,7 +50,7 @@ const colorOptions = [
 ]
 
 const roleOptions = [
-  { value: 'canvasser', label: 'Canvasser' },
+  { value: 'canvasser', label: null },
   { value: 'field_tech', label: 'Field Tech' },
   { value: 'sales_rep', label: 'Sales Rep' },
   { value: 'sales_manager', label: 'Sales Manager' },
@@ -60,6 +60,7 @@ const roleOptions = [
 ]
 
 export default function PresetsPage() {
+  const rw = useRoofingWord()
   const [allPresets, setPresets] = useState<PermissionPreset[]>([])
   const orgFeatures = useOrgFeatures()
   // The same list Add User offers (a Field Tech row stays out of a company without crews).
@@ -391,7 +392,7 @@ export default function PresetsPage() {
                       </div>
                       {isInsideSalesPreset && (
                         <p className="mt-2 text-xs text-gray-700">
-                          Queue access requires <strong>View Opportunities</strong> + <strong>Claim Inbound Leads</strong>.
+                          Queue access requires <strong>View Opportunities</strong> + <strong>{rw('Claim Inbound Leads', 'Assign Inbound Leads')}</strong>.
                         </p>
                       )}
                     </div>
@@ -482,7 +483,7 @@ export default function PresetsPage() {
                     >
                       {roleOptions.map((role) => (
                         <option key={role.value} value={role.value}>
-                          {role.label}
+                          {role.label ?? rw('Canvasser', 'Field Rep')}
                         </option>
                       ))}
                     </select>
@@ -534,7 +535,7 @@ export default function PresetsPage() {
                   </h3>
                   {(formName.trim().toLowerCase() === 'inside sales' || editingPreset?.name.trim().toLowerCase() === 'inside sales') && (
                     <div className="mb-4 p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-900">
-                      <strong>Inside Sales checklist:</strong> include <em>View Leads</em>, <em>Claim Inbound Leads</em>, and{' '}
+                      <strong>Inside Sales checklist:</strong> include <em>View Leads</em>, <em>{rw('Claim Inbound Leads', 'Assign Inbound Leads')}</em>, and{' '}
                       <em>View Opportunities</em> so reps can open <code className="text-xs">/leads</code>, the Inside Sales
                       conveyor, and the Opportunities → Inside Sales tab.
                     </div>
