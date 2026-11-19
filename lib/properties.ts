@@ -31,8 +31,10 @@ export type Property = {
   updated_at: string
 }
 
-export const PROPERTY_COLUMNS =
-  'id, customer_id, label, community, lot, address_line1, address_line2, city, state, zip, address_text, lat, lng, notes, access_notes, active, source, custom_fields, created_at, updated_at'
+/** Without the development / lot columns (migration 202611300160): what a database that does not have them yet answers to. */
+export const PROPERTY_COLUMNS_BASE =
+  'id, customer_id, label, address_line1, address_line2, city, state, zip, address_text, lat, lng, notes, access_notes, active, source, custom_fields, created_at, updated_at'
+export const PROPERTY_COLUMNS = PROPERTY_COLUMNS_BASE.replace('label,', 'label, community, lot,')
 
 export const PROPERTY_LIMITS = { label: 80, community: 120, lot: 40, line: 200, city: 100, state: 50, zip: 20, notes: 4000, access: 2000 } as const
 

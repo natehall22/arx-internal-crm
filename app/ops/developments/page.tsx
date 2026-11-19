@@ -18,7 +18,7 @@ export default async function DevelopmentsPage({ searchParams }: { searchParams:
   const admin = createServiceClient()
   const { canJobBoard } = await resolveOpsAccess(admin, authUser.id, profile)
   if (!canJobBoard) redirect('/today')
-  const board = await loadDevelopmentBoard(admin, profile.org_id).catch((e) => {
+  const board = await loadDevelopmentBoard(admin, profile.org_id, { customerId: searchParams.customer || undefined, development: searchParams.development || undefined }).catch((e) => {
     console.error('[developments] load failed', e)
     return null
   })
@@ -28,7 +28,7 @@ export default async function DevelopmentsPage({ searchParams }: { searchParams:
       <main className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
         <PageHeader title="Developments" subtitle="Every lot, and where each crew stands on it." />
         {board ? (
-          <DevelopmentBoard board={board} initialCustomerId={searchParams.customer ?? ''} initialDevelopment={searchParams.development ?? ''} />
+          <DevelopmentBoard board={board} customerId={searchParams.customer ?? ''} development={searchParams.development ?? ''} />
         ) : (
           <p className="rounded-ui border border-surface-line bg-surface p-4 text-ui-base text-ink">The board could not be loaded. Try again in a moment.</p>
         )}

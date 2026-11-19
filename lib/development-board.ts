@@ -22,7 +22,20 @@ export type BoardLot = {
   nextTrade: string | null
 }
 
-export type BoardData = { trades: BoardTrade[]; lots: BoardLot[]; truncated: boolean }
+/** The ONE "this job is live" rule for crew rows on a property: not cancelled. ("Before you" also leaves out jobs already closed out.) */
+export function jobIsCancelled(j: { status: string | null; cancelled_at: string | null }): boolean {
+  return !!j.cancelled_at || j.status === 'cancelled'
+}
+
+export type BoardData = {
+  trades: BoardTrade[]
+  lots: BoardLot[]
+  /** The lots matching the builder / development filter, before the screen cap. */
+  total: number
+  truncated: boolean
+  /** What the two server-side filters offer (the whole company's, or the chosen builder's developments). */
+  options: { builders: Array<{ id: string; name: string }>; developments: string[] }
+}
 
 export type BoardProperty = { id: string; customer_id: string; community: string; lot: string | null; address_text: string }
 export type BoardCrew = { id: string; job_id: string | null; property_id: string | null; trade: string | null; status: string; scheduled_date: string | null; completed_at: string | null }
@@ -79,15 +92,13 @@ export function buildBoard(
   return lots.sort((a, b) => naturally(a.customerName, b.customerName) || naturally(a.community, b.community) || naturally(a.lot ?? a.address, b.lot ?? b.address))
 }
 
-export type BoardFilters = { customerId: string; development: string; trade: string; needsNext: string }
-export const NO_FILTERS: BoardFilters = { customerId: '', development: '', trade: '', needsNext: '' }
+export type BoardFilters = { trade: string; needsNext: string }
+export const NO_FILTERS: BoardFilters = { trade: '', needsNext: '' }
 
-/** Pure. Builder + development narrow the lots; "trade" keeps lots that have that trade; "needs next" keeps lots whose next trade is it. */
+/** Pure. Builder and development are filtered by the database (lib/development-board-db.ts); here "trade" keeps lots that have that trade and "needs next" keeps lots whose next trade is it. */
 export function filterLots(lots: readonly BoardLot[], f: BoardFilters): BoardLot[] {
   return lots.filter(
     (l) =>
-      (!f.customerId || l.customerId === f.customerId) &&
-      (!f.development || developmentKey(l.community) === developmentKey(f.development)) &&
       (!f.trade || l.cells[f.trade]?.state !== 'none') &&
       (!f.needsNext || l.nextTrade === f.needsNext)
   )

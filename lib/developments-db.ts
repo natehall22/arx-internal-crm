@@ -5,6 +5,7 @@
  * (lib/properties.ts developmentKey) so "Oak Ridge" and "oak ridge " are one development. Server only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import * as React from 'react'
 
 import { developmentKey } from '@/lib/properties'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -18,6 +19,12 @@ export type Development = {
   builders: Array<{ customerId: string; lots: number }>
 }
 
+/** React's per-request memo where it exists (the Next server runtime); a plain call elsewhere (jest). */
+const perRequest: <F extends (...args: never[]) => unknown>(fn: F) => F =
+  typeof (React as { cache?: unknown }).cache === 'function' ? (React as unknown as { cache: <F>(fn: F) => F }).cache : (fn) => fn
+/** One map per server render: the same company's list is read once however many places ask (page, property save, Add lots). */
+const renderCache = perRequest(() => new Map<string, Promise<Development[]>>())
+
 const PAGE = 1000
 const MAX_ROWS = 20_000
 
@@ -25,7 +32,17 @@ const MAX_ROWS = 20_000
  * The company's developments (optionally only those a given builder has lots in). Built for the pick-lists and for billing
  * per development: `lots` and `builders` are counts of ACTIVE properties. A failed or not-yet-migrated read gives [].
  */
-export async function listDevelopments(admin: SupabaseClient, orgId: string, customerId?: string | null): Promise<Development[]> {
+export function listDevelopments(admin: SupabaseClient, orgId: string, customerId?: string | null): Promise<Development[]> {
+  const cache = renderCache()
+  const key = `${orgId}|${customerId ?? ''}`
+  const hit = cache.get(key)
+  if (hit) return hit
+  const read = readDevelopments(admin, orgId, customerId)
+  cache.set(key, read)
+  return read
+}
+
+async function readDevelopments(admin: SupabaseClient, orgId: string, customerId?: string | null): Promise<Development[]> {
   const byKey = new Map<string, Development>()
   for (let from = 0; from < MAX_ROWS; from += PAGE) {
     let q = orgDb(admin, orgId).from('properties').select('community, customer_id, created_at').eq('active', true).not('community', 'is', null)

@@ -2,6 +2,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { beforeYouFor, type BeforeYouLine, type CrewRow } from '@/lib/before-you'
+import { jobIsCancelled } from '@/lib/development-board'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { loadOrgTrades } from '@/lib/org-trades'
 import { isMissingProjectToolsSchema } from '@/lib/project-tools/budget-db'
@@ -31,6 +32,25 @@ export async function loadBeforeYou(admin: SupabaseClient, orgId: string, crew: 
     siblings.push(...((data ?? []) as CrewRow[]))
   }
 
+  // Only crews on this property's CURRENT jobs count: a cancelled job's crews, and an older job already closed out, are not "ahead of" this one
+  // (the job a crew itself is on always counts). Same "live job" rule as the Development board.
+  const siblingJobIds = Array.from(new Set(siblings.map((x) => x.job_id).filter((j): j is string => !!j)))
+  const jobState = new Map<string, { status: string | null; cancelled_at: string | null }>()
+  for (let i = 0; i < siblingJobIds.length; i += CHUNK) {
+    const { data, error } = await db.from('production_jobs').select('id, status, cancelled_at').in('id', siblingJobIds.slice(i, i + CHUNK))
+    if (error) {
+      console.error('[before-you] jobs failed', error)
+      return out
+    }
+    for (const j of (data ?? []) as Array<{ id: string; status: string | null; cancelled_at: string | null }>) jobState.set(j.id, j)
+  }
+  const myJobs = new Set(withProperty.map((c) => c.job_id).filter((j): j is string => !!j))
+  const current = siblings.filter((x) => {
+    const j = x.job_id ? jobState.get(x.job_id) : null
+    if (!j || jobIsCancelled(j)) return false
+    return (x.job_id !== null && myJobs.has(x.job_id)) || (j.status !== 'complete' && j.status !== 'collected')
+  })
+
   // Schedule stages tied to a crew: this crew's stage depends_on keys → the crew rows of those stages.
   const predecessors = new Map<string, Set<string>>()
   const jobIds = Array.from(new Set(withProperty.map((c) => c.job_id).filter((j): j is string => !!j)))
@@ -56,7 +76,7 @@ export async function loadBeforeYou(admin: SupabaseClient, orgId: string, crew: 
   const [orgTrades, tz] = await Promise.all([loadOrgTrades(admin, orgId), loadOrgTimeZone(admin, orgId)])
   const doneDay = (at: string) => ymdInZone(new Date(at), tz)
   for (const c of withProperty) {
-    const lines = beforeYouFor(c, siblings, predecessors.get(c.id) ?? new Set(), orgTrades, doneDay)
+    const lines = beforeYouFor(c, current, predecessors.get(c.id) ?? new Set(), orgTrades, doneDay)
     if (lines.length > 0) out.set(c.id, lines)
   }
   return out

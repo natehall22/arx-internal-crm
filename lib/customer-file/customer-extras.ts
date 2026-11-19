@@ -11,6 +11,8 @@ import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { listDevelopments } from '@/lib/developments-db'
 import { activeTrades, loadOrgTrades } from '@/lib/org-trades'
 import { loadAreaMeasurements, type AreaMeasurementRow } from '@/lib/area-measure-db'
+import { resolveOpsAccess } from '@/lib/ops-access'
+import { orgDb } from '@/lib/supabase/org-db'
 import { loadCustomerProperties } from '@/lib/properties-db'
 import { propertyDisplayName, type Property } from '@/lib/properties'
 import { isFieldRole, type ThreadViewer } from '@/lib/threads/visibility'
@@ -31,6 +33,13 @@ export type CustomerExtras = {
   lots: { developments: string[]; trades: Array<{ slug: string; label: string }>; canCreateJobs: boolean } | null
 }
 
+/** The ONE rule for making a job without a sale, the same the server applies (resolveOpsAccess.canCreateProductionJob). A failed read says no. */
+async function canMakeJobs(admin: SupabaseClient, viewer: ThreadViewer): Promise<boolean> {
+  const { data } = await orgDb(admin, viewer.orgId).from('users').select('role, custom_role_id').eq('id', viewer.userId).maybeSingle()
+  if (!data) return false
+  return (await resolveOpsAccess(admin, viewer.userId, data as { role: string; custom_role_id?: string | null })).canCreateProductionJob
+}
+
 /** null = the viewer may not read this customer's records (or no such customer in their company). */
 export async function loadCustomerExtras(admin: SupabaseClient, viewer: ThreadViewer, customerId: string): Promise<CustomerExtras | null> {
   const access = await resolveCustomerAccess(admin, viewer, customerId)
@@ -47,7 +56,7 @@ export async function loadCustomerExtras(admin: SupabaseClient, viewer: ThreadVi
     ? {
         developments: (await listDevelopments(admin, viewer.orgId)).map((d) => d.name),
         trades: activeTrades(await loadOrgTrades(admin, viewer.orgId)).map((t) => ({ slug: t.slug, label: t.label })),
-        canCreateJobs: viewer.jobEdit || viewer.ownerLike,
+        canCreateJobs: await canMakeJobs(admin, viewer),
       }
     : null
   // A failed read (e.g. the table is not there yet) hides the card; it never breaks the Customer File.

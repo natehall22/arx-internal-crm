@@ -9,12 +9,26 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   PROPERTIES_NOT_READY,
   PROPERTY_COLUMNS,
+  PROPERTY_COLUMNS_BASE,
   cleanPropertyInput,
   isPropertiesNotReadyError,
   type Property,
 } from '@/lib/properties'
 import { canonicalDevelopment, listDevelopments, type Development } from '@/lib/developments-db'
 import { orgDb } from '@/lib/supabase/org-db'
+
+/**
+ * The columns to read and write: with development / lot once migration 202611300160 is in, without before it, so shipping the
+ * code first breaks nothing for any company. One probe per minute per server process; any answer but "column missing" counts as present.
+ */
+let lotColumns: { present: boolean; at: number } | null = null
+async function propertyColumns(admin: SupabaseClient, orgId: string): Promise<{ cols: string; lots: boolean }> {
+  if (!lotColumns || Date.now() - lotColumns.at > 60_000) {
+    const { error } = await orgDb(admin, orgId).from('properties').select('community').limit(1)
+    lotColumns = { present: !error || !(error.code === '42703' || error.code === 'PGRST204' || /community/.test(String(error.message ?? ''))), at: Date.now() }
+  }
+  return lotColumns.present ? { cols: PROPERTY_COLUMNS, lots: true } : { cols: PROPERTY_COLUMNS_BASE, lots: false }
+}
 
 export type PropertiesLoad = { ready: boolean; properties: Property[] }
 
@@ -52,7 +66,8 @@ export async function loadCustomerProperties(
   customerId: string,
   opts: { includeInactive?: boolean; accessNotes: boolean }
 ): Promise<PropertiesLoad> {
-  let q = orgDb(admin, orgId).from('properties').select(PROPERTY_COLUMNS).eq('customer_id', customerId)
+  const { cols } = await propertyColumns(admin, orgId)
+  let q = orgDb(admin, orgId).from('properties').select(cols).eq('customer_id', customerId)
   if (!opts.includeInactive) q = q.eq('active', true)
   const { data, error } = await q
   if (error) {
@@ -67,7 +82,8 @@ export async function loadCustomerProperties(
 /** One property of this company (any customer), or null. */
 export async function loadProperty(admin: SupabaseClient, orgId: string, propertyId: string, accessNotes: boolean): Promise<Property | null> {
   if (typeof propertyId !== 'string' || !propertyId) return null
-  const { data, error } = await orgDb(admin, orgId).from('properties').select(PROPERTY_COLUMNS).eq('id', propertyId).maybeSingle()
+  const { cols } = await propertyColumns(admin, orgId)
+  const { data, error } = await orgDb(admin, orgId).from('properties').select(cols).eq('id', propertyId).maybeSingle()
   if (error) {
     if (!isPropertiesNotReadyError(error)) console.error('[properties] load one failed', error)
     return null
@@ -80,6 +96,8 @@ export async function applyKnownDevelopment(admin: SupabaseClient, orgId: string
   if (typeof values.community !== 'string') return
   values.community = canonicalDevelopment(values.community, known ?? (await listDevelopments(admin, orgId)))
 }
+
+const LOTS_NOT_READY = 'Developments and lots turn on once the database update for them is applied.'
 
 export type PropertySave = { ok: true; property: Property } | { ok: false; status: number; error: string }
 
@@ -104,11 +122,13 @@ export async function createProperty(
   const values = { ...clean.value }
   // Someone who may not see access notes may not write them either.
   if (!opts.accessNotes) delete values.access_notes
+  const { cols, lots } = await propertyColumns(admin, orgId)
+  if (!lots && ('community' in values || 'lot' in values)) return { ok: false, status: 503, error: LOTS_NOT_READY }
   await applyKnownDevelopment(admin, orgId, values, opts.knownDevelopments)
   const { data, error } = await orgDb(admin, orgId)
     .from('properties')
     .insert({ ...values, customer_id: customerId, source: 'manual', active: true, created_by: userId, updated_by: userId })
-    .select(PROPERTY_COLUMNS)
+    .select(cols)
     .single()
   if (error) return saveError(error)
   return { ok: true, property: fromRow(data as Record<string, unknown>, opts.accessNotes) }
@@ -120,20 +140,22 @@ export async function updateProperty(
   userId: string,
   existing: Property,
   body: unknown,
-  opts: { accessNotes: boolean }
+  opts: { accessNotes: boolean; knownDevelopments?: readonly Development[] }
 ): Promise<PropertySave> {
   const clean = cleanPropertyInput(body, 'edit', existing)
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
   const values = { ...clean.value }
   if (!opts.accessNotes) delete values.access_notes
   if (Object.keys(values).length === 0) return { ok: false, status: 400, error: 'Nothing to save' }
-  await applyKnownDevelopment(admin, orgId, values)
+  const { cols, lots } = await propertyColumns(admin, orgId)
+  if (!lots && ('community' in values || 'lot' in values)) return { ok: false, status: 503, error: LOTS_NOT_READY }
+  await applyKnownDevelopment(admin, orgId, values, opts.knownDevelopments)
   const { data, error } = await orgDb(admin, orgId)
     .from('properties')
     .update({ ...values, updated_by: userId })
     .eq('id', existing.id)
     .eq('customer_id', existing.customer_id)
-    .select(PROPERTY_COLUMNS)
+    .select(cols)
     .maybeSingle()
   if (error) return saveError(error)
   if (!data) return { ok: false, status: 404, error: 'Not found' }

@@ -266,22 +266,44 @@ export async function loadCloserQueues(admin: SupabaseClient, orgId: string, use
   ]
 }
 
+/**
+ * The "Jobs to schedule" queue. For a company with property tools, jobs on a builder's lots are summarized per development
+ * ("Oak Ridge: 40 lots to schedule") instead of listed one by one; every other job lists exactly as before. Without property
+ * tools (or with no lot jobs) this is the plain list.
+ */
+async function jobsToScheduleQueue(admin: SupabaseClient, orgId: string, run: (limit: number) => PromiseLike<{ data: unknown; count: number | null; error: unknown }>): Promise<Queue> {
+  const empty = 'Every sold job has an install date.'
+  const lots = (await (await import('@/lib/org-features-server')).isOrgFeatureOn(orgId, 'projectTools')) ? await (await import('@/lib/lot-jobs-queue')).loadLotJobsToSchedule(admin, orgId) : null
+  if (!lots || lots.jobIds.size === 0) {
+    const r = ok(await run(LIST_CAP))
+    return jobQueue('jobs-to-schedule', 'Jobs to schedule', (r.data ?? []) as JobRow[], r.count ?? 0, empty)
+  }
+  const { lotSummaryText } = await import('@/lib/lot-jobs-queue')
+  const r = ok(await run(Math.min(1000, LIST_CAP + lots.jobIds.size)))
+  const others = ((r.data ?? []) as JobRow[]).filter((j) => !lots.jobIds.has(j.id))
+  const q = jobQueue('jobs-to-schedule', 'Jobs to schedule', others, r.count ?? 0, empty)
+  const summaries = lots.byDevelopment.slice(0, LIST_CAP).map((d) => {
+    const text = lotSummaryText(d.name, d.count)
+    return { id: `lots-${d.name}`, title: text, detail: '', href: `/ops/developments?development=${encodeURIComponent(d.name)}`, ref: text, note: '' }
+  })
+  return { ...q, items: [...summaries, ...q.items].slice(0, LIST_CAP) }
+}
+
 export async function loadOpsQueues(admin: SupabaseClient, orgId: string, opts: { only?: 'jobs-to-schedule' } = {}): Promise<Queue[]> {
   const cols = 'id, job_number, address_text, scheduled_date'
   const base = () => admin.from('production_jobs').select(cols, { count: 'exact' }).eq('org_id', orgId).neq('status', 'cancelled')
   if (opts.only === 'jobs-to-schedule') {
     // A caller that wants one list does not pay for the other two (the dashboard's "no crew / no date" card).
-    const r = ok(await base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(LIST_CAP))
-    return [jobQueue('jobs-to-schedule', 'Jobs to schedule', (r.data ?? []) as JobRow[], r.count ?? 0, 'Every sold job has an install date.')]
+    return [await jobsToScheduleQueue(admin, orgId, (n) => base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(n))]
   }
   // No materials-ordering step (mowing, grading): there is no "Orders to send" queue, here or in the morning email.
   const materialsStep = await (await import('@/lib/org-features-server')).isOrgFeatureOn(orgId, 'materialOrdering')
-  const [toSchedule, toOrder, awaiting] = await Promise.all([
-    base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(LIST_CAP),
+  const [toScheduleQueue, toOrder, awaiting] = await Promise.all([
+    jobsToScheduleQueue(admin, orgId, (n) => base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(n)),
     base().in('status', ['sold', 'materials', 'scheduled', 'in_progress']).eq('materials_status', 'not_ordered').order('scheduled_date', { ascending: true, nullsFirst: false }).limit(LIST_CAP),
     base().eq('status', 'complete').order('sale_date', { ascending: true }).limit(LIST_CAP),
   ])
-  ;[toSchedule, toOrder, awaiting].forEach(ok)
+  ;[toOrder, awaiting].forEach(ok)
   // Finished jobs not yet collected: the same paid-in-full rule as everywhere (lib/job-collection.ts), so a job whose money is
   // all in never sits here even if its status was not moved on. Works for any job-based company, no service-plans needed.
   const finished = (awaiting.data ?? []) as JobRow[]
@@ -289,7 +311,7 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string, opts: 
   const owing = finished.filter((j) => !paid.has(j.id))
   const owingCount = Math.max(0, (awaiting.count ?? 0) - (finished.length - owing.length))
   return [
-    jobQueue('jobs-to-schedule', 'Jobs to schedule', (toSchedule.data ?? []) as JobRow[], toSchedule.count ?? 0, 'Every sold job has an install date.'),
+    toScheduleQueue,
     ...(materialsStep ? [jobQueue('orders-to-send', 'Orders to send', (toOrder.data ?? []) as JobRow[], toOrder.count ?? 0, 'Materials are ordered on every open job.')] : []),
     jobQueue('awaiting-payment', 'Finished, waiting on payment', owing, owingCount, 'Nothing is waiting on payment.'),
   ]

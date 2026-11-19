@@ -373,6 +373,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <DevelopmentBoard
             board={{
               truncated: false,
+              total: 2,
+              options: { builders: [{ id: 'c1', name: 'Maple Homes' }], developments: ['Oak Ridge', 'Pine Hollow'] },
               trades: [{ slug: 'grading', label: 'Grading' }, { slug: 'sod', label: 'Sod' }, { slug: 'landscaping', label: 'Landscaping' }],
               lots: [
                 { propertyId: 'p1', customerId: 'c1', customerName: 'Maple Homes', community: 'Oak Ridge', lot: '14', address: '120 Oak Ridge Dr', jobId: 'j1', nextTrade: 'sod', cells: { grading: { state: 'done', date: '2026-11-12', jobId: 'j1' }, sod: { state: 'scheduled', date: '2026-11-20', jobId: 'j1' }, landscaping: { state: 'not_scheduled', date: null, jobId: 'j1' } } },

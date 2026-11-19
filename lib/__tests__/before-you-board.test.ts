@@ -82,12 +82,11 @@ describe('development board', () => {
     expect(lot('p3').nextTrade).toBeNull()
     expect(board.filter((l) => l.customerId === 'c1').map((l) => l.lot)).toEqual(['2', '10'])
   })
-  it('filters by builder, development (spacing/case ignored), trade and needs-next', () => {
-    const f = { customerId: '', development: '', trade: '', needsNext: '' }
-    expect(filterLots(board, { ...f, development: ' OAK ridge' })).toHaveLength(3)
-    expect(filterLots(board, { ...f, customerId: 'c2' }).map((l) => l.propertyId)).toEqual(['p3'])
+  it('filters by trade and needs-next (builder and development are database filters)', () => {
+    const f = { trade: '', needsNext: '' }
     expect(filterLots(board, { ...f, trade: 'sod' }).map((l) => l.propertyId)).toEqual(['p1'])
     expect(filterLots(board, { ...f, needsNext: 'grading' }).map((l) => l.propertyId)).toEqual(['p2'])
+    expect(filterLots(board, f)).toHaveLength(3)
   })
   it('groups by builder then development with per-trade progress', () => {
     const g = groupByBuilderAndDevelopment(board, trades)

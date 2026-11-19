@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import * as React from 'react'
 
 import { Field, Select } from '@/components/ui'
@@ -43,34 +44,43 @@ function Cell({ cell, label }: { cell: LotCell; label?: string }) {
  * development, trade, "needs <trade> next". Wide screens: a table (lots down, the company's trades across). Phones: one
  * card per lot, each trade a full-width tap to the job. No money anywhere on this screen.
  */
-export default function DevelopmentBoard({ board, initialCustomerId = '', initialDevelopment = '' }: { board: BoardData; initialCustomerId?: string; initialDevelopment?: string }) {
-  const [f, setF] = React.useState<BoardFilters>({ ...NO_FILTERS, customerId: initialCustomerId, development: initialDevelopment })
-  const builders = React.useMemo(() => Array.from(new Map(board.lots.map((l) => [l.customerId, l.customerName])).entries()).sort((a, b) => a[1].localeCompare(b[1])), [board.lots])
-  const developments = React.useMemo(() => {
-    const m = new Map<string, string>()
-    for (const l of board.lots) if (!f.customerId || l.customerId === f.customerId) m.set(developmentKey(l.community), l.community)
-    return Array.from(m.values()).sort((a, b) => a.localeCompare(b))
-  }, [board.lots, f.customerId])
+export default function DevelopmentBoard({ board, customerId = '', development = '' }: { board: BoardData; customerId?: string; development?: string }) {
+  const router = useRouter()
+  // Builder and development are asked of the database (the page reloads with them in its address); trade and "needs next" narrow what is loaded.
+  const [f, setF] = React.useState<BoardFilters>(NO_FILTERS)
+  const go = (next: { customer?: string; development?: string }) => {
+    const qs = new URLSearchParams()
+    const c = next.customer ?? customerId
+    const d = next.development ?? development
+    if (c) qs.set('customer', c)
+    if (d) qs.set('development', d)
+    const q = qs.toString()
+    router.push(`/ops/developments${q ? `?${q}` : ''}`)
+  }
   const shown = React.useMemo(() => filterLots(board.lots, f), [board.lots, f])
   const groups = React.useMemo(() => groupByBuilderAndDevelopment(shown, board.trades), [shown, board.trades])
-  const filtered = f.trade !== '' || f.needsNext !== '' || f.development !== ''
+  const filtered = f.trade !== '' || f.needsNext !== '' || development !== ''
   const set = (patch: Partial<BoardFilters>) => setF((c) => ({ ...c, ...patch }))
 
-  if (board.lots.length === 0) {
+  if (board.lots.length === 0 && !customerId && !development) {
     return <p className="rounded-ui border border-surface-line bg-surface p-4 text-ui-base text-ink">No lots yet. Open a builder’s Customer File and use Add lots.</p>
   }
 
   return (
     <div className="flex flex-col gap-4">
-      {board.truncated ? <p className="rounded-ui border border-amber-600 bg-amber-50 p-3 text-ui-base text-ink">Only the first lots are shown. Narrow by builder or development.</p> : null}
+      {board.truncated ? (
+        <p className="rounded-ui border border-amber-600 bg-amber-50 p-3 text-ui-base text-ink" data-testid="board-truncated">
+          Showing the first {board.lots.length} of {board.total} lots. {development ? 'Pick a builder as well to see fewer.' : 'Pick a development (or a builder) above to see the rest.'}
+        </p>
+      ) : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Builder">
           {(p) => (
-            <Select {...p} className="text-base" value={f.customerId} onChange={(e) => set({ customerId: e.target.value, development: '' })}>
+            <Select {...p} className="text-base" value={customerId} onChange={(e) => go({ customer: e.target.value, development: '' })}>
               <option value="">All builders</option>
-              {builders.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
+              {board.options.builders.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
                 </option>
               ))}
             </Select>
@@ -78,9 +88,9 @@ export default function DevelopmentBoard({ board, initialCustomerId = '', initia
         </Field>
         <Field label="Development">
           {(p) => (
-            <Select {...p} className="text-base" value={f.development ? developments.find((d) => developmentKey(d) === developmentKey(f.development)) ?? '' : ''} onChange={(e) => set({ development: e.target.value })}>
+            <Select {...p} className="text-base" value={board.options.developments.find((d) => developmentKey(d) === developmentKey(development)) ?? ''} onChange={(e) => go({ development: e.target.value })}>
               <option value="">All developments</option>
-              {developments.map((d) => (
+              {board.options.developments.map((d) => (
                 <option key={d} value={d}>
                   {d}
                 </option>
