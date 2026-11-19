@@ -183,8 +183,8 @@ describe('Bill finished jobs', () => {
     void big
     await loadBillableJobs(wrapped.client as never, ORG, 'c1')
     expect(counts.job_payments).toBe(1)
-    expect(counts.job_invoices).toBe(1)
-    expect(counts.production_jobs).toBe(1)
+    expect(counts.job_invoices).toBe(2) // the batch read + the one invoice-tax read (loadJobInvoiceFacts) — a fixed number, not per job
+    expect(counts.production_jobs).toBe(2) // + loadJobInvoiceFacts reads the jobs' billing mode once
   })
 
   const wireCreate = (db: ReturnType<typeof seed>, sideEffect?: (jobId: string) => void) =>

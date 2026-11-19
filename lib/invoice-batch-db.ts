@@ -16,6 +16,7 @@ import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { computeInvoiceBalance, createCustomAmountInvoice, finalizeAndSendInvoice, issueDatesFor, updateInvoiceItem, voidInvoice, type CustomerPaymentMethod, CUSTOMER_PAYMENT_METHODS } from '@/lib/invoices'
 import { evaluateJobCollection } from '@/lib/job-collection'
+import { collectionInvoiceFields, loadJobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { formatCurrency } from '@/lib/job-payments'
 import { invoicePaidCents } from '@/lib/invoice-lines'
 import { isUsableCustomerEmail, loadInvoiceDocument } from '@/lib/invoice-document'
@@ -96,10 +97,11 @@ export async function loadBillableJobs(admin: SupabaseClient, orgId: string, cus
   if (payErr) throw new Error(`master invoice: read payments: ${payErr.message}`)
   const paysByJob = new Map<string, Array<{ amount_cents: number; funding_status: string | null }>>()
   for (const p of asRows<{ job_id: string; amount_cents: number; funding_status: string | null }>(pays)) paysByJob.set(p.job_id, [...(paysByJob.get(p.job_id) ?? []), p])
+  const invoiceFacts = await loadJobInvoiceFacts(admin, openIds)
   const dev = await loadDevelopments(admin, orgId, Array.from(new Set(open.map((j) => j.property_id).filter((x): x is string => !!x))))
   const out: BillableJob[] = []
   for (const j of open) {
-    const c = evaluateJobCollection({ saleAmount: j.sale_amount, payments: paysByJob.get(j.id) ?? [], allowCloseWithBalance: j.allow_close_with_balance, closeBalanceBy: j.close_balance_by })
+    const c = evaluateJobCollection({ saleAmount: j.sale_amount, ...collectionInvoiceFields(invoiceFacts.get(j.id)), payments: paysByJob.get(j.id) ?? [], allowCloseWithBalance: j.allow_close_with_balance, closeBalanceBy: j.close_balance_by })
     if (c.missingSaleAmount || c.paidInFull || c.remainingCents <= 0) continue
     const d = j.property_id ? dev.byProperty.get(j.property_id) : undefined
     const draft = draftOf.get(j.id)
