@@ -44,4 +44,27 @@ describe('query + results', () => {
   it('a failed search throws (the route answers 500), never an empty "no matches"', async () => {
     await expect(runSearch({ rpc: async () => ({ data: null, error: new Error('boom') }) } as never, 'o', 'abc', [{ kinds: ['job'], owner: null }])).rejects.toThrow('boom')
   })
+  it('adds keyword hits with the reason, only for job / customer kinds, and never duplicates a job already found by number', async () => {
+    const rpc = jest.fn(async (fn: string, a: { p_kinds: string[] }) => {
+      if (fn === 'search_all') return { data: [{ kind: 'job', id: 'j1', title: 'Job 26-0040', subtitle: null, score: 0.95 }], error: null }
+      return {
+        data: [
+          { kind: 'job', id: 'j1', title: 'Job 26-0040', subtitle: null, matched: 'Line: Sprinkler repair', score: 0.9 },
+          { kind: 'job', id: 'j2', title: 'Job 26-0041', subtitle: null, matched: 'Note: sprinkler head', score: 0.8 },
+        ],
+        error: null,
+        kinds: a.p_kinds,
+      }
+    })
+    const hits = await runSearch({ rpc } as never, 'org', 'sprinkler', [{ kinds: ['job', 'proposal'], owner: null }], 20, 'viewer')
+    expect(hits.map((h) => [h.id, h.matched])).toEqual([['j1', 'Line: Sprinkler repair'], ['j2', 'Note: sprinkler head']])
+    expect(rpc).toHaveBeenCalledWith('search_work', expect.objectContaining({ p_viewer: 'viewer', p_kinds: ['job'], p_limit: 5 }))
+  })
+  it('without a viewer, or when the keyword function is missing, the usual results still come back', async () => {
+    const rpc = jest.fn(async (fn: string) => (fn === 'search_all' ? { data: [{ kind: 'job', id: 'j1', title: 'J', subtitle: null, score: 0.9 }], error: null } : { data: null, error: { message: 'no function' } }))
+    expect((await runSearch({ rpc } as never, 'o', 'abc', [{ kinds: ['job'], owner: null }])).map((h) => h.id)).toEqual(['j1'])
+    expect(rpc).toHaveBeenCalledTimes(1)
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    expect((await runSearch({ rpc } as never, 'o', 'abc', [{ kinds: ['job'], owner: null }], 20, 'v')).map((h) => h.id)).toEqual(['j1'])
+  })
 })

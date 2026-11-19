@@ -1,5 +1,6 @@
 'use client'
 
+import RemindButton from '@/components/reminders/RemindButton'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -109,6 +110,9 @@ export default function PartnerDetailClient({
               {partner.email}
             </a>
           )}
+        </div>
+        <div className="mt-3">
+          <RemindButton target={{ partnerId: partner.id }} />
         </div>
         {partner.notes && <p className="mt-2 whitespace-pre-wrap text-sm text-[#2c2c2a]">{partner.notes}</p>}
       </div>

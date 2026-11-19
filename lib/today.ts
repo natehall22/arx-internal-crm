@@ -20,6 +20,8 @@ import { loadVisits } from '@/lib/service-plans-db'
 import { jobsPaidInFull } from '@/lib/job-collection-db'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import { orgTodayYmd } from '@/lib/project-tools/org-today'
+import { listReminders, reminderHref } from '@/lib/reminders'
 import { leadsWaitingFailedQueue, loadLeadsWaitingQueue } from '@/lib/leads-waiting'
 
 /** `crew` = a Field Tech (crew member): no sales, ops or owner queues; their own day is built separately. */
@@ -30,8 +32,8 @@ export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer' | 'crew'
  * proposal number and plain facts, never a customer name or address — except the storm-hits queue, which is a call
  * list and carries the customer's name and `phone` (owner "Everything" email only; Nathan, 2026-11-06).
  */
-export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string; phone?: string | null }
-export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string }
+export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string; phone?: string | null; /** A reminder row: the card shows a Done button for it. */ reminderId?: string }
+export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string; /** Collapsed under the list ("Upcoming (N)"); not part of `count`. */ upcoming?: QueueItem[] }
 
 export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean; customRoleName?: string | null; customRoleDisplayName?: string | null }): TodayKind {
   // A super admin is the owner whatever their role slug says (Precision's owner holds role 'operations').
@@ -664,4 +666,36 @@ export async function loadAiChangesQueue(admin: SupabaseClient, orgId: string, u
     empty: '',
     items: rows.map((r) => ({ id: r.id, title: r.preview?.title ?? 'A change', detail: `Prepared ${formatTime(r.created_at)}. Open it to approve or decline.`, href: `/ai-changes/${r.id}`, ref: 'AI change', note: 'Waiting for your approval' })),
   }
+}
+
+/**
+ * Reminders (lib/reminders.ts is the one reader). `mine` = open reminders assigned to this person (overdue first, then by day);
+ * `others` (owner / office only) = everyone else's open reminders. Text = what the writer typed plus the day and the person —
+ * never a customer's name, phone or address. Each row opens the record it is about, through that record's own access rules.
+ */
+export async function loadRemindersQueue(
+  admin: SupabaseClient,
+  orgId: string,
+  viewer: { id: string },
+  scope: 'mine' | 'others',
+  now = new Date()
+): Promise<Queue> {
+  const today = await orgTodayYmd(admin, orgId, now)
+  const rows = await listReminders(admin, orgId, { viewerId: viewer.id, all: scope === 'others', limit: 200 })
+  const picked = rows.filter((r) => (scope === 'mine' ? r.assigneeId === viewer.id : r.assigneeId !== viewer.id))
+  const asItem = (r: (typeof picked)[number]): QueueItem => ({
+    id: r.id,
+    reminderId: r.id,
+    title: r.body,
+    detail: `${r.dueOn < today ? 'Overdue · ' : r.dueOn === today ? 'Today · ' : ''}${formatDateWeekday(r.dueOn)}${scope === 'others' ? ` · ${r.assigneeName ?? 'Someone'}` : r.createdById && r.createdById !== viewer.id ? ` · from ${r.createdByName ?? 'someone'}` : ''}`,
+    href: reminderHref(r) ?? '/today',
+    ref: 'Reminder',
+    note: r.dueOn < today ? 'Overdue' : r.dueOn === today ? 'Due today' : 'Coming up',
+  })
+  // What needs attention now (due today + overdue) is the list and the count; later days sit collapsed under it.
+  const due = picked.filter((r) => r.dueOn <= today)
+  const later = picked.filter((r) => r.dueOn > today)
+  const upcoming = later.map(asItem)
+  const base = { count: due.length, items: due.slice(0, LIST_CAP).map(asItem), empty: 'Nothing due.', ...(later.length > 0 ? { upcoming } : {}) }
+  return scope === 'mine' ? { id: 'my-reminders', title: 'My reminders', ...base } : { id: 'all-reminders', title: 'Everyone’s reminders', ...base }
 }

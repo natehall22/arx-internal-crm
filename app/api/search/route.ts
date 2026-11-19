@@ -46,7 +46,11 @@ export async function GET(request: NextRequest) {
   if (groups.length === 0) return NextResponse.json({ results: await messageHits() })
 
   try {
-    const [hits, msgs, orgProfile] = await Promise.all([runSearch(admin, profile.org_id, q, groups), messageHits(), loadOrgProfile(admin, profile.org_id)])
+    const [msgs, orgProfile] = await Promise.all([messageHits(), loadOrgProfile(admin, profile.org_id)])
+    // Keyword search over the work itself (trade, line items, work orders, notes) is for companies that sell service plans or project
+    // work; every other company gets exactly the number / address / name results it always had (no viewer id = no keyword leg).
+    const keywordSearch = !!(orgProfile.features.servicePlans || orgProfile.features.projectTools)
+    const hits = await runSearch(admin, profile.org_id, q, groups, 20, keywordSearch ? authUser.id : undefined)
     const fileDefault = customerFileDefaultFor(profile.role, orgProfile.id)
     return NextResponse.json({ results: [...hits.map((h) => ({ ...h, href: hrefForHit(h, fileDefault) })), ...msgs] })
   } catch (e) {

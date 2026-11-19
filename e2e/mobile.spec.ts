@@ -1746,3 +1746,79 @@ for (const screen of LAWN_CRAWL) {
     if (hit) throw new Error(`${screen.name} (lawn) shows "${hit[0]}" near: ${text.slice(Math.max(0, hit.index! - 40), hit.index! + 60).replace(/\s+/g, ' ')}`)
   })
 }
+
+
+// Remind sheet (switch `reminders`): opens as a full-height sheet on a phone; every control is a real tap target, inputs are 16px+,
+// the creator sees Done on their own reminder, and nothing scrolls sideways.
+test('remind sheet / phone: tap targets, 16px inputs, Done for the creator, sets a reminder', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/me/effective-permissions', (route) => route.fulfill(json({
+    role: 'sales_rep', fullAccess: false, permissions: [],
+    flags: { features: { servicePlans: true, reminders: true }, profile: { id: 'lawn_landscape' } },
+  })))
+  const posted: Array<Record<string, unknown>> = []
+  await page.route('**/api/reminders**', async (route) => {
+    if (route.request().method() === 'POST') {
+      posted.push(JSON.parse(route.request().postData() || '{}'))
+      return route.fulfill(json({ reminder: { id: 'r2' } }, 201))
+    }
+    return route.fulfill(json({ today: '2026-11-10', seesAll: false, meId: 'u1', reminders: [{ id: 'r1', body: 'Call about the sprinkler quote', dueOn: '2026-11-11', assigneeId: 'u3', assigneeName: 'Riley Ops', createdById: 'u1', createdByName: 'Me', jobId: null, customerId: 'cust-1' }] }))
+  })
+  await page.goto('/dev-harness/remind')
+  const open = page.getByRole('button', { name: /^Remind…/ })
+  await open.waitFor()
+  await open.click()
+  const dialog = page.getByRole('dialog')
+  await dialog.waitFor()
+  // The creator can finish a reminder they made for someone else.
+  await expect(dialog.getByRole('button', { name: 'Done' })).toBeVisible()
+  const vw = page.viewportSize()!.width
+  for (const b of await dialog.getByRole('button').all()) {
+    const r = (await b.boundingBox())!
+    const label = (await b.textContent()) || (await b.getAttribute('aria-label')) || 'button'
+    expect(r.height, `${label} height`).toBeGreaterThanOrEqual(43.5)
+    expect(r.x, `${label} left`).toBeGreaterThanOrEqual(0)
+    expect(r.x + r.width, `${label} right`).toBeLessThanOrEqual(vw)
+  }
+  for (const input of await dialog.locator('input:visible, select:visible').all()) {
+    expect(await input.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)), 'inputs >= 16px').toBeGreaterThanOrEqual(16)
+  }
+  await dialog.getByLabel('About').fill('Check the gate latch')
+  await dialog.getByRole('button', { name: 'Set reminder' }).click()
+  await expect.poll(() => posted.length).toBe(1)
+  expect(posted[0]).toMatchObject({ body: 'Check the gate latch', customerId: 'cust-1' })
+  await expectNoSidewaysScroll(page)
+})
+
+// Stop order for a crew's day: with one crew picked and two stops left, "Best order" and the ▲ ▼ buttons are tap-sized, moving a
+// stop offers Save order, and Save sends the arranged list. Nothing scrolls sideways.
+test('visits board / reorder controls: tap-sized, move a stop, save sends the new order', async ({ page }) => {
+  await mockApi(page)
+  await asLawnCompany(page)
+  const first = HARNESS_VISITS.visits[0]
+  const board = { ...HARNESS_VISITS, visits: [first, { ...first, id: 'v6', customerName: 'Pat Lee', address: '5 Old Shell Rd, Medart, FL 32327', routePosition: 5, accessNotes: null }] }
+  await page.route(/\/api\/ops\/visits(\?.*)?$/, (route) => route.fulfill(json(board)))
+  await page.route(/\/api\/service-plans$/, (route) => route.fulfill(json({ ...HARNESS_SERVICE_PLANS, properties: [] })))
+  const saved: Array<Record<string, unknown>> = []
+  await page.route('**/api/ops/visits/order', (route) => {
+    saved.push(JSON.parse(route.request().postData() || '{}'))
+    return route.fulfill(json({ ok: true, beforeMiles: 12.4, afterMiles: 9.8, startKnown: true, withoutLocation: 0, order: ['v6', 'v1'], changedStops: 2 }))
+  })
+  await page.goto('/dev-harness/visits-board')
+  await page.getByLabel('Crew', { exact: true }).selectOption({ label: 'Green Team' })
+  const down = page.getByRole('button', { name: 'Move Gulf Coast Property Group down' })
+  await down.waitFor()
+  const vw = page.viewportSize()!.width
+  for (const b of [down, page.getByRole('button', { name: 'Move Pat Lee up' }), page.getByRole('button', { name: /^Best order/ })]) {
+    await b.scrollIntoViewIfNeeded()
+    const r = (await b.boundingBox())!
+    expect(r.height).toBeGreaterThanOrEqual(43.5)
+    expect(r.x).toBeGreaterThanOrEqual(0)
+    expect(r.x + r.width).toBeLessThanOrEqual(vw)
+  }
+  await down.click()
+  await page.getByRole('button', { name: 'Save order' }).click()
+  await expect.poll(() => saved.length).toBe(1)
+  expect(saved[0]).toMatchObject({ crew: 'sub-1', action: 'set', order: ['v6', 'v1'] })
+  await expectNoSidewaysScroll(page)
+})

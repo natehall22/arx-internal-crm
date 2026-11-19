@@ -294,7 +294,7 @@ describe('visit actions', () => {
   it('reopen clears the close; move / assign only while scheduled', () => {
     expect(visitPatch({ status: 'skipped', scheduled_date: 'x' }, { action: 'reopen' }, office, now)).toMatchObject({ status: 'scheduled', skip_reason: null, step_result: null })
     expect(visitPatch({ status: 'completed', scheduled_date: 'x' }, { action: 'move', date: '2026-11-12' }, office, now)).toEqual({ error: expect.any(String) })
-    expect(visitPatch({ status: 'scheduled', scheduled_date: 'x' }, { action: 'assign', subId: null }, office, now)).toEqual({ assigned_sub_id: null })
+    expect(visitPatch({ status: 'scheduled', scheduled_date: 'x' }, { action: 'assign', subId: null }, office, now)).toEqual({ assigned_sub_id: null, stop_order: null })
   })
   it('the next step: N days after the visit was done, on the parent’s slot, to the step’s person or crew', () => {
     const steps = [{ key: 'inspection', label: 'Roof inspection', daysAfter: 2, assignTo: 'person' as const, userId: 'insp', subId: null, results: [] }]

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { orgFeatureChecker } from '@/lib/org-features-server'
 import { getOrgEmailBlastSettings } from '@/lib/admin-email-blasts'
 import { ensureCheckups } from '@/lib/checkups'
+import { notifyDueReminders } from '@/lib/reminders'
 import { notifyPayWeekReady } from '@/lib/payroll-approve-link'
 import { retryDueCommissionChanges } from '@/lib/payroll-commission-change'
 import { ensureServiceVisits } from '@/lib/service-plans-db'
@@ -64,6 +65,7 @@ export async function GET(request: NextRequest) {
   const servicePlansOn = orgFeatureChecker('servicePlans')
   const timeTrackingOn = orgFeatureChecker('timeTracking')
   const onlinePaymentsOn = orgFeatureChecker('onlinePayments')
+  const remindersOn = orgFeatureChecker('reminders')
   for (const org of orgRows || []) {
     const orgId = org.id
     // Each company's morning is its own: 5:30am in `orgs.timezone`, and the once-a-day claim is keyed to
@@ -87,6 +89,12 @@ export async function GET(request: NextRequest) {
     await ensureCheckups(admin, orgId).catch((error) => {
       console.error(`[cron/morning-update] checkups failed for org ${orgId}:`, error)
     })
+    // Reminders due today (or missed) ring their assignee's bell once (companies using reminders; each claimed once, so a re-run is quiet).
+    if (await remindersOn(orgId)) {
+      await notifyDueReminders(admin, orgId, now).catch((error) => {
+        console.error(`[cron/morning-update] reminders failed for org ${orgId}:`, error)
+      })
+    }
     // Service plan visits for the next weeks, the same way (idempotent; only companies using service plans).
     if (await servicePlansOn(orgId)) {
       await ensureServiceVisits(admin, orgId, { now, timeZone: org.timezone }).catch((error) => {

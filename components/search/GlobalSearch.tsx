@@ -7,7 +7,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
 
-type Hit = { kind: 'customer' | 'job' | 'proposal' | 'opportunity' | 'message'; id: string; title: string; subtitle: string; href: string }
+type Hit = { kind: 'customer' | 'job' | 'proposal' | 'opportunity' | 'message'; id: string; title: string; subtitle: string; href: string; matched?: string }
 const KIND_LABEL: Record<Hit['kind'], string> = { customer: 'Customer', job: 'Job', proposal: 'Proposal', opportunity: 'Opportunity', message: 'Note' }
 
 /** Cmd/Ctrl-K (or the search button) opens it; type to search, ↑/↓ to move, Enter to open. */
@@ -84,7 +84,7 @@ export default function GlobalSearch() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent title="Search" description="Customers, addresses, phone numbers, job numbers and proposals." className="sm:top-[20%] sm:-translate-y-0">
+      <DialogContent title="Search" description="Customers, addresses, phone numbers, job numbers, proposals and the work on a job." className="sm:top-[20%] sm:-translate-y-0">
         <Input autoFocus type="search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown} placeholder="Name, address, phone, job #…" aria-label="Search" role="combobox" aria-expanded={hits.length > 0} aria-controls="search-results" />
         <div id="search-results" role="listbox" aria-label="Results" className="max-h-[50dvh] overflow-y-auto">
           {state === 'error' ? <p className="py-3 text-ui-base text-danger">Search isn&apos;t working right now. Try again.</p> : null}
@@ -103,6 +103,7 @@ export default function GlobalSearch() {
                 <span className="shrink-0 text-ui-sm text-ink-muted">{KIND_LABEL[h.kind]}</span>
               </span>
               {h.subtitle ? <span className="text-ui-sm text-ink-muted">{h.subtitle}</span> : null}
+              {h.matched ? <span className="text-ui-sm font-semibold text-ink">matched: {h.matched}</span> : null}
             </button>
           ))}
         </div>

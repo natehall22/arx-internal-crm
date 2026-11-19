@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { formatDateWeekday } from '@/lib/format'
+import { directionsHref } from '@/lib/route-order'
 import { RESULT_TONE_CLASS, SKIP_REASONS, SKIP_REASON_LABELS, type SkipReason, type StepResultOption } from '@/lib/service-plans'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 import { checklistSummary, unchecked, type ChecklistItem } from '@/lib/visit-checklist'
@@ -56,10 +57,6 @@ const UNDO_MS = 6000
 /** How often an open page re-checks that its link still works (and wipes itself if not). */
 const RECHECK_MS = 5 * 60_000
 
-function directionsHref(v: Pick<CrewDayVisit, 'lat' | 'lng' | 'address'>): string {
-  const dest = v.lat != null && v.lng != null ? `${v.lat},${v.lng}` : (v.address ?? '')
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`
-}
 
 const btn = 'inline-flex min-h-[48px] items-center justify-center rounded-lg px-4 text-base font-semibold'
 
@@ -398,7 +395,7 @@ export default function CrewDayList({
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       {clockOn && !closed ? <ClockHereButton clock={clock} where={{ workOrderId: p.id }} selected={present} /> : null}
                       {p.address || (p.lat != null && p.lng != null) ? (
-                        <a href={directionsHref(p)} target="_blank" rel="noopener noreferrer" className={`${btn} border-2 border-[#2c2c2a] bg-white`}>
+                        <a href={directionsHref([p]) ?? '#'} target="_blank" rel="noopener noreferrer" className={`${btn} border-2 border-[#2c2c2a] bg-white`}>
                           Directions
                         </a>
                       ) : null}
@@ -468,8 +465,8 @@ export default function CrewDayList({
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {clockOn && !closed ? <ClockHereButton clock={clock} where={{ workOrderId: v.id }} selected={present} /> : null}
                   {v.address || (v.lat != null && v.lng != null) ? (
-                    <a href={directionsHref(v)} target="_blank" rel="noopener noreferrer" className={`${btn} border-2 border-[#2c2c2a] bg-white`}>
-                      Directions
+                    <a href={directionsHref([v, ...(closed ? [] : visits.slice(i + 1).filter((x) => x.status === 'scheduled'))]) ?? '#'} target="_blank" rel="noopener noreferrer" className={`${btn} border-2 border-[#2c2c2a] bg-white`}>
+                      {!closed && visits.slice(i + 1).some((x) => x.status === 'scheduled') ? 'Directions (rest of the day)' : 'Directions'}
                     </a>
                   ) : null}
                   {onTheWay && !closed && !told[v.id] ? (

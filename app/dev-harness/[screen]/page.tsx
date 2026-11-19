@@ -131,6 +131,7 @@ import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemp
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
 import AllWorkCalendar from '@/components/schedule/AllWorkCalendar'
+import RemindButton from '@/components/reminders/RemindButton'
 import ReadyToBill from '@/components/billing/ReadyToBill'
 import HoursToBill from '@/components/billing/HoursToBill'
 import JobHourlyCard from '@/components/billing/JobHourlyCard'
@@ -534,7 +535,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, masterInvoices: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false, materialOrdering: true }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, masterInvoices: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false, reminders: false, materialOrdering: true }} />
         </div>
       )
     case 'org-features-plan': {
@@ -791,6 +792,13 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <VisitsBoard />
     case 'all-work':
       return <AllWorkCalendar />
+    case 'remind':
+      // The Remind sheet as the job page / Customer File header shows it (mocked /api/reminders, needs the `reminders` feature on).
+      return (
+        <div className="p-3">
+          <RemindButton target={{ customerId: 'cust-1' }} />
+        </div>
+      )
     case 'ready-to-bill':
       return <ReadyToBill />
     case 'hours-to-bill':

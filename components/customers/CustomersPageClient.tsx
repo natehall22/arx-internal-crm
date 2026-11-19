@@ -7,6 +7,7 @@ import { DataTable, type TableFilter, type TableView } from '@/components/ui/dat
 import LinkCreateCustomerModal from './LinkCreateCustomerModal'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { customerHref } from '@/lib/customer-file/links'
+import { describeLastContact, type LastContact } from '@/lib/customer-last-contact'
 import { categoryLabel, orderedCategories, type Category } from '@/lib/categories'
 
 interface Customer {
@@ -21,6 +22,8 @@ interface Customer {
   category?: string | null
   /** Has an active service plan (derived; only set when the company uses service plans). */
   recurring?: boolean
+  /** Newest logged call / text / email / visit the viewer may see (only loaded for service and builder companies). */
+  last_contact?: LastContact | null
 }
 
 const kindOf = (c: Customer) => (c.bought ? 'customer' : 'prospect')
@@ -52,11 +55,15 @@ interface Props {
   customerFile?: boolean
   /** Show "Link / Create Customer" (links customers to projects and deals; companies that price from a roof). Off: the empty list says "Add your first customer". */
   showLinkTools?: boolean
+  /** Add the sortable "Last contact" column (service and builder companies). */
+  showLastContact?: boolean
 }
 
 // A prospect (never bought, no plan) is neither: '' shows a dash and matches no Plan filter.
 const planKindOf = (c: Customer) => (c.recurring ? 'recurring' : c.bought ? 'one_time' : '')
 const planKindColumn: ColumnDef<Customer, any> = { enableGlobalFilter: false, id: 'plan_kind', header: 'Plan', accessorFn: planKindOf, cell: (c) => (c.getValue() === 'recurring' ? 'Recurring' : c.getValue() === 'one_time' ? 'One-time' : '—') }
+// Sorts by the ISO time (a customer with no logged contact sorts as the oldest); shows "Nov 12 · call by Jake".
+const lastContactColumn: ColumnDef<Customer, any> = { enableGlobalFilter: false, id: 'last_contact', header: 'Last contact', accessorFn: (c: Customer) => c.last_contact?.at ?? '', cell: (c) => describeLastContact(c.row.original.last_contact), meta: { mobile: 'hide' } }
 const planKindFilter: TableFilter<Customer> = { key: 'plan_kind', label: 'Plan', options: [{ value: 'recurring', label: 'Recurring' }, { value: 'one_time', label: 'One-time' }], accessor: planKindOf }
 const RECURRING_VIEWS: TableView[] = [
   { id: 'sys:recurring', name: 'Recurring (active plan)', state: { sorting: [{ id: 'name', desc: false }], search: '', filters: { plan_kind: 'recurring' } } },
@@ -81,9 +88,9 @@ function withCategory(categories: Category[], customers: Customer[]) {
   }
 }
 
-export default function CustomersPageClient({ customers, categories = [], query, isAdmin = false, showRecurring = false, customerFile = false, showLinkTools = true }: Props) {
+export default function CustomersPageClient({ customers, categories = [], query, isAdmin = false, showRecurring = false, customerFile = false, showLinkTools = true, showLastContact = false }: Props) {
   const withCat = withCategory(categories, customers)
-  const columns = showRecurring ? [...withCat.columns, planKindColumn] : withCat.columns
+  const columns = [...withCat.columns, ...(showRecurring ? [planKindColumn] : []), ...(showLastContact ? [lastContactColumn] : [])]
   const filters = showRecurring ? [...withCat.filters, planKindFilter] : withCat.filters
   const systemViews = showRecurring ? [...SYSTEM_VIEWS, ...RECURRING_VIEWS] : SYSTEM_VIEWS
   const router = useRouter()

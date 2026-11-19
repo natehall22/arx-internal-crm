@@ -12,6 +12,7 @@ import { loadPlanCustomerIds } from '@/lib/service-plans-db'
 import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
 import { customerFileDefaultFor } from '@/lib/customer-file/redirects'
 import { loadOrgProfile } from '@/lib/org-profile'
+import { loadLastContacts } from '@/lib/customer-last-contact'
 
 export default async function CustomersPage({
   searchParams,
@@ -97,6 +98,14 @@ export default async function CustomersPage({
     unlinked = (p.count ?? 0) + (j.count ?? 0)
   }
 
+  // Service and builder companies: when each customer was last called / texted / emailed / visited, from the contact log
+  // (a builder is a customer). A company with neither switch on sees its list unchanged.
+  const showLastContact = orgProfile.features.servicePlans || orgProfile.features.projectTools
+  if (showLastContact) {
+    const last = await loadLastContacts(adminForCategories, profile.org_id, profile.id, customers.map((c) => c.id as string))
+    customers = customers.map((c) => ({ ...c, last_contact: last.get(c.id as string) ?? null }))
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -107,7 +116,7 @@ export default async function CustomersPage({
             <NewCustomerPlan size="md" />
           </div>
         ) : null}
-        <CustomersPageClient customers={customers} categories={categories} showRecurring={showRecurring} query={query} isAdmin={profile.role === 'admin' && unlinked > 0} customerFile={fileDefault} showLinkTools={linkTools} />
+        <CustomersPageClient customers={customers} categories={categories} showRecurring={showRecurring} query={query} isAdmin={profile.role === 'admin' && unlinked > 0} customerFile={fileDefault} showLinkTools={linkTools} showLastContact={showLastContact} />
       </div>
     </div>
   )
