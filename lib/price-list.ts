@@ -219,18 +219,21 @@ export function stampPriceOptions<T extends LineWithOption>(
 export const PROFILE_ONLY_UNITS: readonly string[] = ['visit', 'month', 'hour']
 /** Price-sheet units from migration 202611220030 (NOT applied until the office's migration run). */
 export const PRICE_SHEET_UNITS: readonly string[] = ['package', 'pallet', 'lot', 'home', 'load', 'service']
+/** Land units from migration 202611300200: per acre (mowing, clearing, seeding) and per yard = cubic yard, as dirt and fill are sold (dirt, fill, grading). */
+export const LAND_UNITS: readonly string[] = ['acre', 'yard']
 /** Every unit a fixed-price item may be saved in, besides the roofing-only ones the roofing profile lists itself. */
-export const IMPORTABLE_UNITS: readonly string[] = ['each', 'job', 'lf', 'per_sqft', ...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS]
+export const IMPORTABLE_UNITS: readonly string[] = ['each', 'job', 'lf', 'per_sqft', ...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS, ...LAND_UNITS]
 /** Which migration adds a service unit (for the "needs a database update" message). */
 export const SERVICE_UNIT_MIGRATION: Readonly<Record<string, string>> = {
   ...Object.fromEntries(PROFILE_ONLY_UNITS.map((u) => [u, '202611100090'])),
   ...Object.fromEntries(PRICE_SHEET_UNITS.map((u) => [u, '202611220030'])),
+  ...Object.fromEntries(LAND_UNITS.map((u) => [u, '202611300200'])),
 }
 
 const unitKey = (u?: string | null) => (u || '').trim().toLowerCase()
 
 /** Service units: singular after "per" ("per pallet"), plural after a quantity ("3 pallets"). Derived from the two lists above. */
-const SERVICE_UNIT_PLURAL: Record<string, string> = Object.fromEntries([...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS].map((u) => [u, `${u}s`]))
+const SERVICE_UNIT_PLURAL: Record<string, string> = Object.fromEntries([...PROFILE_ONLY_UNITS, ...PRICE_SHEET_UNITS, ...LAND_UNITS].map((u) => [u, `${u}s`]))
 
 /** Units where the rep types how many (the builder opens its quantity box). Roofing's own list is kept exactly. */
 const QUANTITY_UNITS = new Set<string>([
@@ -238,7 +241,13 @@ const QUANTITY_UNITS = new Set<string>([
   'hours',
   ...PROFILE_ONLY_UNITS, 'visits', 'months',
   ...PRICE_SHEET_UNITS,
+  ...LAND_UNITS,
 ])
+/** Units sold in part-amounts (0.5 acres, 2.5 yards, 1.5 hours): the builder keeps the decimal instead of rounding to a whole number. */
+const FRACTION_UNITS = new Set<string>([...LAND_UNITS, 'hour', 'hours'])
+export function unitAllowsFraction(unit?: string | null): boolean {
+  return FRACTION_UNITS.has(unitKey(unit))
+}
 export function unitNeedsQuantity(unit?: string | null): boolean {
   return QUANTITY_UNITS.has(unitKey(unit))
 }
@@ -279,6 +288,13 @@ export function unitLabel(unit: string): string {
     default:
       return unit || 'units'
   }
+}
+
+/** A customer-facing quantity: "0.5 acres", "12 yards", "3 pallets"; '' for one, none or zero; no word for "each". The quote page and its PDF both use it. */
+export function quantityWithUnit(q: number | null | undefined, unit: string | null | undefined): string {
+  if (q == null || q === 1 || !(q > 0)) return ''
+  const u = (unit || '').trim()
+  return u && unitKey(u) !== 'each' ? `${q} ${unitLabel(u)}` : `${q}`
 }
 
 /** The word after "per": singular for the service units ("per pallet"), else the usual label. */

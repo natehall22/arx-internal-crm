@@ -191,6 +191,25 @@ describe('unit words', () => {
       expect(unitLabel(u)).toBe(plural)
     }
   })
+  it('land units: "per acre" / "0.5 acres", "per yard" / "12 yards", with a quantity box and importable', () => {
+    expect([perUnitLabel('acre'), unitLabel('acre')]).toEqual(['acre', 'acres'])
+    expect([perUnitLabel('yard'), unitLabel('yard')]).toEqual(['yard', 'yards'])
+    for (const u of units.LAND_UNITS) {
+      expect(units.unitNeedsQuantity(u)).toBe(true)
+      expect(units.IMPORTABLE_UNITS).toContain(u)
+      expect(units.SERVICE_UNIT_MIGRATION[u]).toBe('202611300200')
+    }
+  })
+  it('the customer quote shows "0.5 acres" / "12 yards", nothing for one or each', () => {
+    expect(units.quantityWithUnit(0.5, 'acre')).toBe('0.5 acres')
+    expect(units.quantityWithUnit(12, 'yard')).toBe('12 yards')
+    expect(units.quantityWithUnit(3, 'pallet')).toBe('3 pallets')
+    expect(units.quantityWithUnit(3, 'each')).toBe('3')
+    expect(units.quantityWithUnit(3, '')).toBe('3')
+    for (const q of [1, 0, null, undefined]) expect(units.quantityWithUnit(q, 'acre')).toBe('')
+    expect(units.unitAllowsFraction('acre') && units.unitAllowsFraction('yard') && units.unitAllowsFraction('hour')).toBe(true)
+    expect(units.unitAllowsFraction('each') || units.unitAllowsFraction('lf') || units.unitAllowsFraction('square')).toBe(false)
+  })
   it('the roofing words are exactly what the builder always said', () => {
     const old: Record<string, string> = { per_sqft: 'sq ft', sqft: 'sq ft', 'sq ft': 'sq ft', sf: 'sq ft', square: 'squares', sq: 'squares', squares: 'squares', lf: 'linear ft', each: 'each', job: 'job', hour: 'hours', visit: 'visits', month: 'months', watt: 'watts', bundle: 'bundles', roll: 'rolls', sheet: 'sheets', percent: '% of total' }
     for (const [u, w] of Object.entries(old)) expect([u, unitLabel(u)]).toEqual([u, w])
