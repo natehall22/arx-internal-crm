@@ -3,12 +3,17 @@
 import * as React from 'react'
 
 import { CustomFieldInputs, draftFrom, patchFrom, saveCustomFieldValues, type DraftValues } from '@/components/custom-fields/CustomFieldsCard'
+import AddLotsSheet from '@/components/customer-file/AddLotsSheet'
+import DevelopmentPicker from '@/components/customer-file/DevelopmentPicker'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Dialog, DialogContent, DialogFooter, Field, Input, Textarea, toast } from '@/components/ui'
 import { displayFieldValue, fieldsToShow, type CustomFieldDefinition } from '@/lib/custom-fields'
-import { PROPERTY_LIMITS, propertiesDisplayMode, propertyMapHref, type Property } from '@/lib/properties'
+import type { CustomerExtras } from '@/lib/customer-file/customer-extras'
+import { PROPERTY_LIMITS, developmentKey, lotLabel, propertiesDisplayMode, propertyMapHref, type Property } from '@/lib/properties'
 
 type Form = {
   label: string
+  community: string
+  lot: string
   address_line1: string
   address_line2: string
   city: string
@@ -18,13 +23,15 @@ type Form = {
   access_notes: string
 }
 
-const EMPTY: Form = { label: '', address_line1: '', address_line2: '', city: '', state: '', zip: '', notes: '', access_notes: '' }
+const EMPTY: Form = { label: '', community: '', lot: '', address_line1: '', address_line2: '', city: '', state: '', zip: '', notes: '', access_notes: '' }
 
 function formFrom(p: Property): Form {
   // A backfilled property has only the one-line address: it starts in line 1 so the edit keeps it whole.
   const hasParts = !!(p.address_line1 || p.city || p.state || p.zip)
   return {
     label: p.label ?? '',
+    community: p.community ?? '',
+    lot: p.lot ?? '',
     address_line1: hasParts ? p.address_line1 ?? '' : p.address_text,
     address_line2: hasParts ? p.address_line2 ?? '' : '',
     city: hasParts ? p.city ?? '' : '',
@@ -48,6 +55,7 @@ export default function PropertiesCard({
   canEdit,
   accessNotes,
   propertyFields,
+  lots = null,
 }: {
   customerId: string
   initial: Property[]
@@ -55,6 +63,8 @@ export default function PropertiesCard({
   canEdit: boolean
   accessNotes: boolean
   propertyFields: CustomFieldDefinition[]
+  /** Developments + lots tools (property tools on): the development pick-list, trades, and whether the viewer may make jobs. Null = off. */
+  lots?: CustomerExtras['lots']
 }) {
   const [properties, setProperties] = React.useState(initial)
   const [editing, setEditing] = React.useState<{ id: string | null; form: Form; fields: DraftValues } | null>(null)
@@ -62,6 +72,9 @@ export default function PropertiesCard({
   const [showOff, setShowOff] = React.useState(false)
   const [errorField, setErrorField] = React.useState<string | null>(null)
   const [expanded, setExpanded] = React.useState(false)
+  const [addingLots, setAddingLots] = React.useState(false)
+  const [openDevs, setOpenDevs] = React.useState<string[]>([])
+  const [devNames, setDevNames] = React.useState(lots?.developments ?? [])
 
   const activeFields = propertyFields.filter((d) => d.active)
   const mode = propertiesDisplayMode({ ready, properties, hasPropertyFields: activeFields.length > 0, canEdit })
@@ -93,7 +106,7 @@ export default function PropertiesCard({
     if (!editing) return
     const f = editing.form
     const body: Record<string, unknown> = {
-      label: f.label, address_line1: f.address_line1, address_line2: f.address_line2, city: f.city, state: f.state, zip: f.zip, notes: f.notes,
+      label: f.label, ...(lots ? { community: f.community, lot: f.lot } : {}), address_line1: f.address_line1, address_line2: f.address_line2, city: f.city, state: f.state, zip: f.zip, notes: f.notes,
     }
     if (accessNotes) body.access_notes = f.access_notes
     setSaving(true)
@@ -138,6 +151,18 @@ export default function PropertiesCard({
     }
   }
 
+  async function reloadAfterLots() {
+    const res = await fetch(`/api/customers/${customerId}/properties?all=1`, { cache: 'no-store' }).catch(() => null)
+    const data = (res ? await res.json().catch(() => ({})) : {}) as { properties?: Property[] }
+    if (data.properties) {
+      setProperties(data.properties)
+      setDevNames(Array.from(new Map(data.properties.filter((p) => p.community).map((p) => [developmentKey(p.community), p.community as string])).values()).sort())
+      setExpanded(true)
+    }
+  }
+
+  const lotsSheet = addingLots && lots ? <AddLotsSheet customerId={customerId} developments={devNames} trades={lots.trades} canCreateJobs={lots.canCreateJobs} onClose={() => setAddingLots(false)} onDone={() => void reloadAfterLots()} /> : null
+
   const dialog = editing ? (
     <Dialog open onOpenChange={(open) => !open && !saving && setEditing(null)}>
       <DialogContent title={editing.id ? 'Edit property' : 'Add a property'} description="The address crews and invoices use.">
@@ -148,6 +173,12 @@ export default function PropertiesCard({
             void save()
           }}
         >
+          {lots ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem]">
+              <DevelopmentPicker value={editing.form.community} developments={devNames} onChange={(v) => setEditing((e) => (e ? { ...e, form: { ...e.form, community: v } } : e))} />
+              <TextField label="Lot" value={editing.form.lot} max={PROPERTY_LIMITS.lot} onChange={(v) => setEditing({ ...editing, form: { ...editing.form, lot: v } })} />
+            </div>
+          ) : null}
           <TextField label="Name (optional)" hint="Main office, Lot 14, Rental on Oak…" value={editing.form.label} max={PROPERTY_LIMITS.label} onChange={(v) => setEditing({ ...editing, form: { ...editing.form, label: v } })} />
           <TextField label="Street address *" value={editing.form.address_line1} max={PROPERTY_LIMITS.line} autoComplete="address-line1" onChange={(v) => setEditing({ ...editing, form: { ...editing.form, address_line1: v } })} />
           <TextField label="Address line 2" value={editing.form.address_line2} max={PROPERTY_LIMITS.line} autoComplete="address-line2" onChange={(v) => setEditing({ ...editing, form: { ...editing.form, address_line2: v } })} />
@@ -180,38 +211,26 @@ export default function PropertiesCard({
     </Dialog>
   ) : null
 
-  if (mode === 'link' && !expanded) {
-    return (
-      <div>
-        <Button type="button" variant="ghost" className="px-0 text-brand-800 underline" onClick={openNew}>
-          + Add another property
-        </Button>
-        {dialog}
-      </div>
-    )
-  }
+  const plain = visible.filter((p) => !p.community)
+  const groups = Array.from(
+    visible
+      .filter((p) => p.community)
+      .reduce((m, p) => {
+        const key = developmentKey(p.community)
+        const g = m.get(key) ?? { key, name: p.community as string, items: [] as Property[] }
+        g.items.push(p)
+        return m.set(key, g)
+      }, new Map<string, { key: string; name: string; items: Property[] }>())
+      .values()
+  ).sort((x, y) => x.name.localeCompare(y.name))
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Properties</CardTitle>
-        {canEdit ? (
-          <Button size="sm" onClick={openNew}>
-            + Add property
-          </Button>
-        ) : null}
-      </CardHeader>
-      <CardContent>
-        {visible.length === 0 ? (
-          <p className="text-ui-base text-ink">No properties yet.</p>
-        ) : (
-          <ul className="divide-y divide-surface-line">
-            {visible.map((p) => {
+  const renderRow = (p: Property) => {
               const shown = fieldsToShow(propertyFields, 'property', p.custom_fields).filter((d) => p.custom_fields[d.id] !== undefined)
               return (
                 <li key={p.id} className="flex flex-col gap-2 py-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
+                      {lotLabel(p) ? <p className="text-ui-sm font-semibold text-ink">{lotLabel(p)}</p> : null}
                       <p className="break-words text-ui-base font-semibold text-ink">
                         {p.label || p.address_text} {!p.active ? <Badge>Off</Badge> : null}
                       </p>
@@ -250,8 +269,74 @@ export default function PropertiesCard({
                   ) : null}
                 </li>
               )
+}
+
+  if (mode === 'link' && !expanded) {
+    return (
+      <div>
+        <div className="flex flex-wrap gap-x-4">
+          <Button type="button" variant="ghost" className="px-0 text-brand-800 underline" onClick={openNew}>
+            + Add another property
+          </Button>
+          {lots ? (
+            <Button type="button" variant="ghost" className="px-0 text-brand-800 underline" onClick={() => setAddingLots(true)}>
+              Add lots
+            </Button>
+          ) : null}
+        </div>
+        {dialog}
+        {lotsSheet}
+      </div>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Properties</CardTitle>
+        {canEdit ? (
+          <div className="flex flex-wrap gap-2">
+            {lots ? (
+              <Button size="sm" variant="secondary" onClick={() => setAddingLots(true)}>
+                Add lots
+              </Button>
+            ) : null}
+            <Button size="sm" onClick={openNew}>
+              + Add property
+            </Button>
+          </div>
+        ) : null}
+      </CardHeader>
+      <CardContent>
+        {visible.length === 0 ? (
+          <p className="text-ui-base text-ink">No properties yet.</p>
+        ) : (
+          <>
+            {plain.length > 0 ? <ul className="divide-y divide-surface-line">{plain.map(renderRow)}</ul> : null}
+            {groups.map((g) => {
+              const open = openDevs.includes(g.key)
+              return (
+                <div key={g.key} className="border-t border-surface-line py-3 first:border-t-0" data-testid="development-group">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-ui-base font-semibold text-ink">
+                      {g.name} · {g.items.length} lot{g.items.length === 1 ? '' : 's'}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {lots ? (
+                        <a href={`/ops/developments?customer=${customerId}&development=${encodeURIComponent(g.name)}`} className="inline-flex min-h-tap items-center text-ui-sm font-semibold text-brand-800 underline">
+                          Board
+                        </a>
+                      ) : null}
+                      <Button size="sm" variant="secondary" onClick={() => setOpenDevs((c) => (open ? c.filter((k) => k !== g.key) : [...c, g.key]))}>
+                        {open ? 'Hide lots' : 'Show lots'}
+                      </Button>
+                    </div>
+                  </div>
+                  {open ? <ul className="mt-2 divide-y divide-surface-line">{g.items.map(renderRow)}</ul> : null}
+                </div>
+              )
             })}
-          </ul>
+          </>
         )}
         {offCount > 0 ? (
           <Button type="button" variant="ghost" className="mt-2 px-0 underline" onClick={() => setShowOff((v) => !v)}>
@@ -260,6 +345,7 @@ export default function PropertiesCard({
         ) : null}
       </CardContent>
       {dialog}
+      {lotsSheet}
     </Card>
   )
 }

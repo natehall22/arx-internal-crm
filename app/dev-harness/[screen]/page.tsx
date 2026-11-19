@@ -99,6 +99,7 @@ import CategoryField from '@/components/categories/CategoryField'
 import CustomFieldsClient from '@/app/admin/custom-fields/CustomFieldsClient'
 import CustomFieldsCard from '@/components/custom-fields/CustomFieldsCard'
 import PropertiesCard from '@/components/customer-file/PropertiesCard'
+import DevelopmentBoard from '@/components/ops/DevelopmentBoard'
 import CustomerDocumentsCard from '@/components/customer-file/CustomerDocumentsCard'
 import { HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_CUSTOMER_DOCUMENTS } from '@/e2e/fixtures'
 import type { CustomFieldDefinition } from '@/lib/custom-fields'
@@ -350,6 +351,36 @@ export default function Harness({ params }: { params: { screen: string } }) {
           projectAddress="12 Elm Street, Concord NC 28025"
           projectCost={16325}
         />
+      )
+    case 'lots':
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <h1 className="text-ui-xl font-bold text-ink">Maple Homes</h1>
+          <PropertiesCard
+            customerId="cust-1"
+            initial={[1, 2, 3].map((n) => ({ ...(HARNESS_PROPERTIES[0] as Property), id: `lot-${n}`, label: null, community: 'Oak Ridge', lot: String(n), address_text: `Lot ${n}, Oak Ridge`, address_line1: `Lot ${n}, Oak Ridge`, notes: null, access_notes: null })) as Property[]}
+            ready
+            canEdit
+            accessNotes
+            propertyFields={[]}
+            lots={{ developments: ['Oak Ridge', 'Pine Hollow'], trades: [{ slug: 'grading', label: 'Grading' }, { slug: 'sod', label: 'Sod' }], canCreateJobs: true }}
+          />
+        </div>
+      )
+    case 'development-board':
+      return (
+        <div className="mx-auto max-w-6xl p-4">
+          <DevelopmentBoard
+            board={{
+              truncated: false,
+              trades: [{ slug: 'grading', label: 'Grading' }, { slug: 'sod', label: 'Sod' }, { slug: 'landscaping', label: 'Landscaping' }],
+              lots: [
+                { propertyId: 'p1', customerId: 'c1', customerName: 'Maple Homes', community: 'Oak Ridge', lot: '14', address: '120 Oak Ridge Dr', jobId: 'j1', nextTrade: 'sod', cells: { grading: { state: 'done', date: '2026-11-12', jobId: 'j1' }, sod: { state: 'scheduled', date: '2026-11-20', jobId: 'j1' }, landscaping: { state: 'not_scheduled', date: null, jobId: 'j1' } } },
+                { propertyId: 'p2', customerId: 'c1', customerName: 'Maple Homes', community: 'Oak Ridge', lot: '15', address: '124 Oak Ridge Dr', jobId: null, nextTrade: null, cells: { grading: { state: 'none', date: null, jobId: null }, sod: { state: 'none', date: null, jobId: null }, landscaping: { state: 'none', date: null, jobId: null } } },
+              ],
+            }}
+          />
+        </div>
       )
     case 'checkups':
       return (

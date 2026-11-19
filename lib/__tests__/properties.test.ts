@@ -1,7 +1,7 @@
 import { cleanPropertyInput, formatPropertyAddress, propertiesDisplayMode, propertyDisplayName, propertyMapHref, type Property } from '@/lib/properties'
 
 const prop = (over: Partial<Property> = {}): Property => ({
-  id: 'p1', customer_id: 'c1', label: null, address_line1: null, address_line2: null, city: null, state: null, zip: null,
+  id: 'p1', customer_id: 'c1', label: null, community: null, lot: null, address_line1: null, address_line2: null, city: null, state: null, zip: null,
   address_text: '12 Oak St, Concord, NC 28025', lat: null, lng: null, notes: null, access_notes: null, active: true, source: 'backfill',
   custom_fields: {}, created_at: '', updated_at: '', ...over,
 })

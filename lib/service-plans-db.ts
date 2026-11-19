@@ -63,6 +63,7 @@ import {
   type VisitAction,
   type VisitEffect,
 } from '@/lib/service-plans'
+import type { Development } from '@/lib/developments-db'
 import { orgDb } from '@/lib/supabase/org-db'
 import { upsertCustomer } from '@/lib/customers'
 import { createProperty, loadCustomerProperties } from '@/lib/properties-db'
@@ -758,14 +759,16 @@ export async function findOrCreateProperty(
   customerId: string,
   addressText: string,
   propertyBody: unknown,
-  opts: { accessNotes: boolean }
-): Promise<{ ok: true; propertyId: string } | { ok: false; status: number; error: string }> {
-  const existing = await loadCustomerProperties(admin, orgId, customerId, { accessNotes: false })
-  const match = existing.properties.find((p) => propertyAddressKey(p.address_text) === propertyAddressKey(addressText))?.id ?? null
-  if (match) return { ok: true, propertyId: match }
-  const made = await createProperty(admin, orgId, userId, customerId, propertyBody, { accessNotes: opts.accessNotes })
+  opts: { accessNotes: boolean; known?: Array<{ id: string; address_text: string }>; knownDevelopments?: readonly Development[] }
+): Promise<{ ok: true; propertyId: string; created: boolean } | { ok: false; status: number; error: string }> {
+  // A caller adding many (Add lots) passes the customer's properties once and gets each new one appended, instead of one load per row.
+  const existing = opts.known ?? (await loadCustomerProperties(admin, orgId, customerId, { accessNotes: false })).properties
+  const match = existing.find((p) => propertyAddressKey(p.address_text) === propertyAddressKey(addressText))?.id ?? null
+  if (match) return { ok: true, propertyId: match, created: false }
+  const made = await createProperty(admin, orgId, userId, customerId, propertyBody, { accessNotes: opts.accessNotes, knownDevelopments: opts.knownDevelopments })
   if (!made.ok) return { ok: false, status: made.status, error: made.error }
-  return { ok: true, propertyId: made.property.id }
+  opts.known?.push({ id: made.property.id, address_text: made.property.address_text })
+  return { ok: true, propertyId: made.property.id, created: true }
 }
 
 /**

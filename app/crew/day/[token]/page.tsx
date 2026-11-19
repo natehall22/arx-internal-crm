@@ -65,7 +65,7 @@ export default async function CrewDayPage({ params }: { params: { token: string 
   // are the trade's own crew link; a failed read just leaves the visits as they were.
   const hasClock = !!clock && clock.people.length > 0
   const projects = hasClock
-    ? await loadCrewProjectStops(admin, { orgId: crew.orgId, subId: crew.subId }, today).catch((e) => {
+    ? await loadCrewProjectStops(admin, { orgId: crew.orgId, subId: crew.subId }, today, { propertyTools: await isOrgFeatureOn(crew.orgId, 'projectTools') }).catch((e) => {
         console.error('[crew-day] project stops failed', e)
         return []
       })

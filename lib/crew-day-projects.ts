@@ -9,6 +9,9 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import type { BeforeYouLine } from '@/lib/before-you'
+import { loadBeforeYou } from '@/lib/before-you-db'
+import { lotLabel } from '@/lib/properties'
 import { addDaysYmd } from '@/lib/service-plans'
 import { isCrewLinkExpired } from '@/lib/crew-link'
 import { calendarDaySpan } from '@/lib/job-trades'
@@ -29,9 +32,13 @@ export type CrewProjectStop = {
   /** 1-based day of a multi-day crew ("Day 2 of 2"); null for a one-day crew. */
   dayNumber: number | null
   dayCount: number | null
+  /** "Lot 14 · Oak Ridge" for a builder's lot (property tools on); null otherwise. */
+  lot: string | null
+  /** The crews ahead of this one on the same property (property tools on): trade + done / not done + a day. Nothing else. */
+  before: BeforeYouLine[]
 }
 
-type WoRow = { id: string; job_id: string | null; trade: string | null; status: string; scheduled_date: string | null; install_days: unknown; crew_link_token: string | null; work_order_number: string | null }
+type WoRow = { id: string; job_id: string | null; trade: string | null; status: string; scheduled_date: string | null; install_days: unknown; crew_link_token: string | null; work_order_number: string | null; property_id?: string | null; completed_at?: string | null }
 type JobRow = { id: string; job_number: string | null; address_text: string | null; lat: number | null; lng: number | null; status: string | null; cancelled_at: string | null }
 
 /** Pure: which trade rows are working on `today` (first day through its last, cancelled never). */
@@ -48,11 +55,12 @@ export function projectStopsToday<T extends { scheduled_date: string | null; ins
   return out
 }
 
-export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId: string; subId: string }, today: string): Promise<CrewProjectStop[]> {
+/** `propertyTools` = the company's property-tools switch is on: adds each stop's lot and the crews ahead of it. Off = the stops are exactly as before. */
+export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId: string; subId: string }, today: string, opts: { propertyTools?: boolean } = {}): Promise<CrewProjectStop[]> {
   const db = orgDb(admin, crew.orgId)
   const { data, error } = await db
     .from('work_orders')
-    .select('id, job_id, trade, status, scheduled_date, install_days, crew_link_token, work_order_number')
+    .select(opts.propertyTools ? 'id, job_id, trade, status, scheduled_date, install_days, crew_link_token, work_order_number, property_id' : 'id, job_id, trade, status, scheduled_date, install_days, crew_link_token, work_order_number')
     .eq('assigned_sub_id', crew.subId)
     .eq('work_order_type', 'install')
     .not('trade', 'is', null)
@@ -71,6 +79,25 @@ export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId:
   if (jobErr) throw jobErr
   const byJob = new Map(((jobs ?? []) as JobRow[]).map((j) => [j.id, j]))
   const trades = await loadOrgTrades(admin, crew.orgId)
+  const shown = rows.filter((r) => {
+    const j = r.job_id ? byJob.get(r.job_id) : null
+    return !!j && !j.cancelled_at && j.status !== 'cancelled'
+  })
+  // Property tools only: each stop's lot, and what the crews ahead of it have done. A failed read leaves both out.
+  const lots = new Map<string, string | null>()
+  let before = new Map<string, BeforeYouLine[]>()
+  if (opts.propertyTools && shown.length > 0) {
+    try {
+      const propertyIds = Array.from(new Set(shown.map((r) => r.property_id).filter((x): x is string => !!x)))
+      if (propertyIds.length > 0) {
+        const { data: props } = await db.from('properties').select('id, community, lot').in('id', propertyIds)
+        for (const p of (props ?? []) as Array<{ id: string; community: string | null; lot: string | null }>) lots.set(p.id, lotLabel(p))
+      }
+      before = await loadBeforeYou(admin, crew.orgId, shown.map((r) => ({ id: r.id, job_id: r.job_id, property_id: r.property_id ?? null, trade: r.trade })))
+    } catch (e) {
+      console.error('[crew-day] lot / before-you failed', e)
+    }
+  }
   return rows
     .filter((r) => {
       const j = r.job_id ? byJob.get(r.job_id) : null
@@ -90,6 +117,8 @@ export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId:
         photoLinkPath: r.crew_link_token && r.scheduled_date && !isCrewLinkExpired(r.scheduled_date, r.install_days, today) ? `/crew/${r.crew_link_token}` : null,
         dayNumber: r.dayNumber,
         dayCount: r.dayCount,
+        lot: r.property_id ? lots.get(r.property_id) ?? null : null,
+        before: before.get(r.id) ?? [],
       }
     })
 }

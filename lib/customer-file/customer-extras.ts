@@ -8,6 +8,8 @@ import { resolveCustomerAccess, type CustomerAccess } from '@/lib/customer-file/
 import { loadCustomFieldDefinitions, loadCustomFieldValues } from '@/lib/custom-fields-db'
 import { definitionsForViewer, valuesForViewer, type CustomFieldDefinition } from '@/lib/custom-fields'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { listDevelopments } from '@/lib/developments-db'
+import { activeTrades, loadOrgTrades } from '@/lib/org-trades'
 import { loadAreaMeasurements, type AreaMeasurementRow } from '@/lib/area-measure-db'
 import { loadCustomerProperties } from '@/lib/properties-db'
 import { propertyDisplayName, type Property } from '@/lib/properties'
@@ -25,19 +27,29 @@ export type CustomerExtras = {
   servicePlans: boolean
   /** Yard measurement card (lawn & landscape companies only; null = the company doesn't use it). */
   areaMeasure: { rows: AreaMeasurementRow[]; canMeasure: boolean } | null
+  /** Developments + lots (property tools on, viewer may edit): the company's development names and trades for the property form and "Add lots". Null = off. */
+  lots: { developments: string[]; trades: Array<{ slug: string; label: string }>; canCreateJobs: boolean } | null
 }
 
 /** null = the viewer may not read this customer's records (or no such customer in their company). */
 export async function loadCustomerExtras(admin: SupabaseClient, viewer: ThreadViewer, customerId: string): Promise<CustomerExtras | null> {
   const access = await resolveCustomerAccess(admin, viewer, customerId)
   if (!access?.read) return null
-  const [props, defs, values, plansOn, areaOn] = await Promise.all([
+  const [props, defs, values, plansOn, areaOn, lotsOn] = await Promise.all([
     loadCustomerProperties(admin, viewer.orgId, customerId, { includeInactive: true, accessNotes: access.accessNotes }),
     loadCustomFieldDefinitions(admin, viewer.orgId),
     loadCustomFieldValues(admin, viewer.orgId, 'customer', customerId),
     viewer.jobBoard || viewer.jobEdit || viewer.ownerLike ? isOrgFeatureOn(viewer.orgId, 'servicePlans') : Promise.resolve(false),
     isOrgFeatureOn(viewer.orgId, 'areaMeasure'),
+    access.edit ? isOrgFeatureOn(viewer.orgId, 'projectTools') : Promise.resolve(false),
   ])
+  const lots = lotsOn
+    ? {
+        developments: (await listDevelopments(admin, viewer.orgId)).map((d) => d.name),
+        trades: activeTrades(await loadOrgTrades(admin, viewer.orgId)).map((t) => ({ slug: t.slug, label: t.label })),
+        canCreateJobs: viewer.jobEdit || viewer.ownerLike,
+      }
+    : null
   // A failed read (e.g. the table is not there yet) hides the card; it never breaks the Customer File.
   const area = areaOn ? await loadAreaMeasurements(admin, viewer.orgId, { customerId }).catch(() => null) : null
   // Field roles see only fields marked visible to them (lib/custom-fields.ts definitionsForViewer) — values included.
@@ -53,5 +65,6 @@ export async function loadCustomerExtras(admin: SupabaseClient, viewer: ThreadVi
     customerValues: valuesForViewer(values, visible.filter((d) => d.entity === 'customer')),
     servicePlans: plansOn,
     areaMeasure: area && area.ready ? { rows: area.rows, canMeasure: access.edit } : null,
+    lots,
   }
 }

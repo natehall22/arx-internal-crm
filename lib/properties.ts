@@ -10,6 +10,9 @@ export type Property = {
   id: string
   customer_id: string
   label: string | null
+  /** A builder's development and lot ("Oak Ridge", "14"). Both optional; see {@link lotLabel}. */
+  community: string | null
+  lot: string | null
   address_line1: string | null
   address_line2: string | null
   city: string | null
@@ -29,13 +32,15 @@ export type Property = {
 }
 
 export const PROPERTY_COLUMNS =
-  'id, customer_id, label, address_line1, address_line2, city, state, zip, address_text, lat, lng, notes, access_notes, active, source, custom_fields, created_at, updated_at'
+  'id, customer_id, label, community, lot, address_line1, address_line2, city, state, zip, address_text, lat, lng, notes, access_notes, active, source, custom_fields, created_at, updated_at'
 
-export const PROPERTY_LIMITS = { label: 80, line: 200, city: 100, state: 50, zip: 20, notes: 4000, access: 2000 } as const
+export const PROPERTY_LIMITS = { label: 80, community: 120, lot: 40, line: 200, city: 100, state: 50, zip: 20, notes: 4000, access: 2000 } as const
 
 /** What a person types. Every field optional on edit; line1 (or a full address_text) required on create. */
 export type PropertyInput = {
   label?: string | null
+  community?: string | null
+  lot?: string | null
   address_line1?: string | null
   address_line2?: string | null
   city?: string | null
@@ -55,6 +60,22 @@ export function formatPropertyAddress(p: Partial<AddressParts>): string {
   const t = (v: string | null | undefined) => (typeof v === 'string' ? v.trim() : '')
   const stateZip = [t(p.state), t(p.zip)].filter(Boolean).join(' ')
   return [t(p.address_line1), t(p.address_line2), t(p.city), stateZip].filter(Boolean).join(', ')
+}
+
+/**
+ * "Lot 14 · Oak Ridge" for a builder's lot (what crews, cards and the Development board show); "Oak Ridge" or "Lot 14" when
+ * only one is set; null when neither (a normal property shows nothing new). A lot already typed as "Lot 14" or "#14" is not doubled.
+ */
+export function lotLabel(p: { community?: string | null; lot?: string | null } | null | undefined): string | null {
+  const community = p?.community?.trim() || ''
+  const raw = p?.lot?.trim() || ''
+  const lot = raw ? (/^(lot|#)/i.test(raw) ? raw : `Lot ${raw}`) : ''
+  return [lot, community].filter(Boolean).join(' · ') || null
+}
+
+/** "Oak Ridge" and " oak  ridge " are the same development: the one comparison key (case and spacing ignored). */
+export function developmentKey(name: string | null | undefined): string {
+  return (name ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 /** Short name for pickers and headings: "Main office · 12 Oak St, Concord" or just the address. */
@@ -99,6 +120,8 @@ export function cleanPropertyInput(
   const patch: Record<string, unknown> = {}
   const texts: Array<[keyof PropertyInput, number, string]> = [
     ['label', L.label, 'Name'],
+    ['community', L.community, 'Development'],
+    ['lot', L.lot, 'Lot'],
     ['address_line1', L.line, 'Street address'],
     ['address_line2', L.line, 'Address line 2'],
     ['city', L.city, 'City'],
@@ -169,7 +192,7 @@ export function propertiesDisplayMode(input: { ready: boolean; properties: Prope
   if (!input.ready) return 'none'
   const ps = input.properties
   const rich = (p: Property) =>
-    !!(p.label || p.notes || p.access_notes) || !p.active || Object.values(p.custom_fields ?? {}).some((v) => v !== null && v !== '')
+    !!(p.label || p.community || p.lot || p.notes || p.access_notes) || !p.active || Object.values(p.custom_fields ?? {}).some((v) => v !== null && v !== '')
   if (ps.length >= 2 || ps.some(rich) || input.hasPropertyFields) return 'full'
   return input.canEdit ? 'link' : 'none'
 }

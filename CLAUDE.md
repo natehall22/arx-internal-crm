@@ -148,6 +148,8 @@ listed file, migrate it.
 
 | 29 | **"Won" has two counts (2026-11-17).** A recurring-only (plan-only) quote counts as a sale: the deal is won, so won-deal counts (close rate, pipeline) include it, but it makes no contract or job, so signed-sales totals (`order_form_contracts` readers) do not — its first-season estimate lives in `rpt_recurring_sales`. Owner's decision; keep, don't "fix" one to match the other. | 2 counts | Low-medium |
 
+**Known Redundancy additions (2026-11-18):** (29) Direct project + production-job inserts exist in three places: `POST /api/ops/jobs` (sale-shaped: commission base, contracts), `lib/repair-order-form-project.ts`, and `createLotJob` in `lib/lots-db.ts` (a builder's lot: no sale, no money, trades through `addManualTrade`), plus the demo seeder. One shared "create a job" core (sale fields optional) is the fix; not folded here because `POST /api/ops/jobs` is ARX's money path.
+
 **Rule going forward:** items 1, 3b, 4 and 5 are the ones that can cause a real incident.
 Fix opportunistically — when a task already touches one of these files, migrate
 that file rather than extending the pattern.

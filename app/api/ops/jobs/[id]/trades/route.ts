@@ -9,6 +9,8 @@ import { loadTradeWithJob } from '@/lib/job-trade-calendar'
 import { missingRequiredPhotoTags } from '@/lib/final-photo-tags'
 import { JOB_TRADE_COLUMNS, crewLinkUrl, installDaysOrDefault, type JobTradeRow } from '@/lib/job-trades'
 import { activeTrades, isAddableTrade, loadOrgTrades, sortTrades, tradeOptions } from '@/lib/org-trades'
+import { loadBeforeYou } from '@/lib/before-you-db'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { addManualTrade, ensureJobTrades, syncJobScheduleFromTrades } from '@/lib/job-trades-db'
 
 type AuthCtx = { authUser: { id: string }; profile: { id: string; org_id: string; role: string; custom_role_id?: string | null } }
@@ -37,12 +39,15 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   if (!canJobBoard) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const orgId = ctx.profile.org_id
-  const { data: job } = await admin
+  // Property tools (developments and lots): the crews list also says what the crews ahead of each one have done.
+  const propertyTools = await isOrgFeatureOn(orgId, 'projectTools')
+  const { data: jobRow } = await admin
     .from('production_jobs')
-    .select('id')
+    .select(propertyTools ? 'id, property_id' : 'id')
     .eq('id', params.id)
     .eq('org_id', orgId)
     .maybeSingle()
+  const job = jobRow as { id: string; property_id?: string | null } | null
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   // Adoption copies the job's own sub/date onto its primary trade, so the
@@ -95,6 +100,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     tagsByTrade.set(p.work_order_id, list)
   }
 
+  const before = propertyTools ? await loadBeforeYou(admin, orgId, trades.map((t) => ({ id: t.id, job_id: job.id, property_id: job.property_id ?? null, trade: t.trade }))).catch(() => new Map()) : null
+
   // Crew links open on this company's own address (lib/company-links). They are extra on this list: a missing app
   // address leaves them out (logged) instead of failing the Crews tab.
   const appUrl = ((tradesData ?? []) as { crew_link_token?: string | null }[]).some((t) => t.crew_link_token)
@@ -117,6 +124,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
         scheduled_time_start: t.scheduled_time_start,
         install_days: t.scheduled_date ? installDaysOrDefault(t.install_days) : null,
         completed_at: t.completed_at,
+        ...(before ? { before_you: before.get(t.id) ?? [] } : {}),
         sub: sub
           ? { id: sub.id, company_name: sub.company_name, phone: sub.phone, has_scheduling_email: Boolean(sub.scheduling_email) }
           : null,

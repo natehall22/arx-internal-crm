@@ -397,6 +397,8 @@ interface JobDetailClientProps {
   orgProfile?: ClientOrgProfile | null
   /** The company's own job fields card (Settings → Custom fields), built on the server. Null = the company has none. */
   detailsSlot?: React.ReactNode
+  /** "Lot 14 · Oak Ridge" when the job's property is a builder's lot (property tools on). Null = nothing. */
+  lotLabel?: string | null
 }
 
 /** Old six-tab keys -> the five job tabs, so every "jump to X" in this file works on both pages. */
@@ -634,6 +636,7 @@ export default function JobDetailClient({
   orgFeatures: serverOrgFeatures = null,
   quotePlanCount = 0,
   orgProfile: serverOrgProfile = null,
+  lotLabel = null,
 }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
@@ -1625,6 +1628,7 @@ export default function JobDetailClient({
                   )
                 })()}
               </div>
+              {lotLabel ? <p className="text-base font-bold text-gray-900 break-words" data-testid="lot-label">{lotLabel}</p> : null}
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words">
                 {job.customer?.name || 'Customer'}
               </h1>

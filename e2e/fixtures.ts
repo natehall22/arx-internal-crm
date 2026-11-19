@@ -760,7 +760,7 @@ export const HARNESS_CREW_DAY = [
 
 /** A grading project stop on a clocking crew's day (lib/crew-day-projects.ts): job work order, not a service visit. */
 export const HARNESS_CREW_DAY_PROJECTS = [
-  { id: 'wo-grade-1', jobNumber: '26-0141', tradeLabel: 'Grading', address: '412 Pasture Ln, Crawfordville, FL 32327', lat: 30.18, lng: -84.4, status: 'scheduled', photoLinkPath: '/crew/harness-grading-token-aaaaaaaa', dayNumber: 2, dayCount: 2 },
+  { id: 'wo-grade-1', jobNumber: '26-0141', tradeLabel: 'Grading', address: '412 Pasture Ln, Crawfordville, FL 32327', lat: 30.18, lng: -84.4, status: 'scheduled', photoLinkPath: '/crew/harness-grading-token-aaaaaaaa', dayNumber: 2, dayCount: 2, lot: 'Lot 14 · Oak Ridge', before: [{ trade: 'tractor', label: 'Tractor work', done: true, date: '2026-11-12' }, { trade: 'sod', label: 'Sod', done: false, date: null }] },
 ]
 
 /** Crew day with the v2 pieces: office notes, a checklist (one unchecked) and money owed (card payment ready). */

@@ -13,6 +13,7 @@ import {
   isPropertiesNotReadyError,
   type Property,
 } from '@/lib/properties'
+import { canonicalDevelopment, listDevelopments, type Development } from '@/lib/developments-db'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export type PropertiesLoad = { ready: boolean; properties: Property[] }
@@ -24,6 +25,8 @@ function fromRow(row: Record<string, unknown>, showAccessNotes: boolean): Proper
     id: String(row.id),
     customer_id: String(row.customer_id),
     label: (row.label as string | null) ?? null,
+    community: (row.community as string | null) ?? null,
+    lot: (row.lot as string | null) ?? null,
     address_line1: (row.address_line1 as string | null) ?? null,
     address_line2: (row.address_line2 as string | null) ?? null,
     city: (row.city as string | null) ?? null,
@@ -72,6 +75,12 @@ export async function loadProperty(admin: SupabaseClient, orgId: string, propert
   return data ? fromRow(data as Record<string, unknown>, accessNotes) : null
 }
 
+/** A typed development becomes the company's existing spelling ("oak ridge " → "Oak Ridge"), so there are never two of one. */
+export async function applyKnownDevelopment(admin: SupabaseClient, orgId: string, values: Record<string, unknown>, known?: readonly Development[]): Promise<void> {
+  if (typeof values.community !== 'string') return
+  values.community = canonicalDevelopment(values.community, known ?? (await listDevelopments(admin, orgId)))
+}
+
 export type PropertySave = { ok: true; property: Property } | { ok: false; status: number; error: string }
 
 function saveError(error: { code?: string; message?: string }): PropertySave {
@@ -88,13 +97,14 @@ export async function createProperty(
   userId: string,
   customerId: string,
   body: unknown,
-  opts: { accessNotes: boolean }
+  opts: { accessNotes: boolean; knownDevelopments?: readonly Development[] }
 ): Promise<PropertySave> {
   const clean = cleanPropertyInput(body, 'create')
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
   const values = { ...clean.value }
   // Someone who may not see access notes may not write them either.
   if (!opts.accessNotes) delete values.access_notes
+  await applyKnownDevelopment(admin, orgId, values, opts.knownDevelopments)
   const { data, error } = await orgDb(admin, orgId)
     .from('properties')
     .insert({ ...values, customer_id: customerId, source: 'manual', active: true, created_by: userId, updated_by: userId })
@@ -117,6 +127,7 @@ export async function updateProperty(
   const values = { ...clean.value }
   if (!opts.accessNotes) delete values.access_notes
   if (Object.keys(values).length === 0) return { ok: false, status: 400, error: 'Nothing to save' }
+  await applyKnownDevelopment(admin, orgId, values)
   const { data, error } = await orgDb(admin, orgId)
     .from('properties')
     .update({ ...values, updated_by: userId })

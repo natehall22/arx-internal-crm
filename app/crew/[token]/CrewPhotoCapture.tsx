@@ -25,6 +25,8 @@ const STEP_LABELS: Record<string, string> = {
 type Props = {
   token: string
   tradeLabel: string
+  /** "Lot 14 · Oak Ridge" (property tools on); null = none. */
+  lot?: string | null
   addressText: string | null
   jobNumber: string
   initialCounts: Record<string, number>
@@ -49,7 +51,7 @@ async function postJson(url: string, body: unknown): Promise<Record<string, unkn
   return data
 }
 
-export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNumber, initialCounts, brand, crewNotes, dailyLog }: Props) {
+export default function CrewPhotoCapture({ token, lot = null, tradeLabel, addressText, jobNumber, initialCounts, brand, crewNotes, dailyLog }: Props) {
   const [counts, setCounts] = useState<Record<string, number>>(initialCounts)
   const [started, setStarted] = useState(false)
   const [upload, setUpload] = useState<UploadState>({ status: 'idle' })
@@ -128,6 +130,7 @@ export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNu
       <div className="mx-auto max-w-md">
         <p className="text-sm font-semibold uppercase tracking-wide text-[#57574f]">{brand.casualName} · Job #{jobNumber}</p>
         <h1 className="mt-1 text-2xl font-bold">{tradeLabel} photos</h1>
+        {lot && <p className="mt-1 text-lg font-bold">{lot}</p>}
         {addressText && <p className="mt-1 text-lg">{addressText}</p>}
 
         {crewNotes && crewNotes.length > 0 && (

@@ -24,6 +24,7 @@ export function CustomerRecords({ customerId, extras, opportunityId }: { custome
         canEdit={extras.access.edit}
         accessNotes={extras.access.accessNotes}
         propertyFields={extras.propertyFields}
+        lots={extras.lots}
       />
       {extras.areaMeasure ? (
         <YardMeasureCard customerId={customerId} opportunityId={opportunityId} rows={extras.areaMeasure.rows} properties={extras.propertyOptions} canMeasure={extras.areaMeasure.canMeasure} />

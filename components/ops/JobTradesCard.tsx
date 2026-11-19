@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import ScheduleJobModal, { type ScheduleTrade } from '@/components/ops/ScheduleJobModal'
 import { finalPhotoTagLabel } from '@/lib/final-photo-tags'
+import { beforeYouText, type BeforeYouLine } from '@/lib/before-you'
 import { formatInstallDays, formatWallClock12h } from '@/lib/job-trades'
 import { tradeLabel, type OrgTradeOption, type Trade } from '@/lib/org-trades'
 import PhoneLink from '@/components/PhoneLink'
@@ -26,6 +27,8 @@ export interface JobTradeView {
   missing_photo_tags: string[]
   photo_count: number
   crew_link_url: string | null
+  /** The crews ahead of this one on the same property (property tools on only). */
+  before_you?: BeforeYouLine[]
 }
 
 interface SubContractor {
@@ -257,6 +260,12 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
                         </span>
                       )}
                     </div>
+                    {!done && t.before_you && t.before_you.length > 0 && (
+                      <p className="mt-1 text-sm text-[#2c2c2a]" data-testid="before-you">
+                        <span className="font-semibold">Before you: </span>
+                        {t.before_you.map(beforeYouText).join(' · ')}
+                      </p>
+                    )}
                     {t.scheduled_date && (
                       <p className="mt-1 text-sm text-[#2c2c2a]">
                         {formatTradeDate(t.scheduled_date)} · {formatInstallDays(t.install_days)}

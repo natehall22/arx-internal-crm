@@ -15,6 +15,7 @@ import { DayClockCard } from '@/components/time/DayClockCard'
 import { useClock, usePresence, type ClockState } from '@/components/time/useClock'
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
 import type { Scoreboard } from '@/lib/crew-incentives-db'
+import { beforeYouText } from '@/lib/before-you'
 import type { CrewProjectStop } from '@/lib/crew-day-projects'
 
 export type CrewDayVisit = {
@@ -356,8 +357,19 @@ export default function CrewDayList({
                       {p.tradeLabel}
                       {p.dayCount ? ` · day ${p.dayNumber} of ${p.dayCount}` : ''}
                     </p>
+                    {p.lot ? <p className="text-lg font-bold break-words">{p.lot}</p> : null}
                     <p className="text-lg font-bold break-words">{p.address ?? 'No address on file'}</p>
                     {p.jobNumber ? <p className="text-base">Job {p.jobNumber}</p> : null}
+                    {p.before.length > 0 ? (
+                      <div className="mt-2 rounded-lg bg-[#f1efe8] px-3 py-2 text-base" data-testid="before-you">
+                        <p className="font-bold">Before you</p>
+                        <ul>
+                          {p.before.map((l) => (
+                            <li key={l.trade}>{beforeYouText(l)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                     {closed ? <p className="mt-2 text-base font-bold">Done</p> : null}
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       {clockOn && !closed ? <ClockHereButton clock={clock} where={{ workOrderId: p.id }} selected={present} /> : null}

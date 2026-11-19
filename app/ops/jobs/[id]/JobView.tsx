@@ -26,6 +26,8 @@ import JobHourlyCard from '@/components/billing/JobHourlyCard'
 import { loadJobCatchUpSettings, loadJobCatchUps } from '@/lib/job-catch-up-db'
 import type { JobCatchUpResult } from '@/lib/job-catch-up'
 import { getOrgBrand } from '@/lib/org-brand'
+import { lotLabel } from '@/lib/properties'
+import { orgDb } from '@/lib/supabase/org-db'
 
 interface PageProps {
   params: { id: string }
@@ -636,8 +638,17 @@ export default async function JobView({ params, embedded = false, initialTab = n
     )
   }
 
+  // Property tools: "Lot 14 · Oak Ridge" under the customer name when the job's property is a builder's lot.
+  let lot: string | null = null
+  const propertyId = (jobRes.data as { property_id?: string | null }).property_id
+  if (orgProfile.features.projectTools && propertyId) {
+    const { data: prop } = await orgDb(admin, profile.org_id).from('properties').select('community, lot').eq('id', propertyId).maybeSingle()
+    lot = lotLabel(prop as { community: string | null; lot: string | null } | null)
+  }
+
   return (
     <JobDetailClient
+      lotLabel={lot}
       detailsSlot={detailsSlot}
       orgFeatures={orgProfile.features}
       quotePlanCount={orgProfile.features.servicePlans ? await livePlanCountForProposal(admin, profile.org_id, jobRow.accepted_proposal_id ?? null) : 0}

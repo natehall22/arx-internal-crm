@@ -7,6 +7,8 @@ import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { loadCrewNotes } from '@/lib/threads/crew-notes'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { lotLabel } from '@/lib/properties'
+import { orgDb } from '@/lib/supabase/org-db'
 import CrewPhotoCapture from './CrewPhotoCapture'
 
 export const dynamic = 'force-dynamic'
@@ -53,8 +55,22 @@ export default async function CrewPhotoPage({ params }: { params: { token: strin
   const orgTrades = await loadOrgTrades(admin, link.ctx.orgId)
   const dailyLog = await isOrgFeatureOn(link.ctx.orgId, 'projectTools')
 
+  // Property tools: "Lot 14 · Oak Ridge" when the job is on a builder's lot. A failed read just leaves it out.
+  let lot: string | null = null
+  if (dailyLog) {
+    try {
+      const db = orgDb(admin, link.ctx.orgId)
+      const { data: job } = await db.from('production_jobs').select('property_id').eq('id', link.ctx.jobId).maybeSingle()
+      const propertyId = (job as { property_id?: string | null } | null)?.property_id
+      if (propertyId) lot = lotLabel((await db.from('properties').select('community, lot').eq('id', propertyId).maybeSingle()).data as { community: string | null; lot: string | null } | null)
+    } catch (e) {
+      console.error('[crew-link] lot label failed', e)
+    }
+  }
+
   return (
     <CrewPhotoCapture
+      lot={lot}
       token={params.token}
       tradeLabel={tradeLabel(link.ctx.trade, orgTrades)}
       addressText={link.ctx.addressText}
