@@ -50,7 +50,7 @@ export default async function TabBody({ customerId, dealId, tab, jobTab = null }
       ) : notFound()
     case 'money':
       return ctx.job ? (
-        <MoneyCards jobId={ctx.job.id} saleAmount={ctx.job.sale_amount} jobSource={null} customerEmail={ctx.customer.email} canBill={ctx.canViewJobBilling} />
+        <MoneyCards jobId={ctx.job.id} customerId={customerId} saleAmount={ctx.job.sale_amount} jobSource={null} customerEmail={ctx.customer.email} canBill={ctx.canViewJobBilling} />
       ) : notFound()
     case 'files':
       return <Files customerId={customerId} dealId={dealId} />

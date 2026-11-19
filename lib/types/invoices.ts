@@ -33,6 +33,10 @@ export interface JobInvoice {
   voided_at: string | null
   void_reason: string | null
   pdf_path: string | null
+  /** The customer's PO number printed on the invoice (migration 202611300180); defaults from the job. */
+  customer_po?: string | null
+  /** The master invoice (invoice_batches) this job invoice is grouped under, if any. */
+  batch_id?: string | null
 }
 
 export const INVOICE_NOTE_TEMPLATES = {

@@ -6,6 +6,7 @@ import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { buildReportContext } from '@/lib/reporting/run'
 import { ymdInZone } from '@/lib/service-plans'
 import { loadAllInvoices } from '@/lib/service-billing-db'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -29,5 +30,5 @@ export async function GET() {
   const [loaded, ctx] = await Promise.all([loadAllInvoices(admin, profile.org_id, { today }), buildReportContext(admin, profile)])
   const all = loaded?.rows ?? []
   const rows = ctx.finance ? all : all.filter((r) => r.balanceCents > 0).map((r) => ({ ...r, paidCents: 0 }))
-  return NextResponse.json({ rows, capped: loaded?.capped ?? false, today, fullHistory: ctx.finance, canExport: ctx.finance && ctx.canExport })
+  return NextResponse.json({ rows, capped: loaded?.capped ?? false, today, fullHistory: ctx.finance, canExport: ctx.finance && ctx.canExport, masterInvoices: await isOrgFeatureOn(profile.org_id, 'masterInvoices') })
 }

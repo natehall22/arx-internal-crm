@@ -26,6 +26,9 @@ import type { JobInvoice } from '@/lib/types/invoices'
 
 const money = formatCurrency
 
+/** A house on a master invoice goes out with it, never on its own (checked on the invoice row itself, so it fails closed). */
+export const ON_MASTER_INVOICE = 'This invoice is part of a master invoice. Send the master invoice instead.'
+
 function dateLabel(ymd: string | null | undefined): string {
   return invoiceItemDateLabel(ymd ?? null)
 }
@@ -65,6 +68,7 @@ export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string
   ${contact ? `<div style="font-size:13px;color:#374151;">${contact}</div>` : ''}
   <h1 style="font-size:22px;margin:24px 0 4px;">Invoice ${escapeHtml(invoice.invoice_number)}</h1>
   <div style="font-size:14px;color:#374151;">${escapeHtml(billTo.name)}${billTo.address ? ` · ${escapeHtml(billTo.address)}` : ''}</div>
+  ${invoice.customer_po ? `<div style="font-size:14px;color:#111827;font-weight:700;">PO # ${escapeHtml(invoice.customer_po)}</div>` : ''}
   <div style="font-size:14px;color:#374151;margin-bottom:16px;">${escapeHtml(due)}</div>
   ${pay}
   <table role="presentation" style="width:100%;border-collapse:collapse;margin:8px 0 16px;">
@@ -79,6 +83,7 @@ export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string
     company.legalName,
     `Invoice ${invoice.invoice_number} — ${due}`,
     `${billTo.name}${billTo.address ? `, ${billTo.address}` : ''}`,
+    ...(invoice.customer_po ? [`PO # ${invoice.customer_po}`] : []),
     '',
     ...doc.items.map((it) => `${it.description}${it.service_date ? ` (${dateLabel(it.service_date)})` : ''}: ${invoiceItemQtyLabel(it)} × ${invoiceItemPriceLabel(it)} = ${money(it.line_total_cents)}`),
     '',
@@ -134,6 +139,7 @@ export async function sendCustomerInvoice(
   opts: { payUrl?: string | null } = {}
 ): Promise<SendInvoiceResult> {
   if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
+  if (invoice.batch_id) return { ok: false, status: 409, error: ON_MASTER_INVOICE }
   const doc = await loadInvoiceDocument(admin, orgId, invoice)
   const address = (to ?? doc.billTo.email ?? '').trim()
   if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
@@ -178,6 +184,7 @@ export async function emailInvoicePayLink(
   to?: string | null
 ): Promise<{ ok: true; to: string } | { ok: false; status: 400 | 409 | 503; error: string }> {
   if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
+  if (invoice.batch_id) return { ok: false, status: 409, error: ON_MASTER_INVOICE }
   const doc = await loadInvoiceDocument(admin, orgId, invoice)
   if (doc.isPaid) return { ok: false, status: 409, error: 'This invoice is already paid' }
   const address = (to ?? doc.billTo.email ?? '').trim()

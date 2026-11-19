@@ -76,6 +76,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Budget vs actual by cost code on each job, customer selections with allowances (overages become signed change orders), a stage schedule you can start from a template, and a one-tap daily log with photos.',
     defaultOn: false,
   },
+  masterInvoices: {
+    label: 'Master invoices (bill finished jobs together)',
+    description: 'For builders: one invoice for several finished houses, with each house\'s job number, lot and PO on its own line, one email, and one payment divided over the houses. Each house keeps its own invoice underneath.',
+    defaultOn: false,
+  },
   onlinePayments: {
     label: 'Online payments (Stripe)',
     description: 'Customers pay invoices and deposits by card or bank from a link, save a card for automatic payments on service plans, and payments are recorded on their own. Money goes to your own Stripe account.',

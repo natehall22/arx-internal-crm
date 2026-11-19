@@ -7,7 +7,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { sendCustomerInvoice, type SendInvoiceResult } from '@/lib/invoice-email'
+import { ON_MASTER_INVOICE, sendCustomerInvoice, type SendInvoiceResult } from '@/lib/invoice-email'
 import { findOrgInvoice } from '@/lib/invoices'
 import { orgDb } from '@/lib/supabase/org-db'
 import { StripeApiError, stripeKeyIsLive, stripeRequest, type StripeObject } from '@/lib/stripe/api'
@@ -169,6 +169,7 @@ export async function sendCustomerInvoiceOnline(
   to: string | null,
   userId: string | null
 ): Promise<SendInvoiceResult & { autopay?: AutopayOutcome }> {
+  if (invoice.batch_id) return { ok: false, status: 409, error: ON_MASTER_INVOICE }
   const op = await loadOnlinePayments(admin, orgId)
   if (!op.ready) return sendCustomerInvoice(admin, orgId, invoice, to)
   let current = invoice

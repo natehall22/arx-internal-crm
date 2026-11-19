@@ -48,8 +48,8 @@ export function invoicePeriodOf(r: Pick<InvoiceListRow, 'issuedAt' | 'createdDay
 }
 
 /** The ONE text a search looks in (the screen's search box and the CSV's `q` both use it). */
-export function invoiceSearchText(r: Pick<InvoiceListRow, 'invoiceNumber' | 'customerName' | 'jobNumber'>): string {
-  return `${r.invoiceNumber} ${r.customerName} ${r.jobNumber ?? ''}`
+export function invoiceSearchText(r: Pick<InvoiceListRow, 'invoiceNumber' | 'customerName' | 'jobNumber' | 'customerPo' | 'batchNumber'>): string {
+  return `${r.invoiceNumber} ${r.customerName} ${r.jobNumber ?? ''} ${r.customerPo ?? ''} ${r.batchNumber ?? ''}`
 }
 
 export function invoiceMatchesSearch(r: InvoiceListRow, q: string): boolean {
@@ -72,6 +72,8 @@ export const INVOICE_EXPORT_COLUMNS = [
   { key: 'invoice', label: 'Invoice #', type: 'text' },
   { key: 'customer', label: 'Customer', type: 'text' },
   { key: 'job', label: 'Job #', type: 'text' },
+  { key: 'po', label: 'PO #', type: 'text' },
+  { key: 'master', label: 'Master invoice', type: 'text' },
   { key: 'status', label: 'Status', type: 'text' },
   { key: 'issued', label: 'Issued', type: 'date' },
   { key: 'due', label: 'Due', type: 'date' },
@@ -89,6 +91,8 @@ export function invoiceRowsToResult(rows: InvoiceListRow[]) {
       invoice: r.invoiceNumber,
       customer: r.customerName,
       job: r.jobNumber ?? '',
+      po: r.customerPo ?? '',
+      master: r.batchNumber ?? '',
       status: invoiceStandingLabel(r),
       issued: r.issuedAt ?? '',
       due: r.dueAt ?? '',

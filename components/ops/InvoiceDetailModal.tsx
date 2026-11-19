@@ -30,6 +30,7 @@ export default function InvoiceDetailModal({
   const [publicNote, setPublicNote] = useState('')
   const [internalNote, setInternalNote] = useState('')
   const [notesChanged, setNotesChanged] = useState(false)
+  const [customerPo, setCustomerPo] = useState('')
   /** Online payments (lib/online-payments/summary.ts): null when the company doesn't use them. */
   const [online, setOnline] = useState<InvoiceOnlineSummary | null>(null)
 
@@ -43,6 +44,7 @@ export default function InvoiceDetailModal({
         setOnline(data.online ?? null)
         setPublicNote(data.invoice?.public_note || '')
         setInternalNote(data.invoice?.internal_note || '')
+        setCustomerPo(data.invoice?.customer_po || '')
         setNotesChanged(false)
       }
     } catch (error) {
@@ -85,6 +87,7 @@ export default function InvoiceDetailModal({
           action: 'update_notes',
           public_note: publicNote,
           internal_note: internalNote,
+          customer_po: customerPo,
         }),
       })
 
@@ -409,6 +412,18 @@ export default function InvoiceDetailModal({
             {isDraft ? (
               <div className="mb-6 border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="invoice-customer-po" className="text-sm font-semibold text-gray-900">Customer PO #</label>
+                  <span className="text-xs text-gray-600">Appears on the invoice</span>
+                </div>
+                <input
+                  id="invoice-customer-po"
+                  value={customerPo}
+                  maxLength={60}
+                  onChange={(e) => { setCustomerPo(e.target.value); setNotesChanged(true) }}
+                  placeholder="The customer's purchase order number"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-base text-gray-900 mb-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-semibold text-gray-900">Customer Note / Terms</label>
                   <span className="text-xs text-gray-600">Appears on PDF</span>
                 </div>
@@ -487,6 +502,11 @@ export default function InvoiceDetailModal({
               </div>
             ) : (
               <>
+                {invoice.customer_po && (
+                  <div className="mb-4 text-sm text-gray-900">
+                    <span className="font-semibold">Customer PO #</span> {invoice.customer_po}
+                  </div>
+                )}
                 {/* Read-only public note for sent invoices */}
                 {invoice.public_note && (
                   <div className="mb-6">

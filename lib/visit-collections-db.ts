@@ -14,7 +14,7 @@ import { sendPaymentReceipt } from '@/lib/payment-receipt'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
-import { applyPaymentToInvoice, findOrgInvoice, recordCustomerInvoicePayment } from '@/lib/invoices'
+import { applyPaymentToInvoice, findOrgInvoice, recordCustomerInvoicePayment, type CustomerPaymentMethod } from '@/lib/invoices'
 import { recordJobInvoicePayment } from '@/lib/job-invoice-payment'
 import { ymdInZone } from '@/lib/service-plans'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
@@ -149,7 +149,7 @@ export type DecideResult = { ok: true } | { ok: false; status: 404 | 409 | 500; 
 
 type Row = { id: string; customer_id: string; amount_cents: number; method: 'cash' | 'check'; check_number: string | null; status: string; collected_at: string; payments: unknown }
 /** `job_id` is stored with the split so a retry pays a job invoice the job way even after balances moved (absent = service). */
-type Part = { invoice_id: string; cents: number; payment_id: string | null; job_id?: string | null }
+export type Part = { invoice_id: string; cents: number; payment_id: string | null; job_id?: string | null }
 
 /**
  * The office confirms: the money becomes real. Splits across the customer's open invoices oldest first (stored on the row
@@ -217,14 +217,14 @@ export async function confirmCollection(admin: SupabaseClient, orgId: string, us
   return { ok: true }
 }
 
-type PartResult = { ok: true; paymentId: string } | { ok: false; status: number; error: string }
+export type PartResult = { ok: true; paymentId: string } | { ok: false; status: number; error: string }
 
 /** One part of a split, through the ONE writer for that kind of invoice. Idempotent by `key` for both kinds. */
-async function payPart(
+export async function payPart(
   admin: SupabaseClient,
   orgId: string,
   part: Part,
-  c: { day: string; method: 'cash' | 'check'; note: string; userId: string; key: string }
+  c: { day: string; method: CustomerPaymentMethod; note: string; userId: string; key: string }
 ): Promise<PartResult> {
   if (!part.job_id) {
     const r = await recordCustomerInvoicePayment(admin, orgId, part.invoice_id, { amountCents: part.cents, paidAt: c.day, method: c.method, note: c.note, createdBy: c.userId, idempotencyKey: c.key, sendReceipt: false })

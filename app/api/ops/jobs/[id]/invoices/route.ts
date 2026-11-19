@@ -11,6 +11,7 @@ import {
   createCustomAmountInvoice,
   getDepositInfo,
 } from '@/lib/invoices'
+import { loadBatchNumbers } from '@/lib/service-billing-db'
 
 // GET - List all invoices for a job
 export async function GET(
@@ -45,7 +46,10 @@ export async function GET(
 
     const invoices = await getInvoicesForJob(adminClient, params.id)
     const depositInfo = await getDepositInfo(adminClient, params.id)
-    return NextResponse.json({ invoices, depositInfo })
+    // The job's customer PO (editable on the card) and the master invoice each invoice is grouped under, if any.
+    const { data: poRow } = await adminClient.from('production_jobs').select('customer_po').eq('id', params.id).eq('org_id', profile.org_id).maybeSingle()
+    const batchNumbers = Object.fromEntries(await loadBatchNumbers(adminClient, profile.org_id, invoices.map((i: { batch_id?: string | null }) => i.batch_id)))
+    return NextResponse.json({ invoices, depositInfo, customerPo: (poRow as { customer_po?: string | null } | null)?.customer_po ?? null, batchNumbers })
 
   } catch (error) {
     console.error('Error in GET /api/ops/jobs/[id]/invoices:', error)

@@ -114,7 +114,7 @@ describe('CSV', () => {
   test('dollars, one writer (formula-safe), same rows as the filter', async () => {
     const r = (await loadAllInvoices(db().client as never, ORG, { today: TODAY }))!.rows
     const csv = resultToCsv(invoiceRowsToResult(filterInvoiceRows(r, { status: 'overdue' }, TODAY)) as never)
-    expect(csv.split('\n')).toEqual(['Invoice #,Customer,Job #,Status,Issued,Due,Total,Paid,Owed,Days late', 'INV-1,Pat Lee,,Overdue 10 days,2026-10-25,2026-11-01,100,25,75,10'])
+    expect(csv.split('\n')).toEqual(['Invoice #,Customer,Job #,PO #,Master invoice,Status,Issued,Due,Total,Paid,Owed,Days late', 'INV-1,Pat Lee,,,,Overdue 10 days,2026-10-25,2026-11-01,100,25,75,10'])
     const evil = invoiceRowsToResult([{ ...r[0], customerName: '=HYPERLINK("x")' }])
     expect(resultToCsv(evil as never)).toContain("'=HYPERLINK")
   })

@@ -36,6 +36,7 @@ export default async function PortalInvoicePage({ params }: { params: { id: stri
         <h1 className="text-2xl font-bold">Invoice {inv.invoice_number}</h1>
         <p className="mt-1 text-base">{inv.issued_at ? `Issued ${shortDate(inv.issued_at)}` : ''}{inv.due_at ? ` · due ${shortDate(inv.due_at)}` : ''}</p>
         <p className="mt-1 text-base">{doc.billTo.name}{doc.billTo.address ? ` · ${doc.billTo.address}` : ''}</p>
+        {inv.customer_po ? <p className="mt-1 text-base font-semibold">PO # {inv.customer_po}</p> : null}
         <ul className="mt-4 divide-y divide-[#e5e3dc]">
           {doc.items.map((it) => (
             <li key={it.id} className="flex justify-between gap-3 py-2 text-base">

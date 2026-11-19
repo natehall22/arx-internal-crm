@@ -1200,3 +1200,23 @@ export const HARNESS_ALL_WORK = {
     workItem({ key: 'appt:a1', kind: 'appointment', type: 'appointment', date: '2026-11-12', time: '10:00', title: 'Inspection', trade: null, crewId: null, crewName: null, techId: 'u9', techName: 'Dana Closer', href: '/appointments?view=calendar' }),
   ],
 }
+
+/** Master invoices (bill finished jobs): billable houses across two developments, one with a draft that disagrees; one sent master invoice. */
+export const HARNESS_BILLABLE = {
+  developmentsAvailable: true,
+  jobs: [
+    { jobId: 'j1', jobNumber: '26-0101', address: '220 Oak Ln, Crawfordville FL', lot: '14', community: 'Oak Ridge', customerPo: 'PO-5521', amountCents: 1850000, completedAt: '2026-11-10T12:00:00Z', draftInvoiceId: null, draftCents: null },
+    { jobId: 'j2', jobNumber: '26-0102', address: '222 Oak Ln, Crawfordville FL', lot: '15', community: 'Oak Ridge', customerPo: 'PO-5522', amountCents: 1850000, completedAt: '2026-11-11T12:00:00Z', draftInvoiceId: 'd2', draftCents: 1700000 },
+    { jobId: 'j3', jobNumber: '26-0103', address: '9 Pine Glen Way, Crawfordville FL', lot: '2', community: 'Pine Glen', customerPo: null, amountCents: 2100000, completedAt: '2026-11-12T12:00:00Z', draftInvoiceId: null, draftCents: null },
+  ],
+}
+export const HARNESS_BATCH_DOC = {
+  batch: { id: 'b1', number: 'B-0003', sentAt: '2026-11-15T12:00:00Z', sentToEmail: 'ap@acmehomes.test', publicNote: null, createdAt: '2026-11-14T12:00:00Z' },
+  lines: [
+    { invoiceId: 'i1', invoiceNumber: 'INV-26-00031', jobId: 'j1', jobNumber: '26-0101', address: '220 Oak Ln, Crawfordville FL', lot: '14', community: 'Oak Ridge', customerPo: 'PO-5521', amountCents: 1850000, paidCents: 0, rollCount: 12 },
+    { invoiceId: 'i2', invoiceNumber: 'INV-26-00032', jobId: 'j2', jobNumber: '26-0102', address: '222 Oak Ln, Crawfordville FL', lot: '15', community: 'Oak Ridge', customerPo: 'PO-5522', amountCents: 1850000, paidCents: 0 },
+  ],
+  totalCents: 3700000, paidCents: 0, balanceCents: 3700000, development: 'Oak Ridge', taxCents: 0, dueAt: '2026-12-15', issued: true,
+  billTo: { name: 'Acme Homes LLC', email: 'ap@acmehomes.test' },
+  company: { legalName: 'Precision Maintenance LLC', address: '', phone: '', email: '' },
+}

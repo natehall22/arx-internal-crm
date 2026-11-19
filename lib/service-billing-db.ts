@@ -459,6 +459,11 @@ export type InvoiceListRow = {
   createdDay: string
   issuedAt: string | null
   dueAt: string | null
+  /** The customer's PO number on the invoice (migration 202611300180). */
+  customerPo: string | null
+  /** The master invoice it is grouped under, when any. */
+  batchId: string | null
+  batchNumber: string | null
   totalCents: number
   paidCents: number
   /** Owed now: sent / partially paid invoices only (a draft or void owes nothing); a job's invoices by the job's own rule (see loadUnpaidInvoices). */
@@ -515,6 +520,7 @@ export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts
     for (const r of unpaid?.rows ?? []) owedByJob.set(r.id, r.balanceCents)
   }
   const tz = await loadOrgTimeZone(admin, orgId)
+  const batchNumbers = await loadBatchNumbers(admin, orgId, invoices.map((i) => i.batch_id))
   const jobFacts = await loadInvoiceJobFacts(admin, orgId, invoices.map((i) => i.job_id))
   const customerOf = (i: JobInvoice) => (i.job_id ? jobFacts.get(i.job_id)?.customerId : i.customer_id) ?? null
   const names = await loadCustomers(admin, orgId, Array.from(new Set(invoices.map(customerOf).filter((id): id is string => !!id))))
@@ -535,6 +541,9 @@ export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts
       createdDay: ymdInZone(new Date(i.created_at), tz),
       issuedAt: i.issued_at ? String(i.issued_at).slice(0, 10) : null,
       dueAt,
+      customerPo: i.customer_po?.trim() || null,
+      batchId: i.batch_id ?? null,
+      batchNumber: i.batch_id ? batchNumbers.get(i.batch_id) ?? null : null,
       totalCents: i.total_cents,
       paidCents: paid,
       balanceCents: balance,
@@ -542,6 +551,17 @@ export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts
     }
   })
   return { rows, capped }
+}
+
+/** batch id → "B-0003" for the rows that carry one (job page, invoice list). */
+export async function loadBatchNumbers(admin: SupabaseClient, orgId: string, batchIds: Array<string | null | undefined>): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(batchIds.filter((x): x is string => !!x)))
+  const out = new Map<string, string>()
+  if (ids.length === 0) return out
+  const { data, error } = await orgDb(admin, orgId).from('invoice_batches').select('id, batch_number').in('id', ids)
+  if (error) return out
+  for (const r of ((data ?? []) as Array<{ id: string; batch_number: string }>)) out.set(r.id, r.batch_number)
+  return out
 }
 
 export type CustomerServiceInvoice = JobInvoice & { applied_cents: number; balance_cents: number }
