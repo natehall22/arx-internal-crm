@@ -4,6 +4,7 @@ import { headers } from 'next/headers'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+import { canSeeAllReminders } from '@/lib/reminders'
 import Nav from '@/components/Nav'
 import MyDayClock from '@/components/time/MyDayClock'
 import WaitingOnYou from '@/components/threads/WaitingOnYou'
@@ -37,7 +38,7 @@ import { loadQuickBooksStuckQueue } from '@/lib/quickbooks/activity'
 import { loadQuickBooksNeedsYouQueue } from '@/lib/quickbooks/connection'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
-import { loadAiChangesQueue, loadCloserQueues, loadDoorCollectionsQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadUnpaidInvoicesQueue, todayKindFor, unpaidInvoicesFailedQueue, type TodayKind } from '@/lib/today'
+import { loadRemindersQueue, loadAiChangesQueue, loadCloserQueues, loadDoorCollectionsQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadUnpaidInvoicesQueue, todayKindFor, unpaidInvoicesFailedQueue, type TodayKind } from '@/lib/today'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 import { leadsWaitingFailedQueue, loadLeadsWaitingQueue } from '@/lib/leads-waiting'
 
@@ -150,7 +151,11 @@ export default async function TodayPage() {
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
   // AI changes waiting for THIS person's Approve (the switch must be on; a failed read just hides the card).
   const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
-  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...(visitCardsOn ? visitQueues : []), ...(doorCollections && doorCollections.count > 0 ? [doorCollections] : []), ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...(myLeadsWaiting && (myLeadsWaiting.count > 0 || myLeadsWaiting.empty.includes('couldn’t load')) ? [myLeadsWaiting] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
+  // Reminders (company switch on): mine for everyone, everyone else's for owner / office (the same reader, lib/reminders.ts).
+  const remindersOn = orgProfile.features.reminders
+  const myReminders = remindersOn ? await loadRemindersQueue(admin, profile.org_id, profile, 'mine').catch((e) => { console.error('today: my reminders failed', e); return null }) : null
+  const otherReminders = remindersOn && canSeeAllReminders(profile) ? await loadRemindersQueue(admin, profile.org_id, profile, 'others').catch((e) => { console.error('today: reminders failed', e); return null }) : null
+  const queues = [...(myReminders && myReminders.count > 0 ? [myReminders] : []), ...(otherReminders && otherReminders.count > 0 ? [otherReminders] : []), ...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...(visitCardsOn ? visitQueues : []), ...(doorCollections && doorCollections.count > 0 ? [doorCollections] : []), ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...(myLeadsWaiting && (myLeadsWaiting.count > 0 || myLeadsWaiting.empty.includes('couldn’t load')) ? [myLeadsWaiting] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
 
   return (
     <div className="min-h-screen bg-surface-subtle">

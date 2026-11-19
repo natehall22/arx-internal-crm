@@ -1,13 +1,16 @@
 import Link from 'next/link'
 
 import ContactActions from '@/components/customer/ContactActions'
+import RemindButton from '@/components/reminders/RemindButton'
 import EditCustomerButton from '@/components/customers/EditCustomerSheet'
 import { StatusPill } from '@/components/ui'
+import { describeLastContact, type LastContact } from '@/lib/customer-last-contact'
 import type { FileContext } from '@/lib/customer-file/load'
 import { TAB_LABELS } from '@/lib/customer-file/access'
 
 /** Sticky identity block: who, where, how to reach them, which deal, where the deal stands, what's next, pinned alerts. */
-export default function FileHeader({ ctx, canSendForSignature = false, canEditCustomer = false }: { ctx: FileContext; canSendForSignature?: boolean; canEditCustomer?: boolean }) {
+/** `lastContact`: undefined = don't show the line (roofing); null = show "No contact logged". */
+export default function FileHeader({ ctx, canSendForSignature = false, canEditCustomer = false, lastContact }: { ctx: FileContext; canSendForSignature?: boolean; canEditCustomer?: boolean; lastContact?: LastContact | null }) {
   const { customer, deal, deals, job, stages, next, pinned } = ctx
   const base = `/c/${customer.id}/d/${deal.id}`
   const signHref = `/signing/new?${new URLSearchParams({ customerId: customer.id, opportunityId: deal.id, ...(customer.name ? { name: customer.name } : {}), ...(customer.email ? { email: customer.email } : {}) }).toString()}`
@@ -18,6 +21,7 @@ export default function FileHeader({ ctx, canSendForSignature = false, canEditCu
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h1 className="break-words text-ui-xl font-bold text-ink">{customer.name || 'Customer'}</h1>
+            {lastContact !== undefined && <p className="text-ui-sm font-semibold text-ink">Last contact: {describeLastContact(lastContact)}</p>}
             {maps && (
               <a href={`https://maps.google.com/?q=${encodeURIComponent(maps)}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-tap items-center break-words text-ui-base text-brand-800 underline">
                 {maps}
@@ -26,6 +30,7 @@ export default function FileHeader({ ctx, canSendForSignature = false, canEditCu
           </div>
           <div className="flex flex-wrap gap-2">
             <ContactActions dealId={deal.id} phone={customer.phone} email={customer.email} surface={job ? 'job' : 'overview'} />
+            <RemindButton target={job ? { jobId: job.id, customerId: customer.id } : { customerId: customer.id }} />
             {canEditCustomer && <EditCustomerButton customer={customer} deal={{ id: deal.id, address_text: deal.address_text, lead_id: deal.lead_id }} />}
             {canSendForSignature && (
               <Link href={signHref} className="inline-flex min-h-tap items-center rounded-ui border border-surface-line px-4 text-ui-sm font-semibold text-ink">Send for signature</Link>

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 
 import ContactActions from '@/components/customer/ContactActions'
+import RemindButton from '@/components/reminders/RemindButton'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import { formatPhone } from '@/lib/format'
 
@@ -32,6 +33,7 @@ export default function JobCustomerRow({
       </div>
       <div className="flex items-center gap-2">
         <ContactActions dealId={dealId} phone={customer.phone} email={customer.email} surface="job" />
+        <RemindButton target={{ jobId, customerId: customer.id }} />
         <Link
           href={`/customers/${customer.id}`}
           className="inline-flex h-11 items-center px-2 text-sm font-medium text-[#2c2c2a] underline underline-offset-2"

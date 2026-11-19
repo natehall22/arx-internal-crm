@@ -2,6 +2,7 @@ import Link from 'next/link'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ReminderDoneButton } from '@/components/reminders/ReminderDoneButton'
 import type { Queue } from '@/lib/today'
 
 /** One work queue: title + count, the first few rows (each a link to where the work is done). */
@@ -19,11 +20,12 @@ export function QueueCard({ queue }: { queue: Queue }) {
         ) : (
           <ul className="divide-y divide-surface-line">
             {queue.items.map((i) => (
-              <li key={i.id}>
-                <Link href={i.href} className="flex min-h-tap flex-col justify-center py-2 hover:bg-surface-subtle">
+              <li key={i.id} className={i.reminderId ? 'flex items-center gap-2' : undefined}>
+                <Link href={i.href} className="flex min-h-tap min-w-0 flex-1 flex-col justify-center py-2 hover:bg-surface-subtle">
                   <span className="font-semibold text-ink">{i.title}</span>
                   {i.detail ? <span className="text-ui-sm text-ink-muted">{i.detail}</span> : null}
                 </Link>
+                {i.reminderId ? <ReminderDoneButton id={i.reminderId} /> : null}
               </li>
             ))}
           </ul>

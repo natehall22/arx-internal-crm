@@ -116,6 +116,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Draw lawns, beds, cut-outs and edging on the satellite photo of a property to get square feet, acres, feet of edging and an estimate of mulch or pine straw. Saved to the customer or lead with the older measurements kept.',
     defaultOn: false,
   },
+  reminders: {
+    label: 'Reminders (assign a follow-up)',
+    description: 'A “Remind…” button on jobs, customers and referral partners: pick a person and a day, and they get a bell, a line on their Today screen, and another bell that morning. Owners and office see everyone’s.',
+    defaultOn: false,
+  },
   materialOrdering: {
     label: 'Materials ordering step',
     description: 'The “Material Ordering” stage on the job board, the Start Materials / Mark Ordered buttons and the “Order materials” next step. Turn off for work with no supplier orders (mowing, grading): jobs go from Sold straight to Scheduled.',

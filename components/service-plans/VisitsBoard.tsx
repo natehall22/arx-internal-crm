@@ -61,6 +61,10 @@ export default function VisitsBoard() {
   const [sheet, setSheet] = React.useState<Sheet | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [open, setOpen] = React.useState<Set<string>>(new Set())
+  // Stop order being arranged for one crew's day ("day|crewId" → visit ids, top to bottom) and the last miles note per crew day.
+  const [arranged, setArranged] = React.useState<Record<string, string[]>>({})
+  const [routeNote, setRouteNote] = React.useState<Record<string, string>>({})
+  const dragId = React.useRef<string | null>(null)
   const toggle = (id: string) => setOpen((o) => {
     const n = new Set(o)
     if (n.has(id)) n.delete(id)
@@ -99,6 +103,32 @@ export default function VisitsBoard() {
     toast.success(out.moved !== undefined ? `${out.moved} visit${out.moved === 1 ? '' : 's'} moved` : done)
     await load()
     return true
+  }
+
+  /** "Best order" (action best) or "Save order" (action set) for one crew's day — POST /api/ops/visits/order. */
+  async function runRoute(day: string, crewId: string, action: 'best' | 'set', order?: string[]) {
+    setBusy(true)
+    const res = await fetch('/api/ops/visits/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ crew: crewId, day, action, order }) }).catch(() => null)
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; beforeMiles?: number; afterMiles?: number; startKnown?: boolean; withoutLocation?: number }
+    setBusy(false)
+    if (!res || !res.ok) return toast.error(out.error || 'Could not save the order')
+    const mi = (n?: number) => `${(n ?? 0).toFixed(1)} mi`
+    const text = `${action === 'best' ? 'Best order saved' : 'Order saved'}: about ${mi(out.afterMiles)} (was ${mi(out.beforeMiles)}), straight-line ${out.startKnown ? 'from the office' : 'from the first stop'}.${out.withoutLocation ? ` ${out.withoutLocation} stop${out.withoutLocation === 1 ? ' has' : 's have'} no map location and stay${out.withoutLocation === 1 ? 's' : ''} last.` : ''}`
+    setRouteNote((n) => ({ ...n, [`${day}|${crewId}`]: text }))
+    setArranged((a) => {
+      const { [`${day}|${crewId}`]: _gone, ...rest } = a
+      return rest
+    })
+    toast.success(action === 'best' ? 'Best order saved' : 'Order saved')
+    await load()
+  }
+
+  function arrange(key: string, ids: string[], from: number, to: number) {
+    if (to < 0 || to >= ids.length || from === to) return
+    const next = [...ids]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setArranged((a) => ({ ...a, [key]: next }))
   }
 
   async function previewShift(body: { from: string; to: string; days: number; subId: string }, sheet: Extract<Sheet, { kind: 'shift' }>) {
@@ -186,6 +216,19 @@ export default function VisitsBoard() {
       ) : null}
       {days.map((day) => {
         const list = byDay.get(day) ?? []
+        // Stop order: one crew's day. With a crew picked the list can be arranged (drag, or the up / down buttons); with all crews the
+        // heading offers "Best order" for each crew that has two or more stops left.
+        const crewPicked = crew && crew !== 'mine' && crew !== 'none' ? crew : null
+        const orderKey = crewPicked ? `${day}|${crewPicked}` : null
+        const todo = list.filter((v) => v.status === 'scheduled')
+        const mine = orderKey ? arranged[orderKey] : undefined
+        const todoOrdered = mine ? [...todo].sort((a, b) => mine.indexOf(a.id) - mine.indexOf(b.id)) : todo
+        let nextTodo = 0
+        const shown = orderKey ? list.map((v) => (v.status === 'scheduled' ? todoOrdered[nextTodo++] : v)) : list
+        const canArrange = d.canEdit && !!orderKey && todo.length >= 2
+        const crewsWithStops = crewPicked
+          ? todo.length >= 2 ? [crewPicked] : []
+          : Array.from(new Set(todo.map((v) => v.subId).filter((x): x is string => !!x))).filter((id) => todo.filter((v) => v.subId === id).length >= 2)
         return (
           <section key={day} aria-label={formatDateWeekday(day)}>
             <h2 className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-ui-lg font-semibold text-ink">
@@ -194,18 +237,47 @@ export default function VisitsBoard() {
                 {day === d.today ? ' · Today' : ''} <span className="text-ui-base font-normal">({list.length})</span>
               </span>
               {/* The same paper a crew prints from its phone link: one crew, one day (pick a crew above first). */}
-              {crew && crew !== 'mine' && crew !== 'none' && list.some((v) => v.status === 'scheduled') ? (
-                <a href={`/api/ops/visits/sheet?crew=${encodeURIComponent(crew)}&day=${day}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-tap items-center text-ui-base font-semibold text-brand-800 underline">
+              {crewPicked && list.some((v) => v.status === 'scheduled') ? (
+                <a href={`/api/ops/visits/sheet?crew=${encodeURIComponent(crewPicked)}&day=${day}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-tap items-center text-ui-base font-semibold text-brand-800 underline">
                   Print sheet
                 </a>
               ) : null}
+              {d.canEdit
+                ? crewsWithStops.map((id) => (
+                    <Button key={id} size="sm" variant="secondary" disabled={busy} onClick={() => void runRoute(day, id, 'best')}>
+                      Best order{crewPicked ? '' : ` · ${d.crews.find((c) => c.id === id)?.name ?? 'Crew'}`}
+                    </Button>
+                  ))
+                : null}
+              {orderKey && mine ? (
+                <>
+                  <Button size="sm" disabled={busy} onClick={() => void runRoute(day, crewPicked as string, 'set', todoOrdered.map((v) => v.id))}>Save order</Button>
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setArranged(({ [orderKey]: _gone, ...rest }) => rest)}>Cancel</Button>
+                </>
+              ) : null}
             </h2>
+            {crewsWithStops.length > 0 && d.canEdit && !crewPicked ? <p className="mb-2 text-ui-sm text-ink">Pick a crew above to drag its stops into a different order.</p> : null}
+            {Object.entries(routeNote).filter(([k]) => k.startsWith(`${day}|`) && (!crewPicked || k === orderKey)).map(([k, text]) => (
+              <p key={k} role="status" className="mb-2 rounded-ui bg-brand-50 px-3 py-1 text-ui-sm text-brand-900">{text}</p>
+            ))}
             {list.length === 0 ? (
               <p className="text-ui-base text-ink">No visits.</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {list.map((v) => (
-                  <li key={v.id}>
+                {shown.map((v) => (
+                  <li
+                    key={v.id}
+                    draggable={canArrange && v.status === 'scheduled' ? true : undefined}
+                    onDragStart={() => { dragId.current = v.id }}
+                    onDragOver={(e) => { if (canArrange && dragId.current) e.preventDefault() }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      const from = todoOrdered.findIndex((t) => t.id === dragId.current)
+                      const to = todoOrdered.findIndex((t) => t.id === v.id)
+                      dragId.current = null
+                      if (canArrange && orderKey && from >= 0 && to >= 0) arrange(orderKey, todoOrdered.map((t) => t.id), from, to)
+                    }}
+                  >
                     <Card>
                       <CardContent className="flex flex-col gap-1 p-3">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -220,6 +292,13 @@ export default function VisitsBoard() {
                           <Badge tone={STATUS_TONE[v.status] ?? 'neutral'}>{VISIT_STATUS_LABELS[v.status as VisitStatus] ?? v.status}</Badge>
                           {v.result ? <span className={`rounded-full px-2.5 py-0.5 text-ui-sm font-semibold ${RESULT_TONE_CLASS[v.result.tone]}`}>{v.result.label}</span> : null}
                           {v.moved ? <Badge tone="warning">Moved from {formatDateWeekday(v.plannedDate)}</Badge> : null}
+                          {canArrange && orderKey && v.status === 'scheduled' ? (
+                            <span className="ml-auto flex items-center gap-1">
+                              <span aria-hidden="true" className="hidden cursor-grab select-none px-1 text-ui-lg text-ink sm:inline" title="Drag to change the order">⋮⋮</span>
+                              <Button size="sm" variant="secondary" className="min-w-tap" aria-label={`Move ${v.customerName ?? 'this stop'} up`} disabled={busy || todoOrdered[0]?.id === v.id} onClick={() => { const i = todoOrdered.findIndex((t) => t.id === v.id); arrange(orderKey, todoOrdered.map((t) => t.id), i, i - 1) }}>▲</Button>
+                              <Button size="sm" variant="secondary" className="min-w-tap" aria-label={`Move ${v.customerName ?? 'this stop'} down`} disabled={busy || todoOrdered[todoOrdered.length - 1]?.id === v.id} onClick={() => { const i = todoOrdered.findIndex((t) => t.id === v.id); arrange(orderKey, todoOrdered.map((t) => t.id), i, i + 1) }}>▼</Button>
+                            </span>
+                          ) : null}
                         </div>
                         <p className="break-words text-ui-sm text-ink">
                           {[v.step !== SERVICE_STEP ? `${v.stepLabel ?? 'Follow-on'} — ${v.planName}` : v.planName, v.address, v.subName ?? v.userName ?? 'No crew'].filter(Boolean).join(' · ')}

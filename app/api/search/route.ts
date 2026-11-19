@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   if (groups.length === 0) return NextResponse.json({ results: await messageHits() })
 
   try {
-    const [hits, msgs, orgProfile] = await Promise.all([runSearch(admin, profile.org_id, q, groups), messageHits(), loadOrgProfile(admin, profile.org_id)])
+    const [hits, msgs, orgProfile] = await Promise.all([runSearch(admin, profile.org_id, q, groups, 20, authUser.id), messageHits(), loadOrgProfile(admin, profile.org_id)])
     const fileDefault = customerFileDefaultFor(profile.role, orgProfile.id)
     return NextResponse.json({ results: [...hits.map((h) => ({ ...h, href: hrefForHit(h, fileDefault) })), ...msgs] })
   } catch (e) {

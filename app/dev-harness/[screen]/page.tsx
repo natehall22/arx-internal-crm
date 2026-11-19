@@ -495,7 +495,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false, materialOrdering: true }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, texting: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false, areaMeasure: false, reminders: false, materialOrdering: true }} />
         </div>
       )
     case 'org-features-plan': {
