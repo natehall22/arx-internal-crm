@@ -6,6 +6,7 @@ import { insuranceFieldsSetInPatch } from '@/lib/org-features'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveOpsAccess, redactProductionJobFinancialSummaryFields } from '@/lib/ops-access'
 import { CANCELLED_JOB_STATUS, projectStatusForJobStatus } from '@/lib/job-status'
+import { normalizeCustomerPo } from '@/lib/invoice-batch'
 
 const jobSelectWithPaymentMethod = `
   *,
@@ -71,6 +72,8 @@ export async function PATCH(
       'started_at', 'completed_at',
       // labor_cost removed 2026-10-21: labor is a job cost line (lib/job-cost-ledger.ts).
       'internal_notes',
+      // The customer's PO number (migration 202611300180): printed on this job's invoices.
+      'customer_po',
       'deposit_required_percent', 'finance_submitted_at',
       // `allow_close_with_balance` / `close_balance_reason` are deliberately NOT here: forcing a
       // job "paid in full" with a balance is a super-admin action with a required reason, written
@@ -87,6 +90,15 @@ export async function PATCH(
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+    // PO number: one reading (trim, blank = none). Draft invoices that still carry the OLD value (or none) follow the job after the save.
+    let oldPo: string | null | undefined
+    if ('customer_po' in updateData) {
+      const po = normalizeCustomerPo(updateData.customer_po)
+      if (!po.ok) return NextResponse.json({ error: po.error }, { status: 400 })
+      updateData.customer_po = po.value
+      const { data: before } = await adminClient.from('production_jobs').select('customer_po').eq('id', params.id).eq('org_id', profile.org_id).maybeSingle()
+      oldPo = (before as { customer_po?: string | null } | null)?.customer_po ?? null
     }
     // Insurance switched off for the company (Settings → Features): no new claim data (clearing is still fine).
     if (insuranceFieldsSetInPatch(updateData).length > 0) {
@@ -144,6 +156,13 @@ export async function PATCH(
     if (updateError) {
       console.error('Error updating job:', updateError)
       return NextResponse.json({ error: 'Failed to update job' }, { status: 500 })
+    }
+
+    if (oldPo !== undefined && (updatedJob?.customer_po ?? null) !== oldPo) {
+      // Only drafts, only where the invoice still says what the job used to say: a PO typed on the invoice itself is never overwritten, and a sent invoice never changes.
+      const drafts = adminClient.from('job_invoices').update({ customer_po: updatedJob?.customer_po ?? null }).eq('job_id', params.id).eq('org_id', profile.org_id).eq('status', 'draft')
+      const { error: followErr } = await (oldPo === null ? drafts.is('customer_po', null) : drafts.eq('customer_po', oldPo))
+      if (followErr) console.error('job PO: draft invoices not updated', params.id, followErr.message)
     }
 
     // Keep linked project status aligned with job lifecycle status.

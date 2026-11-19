@@ -191,6 +191,7 @@ export default function QuickBooksMappingCard({ initial = null, title = 'What go
           <input type="checkbox" className="h-5 w-5" checked={draft.bills.enabled} onChange={(e) => set({ bills: { ...draft.bills, enabled: e.target.checked } })} />
           Send approved subcontractor and supplier bills
         </label>
+        <p className="-mt-2 text-ui-base text-ink">Leave this off if your accountant enters supplier bills in QuickBooks — otherwise expenses would be counted twice.</p>
         {draft.bills.enabled ? (
           <>
             <label className={LABEL}>

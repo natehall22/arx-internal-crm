@@ -50,6 +50,9 @@ export default function JobInvoicesCard({
   const [showApplyModal, setShowApplyModal] = useState<string | null>(null)
   const [showDetailModal, setShowDetailModal] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [customerPo, setCustomerPo] = useState('')
+  const [savedPo, setSavedPo] = useState('')
+  const [batchNumbers, setBatchNumbers] = useState<Record<string, string>>({})
 
   const loadData = async () => {
     try {
@@ -59,6 +62,9 @@ export default function JobInvoicesCard({
       if (response.ok) {
         const data = await response.json()
         setInvoices(data.invoices || [])
+        setCustomerPo(data.customerPo || '')
+        setSavedPo(data.customerPo || '')
+        setBatchNumbers(data.batchNumbers || {})
         if (data.depositInfo) {
           setDepositInfo(data.depositInfo)
         }
@@ -145,6 +151,16 @@ export default function JobInvoicesCard({
     }
   }
 
+  const savePo = async () => {
+    const res = await fetch(`/api/ops/jobs/${jobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_po: customerPo }) })
+    if (!res.ok) {
+      toast.error((await res.json().catch(() => ({}))).error || 'Could not save the PO number')
+      return
+    }
+    toast.success('PO number saved')
+    await loadData()
+  }
+
   // Filter out void invoices for display purposes
   const activeInvoices = invoices.filter(i => i.status !== 'void')
   const voidedInvoices = invoices.filter(i => i.status === 'void')
@@ -163,6 +179,22 @@ export default function JobInvoicesCard({
         >
           + Create Invoice
         </button>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-sm font-semibold text-gray-900">
+          Customer PO #
+          <input
+            value={customerPo}
+            maxLength={60}
+            onChange={(e) => setCustomerPo(e.target.value)}
+            placeholder="Printed on this job's invoices"
+            className="min-h-[44px] w-64 max-w-full rounded border border-gray-300 px-3 text-base text-gray-900"
+          />
+        </label>
+        {customerPo.trim() !== savedPo.trim() ? (
+          <button onClick={savePo} className="min-h-[44px] rounded bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700">Save PO</button>
+        ) : null}
       </div>
 
       {loading ? (
@@ -184,6 +216,10 @@ export default function JobInvoicesCard({
                       </span>
                     )}
                   </div>
+                  {invoice.customer_po ? <div className="text-sm text-gray-900">PO # {invoice.customer_po}</div> : null}
+                  {invoice.batch_id && batchNumbers[invoice.batch_id] ? (
+                    <div className="text-sm font-semibold text-gray-900">Billed on master invoice #{batchNumbers[invoice.batch_id]}</div>
+                  ) : null}
                   <div className="text-sm text-gray-900">
                     {invoice.sent_at ? (
                       <>Sent {new Date(invoice.sent_at).toLocaleDateString()}</>
@@ -226,7 +262,7 @@ export default function JobInvoicesCard({
                   </button>
                 )}
 
-                {invoice.status === 'draft' && (
+                {invoice.status === 'draft' && !invoice.batch_id && (
                   <button
                     onClick={() => setShowSendModal(invoice.id)}
                     className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"

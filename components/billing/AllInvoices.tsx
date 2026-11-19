@@ -3,6 +3,8 @@
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 
+import BatchDetailDialog from '@/components/billing/BatchDetailDialog'
+import BillFinishedJobsSheet from '@/components/billing/BillFinishedJobsSheet'
 import InvoiceDetailModal from '@/components/ops/InvoiceDetailModal'
 import { Badge, Button } from '@/components/ui'
 import { DataTable, type TableFilter, type TableView, type ViewState } from '@/components/ui/data-table'
@@ -37,6 +39,8 @@ export default function AllInvoices() {
   const [data, setData] = React.useState<Load | null>(null)
   const [error, setError] = React.useState(false)
   const [openId, setOpenId] = React.useState<string | null>(null)
+  const [openBatch, setOpenBatch] = React.useState<string | null>(null)
+  const [billSheet, setBillSheet] = React.useState(false)
   const state = React.useRef<ViewState>({ sorting: [], search: '', filters: {} })
 
   const load = React.useCallback(async () => {
@@ -80,7 +84,19 @@ export default function AllInvoices() {
         ),
         meta: { mobile: 'title' },
       },
-      { id: 'customer', header: 'Customer', enableGlobalFilter: false, accessorFn: (r) => r.customerName, cell: ({ row }) => <span>{row.original.customerName}{row.original.jobNumber ? ` · Job ${row.original.jobNumber}` : ''}</span> },
+      { id: 'customer', header: 'Customer', enableGlobalFilter: false, accessorFn: (r) => r.customerName, cell: ({ row }) => <span>{row.original.customerName}{row.original.jobNumber ? ` · Job ${row.original.jobNumber}` : ''}{row.original.customerPo ? ` · PO ${row.original.customerPo}` : ''}</span> },
+      {
+        id: 'master',
+        header: 'Master invoice',
+        enableGlobalFilter: false,
+        accessorFn: (r) => r.batchNumber ?? '',
+        cell: ({ row }) =>
+          row.original.batchId && row.original.batchNumber ? (
+            <button type="button" className="min-h-tap text-left font-semibold underline" onClick={() => setOpenBatch(row.original.batchId)}>{row.original.batchNumber}</button>
+          ) : (
+            '—'
+          ),
+      },
       { id: 'issued', header: 'Issued', enableGlobalFilter: false, accessorFn: (r) => r.issuedAt ?? r.createdAt, cell: ({ row }) => (row.original.issuedAt ? invoiceItemDateLabel(row.original.issuedAt) : '—') },
       { id: 'due', header: 'Due', enableGlobalFilter: false, accessorFn: (r) => r.dueAt ?? '9999', cell: ({ row }) => (row.original.dueAt ? invoiceItemDateLabel(row.original.dueAt) : '—') },
       {
@@ -116,15 +132,39 @@ export default function AllInvoices() {
         filters={filters}
         systemViews={SYSTEM_VIEWS}
         initialSorting={[]}
-        searchPlaceholder="Search invoice, customer or job"
+        searchPlaceholder="Search invoice, customer, job or PO"
         empty={{ title: 'No invoices yet', body: 'Invoices you make appear here.' }}
         onStateChange={(s) => (state.current = s)}
         rowActions={(r) => (
           <Button size="sm" variant="secondary" onClick={() => setOpenId(r.id)}>Open</Button>
         )}
-        toolbar={data?.canExport ? <Button variant="secondary" size="sm" onClick={exportCsv}>Download CSV</Button> : null}
+        toolbar={
+          <>
+            <Button size="sm" onClick={() => setBillSheet(true)}>Bill finished jobs</Button>
+            {data?.canExport ? <Button variant="secondary" size="sm" onClick={exportCsv}>Download CSV</Button> : null}
+          </>
+        }
       />
       {data?.capped ? <p className="mt-2 text-ui-sm text-ink">Showing the newest {rows.length.toLocaleString()} invoices.</p> : null}
+      {billSheet ? (
+        <BillFinishedJobsSheet
+          onClose={() => setBillSheet(false)}
+          onCreated={(id) => {
+            setBillSheet(false)
+            setOpenBatch(id)
+            void load()
+          }}
+        />
+      ) : null}
+      {openBatch ? (
+        <BatchDetailDialog
+          batchId={openBatch}
+          onClose={() => {
+            setOpenBatch(null)
+            void load()
+          }}
+        />
+      ) : null}
       {openId ? (
         <InvoiceDetailModal
           invoiceId={openId}

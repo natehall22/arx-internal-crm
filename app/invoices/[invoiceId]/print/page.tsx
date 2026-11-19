@@ -120,6 +120,12 @@ export default async function PrintInvoicePage({
                 <span className="invoice-meta-label">Date: </span>
                 <span className="invoice-meta-value">{formatInvoiceDisplayDate(invoice.issued_at)}</span>
               </div>
+              {invoice.customer_po && (
+                <div className="invoice-meta">
+                  <span className="invoice-meta-label">PO #: </span>
+                  <span className="invoice-meta-value">{invoice.customer_po}</span>
+                </div>
+              )}
               {invoice.due_at && (
                 <div className="invoice-meta">
                   <span className="invoice-meta-label">Due Date: </span>

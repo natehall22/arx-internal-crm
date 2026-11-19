@@ -65,6 +65,7 @@ export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string
   ${contact ? `<div style="font-size:13px;color:#374151;">${contact}</div>` : ''}
   <h1 style="font-size:22px;margin:24px 0 4px;">Invoice ${escapeHtml(invoice.invoice_number)}</h1>
   <div style="font-size:14px;color:#374151;">${escapeHtml(billTo.name)}${billTo.address ? ` · ${escapeHtml(billTo.address)}` : ''}</div>
+  ${invoice.customer_po ? `<div style="font-size:14px;color:#111827;font-weight:700;">PO # ${escapeHtml(invoice.customer_po)}</div>` : ''}
   <div style="font-size:14px;color:#374151;margin-bottom:16px;">${escapeHtml(due)}</div>
   ${pay}
   <table role="presentation" style="width:100%;border-collapse:collapse;margin:8px 0 16px;">
@@ -79,6 +80,7 @@ export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string
     company.legalName,
     `Invoice ${invoice.invoice_number} — ${due}`,
     `${billTo.name}${billTo.address ? `, ${billTo.address}` : ''}`,
+    ...(invoice.customer_po ? [`PO # ${invoice.customer_po}`] : []),
     '',
     ...doc.items.map((it) => `${it.description}${it.service_date ? ` (${dateLabel(it.service_date)})` : ''}: ${invoiceItemQtyLabel(it)} × ${invoiceItemPriceLabel(it)} = ${money(it.line_total_cents)}`),
     '',
