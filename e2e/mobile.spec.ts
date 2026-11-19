@@ -480,7 +480,7 @@ const SCREENS: Screen[] = [
     await p.route('**/api/table-views*', (route) => route.fulfill(json({ views: [], view: { id: 'v', name: 'x', state: { sorting: [], search: '', filters: {} } } })))
   },
     states: [
-      { name: 'day-list', run: async (p) => { await p.locator('button[aria-label^="Tue, Nov 10: 3 items"]').click(); await p.waitForSelector('text=Green Team'); await p.waitForSelector('text=Rolled 2×') } },
+      { name: 'day-list', run: async (p) => { await p.locator('button[aria-label^="Tue, Nov 10: 3 items"]').click(); await p.waitForSelector('text=Green Team >> visible=true'); await p.waitForSelector('text=Rolled 2×') } },
       { name: 'week', run: async (p) => { await p.getByRole('button', { name: 'Week', exact: true }).click(); await p.waitForSelector('text=Grading · 26-0201') } },
       { name: 'section-chip', run: async (p) => { await p.getByRole('button', { name: 'Grading' }).click(); await p.waitForSelector('button[aria-label^="Tue, Nov 10: 1 item"]') } },
     ] },
