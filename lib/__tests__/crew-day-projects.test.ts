@@ -32,6 +32,7 @@ function fakeAdmin(tables: Record<string, Array<Record<string, unknown>>>) {
       lte: (c: string, v: string) => { rows = rows.filter((r) => String(r[c]) <= v); return q },
       in: (c: string, v: unknown[]) => { rows = rows.filter((r) => v.includes(r[c])); return q },
       order: () => q,
+      range: (a: number, b: number) => { rows = rows.slice(a, b + 1); return q },
       then: (res: (v: unknown) => void) => res({ data: rows, error: null }),
     }
     return q

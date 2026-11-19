@@ -13,9 +13,14 @@ import OneOffVisit from '@/components/service-plans/OneOffVisit'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 import VisitIncentiveMarks from '@/components/service-plans/VisitIncentiveMarks'
 import { checklistSummary } from '@/lib/visit-checklist'
+import MoveHistory from '@/components/schedule/MoveHistory'
+import RollButton from '@/components/schedule/RollButton'
+import ScheduleFilterBar from '@/components/schedule/ScheduleFilterBar'
+import { EMPTY_FILTERS, filterOptions, filterWork, tradeColor, type ScheduleFilters } from '@/lib/schedule-filters'
+import type { OrgTradeOption } from '@/lib/org-trades'
 
 type Crew = { id: string; name: string; hasPhoneLink: boolean; phone: string | null }
-type Load = { today: string; from: string; to: string; visits: VisitView[]; total: number; hasMore: boolean; canEdit: boolean; crews: Crew[]; incentiveMarks?: Record<string, { review: boolean; callback: boolean }> }
+type Load = { today: string; from: string; to: string; visits: VisitView[]; total: number; hasMore: boolean; canEdit: boolean; crews: Crew[]; orgTrades?: OrgTradeOption[]; incentiveMarks?: Record<string, { review: boolean; callback: boolean }> }
 type Sheet =
   | { kind: 'done'; visit: VisitView; result: string | null; notes: string }
   | { kind: 'skip'; visit: VisitView; reason: SkipReason | ''; notes: string }
@@ -54,6 +59,7 @@ function mapHref(v: Pick<VisitView, 'lat' | 'lng' | 'address'>): string {
 export default function VisitsBoard() {
   const [from, setFrom] = React.useState<string | null>(null)
   const [crew, setCrew] = React.useState('')
+  const [filters, setFilters] = React.useState<ScheduleFilters>(EMPTY_FILTERS)
   const [data, setData] = React.useState<Load | null>(null)
   const dataRef = React.useRef<Load | null>(null)
   dataRef.current = data
@@ -152,10 +158,35 @@ export default function VisitsBoard() {
   if (!data) return <p className="px-4 py-6 text-ui-base text-ink">Loading visits…</p>
   const d = data
   const days = Array.from({ length: 7 }, (_, i) => addDaysYmd(d.from, i))
-  const byDay = new Map(days.map((day) => [day, d.visits.filter((v) => v.scheduledDate === day)]))
+  // The shared filter bar narrows the visits loaded for this week (crew stays the server-side dropdown: it also drives Print sheet).
+  const rows = d.visits.map((v) => ({
+    v,
+    trade: v.trade || null,
+    crewId: v.subId,
+    crewName: v.subName,
+    techId: v.userId,
+    techName: v.userName,
+    customerId: v.customerId,
+    customerName: v.customerName,
+    text: [v.planName, v.stepLabel, v.workOrderNumber, v.customerName, v.address, v.subName, v.userName].filter(Boolean).join(' '),
+  }))
+  const shownVisits = filterWork(rows, filters).map((r) => r.v)
+  const orgTrades = d.orgTrades ?? []
+  const byDay = new Map(days.map((day) => [day, shownVisits.filter((v) => v.scheduledDate === day)]))
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-4">
+      <ScheduleFilterBar
+        value={filters}
+        onChange={setFilters}
+        options={filterOptions(rows)}
+        trades={orgTrades.map((t) => ({ slug: t.slug, label: t.label, color: tradeColor(t.slug, orgTrades), active: t.active }))}
+        total={rows.length}
+        shown={shownVisits.length}
+        show={{ crew: false }}
+        viewsKey="sched_visits"
+        searchPlaceholder="Search customer, address, plan, crew"
+      />
       <div className="flex flex-wrap items-end gap-2">
         <Button variant="secondary" size="sm" onClick={() => setFrom(addDaysYmd(d.from, -7))}>← Week before</Button>
         <Button variant="secondary" size="sm" onClick={() => setFrom(null)}>This week</Button>
@@ -220,6 +251,7 @@ export default function VisitsBoard() {
                           <Badge tone={STATUS_TONE[v.status] ?? 'neutral'}>{VISIT_STATUS_LABELS[v.status as VisitStatus] ?? v.status}</Badge>
                           {v.result ? <span className={`rounded-full px-2.5 py-0.5 text-ui-sm font-semibold ${RESULT_TONE_CLASS[v.result.tone]}`}>{v.result.label}</span> : null}
                           {v.moved ? <Badge tone="warning">Moved from {formatDateWeekday(v.plannedDate)}</Badge> : null}
+                          <MoveHistory workOrderId={v.id} rolls={v.rolls} />
                         </div>
                         <p className="break-words text-ui-sm text-ink">
                           {[v.step !== SERVICE_STEP ? `${v.stepLabel ?? 'Follow-on'} — ${v.planName}` : v.planName, v.address, v.subName ?? v.userName ?? 'No crew'].filter(Boolean).join(' · ')}
@@ -247,6 +279,16 @@ export default function VisitsBoard() {
                                 <Button size="sm" onClick={() => setSheet({ kind: 'done', visit: v, result: null, notes: '' })}>Done</Button>
                                 <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'skip', visit: v, reason: '', notes: '' })}>Skip</Button>
                                 <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'move', visit: v, date: v.scheduledDate })}>Move</Button>
+                                <RollButton
+                                  compact
+                                  onRoll={async (reason) => {
+                                    const res = await fetch(`/api/ops/work-orders/${v.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, from: v.scheduledDate }) }).catch(() => null)
+                                    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; to?: string }
+                                    if (!res || !res.ok || !out.to) return { ok: false, error: out.error || 'Could not roll' }
+                                    await load()
+                                    return { ok: true, to: out.to }
+                                  }}
+                                />
                               </>
                             ) : v.status !== 'cancelled' ? (
                               <Button size="sm" variant="secondary" disabled={busy} onClick={() => void post(`/api/ops/visits/${v.id}`, { action: 'reopen' }, 'Visit reopened')}>Reopen</Button>

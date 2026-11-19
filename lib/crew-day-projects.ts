@@ -17,6 +17,7 @@ import { isCrewLinkExpired } from '@/lib/crew-link'
 import { calendarDaySpan } from '@/lib/job-trades'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { orgDb } from '@/lib/supabase/org-db'
+import { loadWorkOrderRollCounts } from '@/lib/work-order-moves-db'
 
 export type CrewProjectStop = {
   /** The trade work order id: what the clock taps. */
@@ -36,6 +37,10 @@ export type CrewProjectStop = {
   lot: string | null
   /** The crews ahead of this one on the same property (property tools on): trade + done / not done + a day. Nothing else. */
   before: BeforeYouLine[]
+  /** The day this stop is booked on (what a roll is compare-and-set against). */
+  scheduledDate: string
+  /** Times this crew work was rolled to a later day. */
+  rolls?: number
 }
 
 type WoRow = { id: string; job_id: string | null; trade: string | null; status: string; scheduled_date: string | null; install_days: unknown; crew_link_token: string | null; work_order_number: string | null; property_id?: string | null; completed_at?: string | null }
@@ -98,11 +103,8 @@ export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId:
       console.error('[crew-day] lot / before-you failed', e)
     }
   }
-  return rows
-    .filter((r) => {
-      const j = r.job_id ? byJob.get(r.job_id) : null
-      return !!j && !j.cancelled_at && j.status !== 'cancelled'
-    })
+  const rolls = await loadWorkOrderRollCounts(admin, crew.orgId, shown.map((r) => r.id))
+  return shown
     .map((r) => {
       const j = byJob.get(r.job_id as string) as JobRow
       return {
@@ -119,6 +121,8 @@ export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId:
         dayCount: r.dayCount,
         lot: r.property_id ? lots.get(r.property_id) ?? null : null,
         before: before.get(r.id) ?? [],
+        scheduledDate: r.scheduled_date as string,
+        rolls: rolls.get(r.id) ?? 0,
       }
     })
 }

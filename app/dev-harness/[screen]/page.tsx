@@ -130,6 +130,7 @@ import PriceListCard from '@/components/customer/PriceListCard'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
+import AllWorkCalendar from '@/components/schedule/AllWorkCalendar'
 import ReadyToBill from '@/components/billing/ReadyToBill'
 import HoursToBill from '@/components/billing/HoursToBill'
 import JobHourlyCard from '@/components/billing/JobHourlyCard'
@@ -783,6 +784,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'visits-board':
       return <VisitsBoard />
+    case 'all-work':
+      return <AllWorkCalendar />
     case 'ready-to-bill':
       return <ReadyToBill />
     case 'hours-to-bill':

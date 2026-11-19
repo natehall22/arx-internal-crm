@@ -10,6 +10,7 @@
  */
 import { HEALTH_RESULTS, HEALTH_RESULT_STYLE } from '@/lib/health-result'
 import { cleanServiceLines } from '@/lib/visit-checklist'
+import { parseRollReason, type RollReason } from '@/lib/work-order-rolls'
 
 export const SERVICE_FREQUENCIES = ['weekly', 'every_2_weeks', 'every_4_weeks', 'monthly', 'quarterly', 'yearly', 'none'] as const
 export type ServiceFrequency = (typeof SERVICE_FREQUENCIES)[number]
@@ -577,10 +578,14 @@ export type VisitAction =
   | { action: 'done'; result?: string; notes?: string }
   | { action: 'skip'; reason: SkipReason; notes?: string }
   | { action: 'reopen' }
-  | { action: 'move'; date: string }
+  | { action: 'move'; date: string; reason?: RollReason }
   | { action: 'assign'; subId: string | null }
 
-/** Which actions a crew phone link may take (never reopen / move / reassign — those are the office's). */
+/**
+ * Which actions a crew phone link may take through the generic visit route (never reopen / move / reassign — those are the office's).
+ * The one date change a crew has is the "Not ready — roll" button: its own route (/api/crew/day/[token]/roll) takes the NEXT working
+ * day only (lib/work-order-roll.ts), never a date the crew picks.
+ */
 export const CREW_VISIT_ACTIONS: readonly VisitAction['action'][] = ['done', 'skip']
 
 export function parseVisitAction(body: unknown): VisitAction | { error: string } {
@@ -598,7 +603,11 @@ export function parseVisitAction(body: unknown): VisitAction | { error: string }
       return { action: 'reopen' }
     case 'move':
       if (!isYmd(b.date)) return { error: 'Pick a date' }
-      return { action: 'move', date: b.date }
+      {
+        const reason = parseRollReason(b.reason)
+        if (reason && typeof reason === 'object') return reason
+        return { action: 'move', date: b.date, ...(reason ? { reason } : {}) }
+      }
     case 'assign':
       return { action: 'assign', subId: typeof b.subId === 'string' && b.subId ? b.subId : null }
     default:

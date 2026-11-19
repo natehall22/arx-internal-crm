@@ -1,5 +1,6 @@
 'use client'
 
+import * as React from 'react'
 import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 
@@ -9,6 +10,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { StatusPill } from '@/components/ui/badge'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { formatDate } from '@/lib/format'
+import { rolledLabel } from '@/lib/work-order-rolls'
 
 interface WorkOrder {
   id: string
@@ -26,6 +28,8 @@ interface WorkOrder {
   customers?: { id: string; name: string } | null
   assigned_user?: { id: string; full_name: string } | null
   assigned_sub?: { id: string; company_name: string } | null
+  /** Times pushed to a later day (null until the roll counter exists). */
+  roll_count?: number | null
 }
 
 const PRIORITY_LABEL: Record<string, string> = { urgent: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' }
@@ -74,6 +78,7 @@ const COLUMNS: ColumnDef<WorkOrder, any>[] = [
   },
   { id: 'assigned', header: 'Assigned to', accessorFn: (w) => assignee(w) || 'Unassigned' },
   { id: 'scheduled', header: 'Scheduled', accessorFn: (w) => w.scheduled_date ?? '', cell: (c) => (c.getValue() ? formatDate(c.getValue()) : 'Not scheduled') },
+  { id: 'rolled', header: 'Rolled', accessorFn: (w) => w.roll_count ?? 0, cell: (c) => rolledLabel(c.getValue()) ?? '—', meta: { mobile: 'hide' } },
   { accessorKey: 'priority', header: 'Priority', cell: (c) => PRIORITY_LABEL[c.getValue()] ?? c.getValue(), meta: { mobile: 'hide' } },
   { accessorKey: 'status', header: 'Status', cell: (c) => <StatusPill domain="work_order" value={c.getValue()} /> },
 ]
@@ -84,6 +89,24 @@ const FILTERS: TableFilter<WorkOrder>[] = [
   { key: 'type', label: 'Type', options: Object.entries(typeLabels).map(([value, label]) => ({ value, label })), accessor: (w) => w.work_order_type },
   { key: 'scheduled', label: 'Scheduled', options: [{ value: 'no', label: 'Not scheduled' }, { value: 'yes', label: 'Scheduled' }], accessor: (w) => (w.scheduled_date ? 'yes' : 'no') },
 ]
+
+/** Tech / Crew / Customer dropdowns, with the options the list actually has. */
+function peopleFilters(rows: WorkOrder[]): TableFilter<WorkOrder>[] {
+  const opts = (pick: (w: WorkOrder) => { id: string; name: string } | null) => {
+    const m = new Map<string, string>()
+    for (const w of rows) {
+      const p = pick(w)
+      if (p?.id && p.name) m.set(p.id, p.name)
+    }
+    return Array.from(m, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
+  }
+  return [
+    { key: 'tech', label: 'Tech', options: opts((w) => (w.assigned_user ? { id: w.assigned_user.id, name: w.assigned_user.full_name } : null)), accessor: (w) => w.assigned_user?.id },
+    { key: 'crew', label: 'Crew', options: opts((w) => (w.assigned_sub ? { id: w.assigned_sub.id, name: w.assigned_sub.company_name } : null)), accessor: (w) => w.assigned_sub?.id },
+    { key: 'customer', label: 'Customer', options: opts((w) => (w.customers ? { id: w.customers.id, name: w.customers.name } : null)), accessor: (w) => w.customers?.id },
+    { key: 'rolled', label: 'Rolled', options: [{ value: 'none', label: 'Never rolled' }, { value: 'few', label: 'Rolled 1–2×' }, { value: 'many', label: 'Rolled 3+×' }], accessor: (w) => ((w.roll_count ?? 0) >= 3 ? 'many' : (w.roll_count ?? 0) > 0 ? 'few' : 'none') },
+  ]
+}
 
 const SORT_NEWEST = [{ id: 'number', desc: true }]
 const SYSTEM_VIEWS: TableView[] = [
@@ -97,6 +120,7 @@ interface WorkOrdersClientProps {
 }
 
 export default function WorkOrdersClient({ initialWorkOrders }: WorkOrdersClientProps) {
+  const filters = React.useMemo(() => [...FILTERS, ...peopleFilters(initialWorkOrders)], [initialWorkOrders])
   return (
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
@@ -113,7 +137,7 @@ export default function WorkOrdersClient({ initialWorkOrders }: WorkOrdersClient
           getRowId={(w) => w.id}
           getRowHref={(w) => `/work-orders/${w.id}`}
           searchPlaceholder="Search number, title, customer or address"
-          filters={FILTERS}
+          filters={filters}
           systemViews={SYSTEM_VIEWS}
           defaultViewId="sys:open"
           empty={{ title: 'No work orders match', body: 'Try another view, or create one.', action: <Button asChild><Link href="/work-orders/new">New work order</Link></Button> }}

@@ -12,6 +12,10 @@ import {
 import { tradeLabel, type OrgTradeOption, type Trade } from '@/lib/org-trades'
 import { formatPhone } from '@/lib/format'
 import { useOrgBrandNames, useRoofingWord } from '@/hooks/useOrgFeatures'
+import ScheduleFilterBar from '@/components/schedule/ScheduleFilterBar'
+import { RollChips } from '@/components/schedule/RollButton'
+import { EMPTY_FILTERS, filterOptions, filterWork, tradeColor, type ScheduleFilters } from '@/lib/schedule-filters'
+import { rolledLabel, type RollReason } from '@/lib/work-order-rolls'
 
 /* ------------------------------------------------------------------------ *
  * API contract (GET /api/ops/install-schedule, POST .../assign, .../unassign)
@@ -42,6 +46,9 @@ interface ScheduledJob {
   status: string
   job_status: string
   total_squares: number | null
+  /** Times this crew's day was pushed to a later one (only when the company uses rolling). */
+  roll_count?: number
+  can_roll?: boolean
 }
 
 /** A trade on an open job with no date yet. `id` is the trade's work order id. */
@@ -63,6 +70,8 @@ interface InstallScheduleResponse {
   unscheduled: UnscheduledJob[]
   /** The company's trades (labels). */
   orgTrades?: OrgTradeOption[]
+  /** The company runs service plans: "Not ready — roll" is offered. */
+  rollEnabled?: boolean
 }
 
 type CalendarSyncResult = 'synced' | 'no_token' | 'failed'
@@ -333,14 +342,38 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
   const rw = useRoofingWord()
   const brandNames = useOrgBrandNames()
   const [windowStart, setWindowStart] = useState<string>(() => startOfWeekISO(todayISO()))
-  const [subs, setSubs] = useState<ScheduleSub[]>([])
-  const [scheduled, setScheduled] = useState<ScheduledJob[]>([])
-  const [unscheduled, setUnscheduled] = useState<UnscheduledJob[]>([])
+  const [allSubs, setSubs] = useState<ScheduleSub[]>([])
+  const [allScheduled, setScheduled] = useState<ScheduledJob[]>([])
+  const [allUnscheduled, setUnscheduled] = useState<UnscheduledJob[]>([])
+  const [rollEnabled, setRollEnabled] = useState(false)
+  const [rolling, setRolling] = useState<ScheduledJob | null>(null)
+  const [rollBusy, setRollBusy] = useState(false)
+  const [filters, setFilters] = useState<ScheduleFilters>(EMPTY_FILTERS)
   const [orgTrades, setOrgTrades] = useState<OrgTradeOption[]>([])
   const labelOf = (trade: Trade) => tradeLabel(trade, orgTrades)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadTick, setReloadTick] = useState(0)
+
+  // The shared filter bar narrows the board: crew rows, scheduled chips and the to-be-scheduled queue (the queue ignores the crew
+  // filter — an unscheduled trade has no crew yet).
+  const filterRow = (j: ScheduledJob | UnscheduledJob) => ({
+    j,
+    trade: j.trade as string,
+    crewId: 'assigned_sub_id' in j ? j.assigned_sub_id : null,
+    crewName: 'assigned_sub_id' in j ? (allSubs.find((s) => s.id === j.assigned_sub_id)?.company_name ?? null) : null,
+    techId: null,
+    customerId: null,
+    customerName: j.customer_name,
+    text: [j.job_number, j.customer_name, j.address_text, labelOf(j.trade), 'assigned_sub_id' in j ? allSubs.find((s) => s.id === j.assigned_sub_id)?.company_name : ''].filter(Boolean).join(' '),
+  })
+  const scheduled = useMemo(() => filterWork(allScheduled.map(filterRow), filters).map((r) => r.j as ScheduledJob), [allScheduled, filters, allSubs, orgTrades]) // eslint-disable-line react-hooks/exhaustive-deps
+  const unscheduled = useMemo(() => filterWork(allUnscheduled.map(filterRow), { ...filters, crew: '' }).map((r) => r.j as UnscheduledJob), [allUnscheduled, filters, orgTrades]) // eslint-disable-line react-hooks/exhaustive-deps
+  const subs = useMemo(() => {
+    const picked = filters.crew.split(',').filter(Boolean)
+    return picked.length ? allSubs.filter((s) => picked.includes(s.id)) : allSubs
+  }, [allSubs, filters.crew])
+  const filterOpts = useMemo(() => ({ ...filterOptions([...allScheduled, ...allUnscheduled].map(filterRow)), crews: allSubs.map((s) => ({ value: s.id, label: s.company_name })) }), [allScheduled, allUnscheduled, allSubs, orgTrades]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [placingJobId, setPlacingJobId] = useState<string | null>(null)
   const [placingInstallDays, setPlacingInstallDays] = useState<InstallDays>(1)
@@ -389,6 +422,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
         setScheduled(Array.isArray(data?.scheduled) ? data.scheduled : [])
         setUnscheduled(Array.isArray(data?.unscheduled) ? data.unscheduled : [])
         setOrgTrades(Array.isArray(data?.orgTrades) ? data.orgTrades : [])
+        setRollEnabled(Boolean(data?.rollEnabled))
       })
       .catch((err) => {
         if (cancelled) return
@@ -666,6 +700,23 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
     e.dataTransfer.setData('application/json', JSON.stringify(payload))
   }
 
+  /** "Not ready — roll": the next working day for this crew, through the one schedule writer (the server picks the day). */
+  async function rollJob(job: ScheduledJob, reason: RollReason | null) {
+    setRollBusy(true)
+    try {
+      const res = await fetch(`/api/ops/work-orders/${job.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ reason, from: job.scheduled_date }) })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error((body && body.error) || 'Could not roll')
+      pushToast(`${labelOf(job.trade)} ${job.job_number} rolled to the next working day.`, 'success')
+      setRolling(null)
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Could not roll', 'error')
+    } finally {
+      setRollBusy(false)
+      setReloadTick((t) => t + 1)
+    }
+  }
+
   async function unassignJob(job: ScheduledJob, subName: string) {
     const ok = window.confirm(
       `Remove ${labelOf(job.trade)} for ${job.job_number}${job.customer_name ? ` — ${job.customer_name}` : ''} from ${subName}'s schedule?\n\nThis un-schedules that crew and emails ${subName} that the date was removed.`
@@ -774,6 +825,22 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
             >
               Retry
             </button>
+          </div>
+        )}
+
+        {/* The filter bar is a Precision (service plans) feature: other companies' Board stays exactly as it was. */}
+        {rollEnabled && (
+          <div className="mb-4">
+            <ScheduleFilterBar
+              value={filters}
+              onChange={setFilters}
+              options={filterOpts}
+              trades={orgTrades.map((t) => ({ slug: t.slug, label: t.label, color: tradeColor(t.slug, orgTrades), active: t.active }))}
+              show={{ tech: false }}
+              viewsKey="sched_board"
+              total={allScheduled.length + allUnscheduled.length}
+              shown={scheduled.length + unscheduled.length}
+            />
           </div>
         )}
 
@@ -1090,8 +1157,24 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                         <span className="truncate text-[10px] text-[#2c2c2a]">
                                           <span className="font-semibold">{labelOf(job.trade)}</span>
                                           {shortCustomerName(job.customer_name) ? ` · ${shortCustomerName(job.customer_name)}` : ''}
+                                          {rollEnabled && rolledLabel(job.roll_count) ? ` · ${rolledLabel(job.roll_count)}` : ''}
                                         </span>
                                       </Link>
+                                      {rollEnabled && !done && job.can_roll && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            setRolling(job)
+                                          }}
+                                          className="absolute right-10 top-1/2 flex min-h-tap min-w-tap -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[#9a3412] opacity-0 shadow-sm transition-opacity hover:bg-white focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                          aria-label={`Not ready — roll ${labelOf(job.trade)} ${job.job_number}`}
+                                          title="Not ready — roll to the next working day"
+                                        >
+                                          ↷
+                                        </button>
+                                      )}
                                       {!done && (
                                       <button
                                         type="button"
@@ -1229,6 +1312,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                               {job.customer_name ? ` · ${job.customer_name}` : ''}
                                               {job.install_days !== 1 ? ` · ${formatInstallDays(job.install_days)}` : ''}
                                               {job.status === 'completed' ? ' ✓' : ''}
+                                              {rollEnabled && rolledLabel(job.roll_count) ? ` · ${rolledLabel(job.roll_count)}` : ''}
                                               {rsvpGlyph && (
                                                 <span
                                                   aria-hidden="true"
@@ -1238,6 +1322,19 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                                 </span>
                                               )}
                                             </Link>
+                                            {rollEnabled && job.can_roll && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  setRolling(job)
+                                                }}
+                                                className="flex min-h-tap min-w-tap shrink-0 items-center justify-center text-[#9a3412]"
+                                                aria-label={`Not ready — roll ${labelOf(job.trade)} ${job.job_number}`}
+                                              >
+                                                ↷
+                                              </button>
+                                            )}
                                             {job.status !== 'completed' && (
                                               <button
                                                 type="button"
@@ -1270,6 +1367,21 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
           </div>
         </div>
       </div>
+
+      {rolling && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:px-4" role="dialog" aria-modal="true" aria-labelledby="roll-heading">
+          <div className="max-h-[100dvh] w-full overflow-y-auto rounded-t-lg border border-[#e5e3dc] bg-white p-4 shadow-xl sm:max-w-md sm:rounded-lg">
+            <p id="roll-heading" className="mb-1 text-base font-semibold text-[#2c2c2a]">
+              Not ready — roll {labelOf(rolling.trade)} · {rolling.job_number}
+            </p>
+            <p className="mb-3 text-sm text-[#2c2c2a]">Moves to the crew&apos;s next working day. Why?</p>
+            <RollChips busy={rollBusy} onPick={(r) => void rollJob(rolling, r)} />
+            <button type="button" onClick={() => setRolling(null)} className="mt-3 min-h-[44px] w-full rounded-md border border-[#c9c7c0] bg-white px-3 text-sm font-medium text-[#2c2c2a]">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {pendingConfirm && (
         <div

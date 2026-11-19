@@ -8,6 +8,11 @@ import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { installDaysOrDefault } from '@/lib/job-trades'
 import { loadOrgTrades, sortTrades, tradeOptions, type Trade } from '@/lib/org-trades'
 import { ensureJobTrades } from '@/lib/job-trades-db'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { loadWorkOrderRollCounts } from '@/lib/work-order-moves-db'
+import { canRollTrade } from '@/lib/work-order-rolls'
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import { ymdInZone } from '@/lib/service-plans'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
@@ -185,6 +190,11 @@ export async function GET(request: Request) {
   await enrichOpsJobsWithMeasureSoldSquaresFallback(adminClient, orgId, jobs)
   const jobById = new Map(jobs.map((j) => [j.id, j]))
 
+  // "Not ready — roll" (and its count) is for companies that run service plans; the Board is unchanged for the rest.
+  const rollEnabled = await isOrgFeatureOn(orgId, 'servicePlans')
+  const todayYmd = rollEnabled ? ymdInZone(new Date(), await loadOrgTimeZone(adminClient, orgId)) : ''
+  const rolls = rollEnabled ? await loadWorkOrderRollCounts(adminClient, orgId, scheduledTrades.map((t) => t.id)) : new Map<string, number>()
+
   const scheduled = scheduledTrades.flatMap((t) => {
     const job = jobById.get(t.job_id)
     if (!job || job.cancelled_at) return []
@@ -203,6 +213,9 @@ export async function GET(request: Request) {
         status: t.status,
         job_status: job.status,
         total_squares: t.trade === 'roofing' ? job.sold_squares ?? null : null,
+        roll_count: rolls.get(t.id) ?? 0,
+        // Day 2+ of a multi-day crew is not rolled (the office moves it).
+        can_roll: rollEnabled && canRollTrade(t, todayYmd),
       },
     ]
   })
@@ -226,5 +239,5 @@ export async function GET(request: Request) {
     ]
   })
 
-  return NextResponse.json({ subs: subsRes.data ?? [], scheduled, unscheduled, orgTrades: tradeOptions(orgTrades) })
+  return NextResponse.json({ subs: subsRes.data ?? [], scheduled, unscheduled, orgTrades: tradeOptions(orgTrades), rollEnabled })
 }

@@ -91,6 +91,7 @@ export default async function CrewDayPage({ params }: { params: { token: string 
       clock={clock && clock.people.length > 0 ? clock : null}
       visits={visits.map((v) => ({
         id: v.id,
+        scheduledDate: v.scheduledDate,
         planName: v.step !== SERVICE_STEP && v.stepLabel ? `${v.stepLabel} — ${v.planName}` : v.planName,
         resultOptions: v.resultOptions,
         address: v.address,
@@ -105,6 +106,7 @@ export default async function CrewDayPage({ params }: { params: { token: string 
         officeNotes: v.status === 'scheduled' ? v.officeNotes : null,
         checklist: v.checklist,
         money: money[v.id] ?? null,
+        rolls: v.rolls,
       }))}
     />
   )

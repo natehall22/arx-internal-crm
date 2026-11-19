@@ -114,7 +114,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
     view: 'rpt_visits', dateColumn: 'visit_date', dateColumnIsDay: true, ownerColumn: null,
     columns: [
       c('visit_date', 'Day', 'date'), c('status', 'Status'), c('is_done', 'Done', 'bool'), c('is_skipped', 'Skipped', 'bool'), c('skip_reason', 'Skip reason'),
-      c('trade', 'Trade'), c('crew', 'Crew'), c('plan', 'Plan'), c('customer', 'Customer'), c('is_billed', 'Billed', 'bool'),
+      c('trade', 'Trade'), c('crew', 'Crew'), c('plan', 'Plan'), c('customer', 'Customer'), c('is_billed', 'Billed', 'bool'), c('rolls', 'Times rolled', 'number'),
     ],
   },
   time: {

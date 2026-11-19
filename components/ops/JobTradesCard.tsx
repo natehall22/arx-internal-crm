@@ -8,6 +8,9 @@ import { beforeYouText, type BeforeYouLine } from '@/lib/before-you'
 import { formatInstallDays, formatWallClock12h } from '@/lib/job-trades'
 import { tradeLabel, type OrgTradeOption, type Trade } from '@/lib/org-trades'
 import PhoneLink from '@/components/PhoneLink'
+import MoveHistory from '@/components/schedule/MoveHistory'
+import RollButton, { type RollOutcome } from '@/components/schedule/RollButton'
+import type { RollReason } from '@/lib/work-order-rolls'
 
 /** A row returned by GET /api/ops/jobs/[id]/trades, plus `label` (the company's name for the trade). */
 export interface JobTradeView {
@@ -29,6 +32,10 @@ export interface JobTradeView {
   crew_link_url: string | null
   /** The crews ahead of this one on the same property (property tools on only). */
   before_you?: BeforeYouLine[]
+  /** Times this crew's day was pushed to a later one (0 when never, or the company doesn't use rolling). */
+  roll_count?: number
+  /** Server says this trade may be rolled (scheduled, and not day 2+ of a multi-day crew). */
+  can_roll?: boolean
 }
 
 interface SubContractor {
@@ -65,6 +72,7 @@ function formatTradeDate(iso: string): string {
 export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTradesChange }: Props) {
   const [trades, setTrades] = useState<JobTradeView[]>([])
   const [canEdit, setCanEdit] = useState(false)
+  const [rollEnabled, setRollEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [subs, setSubs] = useState<SubContractor[]>([])
@@ -89,6 +97,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
         setOrgTrades(options)
         setTrades(list)
         setCanEdit(Boolean(data?.canEdit))
+        setRollEnabled(Boolean(data?.rollEnabled))
         setLoadError(null)
         onTradesChange?.(list, changed)
       } catch (e) {
@@ -153,6 +162,15 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
     } finally {
       setBusyId(null)
     }
+  }
+
+  /** "Not ready — roll": the next working day for this crew (the server picks it), through the one schedule writer. */
+  async function roll(t: JobTradeView, reason: RollReason | null): Promise<RollOutcome> {
+    const res = await fetch(`/api/ops/work-orders/${t.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, from: t.scheduled_date }) }).catch(() => null)
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; to?: string }
+    if (!res || !res.ok || !out.to) return { ok: false, error: out.error || 'Could not roll' }
+    await load(true)
+    return { ok: true, to: out.to }
   }
 
   async function unschedule(t: JobTradeView) {
@@ -291,6 +309,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
                     {t.calendar_sync_error && (
                       <p className="mt-0.5 text-xs font-medium text-[#9a3412]">Calendar invite failed — reschedule to retry</p>
                     )}
+                    {rollEnabled && (t.roll_count ?? 0) > 0 ? <MoveHistory workOrderId={t.id} rolls={t.roll_count ?? 0} className="mt-1 block" /> : null}
                     {t.scheduled_date && (
                       <p className={`mt-0.5 text-xs ${requiredDone === 4 ? 'text-emerald-800' : 'text-[#57574f]'}`}>
                         Photos {requiredDone}/4{t.photo_count > requiredDone ? ` · ${t.photo_count} total` : ''}
@@ -334,6 +353,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
                         Copy crew photo link
                       </button>
                     )}
+                    {rollEnabled && !done && t.can_roll && t.scheduled_date ? <RollButton compact onRoll={(r) => roll(t, r)} /> : null}
                     {done && (
                       <button
                         type="button"

@@ -6,6 +6,7 @@ import { SERVICE_PLANS_NOT_READY, createOneOffVisit, crewDayLinkSubIds, ensureSe
 import { addDaysYmd, daysBetweenYmd, isYmd, ymdInZone } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 import { loadCrewIncentivesState, loadVisitMarks } from '@/lib/crew-incentives-db'
+import { loadOrgTrades, tradeOptions } from '@/lib/org-trades'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,6 +52,8 @@ export async function GET(request: Request) {
     hasMore: page.hasMore,
     offset,
     canEdit: ctx.access.edit,
+    /** The company's trades (the trade chips on the filter bar). */
+    orgTrades: tradeOptions(await loadOrgTrades(ctx.admin, ctx.orgId)),
     // Phone only for editors (they send the crew its link by text).
     crews: ((subs.data ?? []) as Array<{ id: string; company_name: string | null; phone: string | null }>).map((s) => ({ id: s.id, name: s.company_name ?? 'Crew', hasPhoneLink: linked.has(s.id), phone: ctx.access.edit ? s.phone : null })),
   })

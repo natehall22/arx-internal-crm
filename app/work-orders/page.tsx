@@ -1,7 +1,11 @@
 export const dynamic = 'force-dynamic'
 
+import type { ComponentProps } from 'react'
+
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { loadWorkOrderRollCounts } from '@/lib/work-order-moves-db'
 import WorkOrdersClient from './WorkOrdersClient'
 
 export default async function WorkOrdersPage() {
@@ -22,5 +26,8 @@ export default async function WorkOrdersPage() {
     .is('trade', null)
     .order('created_at', { ascending: false })
 
-  return <WorkOrdersClient initialWorkOrders={workOrders || []} />
+  // "Rolled N×" is derived from the move log (the log has no browser policies, so it is read here with the service client).
+  const list = (workOrders || []) as unknown as Array<{ id: string }>
+  const rolls = await loadWorkOrderRollCounts(createServiceClient(), profile.org_id, list.map((w) => w.id))
+  return <WorkOrdersClient initialWorkOrders={list.map((w) => ({ ...w, roll_count: rolls.get(w.id) ?? 0 })) as unknown as ComponentProps<typeof WorkOrdersClient>['initialWorkOrders']} />
 }

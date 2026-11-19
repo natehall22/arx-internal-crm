@@ -760,7 +760,7 @@ export const HARNESS_CREW_DAY = [
 
 /** A grading project stop on a clocking crew's day (lib/crew-day-projects.ts): job work order, not a service visit. */
 export const HARNESS_CREW_DAY_PROJECTS = [
-  { id: 'wo-grade-1', jobNumber: '26-0141', tradeLabel: 'Grading', address: '412 Pasture Ln, Crawfordville, FL 32327', lat: 30.18, lng: -84.4, status: 'scheduled', photoLinkPath: '/crew/harness-grading-token-aaaaaaaa', dayNumber: 2, dayCount: 2, lot: 'Lot 14 · Oak Ridge', before: [{ trade: 'tractor', label: 'Tractor work', done: true, date: '2026-11-12' }, { trade: 'sod', label: 'Sod', done: false, date: null }] },
+  { id: 'wo-grade-1', jobNumber: '26-0141', tradeLabel: 'Grading', address: '412 Pasture Ln, Crawfordville, FL 32327', lat: 30.18, lng: -84.4, status: 'scheduled', photoLinkPath: '/crew/harness-grading-token-aaaaaaaa', dayNumber: 2, dayCount: 2, lot: 'Lot 14 · Oak Ridge', scheduledDate: '2026-11-09', before: [{ trade: 'tractor', label: 'Tractor work', done: true, date: '2026-11-12' }, { trade: 'sod', label: 'Sod', done: false, date: null }] },
 ]
 
 /** Crew day with the v2 pieces: office notes, a checklist (one unchecked) and money owed (card payment ready). */
@@ -1184,3 +1184,19 @@ export const HARNESS_CATEGORIES = [
   { slug: 'commercial', label: 'Commercial', sort: 20, active: true },
   { slug: 'new_build', label: 'New build', sort: 30, active: true },
 ]
+
+const workItem = (o: Record<string, unknown>) => ({ endDate: o.date, time: null, subtitle: '2410 Crawfordville Hwy', crewId: 'sub-1', crewName: 'Green Team', techId: null, techName: null, customerId: 'c1', customerName: 'Pat Lee', community: null, status: 'scheduled', rolls: 0, text: 'Pat Lee', ...o })
+export const HARNESS_ALL_WORK = {
+  today: '2026-11-10',
+  from: '2026-10-26',
+  to: '2026-12-06',
+  myCrewIds: [],
+  appointments: true,
+  trades: [{ slug: 'lawn', label: 'Lawn care', active: true }, { slug: 'grading', label: 'Grading', active: true }, { slug: 'softwash', label: 'Soft wash', active: true }],
+  items: [
+    workItem({ key: 'visit:v1', kind: 'visit', type: 'visit', date: '2026-11-10', title: 'Weekly mowing', trade: 'lawn', href: '/ops/schedule' }),
+    workItem({ key: 'visit:v2', kind: 'visit', type: 'visit', date: '2026-11-10', title: 'Biweekly mowing', trade: 'lawn', crewId: 'sub-2', crewName: 'Blue Team', customerName: 'Sam Roe', rolls: 2, href: '/ops/schedule' }),
+    workItem({ key: 'wo:w1', kind: 'install', type: 'job', date: '2026-11-10', endDate: '2026-11-11', title: 'Grading · 26-0201', trade: 'grading', customerName: 'Builder Co', href: '/ops/jobs/j1#job-trades' }),
+    workItem({ key: 'appt:a1', kind: 'appointment', type: 'appointment', date: '2026-11-12', time: '10:00', title: 'Inspection', trade: null, crewId: null, crewName: null, techId: 'u9', techName: 'Dana Closer', href: '/appointments?view=calendar' }),
+  ],
+}

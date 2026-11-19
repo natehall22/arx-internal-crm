@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
 import { bulkShiftVisits, previewBulkShift } from '@/lib/service-plans-db'
 import { parseBulkShift } from '@/lib/service-plans'
+import { parseRollReason } from '@/lib/work-order-rolls'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export const dynamic = 'force-dynamic'
@@ -26,7 +27,9 @@ export async function POST(request: Request) {
   const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
   if (b.preview === true) return NextResponse.json({ preview: await previewBulkShift(ctx.admin, ctx.orgId, shift) })
   const expectKey = typeof b.expectKey === 'string' && b.expectKey ? b.expectKey : undefined
-  const res = await bulkShiftVisits(ctx.admin, ctx.orgId, shift, { expectKey })
+  const reason = parseRollReason(b.reason)
+  if (reason && typeof reason === 'object') return NextResponse.json(reason, { status: 400 })
+  const res = await bulkShiftVisits(ctx.admin, ctx.orgId, shift, { expectKey, userId: ctx.userId, ...(reason ? { reason } : {}) })
   if ('error' in res) return NextResponse.json({ error: res.error }, { status: res.status })
   return NextResponse.json({ moved: res.moved })
 }
