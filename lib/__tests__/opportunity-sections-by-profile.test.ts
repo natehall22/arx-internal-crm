@@ -60,17 +60,17 @@ describe('roof-only sections follow the profile', () => {
   })
 })
 
-describe('Referral Partners follows the profile (v7 intent)', () => {
-  it('lawn hides the page; roofing keeps it', () => {
-    expect(INDUSTRY_PROFILES.lawn_landscape.nav.hidden).toContain('/referral-partners')
-    expect(pageHidden(clientOrgProfile(lawn), '/referral-partners')).toBe(true)
+describe('Referral Partners follows the profile (shown for lawn again, Nathan 2026-11-19)', () => {
+  it('lawn and roofing both keep the page; the switch is still the profile', () => {
+    expect(INDUSTRY_PROFILES.lawn_landscape.nav.hidden).not.toContain('/referral-partners')
+    expect(pageHidden(clientOrgProfile(lawn), '/referral-partners')).toBe(false)
     expect(pageHidden(clientOrgProfile(roof), '/referral-partners')).toBe(false)
     expect(pageHidden(null, '/referral-partners')).toBe(false)
   })
 
   const hrefs = (c: NavContext) => visibleNav(c).sections.flatMap((s) => (s.children.length ? s.children.map((x) => x.href) : [s.href]))
-  it('nav: not under Pipeline for lawn, still there for roofing', () => {
-    expect(hrefs(ctx({ features: lawnFeatures, profile: clientOrgProfile(lawn) }))).not.toContain('/referral-partners')
+  it('nav: there for lawn and roofing', () => {
+    expect(hrefs(ctx({ features: lawnFeatures, profile: clientOrgProfile(lawn) }))).toContain('/referral-partners')
     expect(hrefs(ctx({ features: roofFeatures, profile: clientOrgProfile(roof) }))).toContain('/referral-partners')
     expect(hrefs(ctx({}))).toContain('/referral-partners')
   })
