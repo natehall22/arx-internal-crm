@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { loadCrewProjectStops } from '@/lib/crew-day-projects'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { ymdInZone } from '@/lib/service-plans'
 import { activeCrewDay } from '@/lib/service-plans-access'
 import { loadCrewVisit } from '@/lib/service-plans-db'
@@ -20,6 +21,8 @@ export async function POST(request: Request, { params }: { params: { token: stri
   const admin = createServiceClient()
   const crew = await activeCrewDay(admin, params.token)
   if (!crew) return NextResponse.json({ error: 'This link is no longer active — ask the office for a new one.' }, { status: 404 })
+  const off = await orgFeatureOffResponse(crew.orgId, 'servicePlans')
+  if (off) return off
   const body = (await request.json().catch(() => null)) as { id?: unknown; reason?: unknown; from?: unknown } | null
   const id = typeof body?.id === 'string' ? body.id : ''
   if (!id) return NextResponse.json({ error: 'Pick the stop' }, { status: 400 })

@@ -93,7 +93,7 @@ const doc = (over: Partial<BatchDocument> = {}): BatchDocument => ({
   batch: { id: 'b1', number: 'B-0003', sentAt: null, sentToEmail: null, publicNote: null, createdAt: '2026-11-18T00:00:00Z' },
   lines: [
     { invoiceId: 'i1', invoiceNumber: 'INV-1', jobId: 'j1', jobNumber: '26-0001', address: '220 Oak Ln', lot: '14', community: 'Oak Ridge', customerPo: 'PO-9', amountCents: 150000, paidCents: 0 },
-    { invoiceId: 'i2', invoiceNumber: 'INV-2', jobId: 'j2', jobNumber: '26-0002', address: '222 Oak Ln', lot: '15', community: 'Oak Ridge', customerPo: null, amountCents: 250000, paidCents: 0, rollCount: 12 },
+    { invoiceId: 'i2', invoiceNumber: 'INV-2', jobId: 'j2', jobNumber: '26-0002', address: '222 Oak Ln', lot: '15', community: 'Oak Ridge', customerPo: null, amountCents: 250000, paidCents: 0 },
   ],
   totalCents: 400000, paidCents: 0, balanceCents: 400000, development: 'Oak Ridge', taxCents: 0, dueAt: '2026-12-18', issued: false,
   billTo: { name: 'Acme Homes', email: 'ap@acme.example' },
@@ -102,11 +102,11 @@ const doc = (over: Partial<BatchDocument> = {}): BatchDocument => ({
 })
 
 describe('the master invoice email', () => {
-  it('one block per house with job, lot / address, PO and amount; one total; the development in the header; roll count only when supplied', () => {
+  it('one block per house with job, lot / address, PO and amount; one total; the development in the header', () => {
     const m = renderBatchEmail(doc(), { portalUrl: 'https://x.example/portal/batches/b1' })
     expect(m.subject).toBe('Invoice B-0003 — Oak Ridge from Precision Maintenance LLC')
     expect(m.text).toContain('Lot 14 · 220 Oak Ln (job 26-0001, PO PO-9): $1,500.00')
-    expect(m.text).toContain('(job 26-0002, 12 rolls)')
+    expect(m.text).toContain('(job 26-0002)')
     expect(m.html).toContain('due Fri, Dec 18, 2026') // a readable date, never 2026-12-18
     expect(m.text).not.toContain('(job 26-0001, PO PO-9, ')
     expect(m.text).toContain('Total $4,000.00')
@@ -289,8 +289,8 @@ describe('send', () => {
     expect(sendMail).toHaveBeenCalledTimes(2)
   })
   it('the document carries the PO, lot, development and totals of the houses', async () => {
-    const d = await loadBatchDocument(batchDb().client as never, ORG, batchRow, { rollCounts: new Map([['j2', 12]]) })
-    expect(d).toMatchObject({ totalCents: 400000, development: 'Oak Ridge', lines: [{ customerPo: 'PO-9', lot: '14' }, { rollCount: 12 }] })
+    const d = await loadBatchDocument(batchDb().client as never, ORG, batchRow)
+    expect(d).toMatchObject({ totalCents: 400000, development: 'Oak Ridge', lines: [{ customerPo: 'PO-9', lot: '14' }, { customerPo: null, lot: '14' }] })
   })
 })
 

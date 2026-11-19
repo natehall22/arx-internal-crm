@@ -59,14 +59,6 @@ export type MoveHistoryEntry = {
   at: string
 }
 
-/** "Rolled 3× (site not ready 2, builder asked 1)" for invoicing; null when never rolled. Reasons with no count are left out. */
-export function rolledSummary(r: { total: number; byReason: Partial<Record<RollReason | 'none', number>> } | null | undefined): string | null {
-  if (!r || r.total <= 0) return null
-  const parts = ROLL_REASONS.filter((k) => (r.byReason[k] ?? 0) > 0).map((k) => `${ROLL_REASON_LABELS[k].toLowerCase()} ${r.byReason[k]}`)
-  if ((r.byReason.none ?? 0) > 0) parts.push(`no reason ${r.byReason.none}`)
-  return `Rolled ${r.total}×${parts.length ? ` (${parts.join(', ')})` : ''}`
-}
-
 /**
  * May this trade work order be rolled now? Scheduled, with a day, and not a multi-day crew already past its first day
  * (rolling the START of a crew that is on day 2+ would move work already done).

@@ -2,9 +2,9 @@
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { fakeServicePlanRpc } from '@/lib/test-helpers/fake-service-plan-rpc'
 import { applyVisitAction, bulkShiftVisits, createServicePlan, loadVisits } from '@/lib/service-plans-db'
-import { loadRollCounts, loadWorkOrderRollCounts, recordWorkOrderMoves } from '@/lib/work-order-moves-db'
+import { loadWorkOrderRollCounts, recordWorkOrderMoves } from '@/lib/work-order-moves-db'
 import { rollWorkOrder } from '@/lib/work-order-roll'
-import { canRollTrade, parseRollReason, rolledLabel, rolledSummary, rollTargetDay } from '@/lib/work-order-rolls'
+import { canRollTrade, parseRollReason, rolledLabel, rollTargetDay } from '@/lib/work-order-rolls'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_York' }))
@@ -156,7 +156,7 @@ describe('rollWorkOrder — a service visit', () => {
     expect(v.scheduled_date).toBe('2026-11-16')
   })
 
-  it('loaders: only roll moves count; per job with reasons (for invoicing)', async () => {
+  it('loader: only roll moves count, per work order', async () => {
     const db = seed()
     db.tables.work_orders.push(
       { id: 'a', org_id: ORG, job_id: 'j1' },
@@ -167,10 +167,6 @@ describe('rollWorkOrder — a service visit', () => {
     const mv = (work_order_id: string, kind: string, reason: string | null, org_id = ORG) => ({ org_id, work_order_id, kind, reason, from_date: '2026-11-10', to_date: '2026-11-11' })
     db.tables.work_order_moves.push(mv('a', 'roll', 'site_not_ready'), mv('a', 'roll', 'site_not_ready'), mv('b', 'roll', 'builder_asked'), mv('b', 'shift', 'weather'), mv('c', 'move', null), mv('d', 'roll', 'other', 'org-b'))
     expect(Array.from(await loadWorkOrderRollCounts(db.client, ORG, ['a', 'b', 'c', 'd']))).toEqual([['a', 2], ['b', 1]])
-    const jobs = await loadRollCounts(db.client, ORG, ['j1', 'j2'])
-    expect(Array.from(jobs)).toEqual([['j1', { total: 3, byReason: { site_not_ready: 2, builder_asked: 1 }, workOrders: 2 }]])
-    expect(rolledSummary(jobs.get('j1'))).toBe('Rolled 3× (site not ready 2, builder asked 1)')
-    expect(rolledSummary(undefined)).toBeNull()
   })
 })
 

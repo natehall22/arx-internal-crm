@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import PrintButton from '@/app/invoices/[invoiceId]/print/PrintButton'
 import { requireAuth } from '@/lib/auth'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
-import { batchLineWhere, rollLabel } from '@/lib/invoice-batch'
+import { batchLineWhere } from '@/lib/invoice-batch'
 import { findBatch, loadBatchDocument } from '@/lib/invoice-batch-db'
 import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
 import { requireOrgFeaturePage } from '@/lib/org-features-server'
@@ -60,7 +60,7 @@ export default async function PrintBatchPage({ params }: { params: { batchId: st
               {doc.lines.map((l) => (
                 <tr key={l.invoiceId}>
                   <td style={td}>{l.jobNumber}</td>
-                  <td style={td}>{batchLineWhere(l, showCommunity)}{rollLabel(l.rollCount) ? ` · ${rollLabel(l.rollCount)}` : ''}</td>
+                  <td style={td}>{batchLineWhere(l, showCommunity)}</td>
                   <td style={td}>{l.customerPo ?? ''}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{formatCurrency(l.amountCents)}</td>
                 </tr>

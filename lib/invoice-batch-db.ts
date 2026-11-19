@@ -216,8 +216,8 @@ async function memberInvoices(admin: SupabaseClient, orgId: string, batchId: str
   return asRows<JobInvoice>(data)
 }
 
-/** The whole document. `opts.rollCounts` (job id → rolls) is the seam for a roll-count loader: shown on a line only when present. */
-export async function loadBatchDocument(admin: SupabaseClient, orgId: string, batch: BatchRow, opts: { rollCounts?: ReadonlyMap<string, number> } = {}): Promise<BatchDocument | null> {
+/** The whole document. */
+export async function loadBatchDocument(admin: SupabaseClient, orgId: string, batch: BatchRow): Promise<BatchDocument | null> {
   const invoices = await memberInvoices(admin, orgId, batch.id)
   if (invoices.length === 0) return null
   const db = orgDb(admin, orgId)
@@ -232,7 +232,6 @@ export async function loadBatchDocument(admin: SupabaseClient, orgId: string, ba
   const lines: BatchLine[] = invoices.map((i) => {
     const j = i.job_id ? jobs.get(i.job_id) : undefined
     const d = j?.property_id ? dev.byProperty.get(j.property_id) : undefined
-    const roll = i.job_id ? opts.rollCounts?.get(i.job_id) : undefined
     return {
       invoiceId: i.id,
       invoiceNumber: i.invoice_number,
@@ -244,7 +243,6 @@ export async function loadBatchDocument(admin: SupabaseClient, orgId: string, ba
       customerPo: i.customer_po?.trim() || null,
       amountCents: i.total_cents,
       paidCents: invoicePaidCents(i, applied.get(i.id) ?? 0),
-      ...(roll != null ? { rollCount: roll } : {}),
     }
   })
   const t = batchTotals(lines)

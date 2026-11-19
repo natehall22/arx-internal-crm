@@ -509,7 +509,7 @@ const HOME_BUILDER_SCHEDULE_TEMPLATES: readonly ScheduleTemplate[] = [
 const homeBuilder: IndustryProfile = {
   id: 'home_builder',
   proposalContent: HOME_BUILDER_PROPOSAL_CONTENT,
-  version: 4,
+  version: 5,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
   features: { canvassing: false, incentives: false, projectTools: true, customerPortal: true, masterInvoices: true, ...ROOF_ONLY_OFF },

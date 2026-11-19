@@ -28,7 +28,7 @@ export function nextBatchSeq(existing: ReadonlyArray<string>): number {
   return max + 1
 }
 
-/** One house on the master invoice. `rollCount` is an optional seam: shown only when a loader supplies it. */
+/** One house on the master invoice. */
 export type BatchLine = {
   invoiceId: string
   invoiceNumber: string
@@ -42,12 +42,6 @@ export type BatchLine = {
   /** The job invoice's total (sales tax included): what this house owes on the master invoice. */
   amountCents: number
   paidCents: number
-  rollCount?: number | null
-}
-
-/** "12 rolls" — only when there is more than one (one roll says nothing); '' otherwise. */
-export function rollLabel(n: number | null | undefined): string {
-  return typeof n === 'number' && n > 1 ? `${n} rolls` : ''
 }
 
 /** The development named in the header: only when every house (that has one) is in the SAME development. */
@@ -102,7 +96,7 @@ export function renderBatchEmail(doc: BatchDocument, opts: { portalUrl?: string 
   const tdr = `${td}text-align:right;white-space:nowrap;`
   const rows = doc.lines
     .map((l) => {
-      const sub = [`Job ${l.jobNumber}`, l.customerPo ? `PO ${l.customerPo}` : '', rollLabel(l.rollCount)].filter(Boolean).join(' · ')
+      const sub = [`Job ${l.jobNumber}`, l.customerPo ? `PO ${l.customerPo}` : ''].filter(Boolean).join(' · ')
       return `<tr><td style="${td}">${escapeHtml(batchLineWhere(l, showCommunity) || `Job ${l.jobNumber}`)}<div style="font-size:12px;color:#4b5563;">${escapeHtml(sub)}</div></td><td style="${tdr}">${escapeHtml(money(l.amountCents))}</td></tr>`
     })
     .join('')
@@ -137,7 +131,7 @@ export function renderBatchEmail(doc: BatchDocument, opts: { portalUrl?: string 
     `Invoice ${doc.batch.number}${doc.development ? ` — ${doc.development}` : ''}`,
     billTo.name,
     '',
-    ...doc.lines.map((l) => `${batchLineWhere(l, showCommunity) || `Job ${l.jobNumber}`} (job ${l.jobNumber}${l.customerPo ? `, PO ${l.customerPo}` : ''}${rollLabel(l.rollCount) ? `, ${rollLabel(l.rollCount)}` : ''}): ${money(l.amountCents)}`),
+    ...doc.lines.map((l) => `${batchLineWhere(l, showCommunity) || `Job ${l.jobNumber}`} (job ${l.jobNumber}${l.customerPo ? `, PO ${l.customerPo}` : ''}): ${money(l.amountCents)}`),
     '',
     `Total ${money(doc.totalCents)}`,
     `Balance due ${doc.balanceCents <= 0 ? 'Paid — thank you' : money(doc.balanceCents)}`,

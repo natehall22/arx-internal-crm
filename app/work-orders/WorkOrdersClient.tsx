@@ -78,6 +78,7 @@ const COLUMNS: ColumnDef<WorkOrder, any>[] = [
   },
   { id: 'assigned', header: 'Assigned to', accessorFn: (w) => assignee(w) || 'Unassigned' },
   { id: 'scheduled', header: 'Scheduled', accessorFn: (w) => w.scheduled_date ?? '', cell: (c) => (c.getValue() ? formatDate(c.getValue()) : 'Not scheduled') },
+  // Shown only when service plans are on (WorkOrdersClient drops it otherwise).
   { id: 'rolled', header: 'Rolled', accessorFn: (w) => w.roll_count ?? 0, cell: (c) => rolledLabel(c.getValue()) ?? '—', meta: { mobile: 'hide' } },
   { accessorKey: 'priority', header: 'Priority', cell: (c) => PRIORITY_LABEL[c.getValue()] ?? c.getValue(), meta: { mobile: 'hide' } },
   { accessorKey: 'status', header: 'Status', cell: (c) => <StatusPill domain="work_order" value={c.getValue()} /> },
@@ -91,7 +92,7 @@ const FILTERS: TableFilter<WorkOrder>[] = [
 ]
 
 /** Tech / Crew / Customer dropdowns, with the options the list actually has. */
-function peopleFilters(rows: WorkOrder[]): TableFilter<WorkOrder>[] {
+function peopleFilters(rows: WorkOrder[], rollsEnabled: boolean): TableFilter<WorkOrder>[] {
   const opts = (pick: (w: WorkOrder) => { id: string; name: string } | null) => {
     const m = new Map<string, string>()
     for (const w of rows) {
@@ -104,7 +105,7 @@ function peopleFilters(rows: WorkOrder[]): TableFilter<WorkOrder>[] {
     { key: 'tech', label: 'Tech', options: opts((w) => (w.assigned_user ? { id: w.assigned_user.id, name: w.assigned_user.full_name } : null)), accessor: (w) => w.assigned_user?.id },
     { key: 'crew', label: 'Crew', options: opts((w) => (w.assigned_sub ? { id: w.assigned_sub.id, name: w.assigned_sub.company_name } : null)), accessor: (w) => w.assigned_sub?.id },
     { key: 'customer', label: 'Customer', options: opts((w) => (w.customers ? { id: w.customers.id, name: w.customers.name } : null)), accessor: (w) => w.customers?.id },
-    { key: 'rolled', label: 'Rolled', options: [{ value: 'none', label: 'Never rolled' }, { value: 'few', label: 'Rolled 1–2×' }, { value: 'many', label: 'Rolled 3+×' }], accessor: (w) => ((w.roll_count ?? 0) >= 3 ? 'many' : (w.roll_count ?? 0) > 0 ? 'few' : 'none') },
+    ...(rollsEnabled ? [{ key: 'rolled', label: 'Rolled', options: [{ value: 'none', label: 'Never rolled' }, { value: 'few', label: 'Rolled 1–2×' }, { value: 'many', label: 'Rolled 3+×' }], accessor: (w) => ((w.roll_count ?? 0) >= 3 ? 'many' : (w.roll_count ?? 0) > 0 ? 'few' : 'none') } as TableFilter<WorkOrder>] : []),
   ]
 }
 
@@ -117,10 +118,13 @@ const SYSTEM_VIEWS: TableView[] = [
 
 interface WorkOrdersClientProps {
   initialWorkOrders: WorkOrder[]
+  /** Service plans on: the Rolled column and filter are shown. */
+  rollsEnabled?: boolean
 }
 
-export default function WorkOrdersClient({ initialWorkOrders }: WorkOrdersClientProps) {
-  const filters = React.useMemo(() => [...FILTERS, ...peopleFilters(initialWorkOrders)], [initialWorkOrders])
+export default function WorkOrdersClient({ initialWorkOrders, rollsEnabled = false }: WorkOrdersClientProps) {
+  const filters = React.useMemo(() => [...FILTERS, ...peopleFilters(initialWorkOrders, rollsEnabled)], [initialWorkOrders, rollsEnabled])
+  const columns = React.useMemo(() => (rollsEnabled ? COLUMNS : COLUMNS.filter((c) => c.id !== 'rolled')), [rollsEnabled])
   return (
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
@@ -131,7 +135,7 @@ export default function WorkOrdersClient({ initialWorkOrders }: WorkOrdersClient
           actions={<Button asChild><Link href="/work-orders/new">New work order</Link></Button>}
         />
         <DataTable
-          columns={COLUMNS}
+          columns={columns}
           data={initialWorkOrders}
           tableKey="work_orders"
           getRowId={(w) => w.id}

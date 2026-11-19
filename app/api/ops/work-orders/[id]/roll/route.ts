@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { rollWorkOrder } from '@/lib/work-order-roll'
@@ -22,6 +23,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
   const admin = createServiceClient()
   const profile = ctx.profile as { id: string; org_id: string; role: string; custom_role_id?: string | null }
+  const off = await orgFeatureOffResponse(profile.org_id, 'servicePlans')
+  if (off) return off
   const { canEditJobs } = await resolveOpsAccess(admin, ctx.authUser.id, profile)
   if (!canEditJobs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const body = (await request.json().catch(() => null)) as { reason?: unknown; from?: unknown } | null

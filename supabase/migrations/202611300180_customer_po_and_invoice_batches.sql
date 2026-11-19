@@ -21,6 +21,7 @@
 --   DROP COLUMN customer_po; DROP TABLE public.invoice_batches; ALTER TABLE public.production_jobs DROP COLUMN customer_po.
 
 BEGIN;
+SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE public.production_jobs
   ADD COLUMN IF NOT EXISTS customer_po text NULL CHECK (customer_po IS NULL OR char_length(customer_po) <= 60);

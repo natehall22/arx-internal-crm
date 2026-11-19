@@ -10,6 +10,7 @@ import {
   INVOICE_KIND_LABELS,
   DepositInfo,
 } from '@/lib/types/invoices'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { formatCurrency } from '@/lib/job-payments'
 import SendInvoiceModal from './SendInvoiceModal'
 import ApplyPaymentModal from './ApplyPaymentModal'
@@ -43,6 +44,9 @@ export default function JobInvoicesCard({
   onInvoiceChange 
 }: JobInvoicesCardProps) {
   const router = useRouter()
+  const features = useOrgFeatures()
+  // The customer PO is a builder / master-invoice field: roofing screens stay exactly as they were.
+  const showPo = features.masterInvoices || features.projectTools
   const [invoices, setInvoices] = useState<JobInvoice[]>([])
   const [depositInfo, setDepositInfo] = useState<DepositInfo>(defaultDepositInfo)
   const [loading, setLoading] = useState(true)
@@ -181,6 +185,7 @@ export default function JobInvoicesCard({
         </button>
       </div>
 
+      {showPo ? (
       <div className="mb-4 flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1 text-sm font-semibold text-gray-900">
           Customer PO #
@@ -196,6 +201,7 @@ export default function JobInvoicesCard({
           <button onClick={savePo} className="min-h-[44px] rounded bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700">Save PO</button>
         ) : null}
       </div>
+      ) : null}
 
       {loading ? (
         <div className="text-center py-4 text-gray-900 text-sm">Loading...</div>

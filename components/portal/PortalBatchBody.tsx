@@ -1,7 +1,7 @@
 import { PrintButton } from '@/components/portal/PortalActions'
 import { money, shortDate } from '@/components/portal/format'
 import { Panel } from '@/components/portal/PortalShell'
-import { batchLineWhere, rollLabel, type BatchDocument } from '@/lib/invoice-batch'
+import { batchLineWhere, type BatchDocument } from '@/lib/invoice-batch'
 
 /** The master invoice as the customer reads it (portal + the mobile harness): every house, one total. Never notes or costs. */
 export default function PortalBatchBody({ doc }: { doc: BatchDocument }) {
@@ -15,7 +15,7 @@ export default function PortalBatchBody({ doc }: { doc: BatchDocument }) {
           <li key={l.invoiceId} className="flex justify-between gap-3 py-2 text-base">
             <span className="min-w-0 break-words">
               <span className="block font-semibold">{batchLineWhere(l, showCommunity) || `Job ${l.jobNumber}`}</span>
-              <span className="block">Job {l.jobNumber}{l.customerPo ? ` · PO ${l.customerPo}` : ''}{rollLabel(l.rollCount) ? ` · ${rollLabel(l.rollCount)}` : ''}</span>
+              <span className="block">Job {l.jobNumber}{l.customerPo ? ` · PO ${l.customerPo}` : ''}</span>
             </span>
             <span className="font-semibold tabular-nums">{money(l.amountCents)}</span>
           </li>

@@ -46,7 +46,9 @@ export const fakeServicePlanRpc = {
       for (const id of g.ids) {
         const w = wo.find((x) => x.id === id)
         if (!w || w.org_id !== args.p_org_id || w.service_plan_id !== args.p_plan_id || w.status !== 'scheduled') continue
+        const crewChanged = 'assigned_sub_id' in g.set && (g.set.assigned_sub_id ?? null) !== (w.assigned_sub_id ?? null)
         Object.assign(w, g.set)
+        if (crewChanged) w.stop_order = null
         updated++
         if (g.charge) {
           const c = charges.find((x) => x.work_order_id === id)

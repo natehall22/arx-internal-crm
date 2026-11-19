@@ -4,7 +4,7 @@ import * as React from 'react'
 
 import { Badge, Button, Dialog, DialogContent, DialogFooter, Field, Input, Select, toast } from '@/components/ui'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
-import { batchLineWhere, rollLabel, type BatchDocument } from '@/lib/invoice-batch'
+import { batchLineWhere, type BatchDocument } from '@/lib/invoice-batch'
 import { CUSTOMER_PAYMENT_METHOD_LABELS, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from '@/lib/invoice-lines'
 import { formatCurrency } from '@/lib/job-payments'
 
@@ -101,7 +101,7 @@ export default function BatchDetailDialog({ batchId, onClose }: { batchId: strin
                 <li key={l.invoiceId} className="flex items-start justify-between gap-3 px-3 py-2 text-ui-base text-ink">
                   <span className="min-w-0">
                     <span className="block break-words font-semibold">{batchLineWhere(l, showCommunity) || `Job ${l.jobNumber}`}</span>
-                    <span className="block text-ui-sm">Job {l.jobNumber}{l.customerPo ? ` · PO ${l.customerPo}` : ''}{rollLabel(l.rollCount) ? ` · ${rollLabel(l.rollCount)}` : ''} · {l.invoiceNumber}</span>
+                    <span className="block text-ui-sm">Job {l.jobNumber}{l.customerPo ? ` · PO ${l.customerPo}` : ''} · {l.invoiceNumber}</span>
                   </span>
                   <span className="font-semibold tabular-nums">{formatCurrency(l.amountCents)}</span>
                 </li>

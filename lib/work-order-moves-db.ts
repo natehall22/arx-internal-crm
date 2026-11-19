@@ -2,8 +2,6 @@
  * Work-order move log (server). "Rolled N×" is DERIVED from it (kind 'roll' rows), never stored. Written by the EXISTING move writers (applyVisitAction 'move', bulkShiftVisits,
  * the install-schedule assign writer) through `recordWorkOrderMoves` — there is no other writer. Table and function:
  * migration 202611300170. Until it is applied everything here degrades to "no counts, nothing logged" and never fails a move.
- *
- * `loadRollCounts(jobIds)` is the read the builder invoicing uses: per job, how many times its work was rolled.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -77,46 +75,6 @@ async function loadRollMoves(admin: SupabaseClient, orgId: string, workOrderIds:
 export async function loadWorkOrderRollCounts(admin: SupabaseClient, orgId: string, workOrderIds: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>()
   for (const r of await loadRollMoves(admin, orgId, Array.from(new Set(workOrderIds.filter(Boolean))))) out.set(r.work_order_id, (out.get(r.work_order_id) ?? 0) + 1)
-  return out
-}
-
-export type JobRollCount = {
-  /** Times the job's work was rolled with "Not ready". */
-  total: number
-  /** By reason ('none' = no reason given). */
-  byReason: Partial<Record<RollReason | 'none', number>>
-  /** Work orders rolled at least once. */
-  workOrders: number
-}
-
-/**
- * For invoicing and reports: per production job, how many times its trade work was rolled (the "Not ready" button only) and
- * why — e.g. "Rolled 3× (site not ready 2, builder asked 1)" via `rolledSummary`. Jobs never rolled are absent from the map.
- */
-export async function loadRollCounts(admin: SupabaseClient, orgId: string, jobIds: string[]): Promise<Map<string, JobRollCount>> {
-  const out = new Map<string, JobRollCount>()
-  const ids = Array.from(new Set(jobIds.filter(Boolean)))
-  const db = orgDb(admin, orgId)
-  const jobOf = new Map<string, string>()
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await db.from('work_orders').select('id, job_id').in('job_id', ids.slice(i, i + CHUNK))
-    if (error) return out
-    for (const r of (data ?? []) as Array<{ id: string; job_id: string | null }>) if (r.job_id) jobOf.set(r.id, r.job_id)
-  }
-  const seen = new Set<string>()
-  for (const m of await loadRollMoves(admin, orgId, Array.from(jobOf.keys()))) {
-    const jobId = jobOf.get(m.work_order_id)
-    if (!jobId) continue
-    const cur = out.get(jobId) ?? { total: 0, byReason: {}, workOrders: 0 }
-    const key = isRollReason(m.reason) ? m.reason : 'none'
-    cur.total += 1
-    cur.byReason[key] = (cur.byReason[key] ?? 0) + 1
-    if (!seen.has(m.work_order_id)) {
-      seen.add(m.work_order_id)
-      cur.workOrders += 1
-    }
-    out.set(jobId, cur)
-  }
   return out
 }
 
