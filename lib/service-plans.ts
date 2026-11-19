@@ -581,7 +581,11 @@ export type VisitAction =
   | { action: 'move'; date: string; reason?: RollReason }
   | { action: 'assign'; subId: string | null }
 
-/** Which actions a crew phone link may take (never reopen / move / reassign — those are the office's). */
+/**
+ * Which actions a crew phone link may take through the generic visit route (never reopen / move / reassign — those are the office's).
+ * The one date change a crew has is the "Not ready — roll" button: its own route (/api/crew/day/[token]/roll) takes the NEXT working
+ * day only (lib/work-order-roll.ts), never a date the crew picks.
+ */
 export const CREW_VISIT_ACTIONS: readonly VisitAction['action'][] = ['done', 'skip']
 
 export function parseVisitAction(body: unknown): VisitAction | { error: string } {

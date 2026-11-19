@@ -29,7 +29,7 @@ function cleanState(raw: unknown) {
   const filters: Record<string, string> = {}
   if (s.filters && typeof s.filters === 'object' && !Array.isArray(s.filters)) {
     for (const [k, v] of Object.entries(s.filters as Record<string, unknown>).slice(0, 12)) {
-      if (/^[a-z0-9_.-]{1,40}$/i.test(k) && typeof v === 'string' && v.length <= 100) filters[k] = v
+      if (/^[a-z0-9_.-]{1,40}$/i.test(k) && typeof v === 'string' && v.length <= 600) filters[k] = v
     }
   }
   return { sorting, search, filters }

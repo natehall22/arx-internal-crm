@@ -1,6 +1,6 @@
 /**
- * Work-order move log + roll counter (server). Written by the EXISTING move writers (applyVisitAction 'move', bulkShiftVisits,
- * the install-schedule assign writer) through `recordWorkOrderMoves` — there is no other writer. Table, column and function:
+ * Work-order move log (server). "Rolled N×" is DERIVED from it (kind 'roll' rows), never stored. Written by the EXISTING move writers (applyVisitAction 'move', bulkShiftVisits,
+ * the install-schedule assign writer) through `recordWorkOrderMoves` — there is no other writer. Table and function:
  * migration 202611300170. Until it is applied everything here degrades to "no counts, nothing logged" and never fails a move.
  *
  * `loadRollCounts(jobIds)` is the read the builder invoicing uses: per job, how many times its work was rolled.
@@ -23,7 +23,7 @@ export type WorkOrderMove = {
 const CHUNK = 200
 
 /**
- * Log date changes and bump roll_count (only for a move to a LATER day). Best effort by design: the date write already
+ * Log date changes. Call it only AFTER the date write actually changed the row. Best effort by design: the date write already
  * stood, so a missing table / function (migration not applied) or a transient error is logged, never thrown.
  */
 export async function recordWorkOrderMoves(admin: SupabaseClient, orgId: string, moves: WorkOrderMove[]): Promise<void> {
@@ -49,37 +49,73 @@ export async function recordWorkOrderMoves(admin: SupabaseClient, orgId: string,
   }
 }
 
-/** work order id → times rolled (only ids with a count > 0). Empty when the column is not there yet. */
-export async function loadWorkOrderRollCounts(admin: SupabaseClient, orgId: string, workOrderIds: string[]): Promise<Map<string, number>> {
-  const out = new Map<string, number>()
-  const ids = Array.from(new Set(workOrderIds.filter(Boolean)))
+const ROLL_PAGE = 1000
+
+/** Roll moves (kind 'roll') of some work orders: the ONLY thing "Rolled N×" counts. Empty when the table is not there yet. */
+async function loadRollMoves(admin: SupabaseClient, orgId: string, workOrderIds: string[]): Promise<Array<{ work_order_id: string; reason: string | null }>> {
+  const out: Array<{ work_order_id: string; reason: string | null }> = []
   const db = orgDb(admin, orgId)
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await db.from('work_orders').select('id, roll_count').in('id', ids.slice(i, i + CHUNK))
-    if (error) return out
-    for (const r of (data ?? []) as Array<{ id: string; roll_count: number | null }>) if ((r.roll_count ?? 0) > 0) out.set(r.id, r.roll_count as number)
+  for (let i = 0; i < workOrderIds.length; i += CHUNK) {
+    for (let from = 0; ; from += ROLL_PAGE) {
+      const { data, error } = await db
+        .from('work_order_moves')
+        .select('work_order_id, reason')
+        .eq('kind', 'roll')
+        .in('work_order_id', workOrderIds.slice(i, i + CHUNK))
+        .order('id')
+        .range(from, from + ROLL_PAGE - 1)
+      if (error) return out
+      const rows = (data ?? []) as Array<{ work_order_id: string; reason: string | null }>
+      out.push(...rows)
+      if (rows.length < ROLL_PAGE) break
+    }
   }
   return out
 }
 
-export type JobRollCount = { rolls: number; workOrders: number }
+/** work order id → times rolled with the "Not ready" button (only ids with a count > 0). Rain shifts and office moves are not counted. */
+export async function loadWorkOrderRollCounts(admin: SupabaseClient, orgId: string, workOrderIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  for (const r of await loadRollMoves(admin, orgId, Array.from(new Set(workOrderIds.filter(Boolean))))) out.set(r.work_order_id, (out.get(r.work_order_id) ?? 0) + 1)
+  return out
+}
+
+export type JobRollCount = {
+  /** Times the job's work was rolled with "Not ready". */
+  total: number
+  /** By reason ('none' = no reason given). */
+  byReason: Partial<Record<RollReason | 'none', number>>
+  /** Work orders rolled at least once. */
+  workOrders: number
+}
 
 /**
- * For invoicing and reports: per production job, the total times its trade work was rolled and how many work orders were
- * rolled at least once. Jobs never rolled are absent from the map.
+ * For invoicing and reports: per production job, how many times its trade work was rolled (the "Not ready" button only) and
+ * why — e.g. "Rolled 3× (site not ready 2, builder asked 1)" via `rolledSummary`. Jobs never rolled are absent from the map.
  */
 export async function loadRollCounts(admin: SupabaseClient, orgId: string, jobIds: string[]): Promise<Map<string, JobRollCount>> {
   const out = new Map<string, JobRollCount>()
   const ids = Array.from(new Set(jobIds.filter(Boolean)))
   const db = orgDb(admin, orgId)
+  const jobOf = new Map<string, string>()
   for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await db.from('work_orders').select('job_id, roll_count').in('job_id', ids.slice(i, i + CHUNK)).gt('roll_count', 0)
+    const { data, error } = await db.from('work_orders').select('id, job_id').in('job_id', ids.slice(i, i + CHUNK))
     if (error) return out
-    for (const r of (data ?? []) as Array<{ job_id: string | null; roll_count: number | null }>) {
-      if (!r.job_id || !r.roll_count) continue
-      const cur = out.get(r.job_id) ?? { rolls: 0, workOrders: 0 }
-      out.set(r.job_id, { rolls: cur.rolls + r.roll_count, workOrders: cur.workOrders + 1 })
+    for (const r of (data ?? []) as Array<{ id: string; job_id: string | null }>) if (r.job_id) jobOf.set(r.id, r.job_id)
+  }
+  const seen = new Set<string>()
+  for (const m of await loadRollMoves(admin, orgId, Array.from(jobOf.keys()))) {
+    const jobId = jobOf.get(m.work_order_id)
+    if (!jobId) continue
+    const cur = out.get(jobId) ?? { total: 0, byReason: {}, workOrders: 0 }
+    const key = isRollReason(m.reason) ? m.reason : 'none'
+    cur.total += 1
+    cur.byReason[key] = (cur.byReason[key] ?? 0) + 1
+    if (!seen.has(m.work_order_id)) {
+      seen.add(m.work_order_id)
+      cur.workOrders += 1
     }
+    out.set(jobId, cur)
   }
   return out
 }

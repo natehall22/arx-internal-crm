@@ -1729,7 +1729,7 @@ export async function applyVisitAction(
   visitId: string,
   a: VisitAction,
   by: { userId: string | null; subId: string | null },
-  opts: { onlySubId?: string; now?: Date; /** 'roll' when the one-tap button made this move (default: a plain move). */ moveKind?: MoveKind } = {}
+  opts: { onlySubId?: string; now?: Date; /** 'roll' when the one-tap button made this move (default: a plain move). */ moveKind?: MoveKind; /** One-tap roll: only act while the visit is still scheduled on this day, else 409 "Already moved". */ expectFrom?: string } = {}
 ): Promise<VisitActResult> {
   const db = orgDb(admin, orgId)
   let q = db
@@ -1766,6 +1766,7 @@ export async function applyVisitAction(
     const plan = await loadServicePlan(admin, orgId, r.service_plan_id)
     results = stepResultKeys(plan?.steps ?? [], r.visit_step)
   }
+  if (a.action === 'move' && opts.expectFrom && (r.status !== 'scheduled' || r.scheduled_date !== opts.expectFrom)) return { ok: false, status: 409, error: 'Already moved' }
   if (a.action === 'move') {
     const st = (await oneOffMoveStates(admin, orgId, [r.service_plan_id])).get(r.service_plan_id)
     if (st?.kind === 'blocked') return { ok: false, status: 409, error: `This one-time plan is ${st.status} — resume or re-open the plan before moving its visit` }
@@ -1779,7 +1780,9 @@ export async function applyVisitAction(
     const list = visitChecklist(plan?.service_lines ?? [], readChecklist(r.visit_checklist), true)
     if (list.length > 0) (patch as Record<string, unknown>).visit_checklist = list
   }
-  const { data: updated, error } = await db.from('work_orders').update(patch).eq('id', visitId).eq('updated_at', r.updated_at).select('id')
+  let upd = db.from('work_orders').update(patch).eq('id', visitId).eq('updated_at', r.updated_at)
+  if (a.action === 'move' && opts.expectFrom) upd = upd.eq('scheduled_date', opts.expectFrom).eq('status', 'scheduled')
+  const { data: updated, error } = await upd.select('id')
   // 23514 from work_orders_billed_visit_guard: billed between the check above and this save (same lock as billing).
   if (error) return { ok: false, status: 409, error: error.code === '23514' ? 'This visit is on an invoice — void that invoice first' : 'Could not save' }
   if (!updated || updated.length === 0)
@@ -1937,7 +1940,7 @@ export async function bulkShiftVisits(
   admin: SupabaseClient,
   orgId: string,
   s: BulkShift,
-  opts: { expectKey?: string; now?: Date; /** Who pressed the button, and why (default: weather) — for the move log. */ userId?: string | null; reason?: RollReason | null } = {}
+  opts: { expectKey?: string; now?: Date; /** Who pressed the button, and optionally why — for the move log (a rain shift is history, never counted as a roll). */ userId?: string | null; reason?: RollReason | null } = {}
 ): Promise<{ moved: number } | { error: string; status: 409 | 400 }> {
   const db = orgDb(admin, orgId)
   const now = opts.now ?? new Date()
@@ -1968,7 +1971,7 @@ export async function bulkShiftVisits(
       await recordWorkOrderMoves(
         admin,
         orgId,
-        ((done ?? []) as Array<{ id: string }>).map((d) => ({ workOrderId: d.id, from: day, to, reason: opts.reason === undefined ? 'weather' : opts.reason, kind: 'shift' as const, userId: opts.userId ?? null }))
+        ((done ?? []) as Array<{ id: string }>).map((d) => ({ workOrderId: d.id, from: day, to, reason: opts.reason ?? null, kind: 'shift' as const, userId: opts.userId ?? null }))
       )
       syncErrors.push(...(await syncOneOffPlansAfterMove(admin, orgId, ((done ?? []) as Array<{ id: string }>).map((d) => d.id))))
     }

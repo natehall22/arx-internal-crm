@@ -12,6 +12,7 @@ import { loadTradeWithJob, syncTradeCalendar } from '@/lib/job-trade-calendar'
 import { JOB_TRADE_COLUMNS, newCrewLinkToken, parseInstallDays, type JobTradeRow } from '@/lib/job-trades'
 import { syncJobScheduleFromTrades } from '@/lib/job-trades-db'
 import { markMaterialsOrdered } from '@/lib/job-status-events'
+import { writeJobNote } from '@/lib/threads/job-notes'
 import { refreshMaterialsOrderedFromSuppliers } from '@/lib/supplier-orders'
 import { recordWorkOrderMoves } from '@/lib/work-order-moves-db'
 import type { MoveKind, RollReason } from '@/lib/work-order-rolls'
@@ -26,6 +27,11 @@ export type AssignInput = {
   /** For the move log when the day changes. */
   reason?: RollReason | null
   kind?: MoveKind
+  /**
+   * Compare-and-set for one-tap rolls: the write only lands while the order is still scheduled on this day. A second tap, or an
+   * office move a moment earlier, then gets 409 "Already moved" instead of rolling twice.
+   */
+  expect?: { scheduledDate: string }
 }
 
 export type AssignCtx = {
@@ -81,20 +87,23 @@ export async function assignInstallTrade(adminClient: SupabaseClient, ctx: Assig
     updatePayload.crew_link_token = newCrewLinkToken()
   }
 
-  const { data: updated, error: updateError } = await adminClient
-    .from('work_orders')
-    .update(updatePayload)
-    .eq('id', trade.id)
-    .eq('org_id', orgId)
-    .select(JOB_TRADE_COLUMNS)
-    .single()
+  if (input.expect && (trade.scheduled_date !== input.expect.scheduledDate || trade.status !== 'scheduled')) {
+    return { status: 409, body: { error: 'Already moved' } }
+  }
+  let q = adminClient.from('work_orders').update(updatePayload).eq('id', trade.id).eq('org_id', orgId)
+  if (input.expect) q = q.eq('scheduled_date', input.expect.scheduledDate).eq('status', 'scheduled')
+  const { data: updated, error: updateError } = await q.select(JOB_TRADE_COLUMNS).maybeSingle()
 
-  if (updateError || !updated) {
+  if (updateError) {
     console.error('[install-schedule assign] update failed:', updateError)
     return { status: 500, body: { error: 'Failed to assign install' } }
   }
+  // Zero rows with a compare-and-set: someone else moved it between our read and write.
+  if (!updated) {
+    return input.expect ? { status: 409, body: { error: 'Already moved' } } : { status: 500, body: { error: 'Failed to assign install' } }
+  }
 
-  // An already-scheduled order that lands on another day is a move: log it and count the roll.
+  // An already-scheduled order that lands on another day is a move: log it (only now that the row really changed).
   if (trade.scheduled_date && trade.scheduled_date !== effectiveDate) {
     await recordWorkOrderMoves(adminClient, orgId, [
       { workOrderId: trade.id, from: trade.scheduled_date, to: effectiveDate, reason: input.reason ?? null, kind: input.kind ?? 'move', userId: ctx.by?.userId ?? null, subId: ctx.by?.subId ?? null },
@@ -118,6 +127,12 @@ export async function assignInstallTrade(adminClient: SupabaseClient, ctx: Assig
     job,
     schedulingUserId: ctx.schedulingUserId,
   })
+
+  // A crew's phone roll has no staff connection to fall back on. If the company has no nominated account the invite could not be
+  // moved: say so on the job instead of leaving a silently wrong calendar.
+  if (input.kind === 'roll' && trade.install_google_event_id && sync.outcome !== 'synced') {
+    await writeJobNote(adminClient, { orgId, jobId: job.id, userId: ctx.by?.userId ?? null, body: 'Calendar invite still shows the old day', kind: 'system' }).catch(() => undefined)
+  }
 
   return {
     status: 200,

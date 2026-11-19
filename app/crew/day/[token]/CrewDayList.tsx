@@ -21,6 +21,8 @@ import type { CrewProjectStop } from '@/lib/crew-day-projects'
 
 export type CrewDayVisit = {
   id: string
+  /** The day it is booked on (a roll is compare-and-set against it). */
+  scheduledDate?: string
   planName: string
   address: string | null
   lat: number | null
@@ -228,8 +230,8 @@ export default function CrewDayList({
   }
 
   /** "Not ready — roll": the stop moves to the crew's next working day (server picks the day); the office sees the reason. */
-  async function rollStop(id: string, label: string, reason: RollReason | null): Promise<RollOutcome> {
-    const res = await fetch(`/api/crew/day/${token}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, reason }) }).catch(() => null)
+  async function rollStop(id: string, from: string | undefined, label: string, reason: RollReason | null): Promise<RollOutcome> {
+    const res = await fetch(`/api/crew/day/${token}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, from: from ?? today, reason }) }).catch(() => null)
     const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; to?: string }
     if (!res || !res.ok || !out.to) return { ok: false, error: out.error || 'Could not roll — try again' }
     setRolledAway((s) => new Set(s).add(id))
@@ -394,7 +396,7 @@ export default function CrewDayList({
                         </a>
                       ) : null}
                     </div>
-                    {p.status === 'scheduled' ? <RollButton className="mt-3" rolls={p.rolls ?? 0} onRoll={(r) => rollStop(p.id, `${p.tradeLabel}${p.jobNumber ? ` ${p.jobNumber}` : ''}`, r)} /> : null}
+                    {p.status === 'scheduled' && (p.dayNumber ?? 1) <= 1 ? <RollButton className="mt-3" rolls={p.rolls ?? 0} onRoll={(r) => rollStop(p.id, p.scheduledDate, `${p.tradeLabel}${p.jobNumber ? ` ${p.jobNumber}` : ''}`, r)} /> : null}
                   </li>
                 )
               })}
@@ -493,7 +495,7 @@ export default function CrewDayList({
                     </>
                   ) : null}
                 </div>
-                {v.status === 'scheduled' && confirmDone !== v.id && skipping?.id !== v.id ? <RollButton className="mt-3" rolls={v.rolls ?? 0} onRoll={(r) => rollStop(v.id, v.planName, r)} /> : null}
+                {v.status === 'scheduled' && confirmDone !== v.id && skipping?.id !== v.id ? <RollButton className="mt-3" rolls={v.rolls ?? 0} onRoll={(r) => rollStop(v.id, v.scheduledDate, v.planName, r)} /> : null}
                 {told[v.id] && !closed ? (
                   <p role="status" className="mt-2 text-base font-semibold">
                     {told[v.id]}

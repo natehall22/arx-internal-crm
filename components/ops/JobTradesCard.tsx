@@ -31,6 +31,8 @@ export interface JobTradeView {
   crew_link_url: string | null
   /** Times this crew's day was pushed to a later one (0 when never, or the company doesn't use rolling). */
   roll_count?: number
+  /** Server says this trade may be rolled (scheduled, and not day 2+ of a multi-day crew). */
+  can_roll?: boolean
 }
 
 interface SubContractor {
@@ -161,7 +163,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
 
   /** "Not ready — roll": the next working day for this crew (the server picks it), through the one schedule writer. */
   async function roll(t: JobTradeView, reason: RollReason | null): Promise<RollOutcome> {
-    const res = await fetch(`/api/ops/work-orders/${t.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }).catch(() => null)
+    const res = await fetch(`/api/ops/work-orders/${t.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, from: t.scheduled_date }) }).catch(() => null)
     const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; to?: string }
     if (!res || !res.ok || !out.to) return { ok: false, error: out.error || 'Could not roll' }
     await load(true)
@@ -342,7 +344,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
                         Copy crew photo link
                       </button>
                     )}
-                    {rollEnabled && !done && t.status === 'scheduled' && t.scheduled_date ? <RollButton compact onRoll={(r) => roll(t, r)} /> : null}
+                    {rollEnabled && !done && t.can_roll && t.scheduled_date ? <RollButton compact onRoll={(r) => roll(t, r)} /> : null}
                     {done && (
                       <button
                         type="button"

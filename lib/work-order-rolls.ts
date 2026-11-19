@@ -8,6 +8,7 @@
  * so a daylight-saving change cannot shift a roll.
  */
 import { addWorkdays, isWorkday, nextWorkdayOnOrAfter } from '@/lib/job-schedule'
+import { calendarDaySpan } from '@/lib/job-trades'
 
 export const ROLL_REASONS = ['site_not_ready', 'weather', 'builder_asked', 'other'] as const
 export type RollReason = (typeof ROLL_REASONS)[number]
@@ -56,4 +57,21 @@ export type MoveHistoryEntry = {
   kind: MoveKind
   by: string | null
   at: string
+}
+
+/** "Rolled 3× (site not ready 2, builder asked 1)" for invoicing; null when never rolled. Reasons with no count are left out. */
+export function rolledSummary(r: { total: number; byReason: Partial<Record<RollReason | 'none', number>> } | null | undefined): string | null {
+  if (!r || r.total <= 0) return null
+  const parts = ROLL_REASONS.filter((k) => (r.byReason[k] ?? 0) > 0).map((k) => `${ROLL_REASON_LABELS[k].toLowerCase()} ${r.byReason[k]}`)
+  if ((r.byReason.none ?? 0) > 0) parts.push(`no reason ${r.byReason.none}`)
+  return `Rolled ${r.total}×${parts.length ? ` (${parts.join(', ')})` : ''}`
+}
+
+/**
+ * May this trade work order be rolled now? Scheduled, with a day, and not a multi-day crew already past its first day
+ * (rolling the START of a crew that is on day 2+ would move work already done).
+ */
+export function canRollTrade(t: { status: string; scheduled_date: string | null; install_days: unknown }, today: string): boolean {
+  if (t.status !== 'scheduled' || !t.scheduled_date) return false
+  return !(calendarDaySpan(t.install_days) > 1 && t.scheduled_date < today)
 }

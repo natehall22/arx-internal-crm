@@ -4,7 +4,7 @@ import { fakeServicePlanRpc } from '@/lib/test-helpers/fake-service-plan-rpc'
 import { applyVisitAction, bulkShiftVisits, createServicePlan, loadVisits } from '@/lib/service-plans-db'
 import { loadRollCounts, loadWorkOrderRollCounts, recordWorkOrderMoves } from '@/lib/work-order-moves-db'
 import { rollWorkOrder } from '@/lib/work-order-roll'
-import { parseRollReason, rolledLabel, rollTargetDay } from '@/lib/work-order-rolls'
+import { canRollTrade, parseRollReason, rolledLabel, rolledSummary, rollTargetDay } from '@/lib/work-order-rolls'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_York' }))
@@ -46,7 +46,7 @@ describe('reasons and labels', () => {
 const ORG = 'org-a'
 const NOW = new Date('2026-11-10T15:00:00Z') // Tuesday 10:00 in New York
 
-/** Test-only stand-in for record_work_order_moves (202611300170): logs and bumps for a later-day move. */
+/** Test-only stand-in for record_work_order_moves (202611300170): logs each move (the log IS the roll counter). */
 const calls: Array<Record<string, unknown>> = []
 const recordRpc = (args: Record<string, unknown>, t: Record<string, Array<Record<string, unknown>>>) => {
   calls.push(args)
@@ -56,7 +56,6 @@ const recordRpc = (args: Record<string, unknown>, t: Record<string, Array<Record
     const w = wo.find((x) => x.id === m.work_order_id && x.org_id === args.p_org_id)
     if (!w) continue
     log.push({ org_id: args.p_org_id, ...m })
-    if (m.from_date && String(m.to_date) > String(m.from_date)) w.roll_count = ((w.roll_count as number) ?? 0) + 1
   }
   return log.length
 }
@@ -104,25 +103,26 @@ describe('the move writers log and count', () => {
     spy.mockRestore()
   })
 
-  it('applyVisitAction move logs the move with its reason and counts a later-day roll', async () => {
+  it('applyVisitAction move logs the move with its reason; an office move is history, not a roll', async () => {
     const { db, v } = await withVisit()
     const res = await applyVisitAction(db.client, ORG, String(v.id), { action: 'move', date: '2026-11-12', reason: 'weather' }, { userId: 'u1', subId: null }, { now: NOW })
     expect(res.ok).toBe(true)
     expect(db.tables.work_order_moves).toEqual([expect.objectContaining({ work_order_id: v.id, from_date: '2026-11-10', to_date: '2026-11-12', reason: 'weather', kind: 'move', moved_by: 'u1' })])
-    expect(v.roll_count).toBe(1)
-    // Pulling it EARLIER is logged but not a roll.
+    expect((await loadWorkOrderRollCounts(db.client, ORG, [String(v.id)])).size).toBe(0)
+    // Pulling it EARLIER is logged too; still not a roll.
     await applyVisitAction(db.client, ORG, String(v.id), { action: 'move', date: '2026-11-11' }, { userId: 'u1', subId: null }, { now: NOW })
     expect(db.tables.work_order_moves).toHaveLength(2)
-    expect(v.roll_count).toBe(1)
+    expect((await loadWorkOrderRollCounts(db.client, ORG, [String(v.id)])).size).toBe(0)
   })
 
-  it('bulkShiftVisits logs every visit it moves as a weather shift', async () => {
+  it('bulkShiftVisits logs every visit it moves as a shift (no reason unless sent), never counted as a roll', async () => {
     const { db, v } = await withVisit()
     const day = String(v.scheduled_date)
     const res = await bulkShiftVisits(db.client, ORG, { from: day, to: day, days: 1, subId: 'all' }, { now: NOW, userId: 'u1' })
     expect(res).toEqual({ moved: 1 })
-    expect(db.tables.work_order_moves).toEqual([expect.objectContaining({ work_order_id: v.id, kind: 'shift', reason: 'weather', moved_by: 'u1' })])
-    expect(v.roll_count).toBe(1)
+    expect(db.tables.work_order_moves).toEqual([expect.objectContaining({ work_order_id: v.id, kind: 'shift', reason: null, moved_by: 'u1' })])
+    expect((await loadWorkOrderRollCounts(db.client, ORG, [String(v.id)])).size).toBe(0)
+    expect(rolledLabel(0)).toBeNull()
   })
 })
 
@@ -131,7 +131,7 @@ describe('rollWorkOrder — a service visit', () => {
     const { db, v } = await withVisit()
     db.tables.work_orders.forEach((w) => w === v || (w.scheduled_date = '2027-01-01'))
     v.scheduled_date = '2026-11-13' // a Friday
-    const res = await rollWorkOrder(db.client, ORG, String(v.id), { reason: 'site_not_ready', by: { userId: 'u1', subId: null }, schedulingUserId: 'u1', now: NOW })
+    const res = await rollWorkOrder(db.client, ORG, String(v.id), { reason: 'site_not_ready', by: { userId: 'u1', subId: null }, schedulingUserId: 'u1', expectFrom: '2026-11-13', now: NOW })
     expect(res).toEqual({ ok: true, from: '2026-11-13', to: '2026-11-16', rolls: 1 })
     expect(v.scheduled_date).toBe('2026-11-16')
     expect(db.tables.work_order_moves).toEqual([expect.objectContaining({ reason: 'site_not_ready', kind: 'roll', from_date: '2026-11-13', to_date: '2026-11-16' })])
@@ -139,30 +139,56 @@ describe('rollWorkOrder — a service visit', () => {
 
   it('a crew can roll only its own visits, and only scheduled ones', async () => {
     const { db, v } = await withVisit()
-    const other = await rollWorkOrder(db.client, ORG, String(v.id), { reason: null, by: { userId: null, subId: 's2' }, schedulingUserId: '', onlySubId: 's2', now: NOW })
+    const other = await rollWorkOrder(db.client, ORG, String(v.id), { reason: null, by: { userId: null, subId: 's2' }, schedulingUserId: '', onlySubId: 's2', expectFrom: String(v.scheduled_date), now: NOW })
     expect(other).toMatchObject({ ok: false, status: 404 })
     v.status = 'completed'
-    expect(await rollWorkOrder(db.client, ORG, String(v.id), { reason: null, by: { userId: 'u1', subId: null }, schedulingUserId: 'u1', now: NOW })).toMatchObject({ ok: false, status: 409 })
-    expect(await rollWorkOrder(db.client, 'org-b', String(v.id), { reason: null, by: { userId: 'u1', subId: null }, schedulingUserId: 'u1', now: NOW })).toMatchObject({ ok: false, status: 404 })
+    expect(await rollWorkOrder(db.client, ORG, String(v.id), { reason: null, by: { userId: 'u1', subId: null }, schedulingUserId: 'u1', expectFrom: String(v.scheduled_date), now: NOW })).toMatchObject({ ok: false, status: 409 })
+    expect(await rollWorkOrder(db.client, 'org-b', String(v.id), { reason: null, by: { userId: 'u1', subId: null }, schedulingUserId: 'u1', expectFrom: String(v.scheduled_date), now: NOW })).toMatchObject({ ok: false, status: 404 })
   })
 
-  it('loaders: roll counts per work order and per job (for invoicing)', async () => {
+  it('a second tap (or an office move a moment earlier) is "Already moved": one roll, one log row', async () => {
+    const { db, v } = await withVisit()
+    v.scheduled_date = '2026-11-13'
+    const args = { reason: null, by: { userId: 'u1', subId: null }, schedulingUserId: 'u1', expectFrom: '2026-11-13', now: NOW } as const
+    expect(await rollWorkOrder(db.client, ORG, String(v.id), args)).toMatchObject({ ok: true, to: '2026-11-16' })
+    expect(await rollWorkOrder(db.client, ORG, String(v.id), args)).toEqual({ ok: false, status: 409, error: 'Already moved' })
+    expect(db.tables.work_order_moves).toHaveLength(1)
+    expect(v.scheduled_date).toBe('2026-11-16')
+  })
+
+  it('loaders: only roll moves count; per job with reasons (for invoicing)', async () => {
     const db = seed()
     db.tables.work_orders.push(
-      { id: 'a', org_id: ORG, job_id: 'j1', roll_count: 2 },
-      { id: 'b', org_id: ORG, job_id: 'j1', roll_count: 1 },
-      { id: 'c', org_id: ORG, job_id: 'j2', roll_count: 0 },
-      { id: 'd', org_id: 'org-b', job_id: 'j1', roll_count: 9 }
+      { id: 'a', org_id: ORG, job_id: 'j1' },
+      { id: 'b', org_id: ORG, job_id: 'j1' },
+      { id: 'c', org_id: ORG, job_id: 'j2' },
+      { id: 'd', org_id: 'org-b', job_id: 'j1' }
     )
+    const mv = (work_order_id: string, kind: string, reason: string | null, org_id = ORG) => ({ org_id, work_order_id, kind, reason, from_date: '2026-11-10', to_date: '2026-11-11' })
+    db.tables.work_order_moves.push(mv('a', 'roll', 'site_not_ready'), mv('a', 'roll', 'site_not_ready'), mv('b', 'roll', 'builder_asked'), mv('b', 'shift', 'weather'), mv('c', 'move', null), mv('d', 'roll', 'other', 'org-b'))
     expect(Array.from(await loadWorkOrderRollCounts(db.client, ORG, ['a', 'b', 'c', 'd']))).toEqual([['a', 2], ['b', 1]])
-    expect(Array.from(await loadRollCounts(db.client, ORG, ['j1', 'j2']))).toEqual([['j1', { rolls: 3, workOrders: 2 }]])
+    const jobs = await loadRollCounts(db.client, ORG, ['j1', 'j2'])
+    expect(Array.from(jobs)).toEqual([['j1', { total: 3, byReason: { site_not_ready: 2, builder_asked: 1 }, workOrders: 2 }]])
+    expect(rolledSummary(jobs.get('j1'))).toBe('Rolled 3× (site not ready 2, builder asked 1)')
+    expect(rolledSummary(undefined)).toBeNull()
+  })
+})
+
+describe('canRollTrade', () => {
+  const t = (over: Record<string, unknown>) => ({ status: 'scheduled', scheduled_date: '2026-11-10', install_days: 1, ...over })
+  it('allows a scheduled one-day or first-day order; hides day 2+ of a multi-day crew and unscheduled work', () => {
+    expect(canRollTrade(t({}), '2026-11-10')).toBe(true)
+    expect(canRollTrade(t({ install_days: 2 }), '2026-11-10')).toBe(true) // day 1
+    expect(canRollTrade(t({ install_days: 2, scheduled_date: '2026-11-09' }), '2026-11-10')).toBe(false) // day 2
+    expect(canRollTrade(t({ status: 'completed' }), '2026-11-10')).toBe(false)
+    expect(canRollTrade(t({ scheduled_date: null }), '2026-11-10')).toBe(false)
   })
 })
 
 describe('visits carry their roll count', () => {
   it('loadVisits shows rolls on each visit', async () => {
     const { db, v } = await withVisit()
-    v.roll_count = 3
+    db.tables.work_order_moves.push(...[1, 2, 3].map(() => ({ org_id: ORG, work_order_id: v.id, kind: 'roll', reason: null, from_date: '2026-11-10', to_date: '2026-11-11' })))
     const day = String(v.scheduled_date)
     const [first] = await loadVisits(db.client, ORG, { from: day, to: day, accessNotes: false })
     expect(first.rolls).toBe(3)

@@ -2,7 +2,7 @@
  * "All work" (server, read-only): everything on the calendar between two days, merged for the owner / office —
  *   install  trade work orders (work_orders.trade, by crew)      → type 'job'
  *   stage    planned job stages not yet booked to a crew         → type 'job'
- *   visit    service-plan visits (loadVisits)                    → type 'visit'
+ *   visit    service-plan visits (loadVisitsPage, first 1000)                    → type 'visit'
  *   appointment  sales inspections / closes (scheduled_appointments) → type 'appointment', ONLY when the viewer may see every
  *            appointment (resolveCanReassignAppointment, the permission the Appointments screen already uses).
  * Reuses the existing loaders; it writes nothing and carries no money. The viewer's gates are decided by the caller.
@@ -14,7 +14,7 @@ import { isYmd, stageEnd } from '@/lib/job-schedule'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { isMissingProjectToolsSchema } from '@/lib/project-tools/budget-db'
 import { addDaysYmd, daysBetweenYmd, SERVICE_STEP, ymdInZone } from '@/lib/service-plans'
-import { loadVisits } from '@/lib/service-plans-db'
+import { loadVisitsPage } from '@/lib/service-plans-db'
 import type { WorkFilterable, WorkType } from '@/lib/schedule-filters'
 import { orgDb } from '@/lib/supabase/org-db'
 import { loadWorkOrderRollCounts } from '@/lib/work-order-moves-db'
@@ -38,19 +38,31 @@ export type WorkItem = WorkFilterable & {
   rolls: number
 }
 
-export type AllWork = { items: WorkItem[]; trades: Array<{ slug: string; label: string; active: boolean }>; from: string; to: string }
+export type AllWork = {
+  items: WorkItem[]
+  trades: Array<{ slug: string; label: string; active: boolean }>
+  from: string
+  to: string
+  /** Sources that hit their limit (never a silent cut): the screen says "Showing first N — narrow the dates or filters". */
+  capped: Array<'crews' | 'visits' | 'stages' | 'appointments'>
+  /** The most items any one capped source returns. */
+  cap: number
+}
 
 export const ALL_WORK_MAX_DAYS = 62
 
 type Viewer = { visits: boolean; appointments: boolean; timeZone: string }
 
 const CAP = 2000
+/** One page of visits (loadVisitsPage's own maximum). */
+const VISIT_CAP = 1000
 
 export async function loadAllWork(admin: SupabaseClient, orgId: string, from: string, to: string, viewer: Viewer): Promise<AllWork> {
   if (!isYmd(from) || !isYmd(to) || to < from || daysBetweenYmd(from, to) > ALL_WORK_MAX_DAYS) throw new Error('Pick up to 9 weeks')
   const db = orgDb(admin, orgId)
   const orgTrades = await loadOrgTrades(admin, orgId)
   const items: WorkItem[] = []
+  const capped: AllWork['capped'] = []
 
   const [wos, visits, stages, appts, subs] = await Promise.all([
     db
@@ -63,17 +75,21 @@ export async function loadAllWork(admin: SupabaseClient, orgId: string, from: st
       .gte('scheduled_date', addDaysYmd(from, -1))
       .lte('scheduled_date', to)
       .order('scheduled_date')
-      .limit(CAP),
-    viewer.visits ? loadVisits(admin, orgId, { from, to, accessNotes: false }) : Promise.resolve([]),
-    db.from('job_stages').select('id, job_id, name, trade, work_order_id, start_date, workdays, done_at').gte('start_date', addDaysYmd(from, -60)).lte('start_date', to).limit(CAP),
-    viewer.appointments ? loadAppointments(admin, orgId, from, to, viewer.timeZone) : Promise.resolve([]),
+      .limit(CAP + 1),
+    viewer.visits ? loadVisitsPage(admin, orgId, { from, to, accessNotes: false, limit: VISIT_CAP }) : Promise.resolve({ visits: [] as Awaited<ReturnType<typeof loadVisitsPage>>['visits'], total: 0, hasMore: false }),
+    db.from('job_stages').select('id, job_id, name, trade, work_order_id, start_date, workdays, done_at').gte('start_date', addDaysYmd(from, -60)).lte('start_date', to).limit(CAP + 1),
+    viewer.appointments ? loadAppointments(admin, orgId, from, to, viewer.timeZone) : Promise.resolve({ items: [] as WorkItem[], capped: false }),
     db.from('sub_contractors').select('id, company_name'),
   ])
   if (wos.error) throw wos.error
   const subName = new Map(((subs.data ?? []) as Array<{ id: string; company_name: string | null }>).map((s) => [s.id, s.company_name ?? 'Crew']))
 
-  const stageRows = stages.error ? (isMissingProjectToolsSchema(stages.error) ? [] : (console.error('[all-work] stages failed', stages.error), [])) : ((stages.data ?? []) as Array<Record<string, unknown>>)
-  const woRows = (wos.data ?? []) as Array<{ id: string; job_id: string; trade: string; status: string; assigned_sub_id: string | null; scheduled_date: string | null; scheduled_time_start: string | null; install_days: unknown; work_order_number: string | null }>
+  const stageAll = stages.error ? (isMissingProjectToolsSchema(stages.error) ? [] : (console.error('[all-work] stages failed', stages.error), [])) : ((stages.data ?? []) as Array<Record<string, unknown>>)
+  if (stageAll.length > CAP) capped.push('stages')
+  const stageRows = stageAll.slice(0, CAP)
+  const woAll = (wos.data ?? []) as Array<{ id: string; job_id: string; trade: string; status: string; assigned_sub_id: string | null; scheduled_date: string | null; scheduled_time_start: string | null; install_days: unknown; work_order_number: string | null }>
+  if (woAll.length > CAP) capped.push('crews')
+  const woRows = woAll.slice(0, CAP)
   const bookedStageWo = new Set(stageRows.map((s) => s.work_order_id).filter((x): x is string => typeof x === 'string'))
 
   // Jobs behind the trade work orders and the stages (number, address, customer).
@@ -121,8 +137,9 @@ export async function loadAllWork(admin: SupabaseClient, orgId: string, from: st
     })
   }
 
-  const community = await loadCommunities(admin, orgId, visits.map((v) => v.propertyId))
-  for (const v of visits) {
+  const community = await loadCommunities(admin, orgId, visits.visits.map((v) => v.propertyId))
+  if (visits.hasMore) capped.push('visits')
+  for (const v of visits.visits) {
     if (v.status === 'cancelled') continue
     const what = v.step !== SERVICE_STEP && v.stepLabel ? `${v.stepLabel} — ${v.planName}` : v.planName
     const trade = v.trade || null
@@ -134,9 +151,10 @@ export async function loadAllWork(admin: SupabaseClient, orgId: string, from: st
     })
   }
 
-  items.push(...appts)
+  if (appts.capped) capped.push('appointments')
+  items.push(...appts.items)
   items.sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? '') || a.key.localeCompare(b.key))
-  return { items, trades: orgTrades.map((t) => ({ slug: t.slug, label: t.label, active: t.active })), from, to }
+  return { items, trades: orgTrades.map((t) => ({ slug: t.slug, label: t.label, active: t.active })), from, to, capped, cap: CAP }
 }
 
 /** properties.community (the development / subdivision) — absent until that column exists; then no development filter. */
@@ -151,7 +169,7 @@ async function loadCommunities(admin: SupabaseClient, orgId: string, propertyIds
   return out
 }
 
-async function loadAppointments(admin: SupabaseClient, orgId: string, from: string, to: string, timeZone: string): Promise<WorkItem[]> {
+async function loadAppointments(admin: SupabaseClient, orgId: string, from: string, to: string, timeZone: string): Promise<{ items: WorkItem[]; capped: boolean }> {
   const { data, error } = await orgDb(admin, orgId)
     .from('scheduled_appointments')
     .select('id, scheduled_for, status, appointment_type, closer_user_id, lead:leads(homeowner_name, address_text)')
@@ -160,12 +178,14 @@ async function loadAppointments(admin: SupabaseClient, orgId: string, from: stri
     .lte('scheduled_for', `${addDaysYmd(to, 2)}T00:00:00Z`)
     .neq('status', 'cancelled')
     .order('scheduled_for')
-    .limit(CAP)
+    .limit(CAP + 1)
   if (error) {
     console.error('[all-work] appointments failed', error)
-    return []
+    return { items: [], capped: false }
   }
-  const rows = (data ?? []) as unknown as Array<{ id: string; scheduled_for: string; status: string; appointment_type: string | null; closer_user_id: string | null; lead: { homeowner_name: string | null; address_text: string | null } | Array<{ homeowner_name: string | null; address_text: string | null }> | null }>
+  const allRows = (data ?? []) as unknown as Array<{ id: string; scheduled_for: string; status: string; appointment_type: string | null; closer_user_id: string | null; lead: { homeowner_name: string | null; address_text: string | null } | Array<{ homeowner_name: string | null; address_text: string | null }> | null }>
+  const capped = allRows.length > CAP
+  const rows = allRows.slice(0, CAP)
   const closers = Array.from(new Set(rows.map((r) => r.closer_user_id).filter((x): x is string => !!x)))
   const names = new Map<string, string>()
   if (closers.length) {
@@ -187,5 +207,5 @@ async function loadAppointments(admin: SupabaseClient, orgId: string, from: stri
       text: [kind, lead?.homeowner_name, lead?.address_text, r.closer_user_id ? names.get(r.closer_user_id) : ''].filter(Boolean).join(' '),
     })
   }
-  return out
+  return { items: out, capped }
 }

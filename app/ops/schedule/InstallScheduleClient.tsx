@@ -48,6 +48,7 @@ interface ScheduledJob {
   total_squares: number | null
   /** Times this crew's day was pushed to a later one (only when the company uses rolling). */
   roll_count?: number
+  can_roll?: boolean
 }
 
 /** A trade on an open job with no date yet. `id` is the trade's work order id. */
@@ -703,7 +704,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
   async function rollJob(job: ScheduledJob, reason: RollReason | null) {
     setRollBusy(true)
     try {
-      const res = await fetch(`/api/ops/work-orders/${job.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ reason }) })
+      const res = await fetch(`/api/ops/work-orders/${job.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ reason, from: job.scheduled_date }) })
       const body = await res.json().catch(() => null)
       if (!res.ok) throw new Error((body && body.error) || 'Could not roll')
       pushToast(`${labelOf(job.trade)} ${job.job_number} rolled to the next working day.`, 'success')
@@ -827,16 +828,21 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
           </div>
         )}
 
-        <div className="mb-4">
-          <ScheduleFilterBar
-            value={filters}
-            onChange={setFilters}
-            options={filterOpts}
-            trades={orgTrades.filter((t) => t.active).map((t) => ({ slug: t.slug, label: t.label, color: tradeColor(t.slug, orgTrades) }))}
-            show={{ tech: false }}
-            viewsKey="sched_board"
-          />
-        </div>
+        {/* The filter bar is a Precision (service plans) feature: other companies' Board stays exactly as it was. */}
+        {rollEnabled && (
+          <div className="mb-4">
+            <ScheduleFilterBar
+              value={filters}
+              onChange={setFilters}
+              options={filterOpts}
+              trades={orgTrades.map((t) => ({ slug: t.slug, label: t.label, color: tradeColor(t.slug, orgTrades), active: t.active }))}
+              show={{ tech: false }}
+              viewsKey="sched_board"
+              total={allScheduled.length + allUnscheduled.length}
+              shown={scheduled.length + unscheduled.length}
+            />
+          </div>
+        )}
 
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-[#e5e3dc] bg-white p-3">
           <button
@@ -1154,7 +1160,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                           {rollEnabled && rolledLabel(job.roll_count) ? ` · ${rolledLabel(job.roll_count)}` : ''}
                                         </span>
                                       </Link>
-                                      {rollEnabled && !done && job.status === 'scheduled' && (
+                                      {rollEnabled && !done && job.can_roll && (
                                         <button
                                           type="button"
                                           onClick={(e) => {
@@ -1316,7 +1322,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                                 </span>
                                               )}
                                             </Link>
-                                            {rollEnabled && job.status === 'scheduled' && (
+                                            {rollEnabled && job.can_roll && (
                                               <button
                                                 type="button"
                                                 onClick={(e) => {

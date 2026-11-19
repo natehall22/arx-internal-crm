@@ -12,7 +12,7 @@ import { parseRollReason } from '@/lib/work-order-rolls'
 export const dynamic = 'force-dynamic'
 
 /**
- * POST /api/crew/day/[token]/roll  { id, reason? } — public (no session): the crew's phone link taps "Not ready — roll" on ONE of
+ * POST /api/crew/day/[token]/roll  { id, from, reason? } — public (no session): the crew's phone link taps "Not ready — roll" on ONE of
  * its own stops from yesterday or today (a visit, or a project stop). It lands on the crew's next working day; the office sees
  * "Rolled N×" and the reason. A crew can roll its own work forward only — nothing else about the schedule.
  */
@@ -20,9 +20,11 @@ export async function POST(request: Request, { params }: { params: { token: stri
   const admin = createServiceClient()
   const crew = await activeCrewDay(admin, params.token)
   if (!crew) return NextResponse.json({ error: 'This link is no longer active — ask the office for a new one.' }, { status: 404 })
-  const body = (await request.json().catch(() => null)) as { id?: unknown; reason?: unknown } | null
+  const body = (await request.json().catch(() => null)) as { id?: unknown; reason?: unknown; from?: unknown } | null
   const id = typeof body?.id === 'string' ? body.id : ''
   if (!id) return NextResponse.json({ error: 'Pick the stop' }, { status: 400 })
+  const from = typeof body?.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : ''
+  if (!from) return NextResponse.json({ error: 'from (the day you saw it on) is required' }, { status: 400 })
   const reason = parseRollReason(body?.reason)
   if (reason && typeof reason === 'object') return NextResponse.json(reason, { status: 400 })
   // The stop must be one this link shows: one of its visits (yesterday / today), or a project stop of today.
@@ -32,7 +34,7 @@ export async function POST(request: Request, { params }: { params: { token: stri
     const stops = await loadCrewProjectStops(admin, { orgId: crew.orgId, subId: crew.subId }, today).catch(() => [])
     if (!stops.some((s) => s.id === id)) return NextResponse.json({ error: 'Stop not found' }, { status: 404 })
   }
-  const res = await rollWorkOrder(admin, crew.orgId, id, { reason, by: { userId: null, subId: crew.subId }, schedulingUserId: '', onlySubId: crew.subId })
+  const res = await rollWorkOrder(admin, crew.orgId, id, { reason, by: { userId: null, subId: crew.subId }, schedulingUserId: '', onlySubId: crew.subId, expectFrom: from })
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
   return NextResponse.json({ ok: true, to: res.to, rolls: res.rolls })
 }

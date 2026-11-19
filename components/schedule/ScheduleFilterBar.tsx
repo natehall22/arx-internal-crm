@@ -10,6 +10,7 @@ import { toast } from '@/components/ui/toast'
 import {
   EMPTY_FILTERS,
   LAST_FILTER_VIEW,
+  NO_TRADE_COLOR,
   filtersToViewState,
   isFiltering,
   viewStateToFilters,
@@ -41,18 +42,24 @@ export default function ScheduleFilterBar({
   viewsKey,
   defaultFilters,
   searchPlaceholder = 'Search customer, address, job, crew',
+  total,
+  shown,
 }: {
   value: ScheduleFilters
   onChange: (f: ScheduleFilters) => void
   options: FilterBarOptions
   /** Trade chips with the trade's color. */
-  trades?: Array<{ slug: string; label: string; color: string }>
+  /** Inactive trades are listed only while one of them is selected (a saved view must not lose its chip). */
+  trades?: Array<{ slug: string; label: string; color: string; active?: boolean }>
   typeChips?: boolean
   show?: { crew?: boolean; tech?: boolean; customer?: boolean }
   viewsKey?: string
   /** Used when the person has no remembered filter yet (e.g. a crew lead's own crew). */
   defaultFilters?: ScheduleFilters
   searchPlaceholder?: string
+  /** Rows before / after the filter: drives the "Filtered — N hidden" banner. */
+  total?: number
+  shown?: number
 }) {
   const store = React.useMemo(() => (viewsKey ? apiViewStore(viewsKey) : null), [viewsKey])
   const [views, setViews] = React.useState<TableView[]>([])
@@ -111,18 +118,28 @@ export default function ScheduleFilterBar({
     const cur = value[key] as string[]
     set({ [key]: cur.includes(v as string) ? cur.filter((x) => x !== v) : [...cur, v as string] } as Partial<ScheduleFilters>)
   }
-  const select = (key: 'crew' | 'tech' | 'customer' | 'development', label: string, opts: FilterOption[], extra?: FilterOption) => (
-    <Select key={key} value={value[key]} onChange={(e) => set({ [key]: e.target.value } as Partial<ScheduleFilters>)} aria-label={label} className="w-full sm:w-auto">
+  const select = (key: 'crew' | 'tech' | 'customer' | 'development', label: string, opts: FilterOption[], extra?: FilterOption) => {
+    // The selected value is always an option, even when nothing in this range / list carries it (else the box would read "All").
+    const picked = value[key]
+    const missing = picked && !extra && !opts.some((o) => o.value === picked) ? { value: picked, label: 'Selected (nothing here)' } : null
+    return (
+    <Select key={key} value={picked} onChange={(e) => set({ [key]: e.target.value } as Partial<ScheduleFilters>)} aria-label={label} className="w-full sm:w-auto">
       <option value="">{`All ${label.toLowerCase()}`}</option>
       {extra ? <option value={extra.value}>{extra.label}</option> : null}
+      {missing ? <option value={missing.value}>{missing.label}</option> : null}
       {opts.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
       ))}
     </Select>
-  )
+    )
+  }
 
+  const tradeChips = [
+    ...(trades ?? []).filter((t) => t.active !== false || value.trades.includes(t.slug)),
+    ...value.trades.filter((s) => !(trades ?? []).some((t) => t.slug === s)).map((s) => ({ slug: s, label: s, color: NO_TRADE_COLOR })),
+  ]
   const multiCrew = value.crew.includes(',')
   const saveView = async () => {
     if (!store || !viewName.trim()) return
@@ -149,9 +166,17 @@ export default function ScheduleFilterBar({
 
   return (
     <div className="flex flex-col gap-2" data-schedule-filters>
-      {trades && trades.length > 0 ? (
+      {isFiltering(value) ? (
+        <div role="status" className="flex flex-wrap items-center gap-3 rounded-ui bg-ink px-3 py-2 text-ui-sm font-semibold text-white">
+          <span>{typeof total === 'number' && typeof shown === 'number' ? `Filtered — ${Math.max(0, total - shown)} hidden` : 'Filtered'}</span>
+          <button type="button" onClick={() => set({ ...EMPTY_FILTERS })} className="min-h-tap font-bold underline">
+            Clear
+          </button>
+        </div>
+      ) : null}
+      {tradeChips.length > 0 ? (
         <div className="flex flex-wrap gap-2" role="group" aria-label="Section">
-          {trades.map((t) => {
+          {tradeChips.map((t) => {
             const on = value.trades.includes(t.slug)
             return (
               <button key={t.slug} type="button" aria-pressed={on} onClick={() => toggle('trades', t.slug)} className={chipClass(on)}>

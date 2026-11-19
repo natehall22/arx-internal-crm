@@ -11,6 +11,9 @@ import { JOB_TRADE_COLUMNS, crewLinkUrl, installDaysOrDefault, type JobTradeRow 
 import { activeTrades, isAddableTrade, loadOrgTrades, sortTrades, tradeOptions } from '@/lib/org-trades'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { loadWorkOrderRollCounts } from '@/lib/work-order-moves-db'
+import { canRollTrade } from '@/lib/work-order-rolls'
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import { ymdInZone } from '@/lib/service-plans'
 import { addManualTrade, ensureJobTrades, syncJobScheduleFromTrades } from '@/lib/job-trades-db'
 
 type AuthCtx = { authUser: { id: string }; profile: { id: string; org_id: string; role: string; custom_role_id?: string | null } }
@@ -104,6 +107,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     : null
   // "Not ready — roll" and the "Rolled N×" count are for companies that run service plans; others see this card unchanged.
   const rollEnabled = await isOrgFeatureOn(orgId, 'servicePlans')
+  const todayYmd = rollEnabled ? ymdInZone(new Date(), await loadOrgTimeZone(admin, orgId)) : ''
   const rolls = rollEnabled ? await loadWorkOrderRollCounts(admin, orgId, tradeIds) : new Map<string, number>()
   return NextResponse.json({
     canEdit: canEditJobs,
@@ -132,6 +136,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
         photo_count: tags.length,
         crew_link_url: t.crew_link_token && appUrl ? crewLinkUrl(t.crew_link_token, appUrl) : null,
         roll_count: rolls.get(t.id) ?? 0,
+        can_roll: rollEnabled && canRollTrade(t, todayYmd),
       }
     }),
   })

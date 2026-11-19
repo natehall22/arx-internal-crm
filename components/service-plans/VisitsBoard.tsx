@@ -180,7 +180,9 @@ export default function VisitsBoard() {
         value={filters}
         onChange={setFilters}
         options={filterOptions(rows)}
-        trades={orgTrades.filter((t) => t.active).map((t) => ({ slug: t.slug, label: t.label, color: tradeColor(t.slug, orgTrades) }))}
+        trades={orgTrades.map((t) => ({ slug: t.slug, label: t.label, color: tradeColor(t.slug, orgTrades), active: t.active }))}
+        total={rows.length}
+        shown={shownVisits.length}
         show={{ crew: false }}
         viewsKey="sched_visits"
         searchPlaceholder="Search customer, address, plan, crew"
@@ -280,7 +282,7 @@ export default function VisitsBoard() {
                                 <RollButton
                                   compact
                                   onRoll={async (reason) => {
-                                    const res = await fetch(`/api/ops/work-orders/${v.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }).catch(() => null)
+                                    const res = await fetch(`/api/ops/work-orders/${v.id}/roll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, from: v.scheduledDate }) }).catch(() => null)
                                     const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; to?: string }
                                     if (!res || !res.ok || !out.to) return { ok: false, error: out.error || 'Could not roll' }
                                     await load()

@@ -11,7 +11,7 @@ import { addDaysYmd, weekdayOfYmd } from '@/lib/service-plans'
 import { EMPTY_FILTERS, NO_TRADE_COLOR, filterOptions, filterWork, tradeColor, type ScheduleFilters } from '@/lib/schedule-filters'
 import { rolledLabel } from '@/lib/work-order-rolls'
 
-type Load = { items: WorkItem[]; trades: Array<{ slug: string; label: string; active: boolean }>; today: string; myCrewIds: string[]; appointments: boolean; from: string; to: string }
+type Load = { capped?: string[]; cap?: number; items: WorkItem[]; trades: Array<{ slug: string; label: string; active: boolean }>; today: string; myCrewIds: string[]; appointments: boolean; from: string; to: string }
 type Mode = 'month' | 'week' | 'day'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -117,11 +117,18 @@ export default function AllWorkCalendar() {
         value={filters}
         onChange={setFilters}
         options={options}
-        trades={trades.map((t) => ({ slug: t.slug, label: t.label, color: color(t.slug) }))}
+        trades={trades.map((t) => ({ slug: t.slug, label: t.label, color: color(t.slug), active: t.active }))}
+        total={data.items.length}
+        shown={shown.length}
         typeChips
         viewsKey="sched_all"
         defaultFilters={data.myCrewIds.length ? { ...EMPTY_FILTERS, crew: data.myCrewIds.join(',') } : undefined}
       />
+      {data.capped && data.capped.length > 0 ? (
+        <p role="status" className="rounded-ui border border-surface-line bg-surface-subtle px-3 py-2 text-ui-sm font-semibold text-ink">
+          {`Showing first ${data.cap ?? 2000} — narrow the dates or filters`}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="icon" aria-label="Previous" onClick={() => step(-1)}>
           ‹

@@ -30,6 +30,8 @@ export type CrewProjectStop = {
   /** 1-based day of a multi-day crew ("Day 2 of 2"); null for a one-day crew. */
   dayNumber: number | null
   dayCount: number | null
+  /** The day this stop is booked on (what a roll is compare-and-set against). */
+  scheduledDate: string
   /** Times this crew work was rolled to a later day. */
   rolls?: number
 }
@@ -94,6 +96,7 @@ export async function loadCrewProjectStops(admin: SupabaseClient, crew: { orgId:
         photoLinkPath: r.crew_link_token && r.scheduled_date && !isCrewLinkExpired(r.scheduled_date, r.install_days, today) ? `/crew/${r.crew_link_token}` : null,
         dayNumber: r.dayNumber,
         dayCount: r.dayCount,
+        scheduledDate: r.scheduled_date as string,
         rolls: rolls.get(r.id) ?? 0,
       }
     })
