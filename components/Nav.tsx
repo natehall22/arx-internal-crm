@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useContext, useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
@@ -20,7 +20,7 @@ import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { DEFAULT_ORG_FEATURES, type OrgFeatures } from '@/lib/org-features'
-import { featuresFromEffectivePermissions, fetchEffectivePermissions, navBrandingFromEffectivePermissions, profileFromEffectivePermissions, type NavBranding } from '@/hooks/useOrgFeatures'
+import { featuresFromEffectivePermissions, fetchEffectivePermissions, OrgBootstrapContext, navBrandingFromEffectivePermissions, profileFromEffectivePermissions, type NavBranding } from '@/hooks/useOrgFeatures'
 import { coerceClientOrgProfile, pageHidden, type ClientOrgProfile } from '@/lib/org-profile'
 import { useAIAssistantLauncher } from '@/components/AIAssistantProvider'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -41,12 +41,13 @@ export default function Nav() {
   const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
   const [superAdmin, setSuperAdmin] = useState(false)
   const [payWeekEnabled, setPayWeekEnabled] = useState(false)
-  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(DEFAULT_ORG_FEATURES)
+  const orgBoot = useContext(OrgBootstrapContext)
+  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(() => orgBoot?.features ?? DEFAULT_ORG_FEATURES)
   // No first-paint flash by construction: the profile only reorders/renames/hides permission-gated entries, and those
   // stay hidden until the same effective-permissions answer that carries the profile arrives (one batched update below).
   // Before that only Today and Dashboard can show, which every profile keeps first/last with the same names
   // (lib/__tests__/industry-profiles.test.ts locks this).
-  const [orgProfile, setOrgProfile] = useState<ClientOrgProfile>(() => coerceClientOrgProfile(null))
+  const [orgProfile, setOrgProfile] = useState<ClientOrgProfile>(() => orgBoot?.profile ?? coerceClientOrgProfile(null))
   const [effectivePermissionNames, setEffectivePermissionNames] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   // The company's own name + logo from /api/me/effective-permissions. null = not loaded yet: the header shows nothing (no other company's mark).

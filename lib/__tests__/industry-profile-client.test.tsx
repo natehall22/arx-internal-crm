@@ -27,6 +27,17 @@ describe('first paint', () => {
     expect(renderHook(() => useOrgProfile(clientOrgProfile(lawn))).result.current.terms.productionBoard).toBe('Work board')
     expect(renderHook(() => useOrgFeatures(lawn.features)).result.current.canvassing).toBe(false)
   })
+  it('the root layout knows the company from the address: every hook starts in its words, no roofing flash', () => {
+    const OrgBootstrapProvider = require('@/components/OrgBootstrapProvider').default
+    const wrapper = ({ children }: { children: React.ReactNode }) => <OrgBootstrapProvider value={{ profile: clientOrgProfile(lawn), features: lawn.features }}>{children}</OrgBootstrapProvider>
+    expect(renderHook(() => useOrgProfile(), { wrapper }).result.current.terms.productionBoard).toBe('Work board')
+    expect(renderHook(() => useOrgFeatures(), { wrapper }).result.current.canvassing).toBe(false)
+    // a page's own server-resolved value still wins
+    expect(renderHook(() => useOrgFeatures(DEFAULT_ORG_FEATURES), { wrapper }).result.current.canvassing).toBe(true)
+    // unknown address (null): exactly as before
+    const none = ({ children }: { children: React.ReactNode }) => <OrgBootstrapProvider value={null}>{children}</OrgBootstrapProvider>
+    expect(renderHook(() => useOrgProfile(), { wrapper: none }).result.current.terms.jobBoard).toBe('Job Board')
+  })
   it('nothing passed: roofing, every feature on (as before)', () => {
     expect(renderHook(() => useOrgProfile()).result.current.terms.jobBoard).toBe('Job Board')
     expect(renderHook(() => useOrgFeatures()).result.current.canvassing).toBe(true)

@@ -1,10 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 
 import { DEFAULT_ORG_FEATURES, coerceOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { coerceClientBrandNames, GENERIC_BRAND_NAMES, type ClientBrandNames } from '@/lib/org-brand-client'
 import { coerceClientOrgProfile, roofingOr, type ClientOrgProfile } from '@/lib/org-profile'
+import type { OrgBootstrap } from '@/lib/org-bootstrap'
+
+/** The root layout's server-resolved words + switches (components/OrgBootstrapProvider.tsx); null = not known from the address. */
+export const OrgBootstrapContext = createContext<OrgBootstrap | null>(null)
 
 /**
  * The ONE client fetch of `/api/me/effective-permissions` (Nav and every `useOrgFeatures` caller share it). Calls made
@@ -83,11 +87,12 @@ export function useOrgBrandNames(initial?: ClientBrandNames | null): ClientBrand
 
 /**
  * The company's industry profile for client components (lib/org-profile.ts) — same shared fetch and first-render rule as
- * useOrgFeatures: `initial` (server-resolved — server pages pass it, so their first paint is right), else what this
- * tab last loaded, else roofing (today's words).
+ * useOrgFeatures: `initial` (server-resolved — server pages pass it, so their first paint is right), else the root
+ * layout's address-resolved profile, else what this tab last loaded, else roofing (today's words).
  */
 export function useOrgProfile(initial?: ClientOrgProfile | null): ClientOrgProfile {
-  const [profile, setProfile] = useState<ClientOrgProfile>(() => initial ?? lastKnownProfile ?? coerceClientOrgProfile(null))
+  const boot = useContext(OrgBootstrapContext)
+  const [profile, setProfile] = useState<ClientOrgProfile>(() => initial ?? boot?.profile ?? lastKnownProfile ?? coerceClientOrgProfile(null))
   useEffect(() => {
     let cancelled = false
     void fetchEffectivePermissions().then((r) => {
@@ -102,12 +107,13 @@ export function useOrgProfile(initial?: ClientOrgProfile | null): ClientOrgProfi
 
 /**
  * Company feature switches for client components. First render uses, in order: `initial` (the server-resolved map a
- * server page passes down — no flash), else the last map this tab already loaded (Nav loads it on every page), else
+ * server page passes down — no flash), else the root layout's address-resolved map, else the last map this tab already loaded (Nav loads it on every page), else
  * every feature ON (what any org with nothing stored has). It then settles on the shared fetch. Pages and APIs behind a
  * switch are gated server-side regardless, so a first-paint guess can only show an entry point, never data.
  */
 export function useOrgFeatures(initial?: OrgFeatures | null): OrgFeatures {
-  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? lastKnown ?? DEFAULT_ORG_FEATURES)
+  const boot = useContext(OrgBootstrapContext)
+  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? boot?.features ?? lastKnown ?? DEFAULT_ORG_FEATURES)
   useEffect(() => {
     let cancelled = false
     void fetchEffectivePermissions().then((r) => {

@@ -12,6 +12,8 @@ import { Toaster } from '@/components/ui/toast'
 import { ConfirmHost } from '@/components/ui/confirm-dialog'
 import { getRequestHostFence } from '@/lib/company-host-server'
 import SupportBanner from '@/components/support/SupportBanner'
+import OrgBootstrapProvider from '@/components/OrgBootstrapProvider'
+import { loadRequestOrgBootstrap } from '@/lib/org-bootstrap-server'
 
 /** The original company's metadata — served ONLY on the unfenced legacy address (see generateMetadata). */
 const LEGACY_METADATA: Metadata = {
@@ -70,11 +72,12 @@ export const viewport: Viewport = {
   themeColor: '#4f46e5',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const orgBootstrap = await loadRequestOrgBootstrap()
   return (
     <html lang="en">
       <head>
@@ -83,6 +86,7 @@ export default function RootLayout({
       </head>
       <body className="overscroll-none">
         <SupportBanner />
+        <OrgBootstrapProvider value={orgBootstrap}>
         <AIAssistantProvider>
           {children}
           <ServiceWorkerRegistration />
@@ -95,6 +99,7 @@ export default function RootLayout({
             <AIAssistantWrapper />
           </SessionOnly>
         </AIAssistantProvider>
+        </OrgBootstrapProvider>
       </body>
     </html>
   )
