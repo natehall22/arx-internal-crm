@@ -23,7 +23,7 @@ import {
   taxRatesByIds,
   type SalesTaxSettings,
 } from '@/lib/sales-tax'
-import { lineNameWithOption, perUnitLabel, readPriceOptions, resolveLinePrice, unitLabel as getUnitLabel, unitNeedsQuantity, type PriceOption } from '@/lib/price-list'
+import { lineNameWithOption, perUnitLabel, readPriceOptions, resolveLinePrice, unitAllowsFraction, unitLabel as getUnitLabel, unitNeedsQuantity, type PriceOption } from '@/lib/price-list'
 
 interface PricebookItem {
   id: string
@@ -825,9 +825,10 @@ export default function ProposalBuilderPage() {
 
     // Coerce the draft on save so a cleared field never commits a stale value.
     const isPerSqft = isPerSqftUnit(quantityModalItem.unit)
-    const min = isPerSqft ? 0.01 : 1
+    const fractional = isPerSqft || unitAllowsFraction(quantityModalItem.unit)
+    const min = fractional ? 0.01 : 1
     const base = parseDraftFloat(quantityModalRaw, { fallback: min }) ?? min
-    const qty = isPerSqft ? Math.max(min, base) : Math.max(min, Math.round(base))
+    const qty = fractional ? Math.max(min, base) : Math.max(min, Math.round(base))
 
     // Size options: one must be tapped; the line keeps its name and price.
     const priced = resolveLinePrice({ item: quantityModalItem, optionKey: quantityModalOption })
@@ -1983,7 +1984,9 @@ export default function ProposalBuilderPage() {
                                     'quantity',
                                     isPerSqftUnit(item.unit)
                                       ? Math.max(0.01, item.quantity - 10)
-                                      : Math.max(1, item.quantity - 1)
+                                      : unitAllowsFraction(item.unit)
+                                        ? Math.max(0.5, item.quantity - 0.5)
+                                        : Math.max(1, item.quantity - 1)
                                   )
                                 }
                                 className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600"
@@ -1992,8 +1995,8 @@ export default function ProposalBuilderPage() {
                               </button>
                               <input
                                 type="number"
-                                min={isPerSqftUnit(item.unit) ? 0.01 : 1}
-                                step={isPerSqftUnit(item.unit) ? 1 : 1}
+                                min={isPerSqftUnit(item.unit) || unitAllowsFraction(item.unit) ? 0.01 : 1}
+                                step={unitAllowsFraction(item.unit) ? 'any' : 1}
                                 value={quantityDrafts[item.id] ?? formatNumericDraft(item.quantity)}
                                 onChange={(e) => {
                                   const raw = e.target.value
@@ -2003,7 +2006,7 @@ export default function ProposalBuilderPage() {
                                     updateLineItem(item.id, 'quantity', parsed)
                                   }
                                 }}
-                                onBlur={() => commitQuantityDraft(item, isPerSqftUnit(item.unit) ? 0.01 : 1)}
+                                onBlur={() => commitQuantityDraft(item, isPerSqftUnit(item.unit) || unitAllowsFraction(item.unit) ? 0.01 : 1)}
                                 className={`border border-gray-300 rounded-lg text-center font-medium ${
                                   isPerSqftUnit(item.unit) ? 'w-16 sm:w-24 px-2 py-1' : 'w-14 sm:w-16 px-2 py-1'
                                 }`}
@@ -2800,25 +2803,27 @@ export default function ProposalBuilderPage() {
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => setQuantityModalNumber(Math.max(1, quantityModalValue - 1))}
+                          onClick={() => setQuantityModalNumber(unitAllowsFraction(quantityModalItem.unit) ? Math.max(0.5, quantityModalValue - 0.5) : Math.max(1, quantityModalValue - 1))}
                           className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
                         >
                           −
                         </button>
                         <input
                           type="number"
-                          min="1"
+                          min={unitAllowsFraction(quantityModalItem.unit) ? 0.01 : 1}
+                          step={unitAllowsFraction(quantityModalItem.unit) ? 'any' : 1}
+                          inputMode="decimal"
                           value={quantityModalRaw}
                           onChange={(e) => setQuantityModalRaw(e.target.value)}
                           onBlur={() => {
                             const parsed = parseDraftFloat(quantityModalRaw, { fallback: 1 }) ?? 1
-                            setQuantityModalNumber(Math.max(1, Math.round(parsed)))
+                            setQuantityModalNumber(unitAllowsFraction(quantityModalItem.unit) ? Math.max(0.01, parsed) : Math.max(1, Math.round(parsed)))
                           }}
                           className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-center text-2xl font-bold"
                         />
                         <button
                           type="button"
-                          onClick={() => setQuantityModalNumber(quantityModalValue + 1)}
+                          onClick={() => setQuantityModalNumber(quantityModalValue + (unitAllowsFraction(quantityModalItem.unit) ? 0.5 : 1))}
                           className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
                         >
                           +

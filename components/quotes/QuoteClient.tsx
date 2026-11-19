@@ -3,13 +3,14 @@
 import { formatDate } from '@/lib/format'
 import { useMemo, useState } from 'react'
 
+import { quantityWithUnit } from '@/lib/price-list'
 import { priceQuote } from '@/lib/quotes/pricing'
 import { depositCents } from '@/lib/quotes/settings'
 import { legacyTaxLabel, taxLineLabel } from '@/lib/sales-tax'
 import type { QuoteView } from '@/lib/quotes/load'
 
 /** "3 hours" / "12 yd" for a line bought in more than one: nothing for a single item. */
-const qtyLabel = (q: number | null | undefined, unit: string | undefined) => (q != null && q !== 1 && q > 0 ? `${q}${unit && unit !== 'each' ? ` ${unit}` : ''}` : '')
+const qtyLabel = quantityWithUnit
 
 const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 

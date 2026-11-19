@@ -9,6 +9,7 @@ import React from 'react'
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 
 import { formatCents, formatDateTime } from '@/lib/format'
+import { quantityWithUnit } from '@/lib/price-list'
 
 export type QuoteApprovalPdfData = {
   company: { name: string; phone?: string; email?: string; address?: string }
@@ -46,7 +47,7 @@ const styles = StyleSheet.create({
 export function QuoteApprovalPDF({ data }: { data: QuoteApprovalPdfData }) {
   const chosen = data.lines.filter((l) => l.chosen)
   const left = data.lines.filter((l) => !l.chosen)
-  const qty = (l: QuoteApprovalPdfData['lines'][number]) => (l.quantity != null && l.quantity !== 1 ? ` (${l.quantity}${l.unit && l.unit !== 'each' ? ` ${l.unit}` : ''})` : '')
+  const qty = (l: QuoteApprovalPdfData['lines'][number]) => { const t = quantityWithUnit(l.quantity, l.unit); return t ? ` (${t})` : '' }
   const c = data.company
   // A recurring-only quote has no one-time lines: no one-time heading, subtotal or total.
   const hasOneTime = chosen.length > 0 || !(data.recurring && data.recurring.length > 0)

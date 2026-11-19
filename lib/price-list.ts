@@ -243,6 +243,11 @@ const QUANTITY_UNITS = new Set<string>([
   ...PRICE_SHEET_UNITS,
   ...LAND_UNITS,
 ])
+/** Units sold in part-amounts (0.5 acres, 2.5 yards, 1.5 hours): the builder keeps the decimal instead of rounding to a whole number. */
+const FRACTION_UNITS = new Set<string>([...LAND_UNITS, 'hour', 'hours'])
+export function unitAllowsFraction(unit?: string | null): boolean {
+  return FRACTION_UNITS.has(unitKey(unit))
+}
 export function unitNeedsQuantity(unit?: string | null): boolean {
   return QUANTITY_UNITS.has(unitKey(unit))
 }
@@ -283,6 +288,13 @@ export function unitLabel(unit: string): string {
     default:
       return unit || 'units'
   }
+}
+
+/** A customer-facing quantity: "0.5 acres", "12 yards", "3 pallets"; '' for one, none or zero; no word for "each". The quote page and its PDF both use it. */
+export function quantityWithUnit(q: number | null | undefined, unit: string | null | undefined): string {
+  if (q == null || q === 1 || !(q > 0)) return ''
+  const u = (unit || '').trim()
+  return u && unitKey(u) !== 'each' ? `${q} ${unitLabel(u)}` : `${q}`
 }
 
 /** The word after "per": singular for the service units ("per pallet"), else the usual label. */
