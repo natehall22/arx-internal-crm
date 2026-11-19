@@ -24,6 +24,18 @@ let lastKnownProfile: ClientOrgProfile | null = null
 /** Same for the company's names (contract screen, subs text, schedule board). */
 let lastKnownBrand: ClientBrandNames | null = null
 
+/**
+ * First-render value when the caller has none of its own: what this tab last loaded (fresh after any in-app navigation),
+ * else the root layout's address-resolved value (full page load, before any fetch), else roofing / every feature on.
+ * Nav and the hooks share this one rule.
+ */
+export function firstOrgProfile(boot: OrgBootstrap | null): ClientOrgProfile {
+  return lastKnownProfile ?? boot?.profile ?? coerceClientOrgProfile(null)
+}
+export function firstOrgFeatures(boot: OrgBootstrap | null): OrgFeatures {
+  return lastKnown ?? boot?.features ?? DEFAULT_ORG_FEATURES
+}
+
 export function fetchEffectivePermissions(): Promise<{ ok: boolean; status: number; data: unknown }> {
   const now = Date.now()
   if (shared && now - shared.at < REUSE_MS) return shared.promise
@@ -87,12 +99,12 @@ export function useOrgBrandNames(initial?: ClientBrandNames | null): ClientBrand
 
 /**
  * The company's industry profile for client components (lib/org-profile.ts) — same shared fetch and first-render rule as
- * useOrgFeatures: `initial` (server-resolved — server pages pass it, so their first paint is right), else the root
- * layout's address-resolved profile, else what this tab last loaded, else roofing (today's words).
+ * useOrgFeatures: `initial` (server-resolved — server pages pass it, so their first paint is right), else what this
+ * tab last loaded, else the root layout's address-resolved profile, else roofing (today's words).
  */
 export function useOrgProfile(initial?: ClientOrgProfile | null): ClientOrgProfile {
   const boot = useContext(OrgBootstrapContext)
-  const [profile, setProfile] = useState<ClientOrgProfile>(() => initial ?? boot?.profile ?? lastKnownProfile ?? coerceClientOrgProfile(null))
+  const [profile, setProfile] = useState<ClientOrgProfile>(() => initial ?? firstOrgProfile(boot))
   useEffect(() => {
     let cancelled = false
     void fetchEffectivePermissions().then((r) => {
@@ -107,13 +119,13 @@ export function useOrgProfile(initial?: ClientOrgProfile | null): ClientOrgProfi
 
 /**
  * Company feature switches for client components. First render uses, in order: `initial` (the server-resolved map a
- * server page passes down — no flash), else the root layout's address-resolved map, else the last map this tab already loaded (Nav loads it on every page), else
+ * server page passes down — no flash), else the last map this tab already loaded (Nav loads it on every page), else the root layout’s address-resolved map, else
  * every feature ON (what any org with nothing stored has). It then settles on the shared fetch. Pages and APIs behind a
  * switch are gated server-side regardless, so a first-paint guess can only show an entry point, never data.
  */
 export function useOrgFeatures(initial?: OrgFeatures | null): OrgFeatures {
   const boot = useContext(OrgBootstrapContext)
-  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? boot?.features ?? lastKnown ?? DEFAULT_ORG_FEATURES)
+  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? firstOrgFeatures(boot))
   useEffect(() => {
     let cancelled = false
     void fetchEffectivePermissions().then((r) => {

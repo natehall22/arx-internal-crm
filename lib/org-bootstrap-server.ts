@@ -1,8 +1,10 @@
+import { cookies } from 'next/headers'
 import { cache } from 'react'
 
 import { getRequestHostFence } from '@/lib/company-host-server'
 import { readOrgFeatureSettings } from '@/lib/org-features'
 import { clientOrgProfile, resolveOrgProfile } from '@/lib/org-profile'
+import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { OrgBootstrap } from '@/lib/org-bootstrap'
 
@@ -18,7 +20,13 @@ export const loadRequestOrgBootstrap = cache(async (): Promise<OrgBootstrap | nu
     if (fence.kind !== 'org') return null
     const s = await readOrgFeatureSettings(createServiceClient(), fence.orgId)
     const p = resolveOrgProfile(s, s.entitlements)
-    return { profile: clientOrgProfile(p), features: p.features }
+    let signedIn = false
+    try {
+      signedIn = Boolean(getSupabaseSessionFromCookieStore(cookies())?.access_token)
+    } catch {
+      signedIn = false
+    }
+    return { profile: clientOrgProfile(p), features: signedIn ? p.features : null }
   } catch (e) {
     console.error('[org-bootstrap] first-paint profile not readable; client fetch decides', e)
     return null

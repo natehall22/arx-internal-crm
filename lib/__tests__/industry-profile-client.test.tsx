@@ -34,6 +34,9 @@ describe('first paint', () => {
     expect(renderHook(() => useOrgFeatures(), { wrapper }).result.current.canvassing).toBe(false)
     // a page's own server-resolved value still wins
     expect(renderHook(() => useOrgFeatures(DEFAULT_ORG_FEATURES), { wrapper }).result.current.canvassing).toBe(true)
+    // signed out: words only, no switches (every feature on, as before)
+    const signedOut = ({ children }: { children: React.ReactNode }) => <OrgBootstrapProvider value={{ profile: clientOrgProfile(lawn), features: null }}>{children}</OrgBootstrapProvider>
+    expect(renderHook(() => useOrgFeatures(), { wrapper: signedOut }).result.current.canvassing).toBe(true)
     // unknown address (null): exactly as before
     const none = ({ children }: { children: React.ReactNode }) => <OrgBootstrapProvider value={null}>{children}</OrgBootstrapProvider>
     expect(renderHook(() => useOrgProfile(), { wrapper: none }).result.current.terms.jobBoard).toBe('Job Board')
