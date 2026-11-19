@@ -1227,7 +1227,7 @@ export default function ProposalBuilderPage() {
         </div>
 
         {/* Measurement Summary Banner */}
-        {measurementData && !simple && (
+        {measurementData && roofingOr(orgProfile, true, false) && (
           <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-6 mb-6 text-white">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
