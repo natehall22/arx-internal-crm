@@ -33,6 +33,8 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/ui/badge'
 import { formatDate, formatMoney } from '@/lib/format'
+import { groupColumnByDevelopment } from '@/lib/development-board'
+import DevelopmentGroupCard from '@/components/ops/DevelopmentGroupCard'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { JobCatchUpLine } from '@/components/ops/JobCatchUp'
 import { boardOwnerFilterValue } from '@/lib/job-catch-up'
@@ -673,20 +675,27 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
                         No jobs in this stage
                       </div>
                     ) : (
-                      statusJobs.map((job) => (
-                        <OpsBoardJobCard
-                          key={job.id}
-                          job={job}
-                          onNavigateToJob={navigateToJob}
-                          onOpenSnapshot={setSnapshotJob}
-                          onSchedule={openJobCrews}
-                          onStartMaterials={onBoardStartMaterials}
-                          onMarkOrdered={onBoardMarkOrdered}
-                          onJobStatus={updateJobStatus}
-                  squaresOn={squaresOn}
-                          materialsOn={materialsOn}
-                        />
-                      ))
+                      groupColumnByDevelopment(statusJobs).map((entry) => {
+                        const renderJob = (job: OpsBoardJob) => (
+                          <OpsBoardJobCard
+                            key={job.id}
+                            job={job}
+                            onNavigateToJob={navigateToJob}
+                            onOpenSnapshot={setSnapshotJob}
+                            onSchedule={openJobCrews}
+                            onStartMaterials={onBoardStartMaterials}
+                            onMarkOrdered={onBoardMarkOrdered}
+                            onJobStatus={updateJobStatus}
+                    squaresOn={squaresOn}
+                            materialsOn={materialsOn}
+                          />
+                        )
+                        return entry.kind === 'job' ? (
+                          renderJob(entry.job)
+                        ) : (
+                          <DevelopmentGroupCard key={entry.key} name={entry.name} builder={entry.builder} customerId={entry.customerId} jobs={entry.jobs} renderJob={renderJob} />
+                        )
+                      })
                     )}
                   </div>
                 </div>

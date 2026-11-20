@@ -63,7 +63,8 @@ import InstallScheduleClient from '@/app/ops/schedule/InstallScheduleClient'
 import ReferralPartnersClient from '@/app/referral-partners/ReferralPartnersClient'
 import { HARNESS_OPS_DASHBOARD } from '@/e2e/fixtures'
 import AppointmentsList from '@/components/appointments/AppointmentsList'
-import { HARNESS_OPS_JOBS, HARNESS_WORK_ORDERS, HARNESS_CUSTOMERS, HARNESS_PROFIT_ROWS } from '@/e2e/fixtures'
+import { HARNESS_OPS_JOBS,
+  HARNESS_LOT_JOBS, HARNESS_WORK_ORDERS, HARNESS_CUSTOMERS, HARNESS_PROFIT_ROWS } from '@/e2e/fixtures'
 import WorkOrdersClient from '@/app/work-orders/WorkOrdersClient'
 import CustomersPageClient from '@/components/customers/CustomersPageClient'
 import JobProfitTable from '@/components/admin/JobProfitTable'
@@ -488,6 +489,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <OpsDashboardView {...(HARNESS_OPS_DASHBOARD as unknown as React.ComponentProps<typeof OpsDashboardView>)} />
     case 'ops-board':
       return <OpsClient initialJobs={HARNESS_OPS_JOBS as never} orgId="org-1" canViewProfitability />
+    case 'ops-board-lots':
+      return <OpsClient initialJobs={HARNESS_LOT_JOBS as never} orgId="org-1" canViewProfitability />
     case 'catch-up-board':
       return <OpsClient initialJobs={HARNESS_CATCH_UP_JOBS as never} orgId="org-1" canViewProfitability={false} catchUp={{ enabled: true, stuckDays: 7, viewerId: HARNESS_VIEWER_ID }} />
     case 'catch-up-job':

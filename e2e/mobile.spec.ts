@@ -259,6 +259,11 @@ const SCREENS: Screen[] = [
   { name: 'projects', path: '/dev-harness/projects', ready: 'text=Featherstonehaugh' },
   { name: 'ops-board', path: '/dev-harness/ops-board', ready: 'text=26-0041',
     states: [{ name: 'board-view', run: async (p) => { await p.getByRole('button', { name: 'Board', exact: true }).click(); await p.waitForTimeout(300) } }] },
+  { name: 'ops-board-lots', path: '/dev-harness/ops-board-lots', ready: 'text=26-0041',
+    states: [
+      { name: 'board-view', run: async (p) => { await p.getByRole('button', { name: 'Board', exact: true }).click(); await p.waitForSelector('text=Oak Ridge Estates >> visible=true') } },
+      { name: 'lots-open', run: async (p) => { await p.getByRole('button', { name: 'Board', exact: true }).click(); await p.getByRole('button', { name: 'Show lots' }).click(); await p.waitForSelector('text=26-0047 >> visible=true') } },
+    ] },
   { name: 'job-page', path: '/dev-harness/job-page', ready: 'text=26-0042',
     states: ['Details', 'Materials', 'Financials', 'Photos & files', 'Notes'].map((tab) => ({
       name: `tab-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`,

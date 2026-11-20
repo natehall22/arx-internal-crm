@@ -32,16 +32,9 @@ export async function loadLotJobsToSchedule(admin: SupabaseClient, orgId: string
   }
   const jobs = (data ?? []) as Array<{ id: string; property_id: string }>
   if (jobs.length === 0) return none
-  const community = new Map<string, string>()
-  const ids = Array.from(new Set(jobs.map((j) => j.property_id)))
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data: props, error: pe } = await db.from('properties').select('id, community').in('id', ids.slice(i, i + CHUNK)).not('community', 'is', null)
-    if (pe) {
-      console.error('[lot-jobs-queue] properties read failed', pe)
-      return none
-    }
-    for (const p of (props ?? []) as Array<{ id: string; community: string }>) community.set(p.id, p.community)
-  }
+  const lots = await loadLotsByProperty(db, jobs.map((j) => j.property_id))
+  if (!lots) return none
+  const community = new Map<string, string>(Array.from(lots, ([id, l]) => [id, l.community]))
   const out: LotJobsToSchedule = { jobIds: new Set(), byDevelopment: [] }
   const byKey = new Map<string, { name: string; count: number }>()
   for (const j of jobs) {
@@ -55,6 +48,39 @@ export async function loadLotJobsToSchedule(admin: SupabaseClient, orgId: string
   }
   out.byDevelopment = Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name))
   return out
+}
+
+/** Development name + lot number per property id, for properties in a development. null = the read failed (callers fall back). */
+export async function loadLotsByProperty(db: ReturnType<typeof orgDb>, propertyIds: readonly string[]): Promise<Map<string, { community: string; lot: string | null }> | null> {
+  const out = new Map<string, { community: string; lot: string | null }>()
+  const ids = Array.from(new Set(propertyIds.filter(Boolean)))
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await db.from('properties').select('id, community, lot').in('id', ids.slice(i, i + CHUNK)).not('community', 'is', null)
+    if (error) {
+      console.error('[lot-jobs] properties read failed', error)
+      return null
+    }
+    for (const p of (data ?? []) as Array<{ id: string; community: string; lot: string | null }>) {
+      if (p.community?.trim()) out.set(p.id, { community: p.community.trim(), lot: p.lot?.trim() || null })
+    }
+  }
+  return out
+}
+
+/**
+ * Job Board: marks each job whose property is a lot in a development (`job.development`), so the board can show a builder's
+ * development as one card instead of a card per lot. Jobs not on a lot (every ARX job today) get nothing; a failed read
+ * marks nothing (the board then shows one card per job, as before).
+ */
+export async function enrichJobsWithDevelopment(admin: SupabaseClient, orgId: string, jobs: Array<Record<string, unknown>>): Promise<void> {
+  const ids = jobs.map((j) => j.property_id).filter((v): v is string => typeof v === 'string' && v.length > 0)
+  if (ids.length === 0) return
+  const lots = await loadLotsByProperty(orgDb(admin, orgId), ids)
+  if (!lots) return
+  for (const j of jobs) {
+    const l = typeof j.property_id === 'string' ? lots.get(j.property_id) : undefined
+    if (l) j.development = { name: l.community, key: developmentKey(l.community), lot: l.lot }
+  }
 }
 
 export function lotSummaryText(name: string, count: number): string {

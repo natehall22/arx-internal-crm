@@ -12,6 +12,7 @@ export const OPS_BOARD_JOB_COLUMNS = `
   status,
   job_type,
   address_text,
+  property_id,
   sale_amount,
   sale_date,
   salesperson_id,

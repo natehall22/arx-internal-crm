@@ -7,6 +7,7 @@ import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import OpsClient from './OpsClient'
+import { enrichJobsWithDevelopment } from '@/lib/lot-jobs-queue'
 import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
 import { createServiceClient } from '@/lib/supabase/service'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
@@ -43,6 +44,8 @@ export default async function OpsPage() {
   await enrichOpsJobsWithMeasureSoldSquaresFallback(supabase, profile.org_id, rawJobs)
   // Work category (job override, else customer's) for the board's filter; its own read, never fails the board.
   await enrichJobsWithCategory(admin, profile.org_id, rawJobs)
+  // A builder's lots: one card per development on the board (no-op when no job is on a lot — every ARX job today).
+  await enrichJobsWithDevelopment(admin, profile.org_id, rawJobs)
   const categories = await loadOrgCategories(admin, profile.org_id)
   if (ops.canViewJobFinancials) await enrichJobsWithCostLedger(admin, profile.org_id, rawJobs)
   // Off by default (org setting): when off this is one settings read and the board renders exactly as before.

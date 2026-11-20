@@ -130,3 +130,36 @@ export function groupByBuilderAndDevelopment(lots: readonly BoardLot[], trades: 
   }
   return Array.from(groups.values())
 }
+
+/**
+ * Job Board column: a builder's lots in one development, two or more in the same stage, become ONE entry (placed where its
+ * first lot sorts); everything else stays one card per job, in the same order. Builder = the job's customer, so two builders
+ * in one development stay separate.
+ */
+export type BoardColumnEntry<J> = { kind: 'job'; job: J } | { kind: 'development'; key: string; name: string; customerId: string | null; builder: string | null; jobs: J[] }
+export function groupColumnByDevelopment<J extends { id: string; development?: { name: string; key: string } | null; customer?: { id: string; name: string } | null }>(jobs: readonly J[]): BoardColumnEntry<J>[] {
+  const groupKey = (j: J) => (j.development ? `${j.customer?.id ?? ''}|${j.development.key}` : null)
+  const counts = new Map<string, number>()
+  for (const j of jobs) {
+    const k = groupKey(j)
+    if (k) counts.set(k, (counts.get(k) ?? 0) + 1)
+  }
+  const out: BoardColumnEntry<J>[] = []
+  const placed = new Map<string, Extract<BoardColumnEntry<J>, { kind: 'development' }>>()
+  for (const j of jobs) {
+    const k = groupKey(j)
+    if (!k || (counts.get(k) ?? 0) < 2) {
+      out.push({ kind: 'job', job: j })
+      continue
+    }
+    const g = placed.get(k)
+    if (g) {
+      g.jobs.push(j)
+      continue
+    }
+    const entry = { kind: 'development' as const, key: k, name: j.development!.name, customerId: j.customer?.id ?? null, builder: j.customer?.name ?? null, jobs: [j] }
+    placed.set(k, entry)
+    out.push(entry)
+  }
+  return out
+}

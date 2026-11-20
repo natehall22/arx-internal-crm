@@ -122,6 +122,9 @@ const job = (n: number, over: Record<string, unknown> = {}) => ({
   project: { id: `p-${n}`, scope_of_work: 'Full replacement', product_summary: 'Duration Driftwood' }, ...over,
 })
 export const HARNESS_OPS_JOBS = [job(1), job(2, { status: 'sold', materials_status: 'not_ordered' }), job(3, { status: 'complete' }), job(4, { status: 'scheduled' })]
+/** A builder's development with lots in one stage: the board shows one "Oak Ridge Estates" card (lib/development-board.ts groupColumnByDevelopment). */
+const lotJob = (n: number, lotNo: string) => job(n, { status: 'sold', job_type: 'lawn', scheduled_date: null, materials_status: 'not_ordered', customer: { id: 'b1', name: 'Hartwell Homes', phone: '7045550100' }, development: { name: 'Oak Ridge Estates', key: 'oak ridge estates', lot: lotNo } })
+export const HARNESS_LOT_JOBS = [job(1), lotJob(5, '12'), lotJob(6, '13'), lotJob(7, '14'), job(4, { status: 'scheduled' })]
 
 export const HARNESS_JOB = {
   id: 'job-1', org_id: 'org-1', project_id: 'p-1', job_number: '26-0042', status: 'complete', job_type: 'roofing',
