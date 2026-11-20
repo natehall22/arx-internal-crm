@@ -18,6 +18,14 @@ describe('Job Board: one card per development', () => {
     expect(out.map((e) => (e.kind === 'job' ? e.job.id : `${e.name}:${e.jobs.map((j) => j.id).join(',')}`))).toEqual(['x', 'Oak Ridge:1,2,3', 'y'])
   })
 
+  it("groups and links by the lot's owner (property customer), not the job's customer fallback", () => {
+    const a = { ...lot('1', 'Elm'), development: { name: 'Elm', key: 'elm', lot: '1', customerId: 'owner' }, customer: { id: 'lead-x', name: 'X' } }
+    const b = { ...lot('2', 'Elm'), development: { name: 'Elm', key: 'elm', lot: '2', customerId: 'owner' }, customer: { id: 'c-y', name: 'Y' } }
+    const out = groupColumnByDevelopment([a, b])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ kind: 'development', customerId: 'owner' })
+  })
+
   it('a single lot stays a normal card; two builders in one development stay apart', () => {
     const out = groupColumnByDevelopment([lot('1', 'Oak Ridge'), lot('2', 'Pine', 'b1'), lot('3', 'Pine', 'b2'), lot('4', 'Pine', 'b2')])
     expect(out.map((e) => (e.kind === 'job' ? e.job.id : `${e.builder}:${e.jobs.length}`))).toEqual(['1', '2', 'Builder b2:2'])

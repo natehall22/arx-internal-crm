@@ -51,17 +51,17 @@ export async function loadLotJobsToSchedule(admin: SupabaseClient, orgId: string
 }
 
 /** Development name + lot number per property id, for properties in a development. null = the read failed (callers fall back). */
-export async function loadLotsByProperty(db: ReturnType<typeof orgDb>, propertyIds: readonly string[]): Promise<Map<string, { community: string; lot: string | null }> | null> {
-  const out = new Map<string, { community: string; lot: string | null }>()
+export async function loadLotsByProperty(db: ReturnType<typeof orgDb>, propertyIds: readonly string[]): Promise<Map<string, { community: string; lot: string | null; customerId: string | null }> | null> {
+  const out = new Map<string, { community: string; lot: string | null; customerId: string | null }>()
   const ids = Array.from(new Set(propertyIds.filter(Boolean)))
   for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await db.from('properties').select('id, community, lot').in('id', ids.slice(i, i + CHUNK)).not('community', 'is', null)
+    const { data, error } = await db.from('properties').select('id, community, lot, customer_id').in('id', ids.slice(i, i + CHUNK)).not('community', 'is', null)
     if (error) {
       console.error('[lot-jobs] properties read failed', error)
       return null
     }
-    for (const p of (data ?? []) as Array<{ id: string; community: string; lot: string | null }>) {
-      if (p.community?.trim()) out.set(p.id, { community: p.community.trim(), lot: p.lot?.trim() || null })
+    for (const p of (data ?? []) as Array<{ id: string; community: string; lot: string | null; customer_id: string | null }>) {
+      if (p.community?.trim()) out.set(p.id, { community: p.community.trim(), lot: p.lot?.trim() || null, customerId: p.customer_id ?? null })
     }
   }
   return out
@@ -79,7 +79,7 @@ export async function enrichJobsWithDevelopment(admin: SupabaseClient, orgId: st
   if (!lots) return
   for (const j of jobs) {
     const l = typeof j.property_id === 'string' ? lots.get(j.property_id) : undefined
-    if (l) j.development = { name: l.community, key: developmentKey(l.community), lot: l.lot }
+    if (l) j.development = { name: l.community, key: developmentKey(l.community), lot: l.lot, customerId: l.customerId }
   }
 }
 

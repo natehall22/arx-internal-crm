@@ -133,12 +133,13 @@ export function groupByBuilderAndDevelopment(lots: readonly BoardLot[], trades: 
 
 /**
  * Job Board column: a builder's lots in one development, two or more in the same stage, become ONE entry (placed where its
- * first lot sorts); everything else stays one card per job, in the same order. Builder = the job's customer, so two builders
- * in one development stay separate.
+ * first lot sorts); everything else stays one card per job, in the same order. Two builders in one development stay separate.
  */
 export type BoardColumnEntry<J> = { kind: 'job'; job: J } | { kind: 'development'; key: string; name: string; customerId: string | null; builder: string | null; jobs: J[] }
-export function groupColumnByDevelopment<J extends { id: string; development?: { name: string; key: string } | null; customer?: { id: string; name: string } | null }>(jobs: readonly J[]): BoardColumnEntry<J>[] {
-  const groupKey = (j: J) => (j.development ? `${j.customer?.id ?? ''}|${j.development.key}` : null)
+export function groupColumnByDevelopment<J extends { id: string; development?: { name: string; key: string; customerId?: string | null } | null; customer?: { id: string; name: string } | null }>(jobs: readonly J[]): BoardColumnEntry<J>[] {
+  // Builder = the lot's owner (the property's customer, what /ops/developments filters by); else the job's customer.
+  const builderId = (j: J) => j.development?.customerId ?? j.customer?.id ?? null
+  const groupKey = (j: J) => (j.development ? `${builderId(j) ?? ''}|${j.development.key}` : null)
   const counts = new Map<string, number>()
   for (const j of jobs) {
     const k = groupKey(j)
@@ -157,7 +158,7 @@ export function groupColumnByDevelopment<J extends { id: string; development?: {
       g.jobs.push(j)
       continue
     }
-    const entry = { kind: 'development' as const, key: k, name: j.development!.name, customerId: j.customer?.id ?? null, builder: j.customer?.name ?? null, jobs: [j] }
+    const entry = { kind: 'development' as const, key: k, name: j.development!.name, customerId: builderId(j), builder: j.customer?.name ?? null, jobs: [j] }
     placed.set(k, entry)
     out.push(entry)
   }

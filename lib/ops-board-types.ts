@@ -14,7 +14,7 @@ export interface OpsBoardJob {
   address_text: string
   property_id?: string | null
   /** Set when the job's property is a lot in a builder's development (lib/lot-jobs-queue.ts enrichJobsWithDevelopment). */
-  development?: { name: string; key: string; lot: string | null } | null
+  development?: { name: string; key: string; lot: string | null; /** The property's owner (builder) — what /ops/developments filters by. */ customerId?: string | null } | null
   sale_amount: number | null
   sold_squares?: number | null
   measured_squares?: number | null

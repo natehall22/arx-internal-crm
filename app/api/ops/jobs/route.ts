@@ -1,4 +1,5 @@
 import { sumCollectedCents } from '@/lib/job-collection'
+import { enrichJobsWithDevelopment } from '@/lib/lot-jobs-queue'
 import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -320,6 +321,7 @@ export async function GET(request: Request) {
     await enrichOpsJobsWithSoldSquares(adminClient, profile.org_id, jobList)
     await enrichOpsJobsWithMeasureSoldSquaresFallback(adminClient, profile.org_id, jobList)
     await enrichJobsWithCategory(adminClient, profile.org_id, jobList)
+    await enrichJobsWithDevelopment(adminClient, profile.org_id, jobList)
     if (canViewJobFinancials) await enrichJobsWithCostLedger(adminClient, profile.org_id, jobList)
     // The board's refresh asks for catch-up (`?catch_up=1`); attached only when the org has it on. Other callers unchanged.
     // `catch_up_failed` lets the board show the same "couldn't load" notice as the first render.

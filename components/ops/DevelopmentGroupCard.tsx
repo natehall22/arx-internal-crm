@@ -5,6 +5,7 @@ import { useState, type ReactNode } from 'react'
 
 import type { OpsBoardJob } from '@/lib/ops-board-types'
 import { formatDate } from '@/lib/format'
+import { isJobPastDue } from '@/lib/job-status'
 
 /**
  * Job Board: a builder's lots in one development, in one stage, as ONE card ("Oak Ridge · 40 lots"). "Show lots" opens the
@@ -25,6 +26,10 @@ export default function DevelopmentGroupCard({
 }) {
   const [open, setOpen] = useState(false)
   const dates = jobs.map((j) => j.scheduled_date).filter((d): d is string => Boolean(d)).sort()
+  const overdue = jobs.filter((j) => isJobPastDue(j)).length
+  const urgent = jobs.filter((j) => j.priority === 'urgent').length
+  const stuck = jobs.filter((j) => j.catch_up?.stuck).length
+  const flags = [overdue && `${overdue} overdue`, urgent && `${urgent} urgent`, stuck && `${stuck} stuck`].filter(Boolean).join(' · ')
   const lots = jobs.map((j) => j.development?.lot).filter((l): l is string => Boolean(l))
   const href = `/ops/developments?development=${encodeURIComponent(name)}${customerId ? `&customer=${encodeURIComponent(customerId)}` : ''}`
   return (
@@ -38,6 +43,7 @@ export default function DevelopmentGroupCard({
           {jobs.length} lots
         </span>
       </div>
+      {flags && <p className="mt-2 text-sm font-semibold text-red-700">{flags}</p>}
       {lots.length > 0 && (
         <p className="mt-2 line-clamp-2 text-sm text-[#2c2c2a]">
           Lots {lots.slice(0, 12).join(', ')}
