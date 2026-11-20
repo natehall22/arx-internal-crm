@@ -69,7 +69,7 @@ export async function loadLotsByProperty(db: ReturnType<typeof orgDb>, propertyI
 
 /**
  * Job Board: marks each job whose property is a lot in a development (`job.development`), so the board can show a builder's
- * development as one card instead of a card per lot. Jobs not on a lot (every ARX job today) get nothing; a failed read
+ * development as one card instead of a card per lot. Jobs not on a lot (every roofing job today) get nothing; a failed read
  * marks nothing (the board then shows one card per job, as before).
  */
 export async function enrichJobsWithDevelopment(admin: SupabaseClient, orgId: string, jobs: Array<Record<string, unknown>>): Promise<void> {

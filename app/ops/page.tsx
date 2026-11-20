@@ -44,7 +44,7 @@ export default async function OpsPage() {
   await enrichOpsJobsWithMeasureSoldSquaresFallback(supabase, profile.org_id, rawJobs)
   // Work category (job override, else customer's) for the board's filter; its own read, never fails the board.
   await enrichJobsWithCategory(admin, profile.org_id, rawJobs)
-  // A builder's lots: one card per development on the board (no-op when no job is on a lot — every ARX job today).
+  // A builder's lots: one card per development on the board (no-op when no job is on a lot — every roofing job today).
   await enrichJobsWithDevelopment(admin, profile.org_id, rawJobs)
   const categories = await loadOrgCategories(admin, profile.org_id)
   if (ops.canViewJobFinancials) await enrichJobsWithCostLedger(admin, profile.org_id, rawJobs)
