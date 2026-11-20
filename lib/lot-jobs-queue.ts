@@ -32,7 +32,7 @@ export async function loadLotJobsToSchedule(admin: SupabaseClient, orgId: string
   }
   const jobs = (data ?? []) as Array<{ id: string; property_id: string }>
   if (jobs.length === 0) return none
-  const lots = await loadLotsByProperty(db, jobs.map((j) => j.property_id))
+  const lots = await loadLotsByProperty(admin, orgId, jobs.map((j) => j.property_id))
   if (!lots) return none
   const community = new Map<string, string>(Array.from(lots, ([id, l]) => [id, l.community]))
   const out: LotJobsToSchedule = { jobIds: new Set(), byDevelopment: [] }
@@ -51,8 +51,9 @@ export async function loadLotJobsToSchedule(admin: SupabaseClient, orgId: string
 }
 
 /** Development name + lot number per property id, for properties in a development. null = the read failed (callers fall back). */
-export async function loadLotsByProperty(db: ReturnType<typeof orgDb>, propertyIds: readonly string[]): Promise<Map<string, { community: string; lot: string | null; customerId: string | null }> | null> {
+export async function loadLotsByProperty(admin: SupabaseClient, orgId: string, propertyIds: readonly string[]): Promise<Map<string, { community: string; lot: string | null; customerId: string | null }> | null> {
   const out = new Map<string, { community: string; lot: string | null; customerId: string | null }>()
+  const db = orgDb(admin, orgId)
   const ids = Array.from(new Set(propertyIds.filter(Boolean)))
   for (let i = 0; i < ids.length; i += CHUNK) {
     const { data, error } = await db.from('properties').select('id, community, lot, customer_id').in('id', ids.slice(i, i + CHUNK)).not('community', 'is', null)
@@ -75,7 +76,7 @@ export async function loadLotsByProperty(db: ReturnType<typeof orgDb>, propertyI
 export async function enrichJobsWithDevelopment(admin: SupabaseClient, orgId: string, jobs: Array<Record<string, unknown>>): Promise<void> {
   const ids = jobs.map((j) => j.property_id).filter((v): v is string => typeof v === 'string' && v.length > 0)
   if (ids.length === 0) return
-  const lots = await loadLotsByProperty(orgDb(admin, orgId), ids)
+  const lots = await loadLotsByProperty(admin, orgId, ids)
   if (!lots) return
   for (const j of jobs) {
     const l = typeof j.property_id === 'string' ? lots.get(j.property_id) : undefined
