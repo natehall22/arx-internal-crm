@@ -48,14 +48,18 @@ function go(route: string, role: string, t: Target): never {
   redirect(`/c/${t.customerId}/d/${t.dealId}/${t.tab}`)
 }
 
+/** A company not on the roofing profile has no old page to keep (Nathan, 2026-11-23). Roofing / nothing stored = false. */
+async function isNonRoofing(admin: ReturnType<typeof createServiceClient>, orgId: string): Promise<boolean> {
+  return (await loadOrgProfile(admin, orgId)).id !== DEFAULT_INDUSTRY_PROFILE
+}
+
 /** /opportunities/[id] → Sales tab. Roofing: only with the rollout switch, and inside-sales queue mode (?queue=1 / ?view=) keeps the old page (the conveyor lives there). Every other profile: always. */
 export async function redirectOpportunityToFile(id: string, searchParams?: Record<string, string | string[] | undefined>) {
   const { profile } = await requireAuth()
   const admin = createServiceClient()
   // A company not on the roofing profile has no old page to keep: the Customer File is its deal page, queue or not
   // (Nathan, 2026-11-23). Roofing keeps the rollout switch and its inside-sales conveyor exactly as before.
-  const nonRoofing = (await loadOrgProfile(admin, profile.org_id)).id !== DEFAULT_INDUSTRY_PROFILE
-  if (!nonRoofing) {
+  if (!(await isNonRoofing(admin, profile.org_id))) {
     if (searchParams && (searchParams.queue || searchParams.view)) return
     if (!fileRedirectsEnabledFor(profile.role)) return
   }
@@ -63,11 +67,11 @@ export async function redirectOpportunityToFile(id: string, searchParams?: Recor
   if (data?.customer_id && (await canOpen(admin, profile, data.id))) go('/opportunities/[id]', profile.role, { customerId: data.customer_id, dealId: data.id, tab: 'sales' })
 }
 
-/** /leads/[id] → the deal's Sales tab, else the Prospect File. */
+/** /leads/[id] → the deal's Sales tab, else the Prospect File. Roofing: only with the rollout switch. Every other profile: always (same rule as deals). */
 export async function redirectLeadToFile(id: string) {
   const { profile } = await requireAuth()
-  if (!fileRedirectsEnabledFor(profile.role)) return
   const admin = createServiceClient()
+  if (!(await isNonRoofing(admin, profile.org_id)) && !fileRedirectsEnabledFor(profile.role)) return
   const { data } = await admin
     .from('opportunities')
     .select('id, customer_id')

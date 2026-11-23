@@ -9,6 +9,8 @@ import CalendarView from '@/components/appointments/CalendarView'
 import ScheduleView from '@/components/appointments/ScheduleView'
 import Nav from '@/components/Nav'
 import { PageHeader } from '@/components/ui/page-header'
+import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import { appointmentsWord } from '@/lib/industry-profiles'
 
 /**
  * Appointments: the one home for inspections and closes. List and Calendar are two views of the same thing
@@ -18,6 +20,10 @@ import { PageHeader } from '@/components/ui/page-header'
  */
 function Hub() {
   const params = useSearchParams()
+  // Roofing keeps "Appointments" / "Inspections and closes" exactly; other profiles use their own visit word.
+  const visitWord = useOrgProfile().terms.inspection
+  const title = appointmentsWord(visitWord)
+  const subtitle = title === 'Appointments' ? 'Inspections and closes: list or calendar' : `${title} and closes: list or calendar`
   const reschedule = params.get('reschedule')
   const view = params.get('view') === 'calendar' ? 'calendar' : 'list'
   const tab = (active: boolean) => `inline-flex min-h-tap items-center rounded-ui px-4 text-ui-sm font-semibold ${active ? 'bg-brand-700 text-white' : 'border border-surface-line bg-surface text-ink'}`
@@ -31,11 +37,11 @@ function Hub() {
         ) : (
           <>
             <PageHeader
-              title="Appointments"
-              subtitle="Inspections and closes: list or calendar"
+              title={title}
+              subtitle={subtitle}
               actions={<Link href="/admin/scheduling" className="inline-flex min-h-tap items-center text-ui-sm font-semibold text-brand-800 underline">Scheduling settings</Link>}
             />
-            <nav aria-label="Appointments views" className="flex gap-2">
+            <nav aria-label={`${title} views`} className="flex gap-2">
               <Link href="/appointments" className={tab(view === 'list')} aria-current={view === 'list' ? 'page' : undefined}>List</Link>
               <Link href="/appointments?view=calendar" className={tab(view === 'calendar')} aria-current={view === 'calendar' ? 'page' : undefined}>Calendar</Link>
             </nav>

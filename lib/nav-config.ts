@@ -6,7 +6,7 @@
  * Pure (no React, no fetching): Nav.tsx builds the context from the same permission helpers it always used.
  */
 import type { OrgFeature, OrgFeatures } from '@/lib/org-features'
-import type { NavSectionId, Terms } from '@/lib/industry-profiles'
+import { appointmentsWord, type NavSectionId, type Terms } from '@/lib/industry-profiles'
 import { isRegionalBonusApproverRole } from '@/lib/payroll-admin-access'
 
 export type NavContext = {
@@ -21,7 +21,7 @@ export type NavContext = {
    * The company's industry profile (lib/org-profile.ts): section order, pages it hides and its words. Missing = roofing =
    * today's order and labels. Hiding only removes a menu entry; the page keeps its own permission gate.
    */
-  profile?: { nav: { order: readonly NavSectionId[]; hidden: readonly string[] }; terms: Pick<Terms, 'jobs' | 'jobBoard'> & Partial<Pick<Terms, 'proposal'>> }
+  profile?: { nav: { order: readonly NavSectionId[]; hidden: readonly string[] }; terms: Pick<Terms, 'jobs' | 'jobBoard'> & Partial<Pick<Terms, 'proposal' | 'inspection'>> }
   /** Helper results computed with lib/permissions (kept out of this file so there is one definition of each). */
   flags: {
     isOpsOnly: boolean
@@ -147,6 +147,7 @@ function profileLabel(c: NavContext, key: string, fallback: string): string {
   if (!terms) return fallback
   if (key === 'section:jobs') return terms.jobs
   if (key === '/ops') return terms.jobBoard
+  if (key === '/appointments') return appointmentsWord(terms.inspection)
   if (key === '/proposals' && terms.proposal) return `${terms.proposal}s`
   return fallback
 }

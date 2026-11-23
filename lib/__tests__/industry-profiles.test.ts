@@ -27,7 +27,7 @@ import { profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { parseCompanySeedInput } from '@/lib/company-seed'
 
 const read = (f: string) => readFileSync(path.join(process.cwd(), f), 'utf8')
-const lawnSettings = { profile: { id: 'lawn_landscape', version: 8 } }
+const lawnSettings = { profile: { id: 'lawn_landscape', version: 9 } }
 
 const flags = { isOpsOnly: false, canSeeOpsDashboard: true, canSeeJobBoard: true, canSeeInsideSales: true, projectsBarred: false, salesDocBarred: false, customerRecords: true, reports: true, isPayrollAdmin: true, earnsPay: true, payWeek: true }
 const owner = (extra: Partial<NavContext> = {}): NavContext => ({ permsReady: true, role: 'owner', fullAccess: true, permissionNames: new Set(), flags, ...extra })
@@ -105,7 +105,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
 
   it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing + customer messages on', () => {
     expect(lawn.id).toBe('lawn_landscape')
-    expect(lawn.storedVersion).toBe(8)
+    expect(lawn.storedVersion).toBe(9)
     for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' || k === 'quoteApproval' || k === 'areaMeasure'])
   })
 
@@ -118,7 +118,9 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
     expect(nav.sections.map((s) => s.id)).toEqual(['today', 'dashboard', 'pipeline', 'customers', 'jobs', 'money', 'reports'])
     expect(nav.sections.find((s) => s.id === 'jobs')!.label).toBe('Work')
     const hrefs = nav.sections.flatMap((s) => (s.children.length ? s.children.map((c) => c.href) : [s.href]))
-    for (const gone of ['/inside-sales', '/ops/checkups', '/projects', '/sisu']) expect(hrefs).not.toContain(gone)
+    for (const gone of ['/inside-sales', '/ops/checkups', '/projects', '/sisu', '/opportunities']) expect(hrefs).not.toContain(gone)
+    // The visit word names the Appointments entry; roofing keeps "Appointments".
+    expect(nav.sections.flatMap((s) => s.children).find((c) => c.href === '/appointments')!.label).toBe('Estimate visits')
     expect(hrefs).toContain('/referral-partners') // Nathan 2026-11-19: lawn companies keep Partners (builders, property managers)
     expect(nav.canvass).toBe(false)
     expect(nav.sections.find((s) => s.id === 'jobs')!.children[0]).toEqual({ href: '/ops', label: 'Work board' })

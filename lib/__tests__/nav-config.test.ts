@@ -119,4 +119,13 @@ describe('nav config', () => {
       expect(activeSectionId('/admin/bonuses', n)).toBe('money')
     })
   })
+
+  it('roofing (no profile, or the roofing terms) keeps Opportunities and "Appointments"', () => {
+    const perms = new Set(['opportunities:view', 'scheduling:view', 'leads:view'])
+    const none = visibleNav(ctx({ permissionNames: perms })).sections.find((s) => s.id === 'pipeline')!.children
+    expect(none.map((l) => [l.href, l.label])).toEqual([['/leads', 'Leads'], ['/opportunities', 'Opportunities'], ['/appointments', 'Appointments']])
+    const roofing = { nav: { order: ['today', 'dashboard', 'pipeline'] as never, hidden: [] }, terms: { jobs: 'Jobs', jobBoard: 'Job Board', inspection: 'Inspection', proposal: 'Proposal' } }
+    const withProfile = visibleNav(ctx({ permissionNames: perms, profile: roofing })).sections.find((s) => s.id === 'pipeline')!.children
+    expect(withProfile).toEqual(none)
+  })
 })

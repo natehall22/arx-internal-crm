@@ -61,6 +61,14 @@ export const TERM_LABELS: Readonly<Record<TermKey, string>> = Object.freeze({
 })
 
 /** Today's words (= the roofing profile). Every other profile starts from these. */
+/**
+ * The Appointments menu entry / page title in the company's visit word. Roofing's word is "Inspection", which keeps the
+ * name "Appointments" exactly; any other word is pluralised ("Estimate visit" -> "Estimate visits").
+ */
+export function appointmentsWord(inspection: string | undefined): string {
+  return !inspection || inspection === 'Inspection' ? 'Appointments' : `${inspection}s`
+}
+
 export const BASE_TERMS: Readonly<Terms> = Object.freeze({
   job: 'Job',
   jobs: 'Jobs',
@@ -299,7 +307,8 @@ const PROJECT_DASHBOARD_CARDS: readonly string[] = [
 
 /** Service companies: Leads (Pipeline) → Customers → Jobs → Money (Billing = Ready to bill / request payment). */
 const SERVICE_NAV_ORDER: readonly NavSectionId[] = ['today', 'dashboard', 'pipeline', 'customers', 'jobs', 'money', 'reports', 'sisu']
-const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
+// '/opportunities': a service company's deals live in the Customer File (Leads and old deal links open it), so the list is not a menu entry (Nathan, 2026-11-23).
+const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects', '/opportunities']
 
 /**
  * The legacy `crews` screen (roofing crew types, job calendar colors) is roofing-only. Every other profile has ONE crew
@@ -325,7 +334,7 @@ const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
   siteVisitType: { name: 'Estimate Visit', description: 'On-site visit to look at the property and give a quote', durationMinutes: 45 },
   proposalContent: LAWN_LANDSCAPE_PROPOSAL_CONTENT,
-  version: 8,
+  version: 9,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
   features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, quoteApproval: true, areaMeasure: true, materialOrdering: false, ...ROOF_ONLY_OFF },
@@ -416,7 +425,7 @@ const exteriorCleaning: IndustryProfile = {
   id: 'exterior_cleaning',
   siteVisitType: { name: 'Estimate Visit', description: 'On-site visit to look at the property and give a quote', durationMinutes: 30 },
   proposalContent: EXTERIOR_CLEANING_PROPOSAL_CONTENT,
-  version: 5,
+  version: 6,
   label: 'Exterior cleaning',
   description: 'Pressure washing, soft washing, window and gutter cleaning — one-off and repeat.',
   // Door knocking stays on: many cleaning companies sell door to door.
@@ -511,7 +520,7 @@ const HOME_BUILDER_SCHEDULE_TEMPLATES: readonly ScheduleTemplate[] = [
 const homeBuilder: IndustryProfile = {
   id: 'home_builder',
   proposalContent: HOME_BUILDER_PROPOSAL_CONTENT,
-  version: 5,
+  version: 6,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
   features: { canvassing: false, incentives: false, projectTools: true, customerPortal: true, masterInvoices: true, ...ROOF_ONLY_OFF },
@@ -526,7 +535,7 @@ const homeBuilder: IndustryProfile = {
     { label: 'Finishes', matchKeywords: ['drywall', 'paint', 'trim', 'floor', 'cabinet'] },
   ],
   terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners', leadName: 'Client / company name' },
-  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
+  nav: { order: ['today', 'dashboard', 'jobs', 'customers', 'pipeline', 'money', 'reports', 'sisu'], hidden: ['/inside-sales', '/ops/checkups', '/projects', '/opportunities'] },
   dashboard: { cards: PROJECT_DASHBOARD_CARDS },
   settingsHidden: [LEGACY_CREWS_SCREEN],
   today: {

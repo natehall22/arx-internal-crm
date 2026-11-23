@@ -69,7 +69,7 @@ export default function ProposalsPage() {
           return
         }
         const data = await response.json().catch(() => ({}))
-        setError(data.error || 'Failed to load proposals')
+        setError(data.error || `Failed to load ${word.toLowerCase()}s`)
         setProposals([])
         return
       }
@@ -79,12 +79,12 @@ export default function ProposalsPage() {
       setCurrentUserId(typeof uid === 'string' ? uid : '')
     } catch (err) {
       console.error('Error loading proposals:', err)
-      setError('Failed to load proposals')
+      setError(`Failed to load ${word.toLowerCase()}s`)
       setProposals([])
     } finally {
       setLoading(false)
     }
-  }, [router])
+  }, [router, word])
   useEffect(() => { void load() }, [load])
 
   const handleDelete = useCallback(async (p: Proposal) => {
@@ -94,13 +94,13 @@ export default function ProposalsPage() {
       const response = await fetch(`/api/proposals/${p.id}`, { method: 'DELETE' })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        toast.error(data.error || 'Failed to delete proposal')
+        toast.error(data.error || `Failed to delete ${word.toLowerCase()}`)
         return
       }
       setProposals((prev) => prev.filter((x) => x.id !== p.id))
     } catch (err) {
       console.error('Error deleting proposal:', err)
-      toast.error('Failed to delete proposal')
+      toast.error(`Failed to delete ${word.toLowerCase()}`)
     } finally {
       setDeletingId(null)
     }
@@ -163,12 +163,12 @@ export default function ProposalsPage() {
           initialSorting={NEWEST}
           rowActions={(p) =>
             currentUserId && userCanDeleteProposal({ status: p.status, createdBy: p.created_by, currentUserId, role: userRole }) ? (
-              <Button variant="ghost" size="sm" onClick={() => handleDelete(p)} disabled={deletingId === p.id} aria-label={`Delete proposal ${p.proposal_number}`}>
+              <Button variant="ghost" size="sm" onClick={() => handleDelete(p)} disabled={deletingId === p.id} aria-label={`Delete ${word.toLowerCase()} ${p.proposal_number}`}>
                 {deletingId === p.id ? 'Deleting…' : 'Delete'}
               </Button>
             ) : null
           }
-          empty={{ title: 'No proposals match', body: 'Try another view, or build one.', action: <Button asChild><Link href="/proposals/builder">New proposal</Link></Button> }}
+          empty={{ title: `No ${word.toLowerCase()}s match`, body: 'Try another view, or build one.', action: <Button asChild><Link href="/proposals/builder">{`New ${word.toLowerCase()}`}</Link></Button> }}
         />
       </main>
     </div>

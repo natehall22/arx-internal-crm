@@ -10,7 +10,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { formatPhone } from '@/lib/format'
 import { useOrgCategories } from '@/hooks/useOrgCategories'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
 import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { activeCategories, categoryLabel } from '@/lib/categories'
 
@@ -81,6 +81,8 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
   const [query, setQuery] = useState<{ page: number; search: string; filters: Record<string, string> }>({ page: 1, search: '', filters: {} })
   const categories = useOrgCategories()
   // Companies not priced from a roof (lawn, cleaning) start every new caller from one "+ New customer" sheet.
+  // Roofing's stage "inspection" shows the company's own visit word elsewhere (value unchanged; roofing reads "inspection" as before).
+  const inspectionWord = useOrgProfile().terms.inspection.toLowerCase()
   const startAll = !useOrgFeatures().squaresPricing
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [debounced, setDebounced] = useState(query)
@@ -179,7 +181,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
 
   const filters = useMemo<TableFilter<Lead>[]>(() => {
     const f: TableFilter<Lead>[] = [
-      { key: 'status', label: 'Status', options: ['new', 'contacted', 'appointment', 'inspection', 'estimate_sent', 'won', 'lost'].map((v) => ({ value: v, label: v.replace(/_/g, ' ') })) },
+      { key: 'status', label: 'Status', options: ['new', 'contacted', 'appointment', 'inspection', 'estimate_sent', 'won', 'lost'].map((v) => ({ value: v, label: v === 'inspection' ? inspectionWord : v.replace(/_/g, ' ') })) },
     ]
     if (canViewInbound) f.push({ key: 'channel', label: 'Channel', options: [{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }] })
     if (canViewInbound && campaigns.length > 0) f.push({ key: 'campaign', label: 'Campaign', options: campaigns.map((c) => ({ value: c.id, label: c.name })) })
@@ -187,7 +189,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
     if (categories && activeCategories(categories).length > 0) f.push({ key: 'category', label: 'Category', options: activeCategories(categories).map((c) => ({ value: c.slug, label: c.label })) })
     if (users.length > 0) f.push({ key: 'owner', label: 'Owner', options: [{ value: 'unassigned', label: 'Unassigned' }, ...users.map((u) => ({ value: u.id, label: u.full_name }))] })
     return f
-  }, [canViewInbound, campaigns, leadSources, users, categories])
+  }, [canViewInbound, campaigns, leadSources, users, categories, inspectionWord])
 
   const systemViews = useMemo<TableView[]>(() => {
     const views: TableView[] = [{ id: 'sys:new', name: 'New leads', state: { sorting: [], search: '', filters: { status: 'new' } } }]
