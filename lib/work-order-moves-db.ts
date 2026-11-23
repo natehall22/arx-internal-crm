@@ -5,7 +5,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { isRollReason, type MoveHistoryEntry, type MoveKind, type RollReason } from '@/lib/work-order-rolls'
+import { COUNTED_ROLL_KIND, isRollReason, type MoveHistoryEntry, type MoveKind, type RollReason } from '@/lib/work-order-rolls'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export type WorkOrderMove = {
@@ -58,7 +58,7 @@ async function loadRollMoves(admin: SupabaseClient, orgId: string, workOrderIds:
       const { data, error } = await db
         .from('work_order_moves')
         .select('work_order_id, reason')
-        .eq('kind', 'roll')
+        .eq('kind', COUNTED_ROLL_KIND)
         .in('work_order_id', workOrderIds.slice(i, i + CHUNK))
         .order('id')
         .range(from, from + ROLL_PAGE - 1)
@@ -103,7 +103,7 @@ export async function loadMoveHistory(admin: SupabaseClient, orgId: string, work
     from: r.from_date,
     to: r.to_date,
     reason: isRollReason(r.reason) ? r.reason : null,
-    kind: r.kind === 'roll' || r.kind === 'shift' ? r.kind : 'move',
+    kind: r.kind === 'roll' || r.kind === 'shift' || r.kind === 'auto_roll' ? r.kind : 'move',
     by: r.moved_by ? (who.get(r.moved_by) ?? null) : r.moved_by_sub_id ? (who.get(r.moved_by_sub_id) ?? null) : null,
     at: r.moved_at,
   }))

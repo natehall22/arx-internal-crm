@@ -20,8 +20,20 @@ export const ROLL_REASON_LABELS: Record<RollReason, string> = {
   other: 'Other',
 }
 
-/** 'roll' = the one-tap button, 'shift' = the bulk rain move, 'move' = any other date change. */
-export type MoveKind = 'roll' | 'shift' | 'move'
+/**
+ * 'roll' = the one-tap button, 'shift' = the bulk rain move, 'move' = any other date change, 'auto_roll' = the nightly carry-over
+ * of unstarted work (lib/schedule-nightly-db.ts). Only 'roll' is counted as "Rolled N×" (a builder "not ready" roll); 'auto_roll'
+ * is logged and shown in the move history, never counted.
+ */
+export type MoveKind = 'roll' | 'shift' | 'move' | 'auto_roll'
+
+/** The moves "Rolled N×" counts. The ONE place that says so (loadWorkOrderRollCounts filters on it). */
+export const COUNTED_ROLL_KIND: MoveKind = 'roll'
+
+/** The nightly carry-over lands on the first working day on or after today (never tomorrow when today is a workday: it was due earlier). */
+export function autoRollTargetDay(today: string): string {
+  return nextWorkdayOnOrAfter(today)
+}
 
 export function isRollReason(v: unknown): v is RollReason {
   return typeof v === 'string' && (ROLL_REASONS as readonly string[]).includes(v)

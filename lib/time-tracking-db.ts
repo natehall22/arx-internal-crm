@@ -1839,6 +1839,16 @@ async function upsertJobLaborLine(
 // Today + morning email
 // ---------------------------------------------------------------------------------------------------------------------
 
+/** People with a work / shift clock still running right now (the end-of-day nudge). Read-only: it never stops anyone's clock. Empty when the clock tables are not there yet. */
+export async function loadClockedInUserIds(admin: SupabaseClient, orgId: string): Promise<string[]> {
+  const { data, error } = await orgDb(admin, orgId).from('time_entries').select('user_id').in('kind', ['work', 'shift']).is('ended_at', null).is('removed_at', null).limit(1000)
+  if (error) {
+    if (isTimeTrackingNotReadyError(error)) return []
+    throw error
+  }
+  return Array.from(new Set(((data ?? []) as Array<{ user_id: string | null }>).map((r) => r.user_id).filter((x): x is string => !!x)))
+}
+
 /**
  * "N shifts need a finish time": clocks the system stopped (forgot to clock out) in the last 14 days that nobody has
  * answered yet. Loud on purpose — such a shift may be paying 0 h. Email-safe: person + day only.

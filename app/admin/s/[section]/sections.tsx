@@ -13,6 +13,7 @@ import QuickBooksSetup from '@/components/admin/QuickBooksSetup'
 import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import SigningSettingsCard from '@/components/admin/SigningSettingsCard'
+import NightlyScheduleCard from '@/components/service-plans/NightlyScheduleCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import type { User } from '@/lib/types/database'
@@ -88,7 +89,15 @@ export const SECTION_PAGES: Record<string, SectionPage> = {
   jobs: {
     subtitle: 'Service plans, job catch-up, customer checkups and crew incentives.',
     cards: [
-      { anchor: 'plan-templates', render: () => <ServicePlanTemplatesCard /> },
+      {
+        anchor: 'plan-templates',
+        render: () => (
+          <>
+            <ServicePlanTemplatesCard />
+            <NightlyScheduleCard />
+          </>
+        ),
+      },
       {
         anchor: 'job-catch-up',
         render: async ({ admin, profile }) => {
