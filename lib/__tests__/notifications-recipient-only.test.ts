@@ -89,8 +89,8 @@ describe('every app read/update of notifications filters by recipient', () => {
   })
 
   it('finds the known readers (scanner sanity check)', () => {
-    // /api/notifications GET x2 + PATCH x2, stream x3, setter x2, lib/threads/waiting.ts x3
-    expect(readers).toBe(12)
+    // /api/notifications GET x2 + PATCH x2, stream x3, setter x2, lib/threads/waiting.ts x3, end-of-day bell dedupe (lib/schedule-nightly-db.ts) x1
+    expect(readers).toBe(13)
   })
 
   it('has no reader without a recipient_user_id filter', () => {
