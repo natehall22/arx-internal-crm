@@ -321,7 +321,7 @@ type CustomerFacts = { id: string; name: string | null; email: string | null; ph
 
 async function loadCustomer(admin: SupabaseClient, orgId: string, customerId: string | null): Promise<CustomerFacts | null> {
   if (!customerId) return null
-  // message_overrides (migration 202611300200) may not exist yet: read without it then — the company's timing applies.
+  // message_overrides (migration 202611300220) may not exist yet: read without it then — the company's timing applies.
   let res = await orgDb(admin, orgId).from('customers').select('id, name, email, phone, messages_off_at, message_overrides').eq('id', customerId).maybeSingle()
   if (res.error && isMissingColumn(res.error, 'message_overrides')) res = await orgDb(admin, orgId).from('customers').select('id, name, email, phone, messages_off_at').eq('id', customerId).maybeSingle()
   if (res.error && isMissingColumn(res.error, 'messages_off_at')) return null
@@ -1465,7 +1465,7 @@ export async function setCustomerMessages(
 /**
  * The office's timing for ONE customer (same permission as the on/off switch): kinds turned off, and for quote follow-ups
  * / invoice reminders which of the company's steps they still get. Saved cleaned; empty clears it. Needs migration
- * 202611300200 (409 until then).
+ * 202611300220 (409 until then).
  */
 export async function setCustomerOverrides(
   admin: SupabaseClient,

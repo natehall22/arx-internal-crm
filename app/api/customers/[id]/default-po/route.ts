@@ -20,7 +20,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (po.length > 60) return NextResponse.json({ error: 'A PO number is at most 60 characters' }, { status: 400 })
   const { data, error } = await orgDb(ctx.admin, ctx.orgId).from('customers').update({ default_po: po || null }).eq('id', params.id).select('id').maybeSingle()
   if (error) {
-    if (isMissingColumn(error, 'default_po')) return NextResponse.json({ error: 'A default PO needs a database update first (migration 202611300200).' }, { status: 409 })
+    if (isMissingColumn(error, 'default_po')) return NextResponse.json({ error: 'A default PO needs a database update first (migration 202611300220).' }, { status: 409 })
     return NextResponse.json({ error: 'Could not save' }, { status: 500 })
   }
   if (!data) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })

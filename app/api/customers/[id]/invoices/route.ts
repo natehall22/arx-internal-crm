@@ -13,7 +13,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const ctx = await billingRouteAuth()
   if (ctx instanceof Response) return ctx
   const { data: customer } = await orgDb(ctx.admin, ctx.orgId).from('customers').select('id, email').eq('id', params.id).maybeSingle()
-  // Separate read so a database without migration 202611300200 still lists invoices (no default PO there).
+  // Separate read so a database without migration 202611300220 still lists invoices (no default PO there).
   const poRes = await orgDb(ctx.admin, ctx.orgId).from('customers').select('default_po').eq('id', params.id).maybeSingle()
   const defaultPo = poRes.error ? null : ((poRes.data as { default_po?: string | null } | null)?.default_po ?? null)
   if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })

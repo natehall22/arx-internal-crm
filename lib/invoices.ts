@@ -1281,7 +1281,7 @@ export async function createServiceInvoiceFromLines(
 /**
  * The PO on an invoice without a job: the caller's, else the customer's default (`customers.default_po`), written to the
  * same `job_invoices.customer_po` column job invoices use (those default from the job by trigger). Best effort and never
- * blocks billing: a database without migration 202611300200 (or 202611300180) simply has no PO to copy.
+ * blocks billing: a database without migration 202611300220 (or 202611300180) simply has no PO to copy.
  */
 async function copyCustomerPo(supabase: SupabaseClient, orgId: string, invoiceId: string, customerId: string, explicit?: string | null): Promise<void> {
   let po = explicit?.trim() || null
