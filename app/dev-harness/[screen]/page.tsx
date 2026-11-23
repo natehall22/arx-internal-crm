@@ -852,6 +852,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
               off: false,
               offAt: null,
               offBy: null,
+              overrides: null,
+              companyDays: { quote_follow_up: [3, 7], invoice_reminder: [0, 7, 14] },
               email: 'jane.smith.long.address@example.com',
               suppressed: null,
               recent: [

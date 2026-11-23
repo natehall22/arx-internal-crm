@@ -43,6 +43,8 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
   const [busy, setBusy] = React.useState<string | null>(null)
   const [showAll, setShowAll] = React.useState(false)
   const [newOpen, setNewOpen] = React.useState(false)
+  const [defaultPo, setDefaultPo] = React.useState<string | null>(null)
+  const [poReady, setPoReady] = React.useState(false)
   const [terms, setTerms] = React.useState<{ orgDefault: PaymentTerms; override: PaymentTerms | null } | null>(null)
 
   const load = React.useCallback(async () => {
@@ -58,6 +60,8 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
     }
     setRows(body.invoices as Row[])
     setAddresses((body.addresses ?? {}) as Record<string, string>)
+    setDefaultPo((body.defaultPo ?? null) as string | null)
+    setPoReady(body.poReady === true)
     setTerms((body.terms ?? null) as { orgDefault: PaymentTerms; override: PaymentTerms | null } | null)
   }, [customerId])
 
@@ -93,6 +97,15 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
     } finally {
       setBusy(null)
     }
+  }
+
+  async function saveDefaultPo(value: string) {
+    if (value.trim() === (defaultPo ?? '')) return
+    const res = await fetch(`/api/customers/${customerId}/default-po`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ po: value.trim() || null }) })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) return toast.error(body.error || 'Could not save the PO')
+    toast.success('PO saved for new invoices')
+    await load()
   }
 
   async function saveTerms(value: string) {
@@ -149,6 +162,20 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
             </Button>
             <Button size="sm" variant="secondary" loading={busy === 'statement'} onClick={() => void emailStatement()}>Email statement</Button>
           </>
+        ) : null}
+        {poReady ? (
+          <label className="flex min-h-tap items-center gap-2 text-ui-sm text-ink">
+            PO #
+            <input
+              key={defaultPo ?? ''}
+              aria-label="Default PO number"
+              defaultValue={defaultPo ?? ''}
+              maxLength={60}
+              placeholder="Printed on new invoices"
+              onBlur={(e) => void saveDefaultPo(e.target.value)}
+              className="min-h-tap w-44 rounded-md border border-surface-line px-2 text-base text-ink"
+            />
+          </label>
         ) : null}
         {terms ? (
           <label className="flex min-h-tap items-center gap-2 text-ui-sm text-ink">

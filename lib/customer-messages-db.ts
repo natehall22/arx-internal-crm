@@ -43,6 +43,9 @@ import { countSegments } from '@/lib/sms/segments'
 import { logUsage, sentToday } from '@/lib/sms/usage'
 import type { EmailCompany } from '@/lib/customer-email-layout'
 import {
+  cleanOverrides,
+  overrideRefusal,
+  type CustomerOverrides,
   CUSTOMER_MESSAGES_SETTINGS_KEY,
   DONE_DELAY_MINUTES,
   DONE_EXPIRES_HOURS,
@@ -314,14 +317,22 @@ export async function loadCustomerMessagesBlockedQueue(admin: SupabaseClient, or
 
 export { suppressAddress, type SuppressionReason }
 
-type CustomerFacts = { id: string; name: string | null; email: string | null; phone: string | null; off: boolean }
+type CustomerFacts = { id: string; name: string | null; email: string | null; phone: string | null; off: boolean; overrides: CustomerOverrides | null }
 
 async function loadCustomer(admin: SupabaseClient, orgId: string, customerId: string | null): Promise<CustomerFacts | null> {
   if (!customerId) return null
-  const { data, error } = await orgDb(admin, orgId).from('customers').select('id, name, email, phone, messages_off_at').eq('id', customerId).maybeSingle()
-  if (error && isMissingColumn(error, 'messages_off_at')) return null
-  const c = data as { id: string; name: string | null; email: string | null; phone: string | null; messages_off_at: string | null } | null
-  return c ? { id: c.id, name: c.name, email: c.email, phone: c.phone, off: !!c.messages_off_at } : null
+  // message_overrides (migration 202611300200) may not exist yet: read without it then — the company's timing applies.
+  let res = await orgDb(admin, orgId).from('customers').select('id, name, email, phone, messages_off_at, message_overrides').eq('id', customerId).maybeSingle()
+  if (res.error && isMissingColumn(res.error, 'message_overrides')) res = await orgDb(admin, orgId).from('customers').select('id, name, email, phone, messages_off_at').eq('id', customerId).maybeSingle()
+  if (res.error && isMissingColumn(res.error, 'messages_off_at')) return null
+  const c = res.data as { id: string; name: string | null; email: string | null; phone: string | null; messages_off_at: string | null; message_overrides?: unknown } | null
+  return c ? { id: c.id, name: c.name, email: c.email, phone: c.phone, off: !!c.messages_off_at, overrides: cleanOverrides(c.message_overrides) } : null
+}
+
+/** A cancelled result when this customer's own timing says no to this message (reason on the row), else null. */
+function customerTimingCancel(customer: CustomerFacts | null, kind: RowKind, step?: unknown): { send: false; status: 'cancelled'; reason: string } | null {
+  const reason = overrideRefusal(customer?.overrides, kind, step)
+  return reason ? { send: false, status: 'cancelled', reason } : null
 }
 
 // ── Queue + deliver ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -721,6 +732,9 @@ async function buildVisitReminder(ctx: SendContext, row: MessageRow): Promise<Bu
   if (visits.length === 0) return { send: false, status: 'cancelled', reason: 'no_visits_that_day' }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
   const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: customer?.phone ?? null })
+
+  const timingCancel = customerTimingCancel(customer, 'visit_reminder')
+  if (timingCancel) return timingCancel
   const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   const what = await describeVisits(ctx, visits)
@@ -751,6 +765,8 @@ async function buildVisitEvent(ctx: SendContext, row: MessageRow): Promise<Built
   if (!kindSentOn(ctx.settings, done ? 'visit_done' : 'visit_on_the_way', ctx.channel.channel)) return { send: false, status: 'cancelled', reason: 'turned_off' }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, v.customer_id)
   const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: customer?.phone ?? null })
+  const timingCancel = customerTimingCancel(customer, row.kind)
+  if (timingCancel) return timingCancel
   const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   const info = (await describeVisits(ctx, [v])).get(v.id)!
@@ -788,6 +804,8 @@ async function buildQuoteFollowUp(ctx: SendContext, row: MessageRow): Promise<Bu
   }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
   const to = ctx.channel.addressFor({ email: p.customer_email || customer?.email || null, phone: customer?.phone ?? null })
+  const timingCancel = customerTimingCancel(customer, 'quote_follow_up', row.refs.step)
+  if (timingCancel) return timingCancel
   const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   // A signing link already sent for this quote (still waiting) is the button; otherwise "reply to this email".
@@ -847,6 +865,8 @@ async function buildInvoiceReminder(ctx: SendContext, row: MessageRow): Promise<
   }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
   const to = ctx.channel.addressFor({ email: doc.billTo.email, phone: customer?.phone ?? null })
+  const timingCancel = customerTimingCancel(customer, 'invoice_reminder', row.refs.step)
+  if (timingCancel) return timingCancel
   const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
 
@@ -1368,6 +1388,10 @@ export type CustomerMessageState = {
   offAt: string | null
   /** 'office' | 'customer' (unsubscribed) | null */
   offBy: 'office' | 'customer' | null
+  /** This customer's own timing on top of the company's (null = the company's). */
+  overrides: CustomerOverrides | null
+  /** The company's steps, so the card can offer them. */
+  companyDays: { quote_follow_up: number[]; invoice_reminder: number[] }
   email: string | null
   /** The customer's current address is on the suppression list. */
   suppressed: { reason: SuppressionReason; at: string } | null
@@ -1376,13 +1400,17 @@ export type CustomerMessageState = {
 
 /** The Customer File card: on / off, why, and the last messages. Null before the migration. */
 export async function loadCustomerMessageState(admin: SupabaseClient, orgId: string, customerId: string): Promise<CustomerMessageState | null> {
-  const { data: c, error } = await orgDb(admin, orgId).from('customers').select('id, email, messages_off_at, messages_off_by').eq('id', customerId).maybeSingle()
+  let res = await orgDb(admin, orgId).from('customers').select('id, email, messages_off_at, messages_off_by, message_overrides').eq('id', customerId).maybeSingle()
+  if (res.error && isMissingColumn(res.error, 'message_overrides')) res = await orgDb(admin, orgId).from('customers').select('id, email, messages_off_at, messages_off_by').eq('id', customerId).maybeSingle()
+  const { data: c, error } = res
   if (error) {
     if (isMissingColumn(error, 'messages_off_at')) return null
     throw new Error(`customer: ${error.message}`)
   }
   if (!c) return null
-  const cust = c as { email: string | null; messages_off_at: string | null; messages_off_by: string | null }
+  const cust = c as { email: string | null; messages_off_at: string | null; messages_off_by: string | null; message_overrides?: unknown }
+  const { data: orgRow } = await admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
+  const company = messageSettingsOf((orgRow as { settings?: unknown } | null)?.settings as never)
   const email = normalizeEmail(cust.email)
   const [sup, { data: rows }] = await Promise.all([
     email ? suppressionOf(admin, orgId, 'email', email) : Promise.resolve(null),
@@ -1392,6 +1420,8 @@ export async function loadCustomerMessageState(admin: SupabaseClient, orgId: str
     off: !!cust.messages_off_at,
     offAt: cust.messages_off_at,
     offBy: cust.messages_off_at ? (cust.messages_off_by ? 'office' : 'customer') : null,
+    overrides: cleanOverrides(cust.message_overrides),
+    companyDays: { quote_follow_up: [...company.quoteFollowUpDays], invoice_reminder: [...company.invoiceReminderDays] },
     email,
     suppressed: sup ? { reason: sup.reason, at: sup.created_at } : null,
     recent: ((rows ?? []) as Array<{ id: string; kind: MessageKind; status: string; created_at: string; sent_at: string | null; skip_reason: string | null; subject: string | null }>).map((r) => ({
@@ -1432,6 +1462,33 @@ export async function setCustomerMessages(
   return { ok: true }
 }
 
+/**
+ * The office's timing for ONE customer (same permission as the on/off switch): kinds turned off, and for quote follow-ups
+ * / invoice reminders which of the company's steps they still get. Saved cleaned; empty clears it. Needs migration
+ * 202611300200 (409 until then).
+ */
+export async function setCustomerOverrides(
+  admin: SupabaseClient,
+  orgId: string,
+  customerId: string,
+  raw: unknown
+): Promise<{ ok: true } | { ok: false; status: 404 | 409; error: string }> {
+  const state = await loadCustomerMessageState(admin, orgId, customerId)
+  if (!state) return { ok: false, status: 404, error: 'Customer not found' }
+  const clean = cleanOverrides(raw)
+  // A customer's list can only keep steps the company sends.
+  if (clean?.days) {
+    for (const k of Object.keys(clean.days) as Array<keyof typeof state.companyDays>) {
+      clean.days[k] = (clean.days[k] ?? []).filter((d) => state.companyDays[k].includes(d))
+    }
+  }
+  const { error } = await orgDb(admin, orgId).from('customers').update({ message_overrides: clean }).eq('id', customerId)
+  if (error) {
+    if (isMissingColumn(error, 'message_overrides')) return { ok: false, status: 409, error: 'This needs a database update first. Ask your administrator.' }
+    throw new Error(`overrides: ${error.message}`)
+  }
+  return { ok: true }
+}
 
 // ── A staff reply "To customer" (Customer File thread) ──────────────────────────────────────────────────────────────
 

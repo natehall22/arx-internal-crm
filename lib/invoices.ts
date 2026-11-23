@@ -1248,7 +1248,7 @@ export type ServiceInvoiceLine = {
 export async function createServiceInvoiceFromLines(
   supabase: SupabaseClient,
   orgId: string,
-  p: { customerId: string; propertyId: string | null; createdBy: string | null; lines: ServiceInvoiceLine[]; publicNote?: string | null; internalNote?: string | null }
+  p: { customerId: string; propertyId: string | null; createdBy: string | null; lines: ServiceInvoiceLine[]; publicNote?: string | null; internalNote?: string | null; customerPo?: string | null }
 ): Promise<{ invoiceId: string | null; skipped: unknown[] }> {
   const tax = await computeCustomerSalesTax(
     supabase,
@@ -1274,7 +1274,24 @@ export async function createServiceInvoiceFromLines(
   })
   if (error) throw new Error(`Failed to create invoice: ${error.message}`)
   const r = (data ?? {}) as { invoice_id?: string | null; skipped?: unknown[] }
+  if (r.invoice_id) await copyCustomerPo(supabase, orgId, r.invoice_id, p.customerId, p.customerPo)
   return { invoiceId: r.invoice_id ?? null, skipped: r.skipped ?? [] }
+}
+
+/**
+ * The PO on an invoice without a job: the caller's, else the customer's default (`customers.default_po`), written to the
+ * same `job_invoices.customer_po` column job invoices use (those default from the job by trigger). Best effort and never
+ * blocks billing: a database without migration 202611300200 (or 202611300180) simply has no PO to copy.
+ */
+async function copyCustomerPo(supabase: SupabaseClient, orgId: string, invoiceId: string, customerId: string, explicit?: string | null): Promise<void> {
+  let po = explicit?.trim() || null
+  if (!po) {
+    const { data, error } = await orgDb(supabase, orgId).from('customers').select('default_po').eq('id', customerId).maybeSingle()
+    if (error) return
+    po = ((data as { default_po?: string | null } | null)?.default_po ?? '').trim() || null
+  }
+  if (!po) return
+  await orgDb(supabase, orgId).from('job_invoices').update({ customer_po: po.slice(0, 60) }).eq('id', invoiceId).is('customer_po', null)
 }
 
 export type CustomerInvoicePayment = {

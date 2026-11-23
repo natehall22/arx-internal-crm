@@ -13,13 +13,16 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const ctx = await billingRouteAuth()
   if (ctx instanceof Response) return ctx
   const { data: customer } = await orgDb(ctx.admin, ctx.orgId).from('customers').select('id, email').eq('id', params.id).maybeSingle()
+  // Separate read so a database without migration 202611300200 still lists invoices (no default PO there).
+  const poRes = await orgDb(ctx.admin, ctx.orgId).from('customers').select('default_po').eq('id', params.id).maybeSingle()
+  const defaultPo = poRes.error ? null : ((poRes.data as { default_po?: string | null } | null)?.default_po ?? null)
   if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const invoices = await loadCustomerServiceInvoices(ctx.admin, ctx.orgId, params.id)
   if (!invoices) return NextResponse.json({ invoices: [], ready: false })
   // Which property each invoice is for (a commercial customer has many): property id → address, company-scoped.
   const propertyIds = Array.from(new Set(invoices.map((i) => i.property_id).filter((x): x is string => !!x)))
   const addresses = propertyIds.length ? await loadAddresses(ctx.admin, ctx.orgId, propertyIds) : {}
-  return NextResponse.json({ invoices, addresses, ready: true, terms: await loadTermsChoice(ctx.admin, ctx.orgId, params.id), customerEmail: (customer as { email?: string | null }).email ?? null })
+  return NextResponse.json({ invoices, addresses, ready: true, defaultPo, poReady: !poRes.error, terms: await loadTermsChoice(ctx.admin, ctx.orgId, params.id), customerEmail: (customer as { email?: string | null }).email ?? null })
 }
 
 /**

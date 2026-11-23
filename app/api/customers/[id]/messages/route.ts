@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
-import { loadCustomerMessageState, setCustomerMessages } from '@/lib/customer-messages-db'
+import { loadCustomerMessageState, setCustomerMessages, setCustomerOverrides } from '@/lib/customer-messages-db'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { threadAuth } from '@/lib/threads/api'
 
@@ -33,7 +33,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   const access = await resolveCustomerAccess(ctx.admin, ctx.viewer, params.id)
   if (!access?.read) return notFound()
   if (!access.edit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  const body = (await request.json().catch(() => null)) as { on?: unknown; customerAsked?: unknown } | null
+  const body = (await request.json().catch(() => null)) as { on?: unknown; customerAsked?: unknown; overrides?: unknown } | null
+  // { overrides } = this customer's own timing (kinds off, fewer steps); { on } = the whole-customer switch.
+  if (body && 'overrides' in body && body.on === undefined) {
+    const o = await setCustomerOverrides(ctx.admin, ctx.viewer.orgId, params.id, body.overrides)
+    if (!o.ok) return NextResponse.json({ error: o.error }, { status: o.status })
+    return NextResponse.json({ ok: true, state: await loadCustomerMessageState(ctx.admin, ctx.viewer.orgId, params.id) })
+  }
   if (typeof body?.on !== 'boolean') return NextResponse.json({ error: 'Say on or off' }, { status: 400 })
   const r = await setCustomerMessages(ctx.admin, ctx.viewer.orgId, params.id, body.on, ctx.viewer.userId, body.customerAsked === true)
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })

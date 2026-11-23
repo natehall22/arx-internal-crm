@@ -54,6 +54,7 @@ import {
   queueVisitDone,
   runCustomerMessagesForOrg,
   setCustomerMessages,
+  setCustomerOverrides,
   unsubscribeMessage,
   type MessageRow,
 } from '@/lib/customer-messages-db'
@@ -575,5 +576,45 @@ describe('review fixes', () => {
     expect(attemptsSeen[0].messageId).toBe(attemptsSeen[1].messageId)
     expect(attemptsSeen[0].unsubscribe).toBe(attemptsSeen[1].unsubscribe)
     expect(attemptsSeen[1].unsubscribe).toContain(linkTokenFor(row.id))
+  })
+})
+
+describe('per-customer timing (customers.message_overrides)', () => {
+  const inv = (over: Record<string, unknown> = {}) => ({
+    id: 'i1', org_id: ORG, job_id: null, customer_id: 'c1', property_id: null, invoice_number: 'INV-26-00042', invoice_kind: 'service', status: 'sent', issued_at: '2026-11-01', due_at: '2026-11-04', sent_at: '2026-11-01T15:00:00Z', subtotal_cents: 18500, total_cents: 18500, tax_lines: null, paid_outside_cents: null, ...over,
+  })
+  const withOverrides = (o: unknown) => ({ customers: [
+    { id: 'c1', org_id: ORG, name: 'Jane Smith', email: 'Jane@Example.com', messages_off_at: null, messages_off_by: null, message_overrides: o },
+    { id: 'c2', org_id: ORG, name: 'Bob Lee', email: 'bob@example.com', messages_off_at: null, messages_off_by: null },
+  ] })
+  it('a kind turned off for one customer is cancelled with a reason; other customers still get it', async () => {
+    const db = seed({ ...withOverrides({ off: ['visit_reminder'] }), work_orders: [visit('v1'), visit('v2', { customer_id: 'c2', property_id: 'p2' })] })
+    await runCustomerMessagesForOrg(admin(db), ORG, MORNING)
+    expect(sends.map((s) => s.to)).toEqual(['bob@example.com'])
+    expect(rows(db).find((r) => (r.refs as Record<string, unknown>).customerId === 'c1')).toMatchObject({ status: 'cancelled', skip_reason: 'customer_turned_off' })
+  })
+  it('fewer invoice steps: a step this customer dropped is not sent; a step they kept is', async () => {
+    // 7 days past due = company step 7 (steps 0, 7, 14).
+    const dropped = seed({ ...withOverrides({ days: { invoice_reminder: [0, 14] } }), job_invoices: [inv()] })
+    await runCustomerMessagesForOrg(admin(dropped), ORG, MORNING)
+    expect(sends).toHaveLength(0)
+    expect(rows(dropped)[0]).toMatchObject({ status: 'cancelled', skip_reason: 'customer_fewer_steps' })
+    const kept = seed({ ...withOverrides({ days: { invoice_reminder: [7] } }), job_invoices: [inv()] })
+    await runCustomerMessagesForOrg(admin(kept), ORG, MORNING)
+    expect(sends).toHaveLength(1)
+  })
+  it('setCustomerOverrides cleans the shape, keeps only the company’s steps, clears on empty; a missing column reads as the company timing', async () => {
+    const db = seed()
+    expect(await setCustomerOverrides(admin(db), ORG, 'c1', { off: ['invoice_reminder', 'bogus'], days: { quote_follow_up: [3, 999], nope: [1] }, extra: 1 })).toEqual({ ok: true })
+    const saved = db.tables.customers[0].message_overrides as Record<string, unknown>
+    expect(saved.off).toEqual(['invoice_reminder'])
+    expect(saved).not.toHaveProperty('extra')
+    expect(await setCustomerOverrides(admin(db), ORG, 'c1', { off: [] })).toEqual({ ok: true })
+    expect(db.tables.customers[0].message_overrides).toBeNull()
+    expect(await setCustomerOverrides(admin(db), ORG, 'nope', {})).toMatchObject({ ok: false, status: 404 })
+    // Old database: no column anywhere → the company's timing applies and the visit reminder goes out.
+    const old = seed({ work_orders: [visit('v1')] })
+    await runCustomerMessagesForOrg(admin(old), ORG, MORNING)
+    expect(sends).toHaveLength(1)
   })
 })
