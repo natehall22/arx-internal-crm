@@ -182,8 +182,11 @@ const createStyles = (theme: Theme) => {
       marginTop: s.xxl,
     },
     coverLogo: {
-      maxWidth: 200,
-      maxHeight: 70,
+      // Fixed box + contain: a logo of any shape keeps its own aspect ratio.
+      // (max-only sizing let react-pdf clamp each side separately, squashing wide logos.)
+      width: 200,
+      height: 70,
+      objectFit: 'contain',
       marginBottom: s.lg,
     },
     coverLogoText: {
@@ -988,7 +991,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           {inspectionNotes && inspectionNotes.length > 0 && (
             <>
               <View style={[styles.sectionHeader, { marginTop: tokens.spacing.md }]}>
-                <Text style={styles.sectionTitle}>Inspection Findings</Text>
+                <Text style={styles.sectionTitle}>{content.findingsTitle ?? 'Inspection Findings'}</Text>
               </View>
               <View style={styles.bulletList}>
                 {inspectionNotes.map((note, index) => (

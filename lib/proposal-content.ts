@@ -7,7 +7,7 @@
  * A snapshot made before this existed has no `content`: the renderer treats it as roofing, as it always printed.
  */
 import { GENERIC_PROPOSAL_CONTENT, type ProposalContentDefaults, type ProposalContentItem } from '@/lib/industry-profiles-proposal'
-import { INDUSTRY_PROFILES, type IndustryProfileId } from '@/lib/industry-profiles'
+import { BASE_TERMS, INDUSTRY_PROFILES, type IndustryProfileId } from '@/lib/industry-profiles'
 
 export const PROPOSAL_CONTENT_SETTINGS_KEY = 'proposalContent'
 /** Single-line texts (cover subtitle, headings) and the title of a step / item. */
@@ -36,6 +36,8 @@ export type ProposalPdfContent = {
   detailsSubtitle: string
   /** The company's word for the document ("Proposal", "Quote", "Bid"): the cover title when a proposal has none of its own. */
   proposalWord: string
+  /** Title of the inspection-notes section: roofing keeps "Inspection Findings"; others "<their inspection word> notes". */
+  findingsTitle?: string
 }
 
 function obj(v: unknown): Record<string, unknown> {
@@ -88,7 +90,7 @@ export function readProposalContentEdits(stored: unknown): ProposalContentEdits 
 }
 
 /** THE reader: profile defaults + the company's edits (`org.settings`) + the company's word for the document. */
-export function resolveProposalContent(org: { settings?: unknown } | null | undefined, profile: { id: IndustryProfileId; terms: { proposal: string } }): ProposalPdfContent {
+export function resolveProposalContent(org: { settings?: unknown } | null | undefined, profile: { id: IndustryProfileId; terms: { proposal: string; inspection?: string } }): ProposalPdfContent {
   const d = defaultProposalContent(profile.id)
   const e = readProposalContentEdits(org?.settings)
   return {
@@ -100,6 +102,7 @@ export function resolveProposalContent(org: { settings?: unknown } | null | unde
     whyUsItems: (e.whyUsItems ?? d.whyUsItems).map((i) => ({ ...i })),
     detailsSubtitle: d.detailsSubtitle,
     proposalWord: profile.terms.proposal,
+    findingsTitle: profile.terms.inspection && profile.terms.inspection !== BASE_TERMS.inspection ? `${profile.terms.inspection} notes` : 'Inspection Findings',
   }
 }
 
