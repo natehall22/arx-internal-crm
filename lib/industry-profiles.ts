@@ -60,7 +60,6 @@ export const TERM_LABELS: Readonly<Record<TermKey, string>> = Object.freeze({
   leadName: 'Name on the New Lead form',
 })
 
-/** Today's words (= the roofing profile). Every other profile starts from these. */
 /**
  * The Appointments menu entry / page title in the company's visit word. Roofing's word is "Inspection", which keeps the
  * name "Appointments" exactly; any other word is pluralised ("Estimate visit" -> "Estimate visits").
@@ -69,6 +68,7 @@ export function appointmentsWord(inspection: string | undefined): string {
   return !inspection || inspection === 'Inspection' ? 'Appointments' : `${inspection}s`
 }
 
+/** Today's words (= the roofing profile). Every other profile starts from these. */
 export const BASE_TERMS: Readonly<Terms> = Object.freeze({
   job: 'Job',
   jobs: 'Jobs',

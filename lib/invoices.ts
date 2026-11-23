@@ -1164,6 +1164,7 @@ export async function duplicateInvoiceAsDraft(
       customerId: original.customer_id,
       propertyId: original.property_id ?? null,
       createdBy,
+      customerPo: original.customer_po ?? null,
       publicNote: original.public_note,
       internalNote: original.internal_note,
       lines: original.items.map((item) => ({
@@ -1283,7 +1284,7 @@ export async function createServiceInvoiceFromLines(
  * same `job_invoices.customer_po` column job invoices use (those default from the job by trigger). Best effort and never
  * blocks billing: a database without migration 202611300220 (or 202611300180) simply has no PO to copy.
  */
-async function copyCustomerPo(supabase: SupabaseClient, orgId: string, invoiceId: string, customerId: string, explicit?: string | null): Promise<void> {
+export async function copyCustomerPo(supabase: SupabaseClient, orgId: string, invoiceId: string, customerId: string, explicit?: string | null): Promise<void> {
   let po = explicit?.trim() || null
   if (!po) {
     const { data, error } = await orgDb(supabase, orgId).from('customers').select('default_po').eq('id', customerId).maybeSingle()

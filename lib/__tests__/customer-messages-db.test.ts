@@ -595,20 +595,21 @@ describe('per-customer timing (customers.message_overrides)', () => {
   })
   it('fewer invoice steps: a step this customer dropped is not sent; a step they kept is', async () => {
     // 7 days past due = company step 7 (steps 0, 7, 14).
-    const dropped = seed({ ...withOverrides({ days: { invoice_reminder: [0, 14] } }), job_invoices: [inv()] })
+    const dropped = seed({ ...withOverrides({ skipDays: { invoice_reminder: [7] } }), job_invoices: [inv()] })
     await runCustomerMessagesForOrg(admin(dropped), ORG, MORNING)
     expect(sends).toHaveLength(0)
     expect(rows(dropped)[0]).toMatchObject({ status: 'cancelled', skip_reason: 'customer_fewer_steps' })
-    const kept = seed({ ...withOverrides({ days: { invoice_reminder: [7] } }), job_invoices: [inv()] })
+    const kept = seed({ ...withOverrides({ skipDays: { invoice_reminder: [0, 14] } }), job_invoices: [inv()] })
     await runCustomerMessagesForOrg(admin(kept), ORG, MORNING)
     expect(sends).toHaveLength(1)
   })
-  it('setCustomerOverrides cleans the shape, keeps only the company’s steps, clears on empty; a missing column reads as the company timing', async () => {
+  it('setCustomerOverrides cleans the shape (dropped steps, not kept ones), clears on empty; a missing column reads as the company timing', async () => {
     const db = seed()
-    expect(await setCustomerOverrides(admin(db), ORG, 'c1', { off: ['invoice_reminder', 'bogus'], days: { quote_follow_up: [3, 999], nope: [1] }, extra: 1 })).toEqual({ ok: true })
+    expect(await setCustomerOverrides(admin(db), ORG, 'c1', { off: ['invoice_reminder', 'bogus'], skipDays: { quote_follow_up: [3, 3, 999], nope: [1] }, extra: 1 })).toEqual({ ok: true })
     const saved = db.tables.customers[0].message_overrides as Record<string, unknown>
     expect(saved.off).toEqual(['invoice_reminder'])
     expect(saved).not.toHaveProperty('extra')
+    expect(saved.skipDays).toEqual({ quote_follow_up: [3, 999] })
     expect(await setCustomerOverrides(admin(db), ORG, 'c1', { off: [] })).toEqual({ ok: true })
     expect(db.tables.customers[0].message_overrides).toBeNull()
     expect(await setCustomerOverrides(admin(db), ORG, 'nope', {})).toMatchObject({ ok: false, status: 404 })

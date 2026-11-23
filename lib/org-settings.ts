@@ -53,6 +53,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('paymentTerms' in set || remove.includes('paymentTerms'))) return { error: 'paymentTerms is saved at path [paymentTerms]' }
   // The pay week has validated fields; it is only ever written at path ['payWeek'] by savePayWeekSchedule (super admins).
   if (path.length === 0 && ('payWeek' in set || remove.includes('payWeek'))) return { error: 'payWeek is saved through savePayWeekSchedule' }
+  // The nightly auto-roll / end-of-day switches are only ever written at path ['scheduling'] (owners, /api/admin/scheduling-nightly).
+  if (path.length === 0 && ('scheduling' in set || remove.includes('scheduling'))) return { error: 'scheduling is saved at path [scheduling]' }
   // Online payments has validated fields; it is only ever written at path ['onlinePayments'] (owners, lib/online-payments/accounts.ts).
   if (path.length === 0 && ('onlinePayments' in set || remove.includes('onlinePayments'))) return { error: 'onlinePayments is saved at path [onlinePayments]' }
   // AI connector settings (extra allowed app addresses) are only ever written at path ['aiConnector'] (owners, /api/admin/ai-connector).

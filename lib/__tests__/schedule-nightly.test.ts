@@ -23,13 +23,16 @@ const TZ = 'America/New_York'
 const on = { scheduling: { autoRoll: { enabled: true, hour: 1 }, endOfDay: { enabled: true, hour: 18 } } }
 const org = (settings: Record<string, unknown> | null = on) => ({ id: ORG, settings, timezone: TZ })
 
+const visit = (id: string, over: Record<string, unknown> = {}) => ({ id, org_id: ORG, work_order_type: 'service_visit', visit_step: 'service', service_plan_id: 'p1', service_planned_date: '2026-11-13', status: 'scheduled', scheduled_date: '2026-11-13', updated_at: '2026-11-01T00:00:00Z', assigned_sub_id: 's1', trade: null, job_id: null, ...over })
+
 function seed(over: Record<string, unknown> = {}) {
   return createFakeDb(
     {
       orgs: [{ id: ORG, phone: null, install_scheduling_user_id: null, install_scheduling_calendar_id: null, settings: {}, timezone: TZ }],
       org_trades: [{ org_id: ORG, slug: 'grading', label: 'Grading', sort: 1, active: true, match_keywords: [] }],
       production_jobs: [{ id: 'j1', org_id: ORG, job_number: '26-0201', customer_id: 'c1', job_type: 'grading', status: 'scheduled', address_text: '9 Lot Ln', scheduled_date: '2026-11-13', install_days: 1, assigned_sub_id: 's1', cancelled_at: null }],
-      work_orders: [{ id: 'w1', org_id: ORG, job_id: 'j1', trade: 'grading', trade_source: 'manual', work_order_type: 'install', status: 'scheduled', assigned_sub_id: 's1', scheduled_date: '2026-11-13', scheduled_time_start: null, install_days: 1, crew_link_token: 'tok' }],
+      work_orders: [visit('w1')],
+      service_plans: [{ id: 'p1', org_id: ORG, status: 'active', start_date: null, end_date: null, one_off: false }],
       sub_contractors: [{ id: 's1', org_id: ORG, company_name: 'Grade Crew', scheduling_email: 'g@example.test', active: true }],
       customers: [{ id: 'c1', name: 'Builder Co' }],
       time_entries: [],
@@ -116,38 +119,75 @@ describe('auto-roll', () => {
       ['2026-03-09T05:30:00Z', '2026-03-06', '2026-03-09'], // 01:30 EDT, the morning after spring-forward
       ['2026-11-02T06:30:00Z', '2026-10-30', '2026-11-02'], // 01:30 EST, the morning after fall-back
     ] as const) {
-      const db = seed({ work_orders: [{ id: 'w1', org_id: ORG, job_id: 'j1', trade: 'grading', trade_source: 'manual', work_order_type: 'install', status: 'scheduled', assigned_sub_id: 's1', scheduled_date: from, scheduled_time_start: null, install_days: 1, crew_link_token: 'tok' }] })
+      const db = seed({ work_orders: [visit('w1', { scheduled_date: from })] })
       expect(await runAutoRollForOrg(db.client, org(), new Date(now))).toMatchObject({ rolled: 1 })
       expect(db.tables.work_orders[0].scheduled_date).toBe(to)
     }
   })
 
-  it('leaves started work (clock time), work a person moved today, multi-day crews, and work dated today or later', async () => {
+  it('leaves started work (clock time), work a person moved today, and work dated today or later', async () => {
     const db = seed({
       time_entries: [{ id: 't1', org_id: ORG, work_order_id: 'w1', removed_at: null }],
       work_orders: [
-        { id: 'w1', org_id: ORG, job_id: 'j1', trade: 'grading', work_order_type: 'install', status: 'scheduled', assigned_sub_id: 's1', scheduled_date: '2026-11-12', install_days: 1 }, // clocked
-        { id: 'w2', org_id: ORG, job_id: 'j1', trade: 'grading', work_order_type: 'install', status: 'scheduled', assigned_sub_id: 's1', scheduled_date: '2026-11-12', install_days: 1 }, // moved by a person today
-        { id: 'w3', org_id: ORG, job_id: 'j1', trade: 'grading', work_order_type: 'install', status: 'scheduled', assigned_sub_id: 's1', scheduled_date: '2026-11-10', install_days: 2 }, // multi-day, past day 1
-        { id: 'w4', org_id: ORG, job_id: 'j1', trade: 'grading', work_order_type: 'install', status: 'scheduled', assigned_sub_id: 's1', scheduled_date: '2026-11-14', install_days: 1 }, // today
-        { id: 'w5', org_id: ORG, job_id: 'j1', trade: 'grading', work_order_type: 'install', status: 'completed', assigned_sub_id: 's1', scheduled_date: '2026-11-12', install_days: 1 }, // done
-        { id: 'w6', org_id: ORG, job_id: 'j1', trade: 'grading', work_order_type: 'install', status: 'cancelled', assigned_sub_id: 's1', scheduled_date: '2026-11-12', install_days: 1 },
+        visit('w1', { scheduled_date: '2026-11-12' }), // clocked
+        visit('w2', { scheduled_date: '2026-11-12' }), // moved by a person today
+        visit('w4', { scheduled_date: '2026-11-14' }), // today
+        visit('w5', { scheduled_date: '2026-11-12', status: 'completed' }),
+        visit('w6', { scheduled_date: '2026-11-12', status: 'cancelled' }),
       ],
       work_order_moves: [{ id: 'm1', org_id: ORG, work_order_id: 'w2', kind: 'move', moved_at: '2026-11-14T05:30:00Z' }],
     })
     const { runAutoRollForOrg } = await import('@/lib/schedule-nightly-db')
     const res = await runAutoRollForOrg(db.client, org(), SAT_1AM)
-    expect(res).toMatchObject({ candidates: 3, rolled: 0, left: 3, failed: 0 })
-    expect(db.tables.work_orders.map((w) => w.scheduled_date)).toEqual(['2026-11-12', '2026-11-12', '2026-11-10', '2026-11-14', '2026-11-12', '2026-11-12'])
+    expect(res).toMatchObject({ candidates: 2, rolled: 0, left: 2, failed: 0 })
+    expect(db.tables.work_orders.map((w) => w.scheduled_date)).toEqual(['2026-11-12', '2026-11-12', '2026-11-14', '2026-11-12', '2026-11-12'])
+  })
+
+  it('never auto-rolls a trade / install work order (subs do not clock, so no clock time proves nothing)', async () => {
+    const db = seed({ work_orders: [{ id: 'w1', org_id: ORG, job_id: 'j1', trade: 'grading', trade_source: 'manual', work_order_type: 'install', status: 'scheduled', assigned_sub_id: 's1', scheduled_date: '2026-11-12', install_days: 1 }] })
+    const { runAutoRollForOrg } = await import('@/lib/schedule-nightly-db')
+    expect(await runAutoRollForOrg(db.client, org(), SAT_1AM)).toEqual({ candidates: 0, rolled: 0, left: 0, failed: 0 })
+    expect(db.tables.work_orders[0].scheduled_date).toBe('2026-11-12')
+  })
+
+  it('fails closed: a clock-time or move-log lookup error (not "table missing") skips the company', async () => {
+    for (const bad of ['time_entries', 'work_order_moves']) {
+      const db = seed()
+      const base = db.client as unknown as { from: (t: string) => Record<string, unknown> }
+      const client = {
+        ...base,
+        from: (t: string) => {
+          if (t !== bad) return base.from(t)
+          const chain: Record<string, unknown> = {}
+          for (const m of ['select', 'in', 'is', 'neq', 'gte', 'eq']) chain[m] = () => chain
+          chain.then = (res: (v: unknown) => unknown) => res({ data: null, error: { code: '57014', message: 'timeout' } })
+          return chain
+        },
+      } as unknown as typeof db.client
+      const { runAutoRollForOrg } = await import('@/lib/schedule-nightly-db')
+      expect(await runAutoRollForOrg(client, org(), SAT_1AM)).toMatchObject({ error: true, rolled: 0 })
+      expect(db.tables.work_orders[0].scheduled_date).toBe('2026-11-13')
+    }
+  })
+
+  it('old skipped rows cannot starve newer ones: the run pages past them until the cap of ROLLED rows', async () => {
+    const old = Array.from({ length: 205 }, (_, i) => visit(`a${String(i).padStart(3, '0')}`, { scheduled_date: '2026-11-01' }))
+    const db = seed({
+      work_orders: [...old, visit('z1', { scheduled_date: '2026-11-12' })],
+      time_entries: old.map((o, i) => ({ id: `t${i}`, org_id: ORG, work_order_id: o.id, removed_at: null })),
+    })
+    const { runAutoRollForOrg } = await import('@/lib/schedule-nightly-db')
+    expect(await runAutoRollForOrg(db.client, org(), SAT_1AM)).toMatchObject({ rolled: 1, left: 205 })
+    expect(db.tables.work_orders.find((w) => w.id === 'z1')?.scheduled_date).toBe('2026-11-16')
   })
 
   it('one bad row never stops the rest, and the cap bounds a run', async () => {
     const db = seed()
     failNextRoll.on = true
-    db.tables.work_orders.push({ id: 'w9', org_id: ORG, job_id: 'j1', trade: 'grading', work_order_type: 'install', status: 'scheduled', assigned_sub_id: 's1', scheduled_date: '2026-11-12', install_days: 1 })
+    db.tables.work_orders.push(visit('w9', { scheduled_date: '2026-11-12' }))
     const { runAutoRollForOrg } = await import('@/lib/schedule-nightly-db')
     expect(await runAutoRollForOrg(db.client, org(), SAT_1AM, 5)).toMatchObject({ candidates: 2, rolled: 1, failed: 1 })
-    expect(await runAutoRollForOrg(db.client, org(), SAT_1AM, 1)).toMatchObject({ candidates: 1 })
+    expect(await runAutoRollForOrg(db.client, org(), SAT_1AM, 1)).toMatchObject({ rolled: 1 })
   })
 })
 
@@ -206,6 +246,10 @@ describe('end-of-day nudge', () => {
       from: (t: string) => {
         if (t !== 'notifications') return base.from(t)
         return {
+          select: () => {
+            const chain: Record<string, unknown> = { eq: () => chain, in: () => chain, then: (res: (v: unknown) => unknown) => res({ data: Array.from(seen).map((k) => ({ recipient_user_id: k.split('|')[0], data: { day: k.split('|')[1] } })), error: null }) }
+            return chain
+          },
           insert: async (row: { recipient_user_id: string; data: { day: string } }) => {
             const key = `${row.recipient_user_id}|${row.data.day}`
             if (seen.has(key)) return { error: { code: '23505', message: 'dup' } }

@@ -1464,7 +1464,7 @@ export async function setCustomerMessages(
 
 /**
  * The office's timing for ONE customer (same permission as the on/off switch): kinds turned off, and for quote follow-ups
- * / invoice reminders which of the company's steps they still get. Saved cleaned; empty clears it. Needs migration
+ * / invoice reminders which steps they drop. Saved cleaned; empty clears it. Needs migration
  * 202611300220 (409 until then).
  */
 export async function setCustomerOverrides(
@@ -1476,12 +1476,6 @@ export async function setCustomerOverrides(
   const state = await loadCustomerMessageState(admin, orgId, customerId)
   if (!state) return { ok: false, status: 404, error: 'Customer not found' }
   const clean = cleanOverrides(raw)
-  // A customer's list can only keep steps the company sends.
-  if (clean?.days) {
-    for (const k of Object.keys(clean.days) as Array<keyof typeof state.companyDays>) {
-      clean.days[k] = (clean.days[k] ?? []).filter((d) => state.companyDays[k].includes(d))
-    }
-  }
   const { error } = await orgDb(admin, orgId).from('customers').update({ message_overrides: clean }).eq('id', customerId)
   if (error) {
     if (isMissingColumn(error, 'message_overrides')) return { ok: false, status: 409, error: 'This needs a database update first. Ask your administrator.' }

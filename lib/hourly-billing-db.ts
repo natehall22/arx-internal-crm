@@ -34,6 +34,7 @@ import {
   type TargetKey,
 } from '@/lib/hourly-billing'
 // Send = THE no-job invoice send (autopay + pay link when online payments are ready; else exactly sendCustomerInvoice).
+import { copyCustomerPo } from '@/lib/invoices'
 import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
 import { syncJobSaleAndCommissionBase, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { lineTotalCents } from '@/lib/invoice-lines'
@@ -586,6 +587,9 @@ export async function approveHours(admin: SupabaseClient, orgId: string, userId:
   if (!r.invoice_id) return { ok: false, status: 409, error: 'Those hours are already billed' }
   // A job's commission base = what it was invoiced, pre-tax (lib/job-commission-base.ts, the one writer).
   if (target.kind === 'job') await syncTimeAndMaterialsCommissionBase(admin, orgId, target.id)
+
+  // An invoice without a job takes the customer's default PO (job invoices get theirs from the job by trigger) before it can be sent.
+  if (target.kind === 'visit' && target.customerId) await copyCustomerPo(admin, orgId, r.invoice_id, target.customerId)
 
   const { data: inv } = await orgDb(admin, orgId).from('job_invoices').select('*').eq('id', r.invoice_id).maybeSingle()
   let invoice = inv as JobInvoice | null

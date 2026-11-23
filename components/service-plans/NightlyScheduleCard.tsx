@@ -67,7 +67,7 @@ export default function NightlyScheduleCard() {
         <h3 className="text-lg font-semibold">Nightly schedule</h3>
         <p className="text-sm">Times are {tz || 'your company time zone'}.</p>
       </div>
-      {row('autoRoll', 'Roll unfinished work to the next working day', 'Visits and crew jobs still scheduled on a day that has passed move to the next working day (Mon–Fri). Work a crew already started, multi-day jobs and anything someone moved today stay put. These moves are not counted as “Rolled N×”.', 'Roll at or after')}
+      {row('autoRoll', 'Roll unfinished work to the next working day', 'Service visits still scheduled on a day that has passed move to the next working day (Mon–Fri). Visits with clock time and anything someone moved today stay put. Crew jobs on a job (installs) are never moved automatically. These moves are not counted as “Rolled N×”.', 'Roll at or after')}
       {row('endOfDay', 'End-of-day reminder to close out', 'Crew leads and the office get a notification listing visits still open and anyone still clocked in.', 'Remind at')}
       <div className="flex items-center gap-3">
         <Button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>

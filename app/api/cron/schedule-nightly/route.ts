@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
     const row: Record<string, unknown> = { orgId: org.id }
     try {
       row.autoRoll = await runAutoRollForOrg(admin, org, now)
+      if ((row.autoRoll as { error?: boolean }).error) failed = true // a lookup failed: this company was skipped this run (logged)
     } catch (e) {
       failed = true
       row.autoRoll = { error: true }

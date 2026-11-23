@@ -95,16 +95,15 @@ export default function CustomerMessagesCard({ customerId, initial, canEdit }: {
     const off = isOff(k) ? (ov.off ?? []).filter((x) => x !== k) : [...(ov.off ?? []), k]
     void saveOverrides({ ...ov, off })
   }
-  /** Steps this customer still gets for a kind (all of the company's when they have no list of their own). */
-  const keptDays = (k: OverrideDayKind): number[] => ov.days?.[k] ?? state.companyDays[k]
+  /** Steps this customer dropped for a kind (none by default). */
+  const droppedDays = (k: OverrideDayKind): number[] => ov.skipDays?.[k] ?? []
   function toggleDay(k: OverrideDayKind, d: number) {
-    const cur = keptDays(k)
+    const cur = droppedDays(k)
     const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]
-    const all = state.companyDays[k].length === next.length
-    const days = { ...(ov.days ?? {}) }
-    if (all) delete days[k]
-    else days[k] = next
-    void saveOverrides({ ...ov, days })
+    const skipDays = { ...(ov.skipDays ?? {}) }
+    if (next.length === 0) delete skipDays[k]
+    else skipDays[k] = next
+    void saveOverrides({ ...ov, skipDays })
   }
 
   const why = state.suppressed
@@ -150,7 +149,7 @@ export default function CustomerMessagesCard({ customerId, initial, canEdit }: {
                   <div className="flex flex-wrap gap-3">
                     {state.companyDays[k].map((d) => (
                       <label key={d} className="flex min-h-tap items-center gap-2 text-ui-base text-ink">
-                        <input type="checkbox" className="h-5 w-5" checked={keptDays(k).includes(d)} disabled={saving} onChange={() => toggleDay(k, d)} />
+                        <input type="checkbox" className="h-5 w-5" checked={!droppedDays(k).includes(d)} disabled={saving} onChange={() => toggleDay(k, d)} />
                         {dayWord(d)}
                       </label>
                     ))}

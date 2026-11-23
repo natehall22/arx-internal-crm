@@ -474,40 +474,42 @@ export const OVERRIDE_DAY_KINDS = ['quote_follow_up', 'invoice_reminder'] as con
 export type OverrideDayKind = (typeof OVERRIDE_DAY_KINDS)[number]
 
 /**
- * A customer's own timing, on top of the company's: kinds turned off for them, and for the step messages the company's
- * steps they still get (a SUBSET — a customer's list can only drop steps, never add one the company doesn't send). Empty
- * = the company's timing. Whole-customer "don't email" stays `customers.messages_off_at`.
+ * A customer's own timing, on top of the company's: kinds turned off for them, and for the step messages the steps
+ * they DROP (day numbers). Storing the dropped steps, not the kept ones, means a company changing its own steps never
+ * silently drops all of a customer's follow-ups: a new step is sent unless it was dropped. Empty = the company's timing. Whole-customer "don't email" stays `customers.messages_off_at`.
  */
-export type CustomerOverrides = { off?: OverrideOffKind[]; days?: Partial<Record<OverrideDayKind, number[]>> }
+export type CustomerOverrides = { off?: OverrideOffKind[]; skipDays?: Partial<Record<OverrideDayKind, number[]>> }
 
 /** Clean anything stored or sent into a CustomerOverrides, or null when nothing is left. Unknown keys are dropped. */
 export function cleanOverrides(raw: unknown): CustomerOverrides | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const r = raw as { off?: unknown; days?: unknown }
+  const r = raw as { off?: unknown; skipDays?: unknown }
   const out: CustomerOverrides = {}
   if (Array.isArray(r.off)) {
     const off = OVERRIDE_OFF_KINDS.filter((k) => (r.off as unknown[]).includes(k))
     if (off.length) out.off = off
   }
-  if (r.days && typeof r.days === 'object' && !Array.isArray(r.days)) {
-    const days: Partial<Record<OverrideDayKind, number[]>> = {}
+  if (r.skipDays && typeof r.skipDays === 'object' && !Array.isArray(r.skipDays)) {
+    const skipDays: Partial<Record<OverrideDayKind, number[]>> = {}
     for (const k of OVERRIDE_DAY_KINDS) {
-      const v = (r.days as Record<string, unknown>)[k]
-      if (Array.isArray(v)) days[k] = Array.from(new Set(v.filter((n): n is number => typeof n === 'number' && Number.isInteger(n)))).sort((a, b) => a - b)
+      const v = (r.skipDays as Record<string, unknown>)[k]
+      if (!Array.isArray(v)) continue
+      const list = Array.from(new Set(v.filter((n): n is number => typeof n === 'number' && Number.isInteger(n)))).sort((a, b) => a - b)
+      if (list.length) skipDays[k] = list
     }
-    if (Object.keys(days).length) out.days = days
+    if (Object.keys(skipDays).length) out.skipDays = skipDays
   }
-  return out.off || out.days ? out : null
+  return out.off || out.skipDays ? out : null
 }
 
 /**
  * Why this customer's own timing says no to this message, or null. `step` is the company step the row is for (quote /
- * invoice); a customer with their own list gets it only when the step is on it (an empty list = no steps at all).
+ * invoice); a customer who dropped that step does not get it.
  */
 export function overrideRefusal(overrides: CustomerOverrides | null | undefined, kind: RowKind, step?: unknown): 'customer_turned_off' | 'customer_fewer_steps' | null {
   if (!overrides) return null
   if ((overrides.off as readonly string[] | undefined)?.includes(kind)) return 'customer_turned_off'
-  const days = (overrides.days as Record<string, number[] | undefined> | undefined)?.[kind]
-  if (days && typeof step === 'number' && !days.includes(step)) return 'customer_fewer_steps'
+  const skip = (overrides.skipDays as Record<string, number[] | undefined> | undefined)?.[kind]
+  if (skip && typeof step === 'number' && skip.includes(step)) return 'customer_fewer_steps'
   return null
 }
