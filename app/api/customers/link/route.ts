@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       if (source_type === 'opportunity') {
         const { data } = await adminClient
           .from('opportunities')
-          .select('contact_name, contact_email, contact_phone, address_text, lead_id')
+          .select('address_text, lead_id')
           .eq('id', source_id)
           .eq('org_id', profile.org_id)
           .single()
@@ -99,9 +99,9 @@ export async function POST(request: Request) {
           }
 
           sourceData = {
-            name: data.contact_name || leadName,
-            email: data.contact_email || leadEmail,
-            phone: data.contact_phone || leadPhone,
+            name: leadName,
+            email: leadEmail,
+            phone: leadPhone,
             address_text: data.address_text,
           }
         }
