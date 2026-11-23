@@ -34,12 +34,13 @@ export default async function SalesTab({ customerId, dealId }: { customerId: str
   const propWord = t(orgProfile, 'proposal')
   const lower = (s: string) => s.toLowerCase()
 
-  const [{ data: opp }, { data: proposals }, { data: contracts }] = await Promise.all([
-    admin.from('opportunities').select('id, status, project_type, owner_user_id, setter_user_id, lead_id, address_text, customer_name, inspection_outcome, referral_partner_id').eq('id', dealId).eq('org_id', orgId).maybeSingle(),
+  const [{ data: opp, error: oppError }, { data: proposals }, { data: contracts }] = await Promise.all([
+    admin.from('opportunities').select('id, status, project_type, owner_user_id, setter_user_id, lead_id, address_text, inspection_outcome, referral_partner_id').eq('id', dealId).eq('org_id', orgId).maybeSingle(),
     admin.from('proposals').select('id, proposal_number, title, status, total, created_at, created_by').eq('opportunity_id', dealId).eq('org_id', orgId).order('created_at', { ascending: false }),
     admin.from('order_form_contracts').select('id, status, signing_token, customer_signed_at, pdf_url, created_at, agreement_type').eq('opportunity_id', dealId).eq('org_id', orgId).order('created_at', { ascending: false }),
   ])
-  if (!opp) return null
+  if (oppError) console.error('[sales-tab] deal read failed', oppError)
+  if (!opp) return <p className="text-ink-muted">{oppError ? 'Couldn’t load this deal. Refresh to try again.' : 'Deal not found.'}</p>
 
   const ids = [opp.owner_user_id, opp.setter_user_id].filter(Boolean) as string[]
   const { data: people } = ids.length ? await admin.from('users').select('id, full_name').in('id', ids).eq('org_id', orgId) : { data: [] as Array<{ id: string; full_name: string | null }> }
@@ -67,8 +68,9 @@ export default async function SalesTab({ customerId, dealId }: { customerId: str
   let step: { title: string; body: string; href?: string; label?: string } | null = null
   if (opp.status === 'won') step = { title: 'Won', body: `Schedule the work from the ${lower(t(orgProfile, 'jobBoard'))}.`, href: '/ops', label: `Go to ${t(orgProfile, 'jobBoard')}` }
   else if (opp.status === 'lost') step = { title: 'Marked as lost', body: 'You can reopen this if the customer comes back.' }
-  else if (!opp.inspection_outcome) step = { title: `${inspWord} needed`, body: `Do the ${lower(inspWord)} and log what you found.`, ...(visitUrl ? { href: visitUrl, label: `Log the ${lower(inspWord)}` } : {}) }
-  else if (list.length === 0) step = { title: `Build the ${lower(propWord)}`, body: `The ${lower(inspWord)} is done.`, href: builderUrl, label: `Build the ${lower(propWord)}` }
+  // A deal with no lead has nothing to log a visit against: go straight to the quote (the header says the same).
+  else if (!opp.inspection_outcome && visitUrl) step = { title: `${inspWord} needed`, body: `Do the ${lower(inspWord)} and log what you found.`, ...(visitUrl ? { href: visitUrl, label: `Log the ${lower(inspWord)}` } : {}) }
+  else if (list.length === 0) step = { title: `Build the ${lower(propWord)}`, body: opp.inspection_outcome ? `The ${lower(inspWord)} is done.` : 'Build it and send it to the customer.', href: builderUrl, label: `Build the ${lower(propWord)}` }
   else if (!list.some((p) => p.status === 'accepted')) step = { title: `Send the ${lower(propWord)} for approval`, body: features.quoteApproval ? 'Open it to send the customer their approval link.' : 'Open it to send it to the customer.', href: `/proposals/${list[0].id}`, label: `Open the ${lower(propWord)}` }
   else step = { title: `${propWord} approved`, body: 'Schedule the work.', href: '/ops', label: `Go to ${t(orgProfile, 'jobBoard')}` }
 
