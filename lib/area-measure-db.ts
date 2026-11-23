@@ -214,14 +214,22 @@ export async function loadAreaMeasurements(
   else if (where.customerId) {
     const [{ data: leads }, { data: deals }] = await Promise.all([
       db.from('leads').select('id').eq('customer_id', where.customerId).limit(500),
-      db.from('opportunities').select('id').eq('customer_id', where.customerId).limit(500),
+      db.from('opportunities').select('id, lead_id').eq('customer_id', where.customerId).limit(500),
     ])
-    const leadIds = ((leads ?? []) as Array<{ id: string }>).map((r) => r.id)
-    const dealIds = ((deals ?? []) as Array<{ id: string }>).map((r) => r.id)
+    const dealRows = (deals ?? []) as Array<{ id: string; lead_id: string | null }>
+    // A lead's measurement belongs to the customer once the lead became a deal of theirs (leads.customer_id is often blank).
+    const leadIds = Array.from(new Set([...((leads ?? []) as Array<{ id: string }>).map((r) => r.id), ...dealRows.map((d) => d.lead_id).filter((v): v is string => Boolean(v))]))
+    const dealIds = dealRows.map((r) => r.id)
     queries.push(base().eq('customer_id', where.customerId))
     if (leadIds.length) queries.push(base().in('lead_id', leadIds))
     if (dealIds.length) queries.push(base().in('opportunity_id', dealIds))
-  } else if (where.opportunityId) queries.push(base().eq('opportunity_id', where.opportunityId))
+  } else if (where.opportunityId) {
+    queries.push(base().eq('opportunity_id', where.opportunityId))
+    // …and what was measured on the lead before it became this deal.
+    const { data: deal } = await db.from('opportunities').select('lead_id').eq('id', where.opportunityId).maybeSingle()
+    const dealLead = (deal as { lead_id: string | null } | null)?.lead_id
+    if (dealLead) queries.push(base().eq('lead_id', dealLead))
+  }
   else if (where.leadId) queries.push(base().eq('lead_id', where.leadId))
   else return { ready: true, rows: [] }
   const results = await Promise.all(queries)
