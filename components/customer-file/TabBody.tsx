@@ -86,7 +86,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
                 <span className="mt-1 block text-ui-sm text-ink-muted">Deal address differs from the customer’s ({customer.address_text}).</span>
               )}
             </dd>
-            <dt className="text-ink-muted">Proposals</dt><dd>{ctx.proposalCount}</dd>
+            <dt className="text-ink-muted">Proposals</dt><dd>{ctx.proposalCount > 0 && ctx.tabs.includes('sales') ? <Link href={`${base}/sales`} className="font-semibold text-brand-800 underline">{ctx.proposalCount} · open</Link> : ctx.proposalCount}</dd>
             <dt className="text-ink-muted">Contract</dt><dd>{ctx.signedContract ? 'Signed' : 'Not signed'}</dd>
           </dl>
           {ctx.next && ctx.tabs.includes(ctx.next.tab) && (

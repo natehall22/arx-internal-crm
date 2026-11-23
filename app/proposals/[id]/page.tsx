@@ -14,7 +14,7 @@ import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import { isCountedLine } from '@/lib/quotes/pricing'
 import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
 import { useOrgBrandNames, useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
-import { builtInContractsAvailable } from '@/lib/org-profile'
+import { builtInContractsAvailable, roofingOr, t } from '@/lib/org-profile'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/proposal-pricing-visibility'
 import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
@@ -99,7 +99,10 @@ export default function ProposalDetailPage() {
   const router = useRouter()
   const params = useParams()
   const orgFeatures = useOrgFeatures()
-  const builtInContracts = builtInContractsAvailable(useOrgProfile(), useOrgBrandNames().original)
+  const orgProfile = useOrgProfile()
+  const builtInContracts = builtInContractsAvailable(orgProfile, useOrgBrandNames().original)
+  // Roofing keeps its exact words; other companies get their own visit word and a neutral example.
+  const visitWord = t(orgProfile, 'inspection')
   const proposalId = params.id as string
   
   const [loading, setLoading] = useState(true)
@@ -894,7 +897,7 @@ export default function ProposalDetailPage() {
             {/* Inspection Notes */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold text-gray-900">Inspection Notes</h3>
+                <h3 className="text-lg font-semibold text-gray-900">{roofingOr(orgProfile, 'Inspection Notes', `${visitWord} notes`)}</h3>
                 <span className="text-sm text-gray-700">{inspectionNotes.length} note{inspectionNotes.length !== 1 ? 's' : ''}</span>
               </div>
               <div className="border rounded-xl p-4 bg-gray-50">
@@ -933,7 +936,7 @@ export default function ProposalDetailPage() {
                         saveInspectionNotes(next)
                       }
                     }}
-                    placeholder="Add inspection finding (e.g., 'Missing shingles on north slope')"
+                    placeholder={roofingOr(orgProfile, "Add inspection finding (e.g., 'Missing shingles on north slope')", 'Add a note (e.g., \'Bare spots along the back fence\')')}
                     className="flex-1 px-3 py-2 border rounded-lg text-sm"
                   />
                   <button
@@ -952,7 +955,7 @@ export default function ProposalDetailPage() {
                   </button>
                 </div>
                 <p className="text-xs text-gray-700 mt-2">
-                  These notes will appear in the "Inspection Findings" section of the PDF.
+                  {roofingOr(orgProfile, 'These notes will appear in the "Inspection Findings" section of the PDF.', 'These notes appear on the PDF.')}
                 </p>
               </div>
             </div>

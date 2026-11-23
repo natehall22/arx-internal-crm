@@ -53,7 +53,7 @@
     "app/ops/jobs/[id]/sheets/JobSheetsEditor.tsx": 1,
     "app/ops/reviews/page.tsx": 1,
     "app/projects/[id]/page.tsx": 4,
-    "app/proposals/[id]/page.tsx": 3,
+    "app/proposals/[id]/page.tsx": 2,
     "app/r/[token]/page.tsx": 5,
     "app/reports/page.tsx": 4,
     "app/today/page.tsx": 1,
