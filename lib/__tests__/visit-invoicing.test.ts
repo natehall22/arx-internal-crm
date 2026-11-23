@@ -12,7 +12,7 @@ jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_
 
 import { FAKE_PAYMENT_RPC } from '@/lib/test-helpers/fake-payment-rpc'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { applyPaymentToInvoice, computeInvoiceBalance, duplicateInvoiceAsDraft, findOrgInvoice, recordCustomerInvoicePayment, voidInvoice } from '@/lib/invoices'
+import { applyPaymentToInvoice, computeInvoiceBalance, createServiceInvoiceFromLines, duplicateInvoiceAsDraft, findOrgInvoice, recordCustomerInvoicePayment, voidInvoice } from '@/lib/invoices'
 import { createServiceInvoices, loadReadyToBill, visitInvoiceNumber } from '@/lib/service-billing-db'
 import { findPrintableInvoice, loadInvoiceDocument } from '@/lib/invoice-document'
 import { renderInvoiceEmail } from '@/lib/invoice-email'
@@ -325,5 +325,29 @@ describe('review fixes', () => {
     if ('error' in res) throw new Error(res.error)
     expect(res.created).toHaveLength(1)
     expect(d.tables.job_invoice_items.map((i) => i.description)).toEqual(['Gutter care — September 2026'])
+  })
+})
+
+describe('customer PO on invoices without a job', () => {
+  it('the customer’s default PO is copied onto the invoice (and shows in the emailed document); a customer with none gets none; an explicit PO wins', async () => {
+    const d = seed()
+    ;(d.tables.customers.find((c) => c.id === 'c1') as Record<string, unknown>).default_po = ' PO-7788 '
+    const res = await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-10', 'c:c2:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    if ('error' in res) throw new Error(res.error)
+    const pat = d.tables.job_invoices.find((r) => r.customer_id === 'c1')!
+    const sam = d.tables.job_invoices.find((r) => r.customer_id === 'c2')!
+    expect(pat.customer_po).toBe('PO-7788')
+    expect(sam.customer_po ?? null).toBeNull()
+    const doc = await loadInvoiceDocument(d.client, ORG, (await findPrintableInvoice(d.client, ORG, String(pat.id)))!)
+    expect(renderInvoiceEmail(doc).text).toContain('PO # PO-7788')
+
+    const made = await createServiceInvoiceFromLines(d.client, ORG, { customerId: 'c1', propertyId: 'p1', createdBy: 'u1', lines: [{ description: 'Extra', qty: 1, unit_price_cents: 5000, taxable: false }], customerPo: 'JOB-9' })
+    expect(d.tables.job_invoices.find((r) => r.id === made.invoiceId)!.customer_po).toBe('JOB-9')
+  })
+  it('a database without the default_po column still bills (no PO)', async () => {
+    const d = seed()
+    const res = await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c2:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    if ('error' in res) throw new Error(res.error)
+    expect(res.created).toHaveLength(1)
   })
 })
