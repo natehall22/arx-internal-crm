@@ -14,7 +14,7 @@ import { SERVICE_VISIT_TYPE, ymdInZone } from '@/lib/service-plans'
 import { applyVisitAction } from '@/lib/service-plans-db'
 import { orgDb } from '@/lib/supabase/org-db'
 import { loadWorkOrderRollCounts } from '@/lib/work-order-moves-db'
-import { canRollTrade, rollTargetDay, type RollReason } from '@/lib/work-order-rolls'
+import { autoRollTargetDay, canRollTrade, rollTargetDay, type MoveKind, type RollReason } from '@/lib/work-order-rolls'
 
 export type RollResult = { ok: true; from: string; to: string; rolls: number } | { ok: false; status: 400 | 404 | 409 | 500; error: string }
 
@@ -31,6 +31,8 @@ export async function rollWorkOrder(
     /** The day the caller saw the work on. A different day now means someone already moved it: 409 "Already moved". */
     expectFrom: string
     now?: Date
+    /** The nightly carry-over (lib/schedule-nightly-db.ts): lands on today / the next working day and is logged as 'auto_roll' — never counted as a "Not ready" roll. */
+    auto?: boolean
   }
 ): Promise<RollResult> {
   const now = o.now ?? new Date()
@@ -51,14 +53,15 @@ export async function rollWorkOrder(
   if (!isVisit && !isTrade) return { ok: false, status: 400, error: 'This kind of work can’t be rolled here' }
   // A two-day crew already on its second day can't have its START rolled: the office moves it.
   if (isTrade && !canRollTrade(wo, today)) return { ok: false, status: 409, error: 'This crew already started — ask the office to move it' }
-  const to = rollTargetDay(from, today)
+  const to = o.auto ? autoRollTargetDay(today) : rollTargetDay(from, today)
+  const moveKind: MoveKind = o.auto ? 'auto_roll' : 'roll'
 
   if (isVisit) {
-    const res = await applyVisitAction(admin, orgId, wo.id, { action: 'move', date: to, ...(o.reason ? { reason: o.reason } : {}) }, o.by, { onlySubId: o.onlySubId, now, moveKind: 'roll', expectFrom: from })
+    const res = await applyVisitAction(admin, orgId, wo.id, { action: 'move', date: to, ...(o.reason ? { reason: o.reason } : {}) }, o.by, { onlySubId: o.onlySubId, now, moveKind, expectFrom: from })
     if (!res.ok) return { ok: false, status: res.status, error: res.error }
   } else {
     if (!wo.assigned_sub_id) return { ok: false, status: 409, error: 'Only scheduled work can be rolled' }
-    const res = await assignInstallTrade(admin, { orgId, schedulingUserId: o.schedulingUserId, by: o.by }, { workOrderId: wo.id, subId: wo.assigned_sub_id, scheduledDate: to, reason: o.reason, kind: 'roll', expect: { scheduledDate: from } })
+    const res = await assignInstallTrade(admin, { orgId, schedulingUserId: o.schedulingUserId, by: o.by }, { workOrderId: wo.id, subId: wo.assigned_sub_id, scheduledDate: to, reason: o.reason, kind: moveKind, expect: { scheduledDate: from } })
     if (res.status !== 200) return { ok: false, status: res.status === 404 ? 404 : res.status === 400 ? 400 : res.status === 409 ? 409 : 500, error: String(res.body.error ?? 'Could not roll') }
   }
   const rolls = (await loadWorkOrderRollCounts(admin, orgId, [wo.id])).get(wo.id) ?? 0

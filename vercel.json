@@ -55,6 +55,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/schedule-nightly",
+      "schedule": "7 * * * *"
+    },
+    {
       "path": "/api/cron/signing-reminders",
       "schedule": "23 * * * *"
     },

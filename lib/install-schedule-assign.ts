@@ -130,7 +130,7 @@ export async function assignInstallTrade(adminClient: SupabaseClient, ctx: Assig
 
   // A crew's phone roll has no staff connection to fall back on. If the company has no nominated account the invite could not be
   // moved: say so on the job instead of leaving a silently wrong calendar.
-  if (input.kind === 'roll' && trade.install_google_event_id && sync.outcome !== 'synced') {
+  if ((input.kind === 'roll' || input.kind === 'auto_roll') && trade.install_google_event_id && sync.outcome !== 'synced') {
     await writeJobNote(adminClient, { orgId, jobId: job.id, userId: ctx.by?.userId ?? null, body: 'Calendar invite still shows the old day', kind: 'system' }).catch(() => undefined)
   }
 
