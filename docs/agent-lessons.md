@@ -43,3 +43,12 @@ have caught, add ONE line here (date, pattern, the check that would have caught 
 - 2026-11-23 · A locked prefilled dropdown needs a plan when its option isn't loaded: show a message, never silently pick another.
 - 2026-11-23 · When a function now throws on a lost race, check every caller already guards or catches it; a lost race is a normal answer, not a 500.
 - 2026-11-23 · eslint-disable for a rule the config doesn't load (@typescript-eslint/no-var-requires) is itself a lint ERROR. Run eslint on test files too.
+- 2026-11-24 · A migration that drops/replaces a policy or constraint needs Nathan's click in Supabase; overnight it can't be applied. Code must work without it (fallback), and queue the apply for when he's present.
+- 2026-11-24 · "Hidden everywhere" promised but sales side, ops pages, morning email and id-keyed routes were left open. Before building any visibility rule, list EVERY reader of the tables it touches (incl. redirect fallbacks, emails, AI tools, id-keyed routes reached from notification links) and scope or explicitly deny each.
+- 2026-11-24 · Spreading cleaned input (`...v`) into an insert picks up any new column → insert breaks before the migration. Strip new fields; save them separately and tolerantly.
+- 2026-11-24 · Renumbering stops on paper while the phone keeps the old numbers. One numbering helper for every surface that shows the same list.
+- 2026-11-24 · A side save after a committed transaction returned early and skipped history/follow-ups. After a commit, side-effect failures warn and continue.
+- 2026-11-24 · A keyword rule over free text (checklist labels, names) matched 'Beds' on every mowing visit. Test keyword rules against the product's own example wording.
+- 2026-11-24 · Scoping handler by handler skipped one verb in an already-scoped file (proposal builder PUT) and write routes taking a related id in the body (jobId). After gating a route file, check EVERY exported handler; grep write routes that take related ids in the body.
+- 2026-11-24 · A per-recipient filter that fails open (read error → nobody treated as limited) sends restricted data. Restriction lookups fail CLOSED.
+- 2026-11-24 · 'Route too big to gate' is not a reason to skip it: a record gate is one line at the top of each handler, after the id is parsed.
