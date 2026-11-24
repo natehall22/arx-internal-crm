@@ -169,6 +169,8 @@ export async function resolveCategoryScope(
 ): Promise<CategoryScope> {
   if ('category_limit' in profile) return categoryScopeOf(profile)
   if (isNeverLimited(profile)) return UNLIMITED_SCOPE
+  // Column not there yet (known from the once-per-instance probe): nobody is limited, no read.
+  if (!(await limitCol())) return UNLIMITED_SCOPE
   return loadCategoryScope(admin, profile.org_id, { id: profile.id })
 }
 

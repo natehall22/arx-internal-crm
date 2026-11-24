@@ -2,6 +2,7 @@ import { sendPasswordResetEmail } from '@/lib/password-reset-email'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi, type AuthContext } from '@/lib/auth'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { isMissingColumn } from '@/lib/supabase/errors'
 import { createServiceClient } from '@/lib/supabase/service'
 import { loadOrgCategories } from '@/lib/categories-db'
 import { resolveCategoryLimitInput } from '@/lib/category-scope'
@@ -396,6 +397,9 @@ export async function PUT(request: NextRequest) {
 
   if (updateError) {
     console.error('Update user error:', updateError)
+    if (categoryLimitValue !== undefined && isMissingColumn(updateError, 'category_limit')) {
+      return NextResponse.json({ error: 'Work category limits are not ready yet (a database update is still pending). Nothing was changed.' }, { status: 409 })
+    }
     return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
   }
 

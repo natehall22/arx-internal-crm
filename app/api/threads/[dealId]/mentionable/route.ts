@@ -1,4 +1,5 @@
 import { guardThreadSchema } from '@/lib/threads/route-guard'
+import { limitCol } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { dealRefOf } from '@/lib/threads/get-thread'
@@ -28,7 +29,7 @@ async function handleGET(request: Request, { params }: { params: { dealId: strin
 
   const { data } = await ctx.admin
     .from('users')
-    .select('id, full_name, email, active, role, custom_role_id, is_super_admin, org_id')
+    .select(`id, full_name, email, active, role, custom_role_id, is_super_admin, org_id${await limitCol()}` as '*')
     .eq('org_id', ctx.viewer.orgId)
     .eq('active', true)
   const dealRef = dealRefOf(deal)

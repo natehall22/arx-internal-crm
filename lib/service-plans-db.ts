@@ -1462,20 +1462,24 @@ export async function loadVisitsPage(
 ): Promise<{ visits: VisitView[]; total: number; hasMore: boolean }> {
   const limit = Math.min(Math.max(opts.limit ?? VISIT_PAGE_SIZE, 1), 1000)
   const offset = Math.max(opts.offset ?? 0, 0)
-  let q = orgDb(admin, orgId)
-    .from('work_orders')
-    .select(VISIT_COLS, { count: 'exact' })
-    .eq('work_order_type', SERVICE_VISIT_TYPE)
-    .gte('scheduled_date', opts.from)
-    .lte('scheduled_date', opts.to)
-  if (opts.subId === null) q = q.is('assigned_sub_id', null)
-  else if (opts.subId) q = q.eq('assigned_sub_id', opts.subId)
-  if (opts.userId) q = q.eq('assigned_user_id', opts.userId)
-  if (opts.planId) q = q.eq('service_plan_id', opts.planId)
-  if (opts.customerId) q = q.eq('customer_id', opts.customerId)
-  if (opts.ids) q = q.in('id', opts.ids)
-  if (opts.scope?.limited) return loadScopedVisitsPage(admin, orgId, q, opts.scope, offset, limit, opts.accessNotes)
-  const { data, error, count } = await q
+  // A fresh query per call: a builder is never reused across pages.
+  const build = (cols: string, selectOpts?: { count: 'exact' }) => {
+    let q = orgDb(admin, orgId)
+      .from('work_orders')
+      .select(cols, selectOpts)
+      .eq('work_order_type', SERVICE_VISIT_TYPE)
+      .gte('scheduled_date', opts.from)
+      .lte('scheduled_date', opts.to)
+    if (opts.subId === null) q = q.is('assigned_sub_id', null)
+    else if (opts.subId) q = q.eq('assigned_sub_id', opts.subId)
+    if (opts.userId) q = q.eq('assigned_user_id', opts.userId)
+    if (opts.planId) q = q.eq('service_plan_id', opts.planId)
+    if (opts.customerId) q = q.eq('customer_id', opts.customerId)
+    if (opts.ids) q = q.in('id', opts.ids)
+    return q
+  }
+  if (opts.scope?.limited) return loadScopedVisitsPage(admin, orgId, () => build('id, customer_id'), opts.scope, offset, limit, opts.accessNotes)
+  const { data, error, count } = await build(VISIT_COLS, { count: 'exact' })
     .order('scheduled_date')
     .order('id')
     .range(offset, offset + limit - 1)
@@ -1499,7 +1503,7 @@ export async function loadVisitsPage(
 async function loadScopedVisitsPage(
   admin: SupabaseClient,
   orgId: string,
-  q: any,
+  makeQuery: () => any,
   scope: CategoryScope,
   offset: number,
   limit: number,
@@ -1508,7 +1512,7 @@ async function loadScopedVisitsPage(
   const keep: string[] = []
   const all: Array<{ id: string; customer_id: string | null }> = []
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await q.select('id, customer_id').order('scheduled_date').order('id').range(from, from + 999)
+    const { data, error } = await makeQuery().order('scheduled_date').order('id').range(from, from + 999)
     if (error) {
       if (isServicePlansNotReadyError(error)) return { visits: [], total: 0, hasMore: false }
       throw error

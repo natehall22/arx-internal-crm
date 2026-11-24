@@ -19,7 +19,7 @@ export default async function CustomerStatementPage({ params }: { params: { id: 
   const admin = createServiceClient()
   if (!(await canBillService(admin, profile)).bill) redirect('/dashboard')
   if (!(await customerInScope(admin, profile.org_id, categoryScopeOf(profile), params.id))) return <div className="p-8 text-center text-ink">Customer not found</div>
-  const statement = await loadCustomerStatement(admin, profile.org_id, params.id)
+  const statement = await loadCustomerStatement(admin, profile.org_id, params.id, categoryScopeOf(profile))
   if (!statement) return <div className="p-8 text-center text-ink">Customer not found</div>
   const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings').eq('id', profile.org_id).maybeSingle()
   const company = org ? companyIdentity(org as Parameters<typeof companyIdentity>[0], null).company : null

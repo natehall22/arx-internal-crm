@@ -6,6 +6,7 @@
  * the invoice email's. A statement is a document the office sends BY HAND, so it carries no unsubscribe link, but a customer on the
  * opt-out / bounce list, or who turned messages off, is still never emailed.
  */
+import type { CategoryScope } from '@/lib/category-scope'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { renderCustomerEmail, type EmailCompany } from '@/lib/customer-email-layout'
@@ -41,12 +42,12 @@ export function statementTotals(open: ReadonlyArray<Pick<InvoiceListRow, 'balanc
   }
 }
 
-export async function loadCustomerStatement(admin: SupabaseClient, orgId: string, customerId: string): Promise<CustomerStatement | null> {
+export async function loadCustomerStatement(admin: SupabaseClient, orgId: string, customerId: string, scope?: CategoryScope): Promise<CustomerStatement | null> {
   const { data: customer } = await orgDb(admin, orgId).from('customers').select('id, name, email, address_text').eq('id', customerId).maybeSingle()
   if (!customer) return null
   const c = customer as { id: string; name: string | null; email: string | null; address_text: string | null }
   const asOf = ymdInZone(new Date(), await loadOrgTimeZone(admin, orgId))
-  const loaded = await loadAllInvoices(admin, orgId, { today: asOf, customerId })
+  const loaded = await loadAllInvoices(admin, orgId, { today: asOf, customerId, scope })
   const all = loaded?.rows ?? []
   const open = all
     .filter((r) => r.balanceCents > 0)
