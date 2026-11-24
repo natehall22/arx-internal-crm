@@ -44,6 +44,8 @@ function seed(settings: Record<string, unknown>, opts: { rpcThrows?: boolean } =
       job_invoices: [],
       job_invoice_items: [],
       invoice_payments: [],
+      payment_links: [],
+      online_payments: [],
     },
     {
       relations,
@@ -156,6 +158,47 @@ describe('auto draft invoice on done', () => {
       expect(await reopen(d)).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/void that invoice first/) })
       expect(d.tables.job_invoices[0].status).not.toBe('void')
     }
+  })
+
+  it('an unrevoked pay link or an open online payment keeps the refusal; a revoked link does not', async () => {
+    for (const [table, row, blocks] of [
+      ['payment_links', { id: 'l', org_id: ORG, revoked_at: null }, true],
+      ['online_payments', { id: 'o', org_id: ORG, status: 'processing' }, true],
+      ['online_payments', { id: 'o', org_id: ORG, status: 'failed' }, false],
+      ['payment_links', { id: 'l', org_id: ORG, revoked_at: '2026-11-01T00:00:00Z' }, false],
+    ] as const) {
+      const d = seed({ serviceBilling: { autoDraftOnDone: true } })
+      await done(d, 'v1')
+      d.tables[table].push({ ...row, invoice_id: d.tables.job_invoices[0].id })
+      const res = await reopen(d)
+      expect(res.ok).toBe(!blocks)
+    }
+  })
+
+  it('send-then-void: a draft sent first is not voided (refusal stays)', async () => {
+    const d = seed({ serviceBilling: { autoDraftOnDone: true } })
+    await done(d, 'v1')
+    const { voidInvoice } = await import('@/lib/invoices')
+    d.tables.job_invoices[0].status = 'sent' // sent between the checks and the void
+    await expect(voidInvoice(d.client, String(d.tables.job_invoices[0].id), 'Visit reopened', { onlyIfStatus: 'draft' })).rejects.toThrow()
+    expect(d.tables.job_invoices[0].status).toBe('sent')
+  })
+
+  it('void-then-finalize: a voided draft is not marked sent', async () => {
+    const d = seed({ serviceBilling: { autoDraftOnDone: true } })
+    await done(d, 'v1')
+    expect((await reopen(d)).ok).toBe(true)
+    const { finalizeAndSendInvoice } = await import('@/lib/invoices')
+    await expect(finalizeAndSendInvoice(d.client, String(d.tables.job_invoices[0].id), 'pat@example.com')).rejects.toThrow(/draft/)
+    expect(d.tables.job_invoices[0].status).toBe('void')
+  })
+
+  it('finalize of a plain draft still sends it (unchanged path)', async () => {
+    const d = seed({ serviceBilling: { autoDraftOnDone: true } })
+    await done(d, 'v1')
+    const { finalizeAndSendInvoice } = await import('@/lib/invoices')
+    const inv = await finalizeAndSendInvoice(d.client, String(d.tables.job_invoices[0].id), 'pat@example.com', { dates: { issuedAt: '2026-11-11', dueAt: '2026-11-11' } })
+    expect(inv.status).toBe('sent')
   })
 
   it('a failing "done" message never skips the draft', async () => {

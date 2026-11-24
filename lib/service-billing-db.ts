@@ -369,8 +369,9 @@ export async function visitInvoiceNumber(admin: SupabaseClient, orgId: string, v
  * ("Visit reopened") so the reopen can go ahead. Any other invoice (sent, paid, with other lines, with money) is left alone:
  * returns false and the caller keeps the refusal. Race safety: the reopen itself is still guarded by the DB trigger
  * work_orders_billed_visit_guard (same per-company lock as billing), so if an invoice appears between this void and the
- * reopen the reopen is refused, never silently allowed. The one gap: a draft sent in the milliseconds between the checks
- * here and the void would be voided (it holds only this visit, which is being reopened).
+ * reopen the reopen is refused, never silently allowed. The void is ONE conditional update (status = 'draft'), and sending
+ * (finalizeAndSendInvoice) is conditional the same way, so whichever lands first wins and the other changes nothing.
+ * Open pay links / in-flight online payments keep the refusal.
  */
 export async function voidDraftInvoiceForReopen(admin: SupabaseClient, orgId: string, visitId: string): Promise<boolean> {
   const { data, error } = await admin
@@ -393,9 +394,15 @@ export async function voidDraftInvoiceForReopen(admin: SupabaseClient, orgId: st
   if (rows.length === 0 || rows.some((l) => l.work_order_id !== visitId)) return false
   const { data: pays } = await admin.from('invoice_payments').select('id').eq('invoice_id', inv.id).limit(1)
   if ((pays ?? []).length > 0) return false
+  // A pay link the customer may still hold, or an online payment in flight: keep the refusal (the office decides).
+  const { data: links } = await admin.from('payment_links').select('id').eq('org_id', orgId).eq('invoice_id', inv.id).is('revoked_at', null).limit(1)
+  if ((links ?? []).length > 0) return false
+  const { data: online } = await admin.from('online_payments').select('id').eq('org_id', orgId).eq('invoice_id', inv.id).in('status', ['open', 'processing']).limit(1)
+  if ((online ?? []).length > 0) return false
   try {
+    // ONE conditional update (status must still be 'draft'); voidInvoice's own internals queue the QuickBooks void.
     const { voidInvoice } = await import('@/lib/invoices')
-    await voidInvoice(admin, inv.id, 'Visit reopened')
+    await voidInvoice(admin, inv.id, 'Visit reopened', { onlyIfStatus: 'draft' })
     return true
   } catch (e) {
     console.error('[billing] void draft for reopen failed', inv.id, e)
