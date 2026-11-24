@@ -31,6 +31,7 @@ import {
   type NotBillable,
 } from '@/lib/service-billing'
 import { loadCompletedServiceVisits } from '@/lib/service-plans-db'
+import { readServiceBillingSettings } from '@/lib/service-billing-settings'
 import { ymdInZone, addDaysYmd, SERVICE_VISIT_TYPE, type BillingBasis } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 import { isMissingColumn } from '@/lib/supabase/errors'
@@ -308,6 +309,39 @@ export async function createServiceInvoices(admin: SupabaseClient, orgId: string
     }
   }
   return result
+}
+
+export type AutoDraftResult = { made: true; invoiceId: string } | { made: false; reason: 'off' | 'no_plans' | 'not_done' | 'not_per_visit' | 'billed' | 'not_ready' }
+
+/**
+ * A visit was just marked done: make ONE draft invoice for it — only when the owner turned `serviceBilling.autoDraftOnDone`
+ * on (default off), the company has service plans on, and the visit is a per-visit plan visit with a price. Same units, tax,
+ * customer PO and writer as Ready to bill (buildBillingUnits → groupDraftInvoices 'visit' → createServiceInvoiceFromLines);
+ * the SQL writer refuses a visit already on a live invoice, which is treated as fine (nothing made). NEVER sends, emails or
+ * charges autopay. Per-month / per-year / per-hour plans and follow-on steps are left to Ready to bill / Hours to bill.
+ * The caller (applyVisitAction) catches anything thrown: the completion always stands.
+ */
+export async function autoDraftInvoiceForVisit(admin: SupabaseClient, orgId: string, visitId: string, userId: string | null, now = new Date()): Promise<AutoDraftResult> {
+  const { data: org } = await admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
+  if (!readServiceBillingSettings((org as { settings?: unknown } | null)?.settings).autoDraftOnDone) return { made: false, reason: 'off' }
+  const { isOrgFeatureOn } = await import('@/lib/org-features-server')
+  if (!(await isOrgFeatureOn(orgId, 'servicePlans'))) return { made: false, reason: 'no_plans' }
+  const done = await loadCompletedServiceVisits(admin, orgId, '2000-01-01T00:00:00Z', new Date(now.getTime() + 86_400_000).toISOString(), { visitIds: [visitId] })
+  const visit = done.find((v) => v.visitId === visitId)
+  if (!visit) return { made: false, reason: 'not_done' }
+  const plans = await loadPlanFacts(admin, orgId, [visit.planId])
+  const plan = plans.get(visit.planId)
+  if (!plan || plan.billing_basis !== 'per_visit') return { made: false, reason: 'not_per_visit' }
+  const billed = await loadBilled(admin, orgId, [visitId], [visit.planId])
+  if (!billed) return { made: false, reason: 'not_ready' }
+  const { units } = buildBillingUnits([{ ...visit, skipped: false }], plans, billed)
+  const unit = units.find((u) => u.kind === 'visit')
+  if (!unit) return { made: false, reason: visit.visitStep && visit.visitStep !== 'service' ? 'not_per_visit' : 'billed' }
+  const addresses = await loadAddresses(admin, orgId, unit.propertyId ? [unit.propertyId] : [])
+  const [draft] = groupDraftInvoices([unit], 'visit', (id) => (id ? addresses[id] ?? null : null))
+  if (!draft) return { made: false, reason: 'billed' }
+  const { invoiceId } = await createServiceInvoiceFromLines(admin, orgId, { customerId: draft.customerId, propertyId: draft.propertyId, createdBy: userId, lines: draft.lines })
+  return invoiceId ? { made: true, invoiceId } : { made: false, reason: 'billed' }
 }
 
 /** A visit that is on a non-void invoice (its number), or null. Before migration 202611110060: never billed. */

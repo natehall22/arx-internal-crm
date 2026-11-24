@@ -1800,6 +1800,13 @@ export async function applyVisitAction(
     // The customer's "done" email (only when the company turned it on; sent ~15 min later so a mis-tap can be reopened).
     const { queueVisitDone } = await import('@/lib/customer-messages-db')
     await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
+    // Auto draft invoice (owner setting, default off). Never blocks or undoes the completion; a draft only, never sent.
+    try {
+      const { autoDraftInvoiceForVisit } = await import('@/lib/service-billing-db')
+      await autoDraftInvoiceForVisit(admin, orgId, visitId, by.userId, opts.now ?? new Date())
+    } catch (e) {
+      console.error('[service-plans] auto draft invoice failed', visitId, e)
+    }
   }
   if (a.action === 'move') {
     await recordWorkOrderMoves(admin, orgId, [{ workOrderId: visitId, from: r.scheduled_date, to: a.date, reason: a.reason ?? null, kind: opts.moveKind ?? 'move', userId: by.userId, subId: by.subId }])
@@ -2122,16 +2129,18 @@ export type BillableVisit = {
  * with at least one done visit. Skipped / cancelled visits never bill. What was billed lives on the invoice lines
  * (job_invoice_items.work_order_id / service_plan_id + billing_month); nothing here is ever rewritten.
  */
-export async function loadCompletedServiceVisits(admin: SupabaseClient, orgId: string, fromIso: string, toIso: string): Promise<BillableVisit[]> {
+export async function loadCompletedServiceVisits(admin: SupabaseClient, orgId: string, fromIso: string, toIso: string, opts: { visitIds?: string[] } = {}): Promise<BillableVisit[]> {
   const out: BillableVisit[] = []
   for (let page = 0; ; page += PAGE) {
-    const { data, error } = await orgDb(admin, orgId)
+    let q = orgDb(admin, orgId)
       .from('work_orders')
       .select('id, service_plan_id, customer_id, property_id, completed_at, scheduled_date, visit_step')
       .eq('work_order_type', SERVICE_VISIT_TYPE)
       .eq('status', 'completed')
       .gte('completed_at', fromIso)
       .lt('completed_at', toIso)
+    if (opts.visitIds) q = q.in('id', opts.visitIds)
+    const { data, error } = await q
       .order('id')
       .range(page, page + PAGE - 1)
     if (error) throw error
