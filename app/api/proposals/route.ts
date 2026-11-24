@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { categoryScopeOf, filterProposalsToScope, limitCol } from '@/lib/category-scope'
 import { createClient } from '@supabase/supabase-js'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -76,7 +77,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -108,7 +109,8 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      proposals: proposals || [],
+      // Limited to some work categories: only proposals on deals inside them (no limit = unchanged).
+      proposals: await filterProposalsToScope(adminClient, profile.org_id, categoryScopeOf(profile), proposals || []),
       role: profile.role,
       current_user_id: user.id,
     })

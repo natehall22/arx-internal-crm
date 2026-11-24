@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { notFound, redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
@@ -26,7 +27,7 @@ export default async function ExteriorMeasurePage({ params }: { params: { id: st
     .eq('org_id', profile.org_id)
     .single()
 
-  if (!job) notFound()
+  if (!job || (await jobHiddenFrom(admin, profile, params.id))) notFound()
 
   const measureContext = await resolveJobMeasureContext(admin, profile.org_id, params.id)
   const roofMeasureHref = measureContext?.opportunityId

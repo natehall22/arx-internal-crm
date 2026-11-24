@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { proposalHiddenFrom, limitCol } from '@/lib/category-scope'
 import { createClient } from '@supabase/supabase-js'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
@@ -84,7 +85,7 @@ export async function POST(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -95,6 +96,7 @@ export async function POST(
     if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    if (await proposalHiddenFrom(adminClient, profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // Get the proposal
     const { data: proposal, error: proposalError } = await adminClient

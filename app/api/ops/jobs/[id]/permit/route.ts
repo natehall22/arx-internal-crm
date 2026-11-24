@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -18,6 +19,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   let profile
   try {
     const auth = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), auth.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     profile = auth.profile
     admin = createServiceClient()
     const { canEditJobs } = await resolveOpsAccess(admin, auth.authUser.id, profile)

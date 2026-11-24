@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { proposalHiddenFrom, limitCol } from '@/lib/category-scope'
 import { ORG_BRAND_COLUMNS, resolveOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import { resolveOrgProfile } from '@/lib/org-profile'
 import { resolveProposalContent } from '@/lib/proposal-content'
@@ -104,7 +105,7 @@ export async function GET(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -115,6 +116,7 @@ export async function GET(
     if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    if (await proposalHiddenFrom(adminClient, profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // Get proposal with creator info
     const { data: proposal, error: proposalError } = await adminClient
@@ -225,7 +227,7 @@ export async function PATCH(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -236,6 +238,7 @@ export async function PATCH(
     if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    if (await proposalHiddenFrom(adminClient, profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const rawBody = await request.json()
 
@@ -468,7 +471,7 @@ export async function DELETE(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -479,6 +482,7 @@ export async function DELETE(
     if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    if (await proposalHiddenFrom(adminClient, profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // Check if proposal exists and belongs to this org
     const { data: proposal, error: fetchError } = await adminClient

@@ -1,4 +1,5 @@
 import { visibleActivities } from '@/lib/threads/legacy-feed'
+import { categoryScopeOf, filterDealsToScope, limitCol } from '@/lib/category-scope'
 import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -179,7 +180,7 @@ export async function GET(request: NextRequest) {
     const adminClient = createServiceClient()
     const { data: profile } = await adminClient
       .from('users')
-      .select('id, org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
+      .select(`id, org_id, role, custom_role_id, is_super_admin${await limitCol()}, custom_role:custom_roles(name, display_name)` as '*')
       .eq('id', user.id)
       .single()
 
@@ -232,7 +233,9 @@ export async function GET(request: NextRequest) {
     const inspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
     const closeOutcomeRows = normalizeCloseOutcomeRows(getCloseOutcomeSettings(orgRow?.settings))
 
-    const rawOpportunities = (opportunities || []).map((opportunity: any) => ({
+    // Limited to some work categories: only deals in them (customer, else lead; no limit = unchanged).
+    const scopedOpportunities = await filterDealsToScope(adminClient, profile.org_id, categoryScopeOf(profile), (opportunities || []) as unknown as Array<{ customer_id?: string | null; lead_id?: string | null }>)
+    const rawOpportunities = scopedOpportunities.map((opportunity: any) => ({
       ...opportunity,
       pipeline_stage: opportunity.pipeline_stage ?? null,
       follow_up_at: opportunity.follow_up_at ?? null,
@@ -247,6 +250,7 @@ export async function GET(request: NextRequest) {
     const leadMap = new Map<string, any>()
     if (leadIds.length > 0) {
       const { data: leads, error: leadsError } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('leads')
         .select('id, homeowner_name, phone, closer_user_id')
         .in('id', leadIds)
@@ -267,6 +271,7 @@ export async function GET(request: NextRequest) {
     const customerMap = new Map<string, any>()
     if (customerIds.length > 0) {
       const { data: customers, error: customersError } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('customers')
         .select('id, name, phone')
         .in('id', customerIds)
@@ -287,6 +292,7 @@ export async function GET(request: NextRequest) {
     let inspectionMap = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
     if (opportunityIds.length > 0) {
       const { data: inspectionStatuses } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('inspection_status_updates')
         .select('opportunity_id, outcome, notes, created_at')
         .in('opportunity_id', opportunityIds)
@@ -298,6 +304,7 @@ export async function GET(request: NextRequest) {
     let leadInspectionMap = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
     if (leadIds.length > 0) {
       const { data: leadStatuses } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('inspection_status_updates')
         .select('lead_id, outcome, notes, created_at')
         .in('lead_id', leadIds)
@@ -309,6 +316,7 @@ export async function GET(request: NextRequest) {
     const closeOutcomeMap = new Map<string, { outcome: string; created_at: string }>()
     if (opportunityIds.length > 0) {
       const { data: closeRows } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('close_appointments')
         .select('opportunity_id, outcome, outcome_submitted_at, created_at')
         .in('opportunity_id', opportunityIds)
@@ -386,6 +394,7 @@ export async function GET(request: NextRequest) {
     const userNameMap = new Map<string, string | null>()
     if (userIds.length > 0) {
       const { data: users } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('users')
         .select('id, full_name')
         .in('id', userIds)
@@ -400,6 +409,7 @@ export async function GET(request: NextRequest) {
     if (queuedOpportunityIds.length > 0) {
       const { data: activitiesRaw } = await selectWithVisibleCol('id, opportunity_id, type, body, created_at, user_id, audience, restricted_pricing, visible_user_ids, deleted_at, users(full_name)', (cols) =>
         adminClient
+          // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
           .from('activities')
           .select(cols)
           .in('opportunity_id', queuedOpportunityIds)

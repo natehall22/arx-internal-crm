@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { loadBillableJobs } from '@/lib/invoice-batch-db'
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (categoryScopeOf(profile).limited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const off = await orgFeatureOffResponse(profile.org_id, 'masterInvoices')
   if (off) return off
   const admin = createServiceClient()

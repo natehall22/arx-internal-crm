@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
+import { categoryScopeOf, inScopeJobIds } from '@/lib/category-scope'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { parseScheduleWindow } from '@/lib/schedule-window'
@@ -86,7 +87,7 @@ function customerName(row: BoardJobRow): string | null {
  */
 export async function GET(request: Request) {
   let authUser: { id: string }
-  let profile: { id: string; org_id: string; role: string; custom_role_id?: string | null }
+  let profile: { id: string; org_id: string; role: string; custom_role_id?: string | null; category_limit?: unknown; is_super_admin?: boolean | null }
   try {
     const ctx = await requireAuthApi()
     authUser = ctx.authUser
@@ -183,7 +184,11 @@ export async function GET(request: Request) {
     console.error('[install-schedule GET] jobs:', jobsError)
     return NextResponse.json({ error: 'Failed to load jobs' }, { status: 500 })
   }
-  const jobs = (jobsData || []) as BoardJobRow[]
+  const allJobs = (jobsData || []) as BoardJobRow[]
+  // A person limited to some work categories sees only crews on jobs inside them (a job's own category, else its customer's).
+  const scope = categoryScopeOf(profile)
+  const visibleIds = await inScopeJobIds(adminClient, orgId, scope, allJobs.map((j) => ({ id: j.id, customer_id: (Array.isArray(j.customer) ? j.customer[0] : j.customer)?.id ?? null }))).catch((e) => (console.error('[install-schedule GET] scope:', e), new Set<string>()))
+  const jobs = allJobs.filter((j) => visibleIds.has(j.id))
 
   // Reuse the board's existing squares resolution instead of re-deriving it here.
   await enrichOpsJobsWithSoldSquares(adminClient, orgId, jobs)

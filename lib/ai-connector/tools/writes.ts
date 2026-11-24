@@ -7,6 +7,7 @@
  * Never here: payments, payroll, sending anything (email, text, invoice, order), deleting, permissions, settings, cancelling.
  * Text typed by the AI is stored as plain text: control characters and anything that looks like an HTML tag are removed.
  */
+import { categoryScopeOf, customerInScope, jobHiddenFrom } from '@/lib/category-scope'
 import { z } from 'zod'
 
 import { writeTool } from '@/lib/ai-connector/changes'
@@ -89,7 +90,7 @@ const AUDIENCE_WORDS: Record<string, string> = { team: 'The team (everyone who c
 
 async function dealGate(ctx: ToolContext, dealId: string, requested: (typeof NOTE_AUDIENCES)[number] | undefined) {
   const viewer = await resolveThreadViewer(ctx.admin, ctx.profile)
-  const deal = await loadDeal(ctx.admin, ctx.orgId, dealId)
+  const deal = await loadDeal(ctx.admin, ctx.orgId, dealId, viewer.categoryScope)
   // The same two doors as the Customer File: who may open the deal, then which audiences this person may write.
   if (!deal || !canOpenDeal(viewer, deal)) throw new ToolError('not_found')
   const audience = pickAudience(writableAudiences(viewer, dealRefOf(deal)), requested)
@@ -336,7 +337,7 @@ async function visitGate(ctx: ToolContext, visitId: string, date: string) {
   const access = await resolveServicePlanAccess(ctx.admin, ctx.userId, ctx.profile)
   // Same door as moving a visit on the Visits screen: service plans on and jobs:edit; never a field role.
   if (!access.feature || isFieldRole(viewer) || !access.edit) throw new ToolError('denied', REFUSED, 'no_permission')
-  const page = await loadVisitsPage(ctx.admin, ctx.orgId, { from: '2000-01-01', to: '2100-01-01', ids: [visitId], accessNotes: false, limit: 1 })
+  const page = await loadVisitsPage(ctx.admin, ctx.orgId, { from: '2000-01-01', to: '2100-01-01', ids: [visitId], accessNotes: false, limit: 1, scope: categoryScopeOf(ctx.profile) })
   const visit = page.visits[0]
   if (!visit) throw new ToolError('not_found')
   if (visit.status !== 'scheduled') throw new ToolError('bad_input', 'Only a scheduled visit can be moved.', 'not_scheduled')
@@ -453,6 +454,8 @@ async function invoiceGate(ctx: ToolContext, a: z.infer<typeof invoiceSchema>) {
   const db = orgDb(ctx.admin, ctx.orgId)
   const { data: customer } = await db.from('customers').select('id, name').eq('id', a.customer_id).maybeSingle()
   if (!customer) throw new ToolError('not_found')
+  // A person limited to some work categories drafts invoices only for customers inside them (same answer as not found).
+  if (!(await customerInScope(ctx.admin, ctx.orgId, categoryScopeOf(ctx.profile), a.customer_id))) throw new ToolError('not_found')
   if (a.property_id) {
     const { data: prop } = await db.from('properties').select('id, address_text').eq('id', a.property_id).eq('customer_id', a.customer_id).maybeSingle()
     if (!prop) throw new ToolError('not_found')
@@ -528,6 +531,8 @@ async function poGate(ctx: ToolContext, a: z.infer<typeof poSchema>) {
   if (!access.canEdit) throw new ToolError('denied', REFUSED, 'no_permission')
   const target = await loadPoTarget(ctx.admin, ctx.orgId, { jobId: a.job_id })
   if (!target) throw new ToolError('not_found')
+  // A person limited to some work categories orders only for jobs inside them (same answer as not found).
+  if (await jobHiddenFrom(ctx.admin, ctx.profile, a.job_id)) throw new ToolError('not_found')
   if (target.cancelled) throw new ToolError('bad_input', 'This job is cancelled, so orders cannot be made.', 'job_cancelled')
   const db = orgDb(ctx.admin, ctx.orgId)
   const { data: vendor } = await db.from('vendors').select('id, name, active, deleted_at').eq('id', a.vendor_id).maybeSingle()

@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
@@ -11,6 +12,8 @@ interface PageProps {
 
 export default async function WorkOrderDetailPage({ params }: PageProps) {
   const { profile } = await requireAuth()
+  // A person limited to some work categories does not get this page (it is not split by category).
+  if (categoryScopeOf(profile).limited) notFound()
   const supabase = createClient()
 
   const { data: workOrder } = await supabase

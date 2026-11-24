@@ -5,6 +5,7 @@
  *
  * Read-only: writes nothing, sends nothing, allocates no PO number.
  */
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   let auth
   try {
     const { authUser, profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const admin = createServiceClient()
     const access = await resolveSupplierOrderAccess(admin, authUser.id, profile)
     auth = { admin, authUser, profile, ...access }

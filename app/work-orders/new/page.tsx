@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic'
 
+import { notFound } from 'next/navigation'
+import { categoryScopeOf } from '@/lib/category-scope'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import NewWorkOrderClient from './NewWorkOrderClient'
@@ -17,6 +19,8 @@ interface PageProps {
 
 export default async function NewWorkOrderPage({ searchParams }: PageProps) {
   const { profile } = await requireAuth()
+  // A person limited to some work categories does not get this page (it is not split by category).
+  if (categoryScopeOf(profile).limited) notFound()
   const supabase = createClient()
 
   const [customersRes, projectsRes, usersRes, subsRes] = await Promise.all([

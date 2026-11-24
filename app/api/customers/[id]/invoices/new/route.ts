@@ -1,3 +1,4 @@
+import { customerInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { billingRouteAuth } from '@/lib/service-billing-access'
@@ -12,6 +13,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   const ctx = await billingRouteAuth()
   if (ctx instanceof Response) return ctx
+  if (!(await customerInScope(ctx.admin, ctx.orgId, ctx.scope, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const db = orgDb(ctx.admin, ctx.orgId)
   const { data: customer } = await db.from('customers').select('id').eq('id', params.id).maybeSingle()
   if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })

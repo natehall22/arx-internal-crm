@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { wrapUntrusted } from '@/lib/ai-connector/untrusted'
 import { addDaysYmd, daysBetweenYmd, isYmd } from '@/lib/service-plans'
+import { categoryScopeOf } from '@/lib/category-scope'
 import { loadVisitsPage } from '@/lib/service-plans-db'
 import { resolveServicePlanAccess } from '@/lib/service-plans-access'
 import { isSuperAdmin } from '@/lib/super-admin'
@@ -30,7 +31,7 @@ export const listVisits: McpTool = {
     if (!access.feature || isFieldRole(viewer) || !(access.view || isSuperAdmin(ctx.profile))) throw new ToolError('denied')
     const to = args.to ?? addDaysYmd(args.from, 6)
     if (to < args.from || daysBetweenYmd(args.from, to) > 62) throw new ToolError('bad_input', 'Pick up to 9 weeks.')
-    const page = await loadVisitsPage(ctx.admin, ctx.orgId, { from: args.from, to, accessNotes: false, limit: 100 })
+    const page = await loadVisitsPage(ctx.admin, ctx.orgId, { from: args.from, to, accessNotes: false, limit: 100, scope: categoryScopeOf(ctx.profile) })
     return {
       data: {
         total: page.total,

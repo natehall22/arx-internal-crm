@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import { ensureContractPdf } from '@/lib/contracts/finalize-pdf'
 import { completeEnvelope } from '@/lib/signing/complete'
@@ -30,11 +31,13 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
 
     const { data: contract } = await service
       .from('order_form_contracts')
-      .select('id, status, quote_approval_id')
+      .select('id, status, quote_approval_id, opportunity_id')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .maybeSingle()
     if (!contract) return NextResponse.json({ error: 'Contract not found' }, { status: 404 })
+    // Limited to some work categories: a contract on a deal outside them answers like it does not exist.
+    if (contract.opportunity_id && (await dealHiddenFrom(service, profile, String(contract.opportunity_id)))) return NextResponse.json({ error: 'Contract not found' }, { status: 404 })
     if (contract.status !== 'completed') {
       return NextResponse.json({ error: 'The contract must be signed before a PDF can be generated.' }, { status: 400 })
     }

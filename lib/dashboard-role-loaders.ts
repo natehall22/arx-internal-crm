@@ -5,6 +5,7 @@
  * Called from `loadDashboardCardData` (lib/dashboard-cards-server.ts), one card at a time, so a card that is not on the
  * viewer's list never runs its loader.
  */
+import { categoryScopeOf } from '@/lib/category-scope'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import {
@@ -152,6 +153,9 @@ export async function loadRoleCard(ctx: RoleCtx, card: DashboardCard, goal: numb
   const src = card.source
   if (src.kind !== 'loader') return null
   const m = src.measure
+  // A person limited to some work categories gets no company-wide dashboard numbers or lists: they are not split by category, so
+  // they are hidden (never shown unfiltered). Only the crew's own day stays (crew links are not category-limited).
+  if (categoryScopeOf(ctx.profile).limited && src.loader !== 'crewDay') return null
   switch (src.loader) {
     case 'revenuePerCrewHour': return revenuePerCrewHour(ctx, card, goal)
     case 'contractedRecurring': return contractedRecurring(ctx, card, goal)

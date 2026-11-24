@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { proposalHiddenFrom } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import { crossSiteWrite } from '@/lib/online-payments/access'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
@@ -89,6 +90,7 @@ async function status(admin: ReturnType<typeof createServiceClient>, orgId: stri
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   const c = await caller(null)
   if ('error' in c) return c.error
+  if (await proposalHiddenFrom(c.admin, c.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const s = await status(c.admin, c.profile.org_id, params.id)
   if (!s) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(s)
@@ -106,6 +108,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const c = await caller(request)
   if ('error' in c) return c.error
   const { admin, profile } = c
+  if (await proposalHiddenFrom(admin, profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const orgId = profile.org_id
   const body = (await request.json().catch(() => ({}))) as { action?: string; email?: unknown; mode?: unknown; value?: unknown; saleCredit?: unknown }
   const s = await status(admin, orgId, params.id)

@@ -73,6 +73,7 @@ import { upsertCustomer } from '@/lib/customers'
 import { createProperty, loadCustomerProperties } from '@/lib/properties-db'
 import { cleanPropertyInput } from '@/lib/properties'
 import { readChecklist, readServiceLines, visitChecklist, type ChecklistItem } from '@/lib/visit-checklist'
+import { filterByCustomerScope, type CategoryScope } from '@/lib/category-scope'
 
 const PAGE = 1000
 /** Ids per `in (…)` request: keeps PostgREST URLs short however many visits a screen shows. */
@@ -1481,6 +1482,8 @@ export type VisitFilter = {
   customerId?: string
   ids?: string[]
   accessNotes: boolean
+  /** A person limited to some work categories sees only visits of customers inside them. Left out = everything. */
+  scope?: CategoryScope
 }
 
 /** Rows `column in ids`, ≤ ID_CHUNK ids a request (a busy week's visits never make one huge URL). */
@@ -1520,19 +1523,24 @@ export async function loadVisitsPage(
 ): Promise<{ visits: VisitView[]; total: number; hasMore: boolean }> {
   const limit = Math.min(Math.max(opts.limit ?? VISIT_PAGE_SIZE, 1), 1000)
   const offset = Math.max(opts.offset ?? 0, 0)
-  let q = orgDb(admin, orgId)
-    .from('work_orders')
-    .select(VISIT_COLS, { count: 'exact' })
-    .eq('work_order_type', SERVICE_VISIT_TYPE)
-    .gte('scheduled_date', opts.from)
-    .lte('scheduled_date', opts.to)
-  if (opts.subId === null) q = q.is('assigned_sub_id', null)
-  else if (opts.subId) q = q.eq('assigned_sub_id', opts.subId)
-  if (opts.userId) q = q.eq('assigned_user_id', opts.userId)
-  if (opts.planId) q = q.eq('service_plan_id', opts.planId)
-  if (opts.customerId) q = q.eq('customer_id', opts.customerId)
-  if (opts.ids) q = q.in('id', opts.ids)
-  const { data, error, count } = await q
+  // A fresh query per call: a builder is never reused across pages.
+  const build = (cols: string, selectOpts?: { count: 'exact' }) => {
+    let q = orgDb(admin, orgId)
+      .from('work_orders')
+      .select(cols, selectOpts)
+      .eq('work_order_type', SERVICE_VISIT_TYPE)
+      .gte('scheduled_date', opts.from)
+      .lte('scheduled_date', opts.to)
+    if (opts.subId === null) q = q.is('assigned_sub_id', null)
+    else if (opts.subId) q = q.eq('assigned_sub_id', opts.subId)
+    if (opts.userId) q = q.eq('assigned_user_id', opts.userId)
+    if (opts.planId) q = q.eq('service_plan_id', opts.planId)
+    if (opts.customerId) q = q.eq('customer_id', opts.customerId)
+    if (opts.ids) q = q.in('id', opts.ids)
+    return q
+  }
+  if (opts.scope?.limited) return loadScopedVisitsPage(admin, orgId, () => build('id, customer_id'), opts.scope, offset, limit, opts.accessNotes)
+  const { data, error, count } = await build(VISIT_COLS, { count: 'exact' })
     .order('scheduled_date')
     .order('id')
     .range(offset, offset + limit - 1)
@@ -1547,6 +1555,40 @@ export async function loadVisitsPage(
     total,
     hasMore: offset + rows.length < total,
   }
+}
+
+/**
+ * A limited person's page: the matching visits' ids + customers are read in day order, cut to the customers inside their
+ * categories, and only then paged — so `total` and `hasMore` count what they can see. Fails closed on a read error.
+ */
+async function loadScopedVisitsPage(
+  admin: SupabaseClient,
+  orgId: string,
+  makeQuery: () => any,
+  scope: CategoryScope,
+  offset: number,
+  limit: number,
+  accessNotes: boolean
+): Promise<{ visits: VisitView[]; total: number; hasMore: boolean }> {
+  const keep: string[] = []
+  const all: Array<{ id: string; customer_id: string | null }> = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await makeQuery().order('scheduled_date').order('id').range(from, from + 999)
+    if (error) {
+      if (isServicePlansNotReadyError(error)) return { visits: [], total: 0, hasMore: false }
+      throw error
+    }
+    const rows = (data ?? []) as Array<{ id: string; customer_id: string | null }>
+    all.push(...rows)
+    if (rows.length < 1000) break
+  }
+  const visible = await filterByCustomerScope(admin, orgId, scope, all, (r) => r.customer_id)
+  keep.push(...visible.map((r) => r.id))
+  const pageIds = keep.slice(offset, offset + limit)
+  const rows = pageIds.length
+    ? (await selectInChunks<Record<string, unknown>>(admin, orgId, 'work_orders', VISIT_COLS, 'id', pageIds)).sort((a, b) => pageIds.indexOf(String(a.id)) - pageIds.indexOf(String(b.id)))
+    : []
+  return { visits: await viewsFor(admin, orgId, rows, accessNotes), total: keep.length, hasMore: offset + rows.length < keep.length }
 }
 
 /** Every visit matching the filter, page by page (small windows: today's list, one crew's day). Never silently capped. */

@@ -4,6 +4,7 @@
  * PATCH — where a TRADE's materials come from on this job: { trade, material_source, vendor_id }.
  *         Changes what the next preview shows; never sends anything.
  */
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -27,6 +28,7 @@ async function authorize() {
 export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
   const auth = await authorize()
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (await jobHiddenFrom(auth.admin, auth.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   if (!auth.canView) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
@@ -51,6 +53,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const auth = await authorize()
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (await jobHiddenFrom(auth.admin, auth.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   if (!auth.canSend) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { dealHiddenFrom, proposalHiddenFrom, limitCol } from '@/lib/category-scope'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { computeFinancedContractTotal } from '@/lib/financing'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
@@ -191,7 +192,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -235,6 +236,9 @@ export async function GET(request: NextRequest) {
     }
 
     const effectiveOpportunityId = opportunityIdParam || proposalOpportunityId
+    // Limited to some work categories: a deal (or proposal) outside them is "not found".
+    if (effectiveOpportunityId && (await dealHiddenFrom(adminClient, profile, effectiveOpportunityId))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (!effectiveOpportunityId && proposalIdParam && (await proposalHiddenFrom(adminClient, profile, proposalIdParam))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // Which price list: the quote's own, else the customer's, else the default (lib/price-list.ts). A company with one
     // list (roofing) is offered every item, exactly as before.
@@ -493,7 +497,7 @@ export async function POST(request: NextRequest) {
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -507,6 +511,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { proposal, lineItems } = body
+    if (proposal?.opportunity_id && (await dealHiddenFrom(adminClient, profile, String(proposal.opportunity_id)))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const orgProfile = await loadOrgProfile(adminClient, profile.org_id)
 
     // Validate required fields
@@ -645,7 +650,7 @@ export async function PUT(request: NextRequest) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -677,6 +682,10 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (existingError || !existing) {
+      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
+    }
+    // Limited to some work categories: a proposal on a deal outside them answers like it does not exist.
+    if (await proposalHiddenFrom(adminClient, profile, proposal_id)) {
       return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
     }
 

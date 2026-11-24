@@ -13,6 +13,7 @@
  * Body: LidarMeasurePayload (see lib/lidar-measure-ingest.ts)
  */
 
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
@@ -29,6 +30,7 @@ export async function POST(
 ) {
   try {
     const { profile, authUser } = await requireAuthApi()
+    if (await dealHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
     if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()

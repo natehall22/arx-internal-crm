@@ -1,3 +1,4 @@
+import { categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -72,7 +73,7 @@ async function authorize() {
   const adminClient = createServiceClient()
 
   const permissions = await resolveEffectivePermissionNames(adminClient, profile.id, profile)
-  return { adminClient, orgId: profile.org_id as string, userId: profile.id, permissions }
+  return { adminClient, orgId: profile.org_id as string, userId: profile.id, permissions, scope: categoryScopeOf(profile) }
 }
 
 /** Resolves the optional link payload into the single column the DB trigger expands. */
@@ -142,7 +143,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await authorize()
     if ('error' in auth) return auth.error
-    const { adminClient, orgId, userId, permissions } = auth
+    const { adminClient, orgId, userId, permissions, scope } = auth
 
     // Matches who 028's org-wide INSERT policy already allowed: anyone on the customer file.
     if (!canAccessCustomerRecordsFromPermissionNames(permissions)) {
@@ -168,7 +169,7 @@ export async function POST(request: NextRequest) {
       .eq('org_id', orgId)
       .maybeSingle()
 
-    if (!referrer) {
+    if (!referrer || !(await customerInScope(adminClient, orgId, scope, referrerCustomerId))) {
       return NextResponse.json({ error: 'Referring customer not found in this org' }, { status: 404 })
     }
 

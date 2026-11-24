@@ -2,7 +2,11 @@ import { sendPasswordResetEmail } from '@/lib/password-reset-email'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi, type AuthContext } from '@/lib/auth'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { isMissingColumn } from '@/lib/supabase/errors'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgCategories } from '@/lib/categories-db'
+import { resolveCategoryLimitInput } from '@/lib/category-scope'
+import { isSuperAdmin } from '@/lib/super-admin'
 import { actorIsOwner, isMoneyPermissionName, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
 
 export const dynamic = 'force-dynamic'
@@ -250,6 +254,8 @@ export async function GET(request: NextRequest) {
       permissions: permsRes.data || [],
       permissionPresets: presetsRes.data || [],
       currentUserOrgId: profile.org_id,
+      canLimitCategories: isOrgSuperuserRoleSlug(profile.role) || isSuperAdmin(profile),
+      categories: await loadOrgCategories(adminClient, profile.org_id),
     })
   } catch (err) {
     console.error('GET /api/admin/users error:', err)
@@ -280,7 +286,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { id, email, phone, full_name, role, custom_role_id, team_id, region_id, manager_user_id, active, canvass_pin_visibility, show_in_reports, can_receive_appointments, dashboard_view } = body
+  const { id, email, phone, full_name, role, custom_role_id, team_id, region_id, manager_user_id, active, canvass_pin_visibility, show_in_reports, can_receive_appointments, dashboard_view, category_limit } = body
 
   if (!id) {
     return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
@@ -321,6 +327,17 @@ export async function PUT(request: NextRequest) {
   const badRef = await foreignOrgRef(adminClient, profile.org_id, { custom_role_id, team_id, region_id, manager_user_id })
   if (badRef) {
     return NextResponse.json({ error: `Invalid ${badRef}` }, { status: 400 })
+  }
+
+  // Work category limit: owners / admins only, never the person themselves, slugs must be on THIS company's list.
+  let categoryLimitValue: string[] | null | undefined
+  if (category_limit !== undefined) {
+    if (!(callerIsSuperuser || isSuperAdmin(profile)) || isSelf) {
+      return NextResponse.json({ error: 'Only an admin can limit work categories' }, { status: 403 })
+    }
+    const parsed = resolveCategoryLimitInput(await loadOrgCategories(adminClient, profile.org_id), category_limit)
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+    categoryLimitValue = parsed.value
   }
 
   // Handle email change - requires updating Supabase Auth
@@ -370,6 +387,7 @@ export async function PUT(request: NextRequest) {
   if (show_in_reports !== undefined) updateData.show_in_reports = show_in_reports
   if (can_receive_appointments !== undefined) updateData.can_receive_appointments = can_receive_appointments
   if (dashboard_view !== undefined) updateData.dashboard_view = dashboard_view
+  if (categoryLimitValue !== undefined) updateData.category_limit = categoryLimitValue
 
   const { error: updateError } = await adminClient
     .from('users')
@@ -379,6 +397,9 @@ export async function PUT(request: NextRequest) {
 
   if (updateError) {
     console.error('Update user error:', updateError)
+    if (categoryLimitValue !== undefined && isMissingColumn(updateError, 'category_limit')) {
+      return NextResponse.json({ error: 'Work category limits are not ready yet (a database update is still pending). Nothing was changed.' }, { status: 409 })
+    }
     return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
   }
 

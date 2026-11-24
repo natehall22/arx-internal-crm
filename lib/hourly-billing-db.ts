@@ -8,6 +8,7 @@
  * the hour gets an invoice without a job (the customer's), with every line carrying the visit (work_order_id), exactly
  * as Ready to bill does — so each refuses what the other billed.
  */
+import { UNLIMITED_SCOPE, filterByCustomerScope, inScopeJobIds, type CategoryScope } from '@/lib/category-scope'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgTimeZone } from '@/lib/cron-orgs'
@@ -407,16 +408,26 @@ function daysFor(t: HoursTarget, l: Loaded, fromYmd: string): HoursDay[] {
   return Array.from(byDate.values()).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
 }
 
-export async function loadHoursToBill(admin: SupabaseClient, orgId: string, opts: { lookbackDays?: number; now?: Date } = {}): Promise<HoursToBill> {
+/** A limited person bills only jobs / visits inside their categories (a job follows its own category, else its customer; a visit its customer). */
+async function scopeTargets(admin: SupabaseClient, orgId: string, scope: CategoryScope, targets: HoursTarget[]): Promise<HoursTarget[]> {
+  if (!scope.limited) return targets
+  const okJobs = await inScopeJobIds(admin, orgId, scope, targets.filter((t) => t.kind === 'job').map((t) => ({ id: t.id, customer_id: t.customerId })))
+  const visits = await filterByCustomerScope(admin, orgId, scope, targets.filter((t) => t.kind === 'visit'), (t) => t.customerId)
+  const okVisits = new Set(visits.map((t) => t.id))
+  return targets.filter((t) => (t.kind === 'job' ? okJobs.has(t.id) : okVisits.has(t.id)))
+}
+
+export async function loadHoursToBill(admin: SupabaseClient, orgId: string, opts: { lookbackDays?: number; now?: Date; scope?: CategoryScope } = {}): Promise<HoursToBill> {
   const now = opts.now ?? new Date()
   const lookbackDays = Math.min(MAX_HOURS_LOOKBACK_DAYS, Math.max(1, Math.round(opts.lookbackDays ?? HOURS_LOOKBACK_DAYS)))
   const facts0 = await loadHourlyOrgFacts(admin, orgId)
   const fromYmd = addDaysYmd(ymdInZone(now, facts0.timeZone), -lookbackDays)
   const l = await loadAll(admin, orgId, { fromYmd, now })
   if ('notReady' in l) return { ready: false, error: HOURLY_BILLING_NOT_READY }
-  const totals = await loadJobBilledHours(admin, orgId, l.targets.filter((t) => t.kind === 'job').map((t) => t.id))
+  const visibleTargets = await scopeTargets(admin, orgId, opts.scope ?? UNLIMITED_SCOPE, l.targets)
+  const totals = await loadJobBilledHours(admin, orgId, visibleTargets.filter((t) => t.kind === 'job').map((t) => t.id))
   const targets: HoursTargetView[] = []
-  for (const t of l.targets) {
+  for (const t of visibleTargets) {
     const days = daysFor(t, l, fromYmd)
     if (days.length === 0 && t.kind === 'visit') continue
     targets.push({ ...t, customerName: '', days, billedHours: totals.get(t.id) ?? 0 })
@@ -502,7 +513,7 @@ export function parseApproveRequest(body: unknown): { req: ApproveRequest } | { 
  * Approve days of hours and put them on ONE new draft invoice. Everything is recomputed from the database here; the
  * browser only sends which days and, for an edit or typed hours, kinds / machines / people / hours (never prices).
  */
-export async function approveHours(admin: SupabaseClient, orgId: string, userId: string, req: ApproveRequest, now = new Date()): Promise<ApproveResult | Fail> {
+export async function approveHours(admin: SupabaseClient, orgId: string, userId: string, req: ApproveRequest, now = new Date(), scope: CategoryScope = UNLIMITED_SCOPE): Promise<ApproveResult | Fail> {
   const dates = req.days.map((d) => d.date).sort()
   const facts0 = await loadHourlyOrgFacts(admin, orgId)
   const today = ymdInZone(now, facts0.timeZone)
@@ -510,7 +521,9 @@ export async function approveHours(admin: SupabaseClient, orgId: string, userId:
   const l = await loadAll(admin, orgId, { fromYmd: addDaysYmd(dates[0], -1), now, only: req.target })
   if ('notReady' in l) return { ok: false, status: 503, error: HOURLY_BILLING_NOT_READY }
   const target = l.targets[0]
-  if (!target || target.id !== req.target.id) return { ok: false, status: 404, error: req.target.kind === 'job' ? 'That job is not billed by the hour' : 'That visit is not on a plan billed by the hour' }
+  const visible = target ? await scopeTargets(admin, orgId, scope, [target]).catch(() => []) : []
+  // Outside the person's categories answers exactly like a job / visit that is not billed by the hour.
+  if (!target || target.id !== req.target.id || visible.length === 0) return { ok: false, status: 404, error: req.target.kind === 'job' ? 'That job is not billed by the hour' : 'That visit is not on a plan billed by the hour' }
   if (target.visitBilled) return { ok: false, status: 409, error: 'This visit is already on an invoice' }
   const ctx = billContext(l.facts, l.items, target.labor)
 

@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
@@ -21,6 +22,7 @@ export default async function CheckupsPage() {
   const { canJobBoard } = await resolveOpsAccess(admin, authUser.id, profile)
   if (!canJobBoard) redirect('/today')
 
+  const scope = categoryScopeOf(profile)
   const settings = await loadCheckupSettings(admin, profile.org_id)
   let loadError = false
   if (settings.enabled) {
@@ -38,8 +40,8 @@ export default async function CheckupsPage() {
     return []
   }
   const [open, closed] = await Promise.all([
-    loadCheckups(admin, profile.org_id, { open: true }).catch(fail),
-    loadCheckups(admin, profile.org_id, { closedSince, limit: 200 }).catch(fail),
+    loadCheckups(admin, profile.org_id, { open: true, scope }).catch(fail),
+    loadCheckups(admin, profile.org_id, { closedSince, limit: 200, scope }).catch(fail),
   ])
   const sections = [
     { id: 'overdue', title: 'Due now', empty: 'Nothing due right now.', rows: open.filter((c) => c.status === 'due' && c.due_on <= today) },

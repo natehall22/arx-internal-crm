@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { resolveCategoryScope } from '@/lib/category-scope'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import type { ThreadViewer } from '@/lib/threads/visibility'
@@ -14,6 +15,8 @@ export type ViewerProfile = {
   custom_role_id?: string | null
   is_super_admin?: boolean | null
   active?: boolean | null
+  /** Work category limit (lib/category-scope.ts). Present on a full user row; a partial profile without it is read once. */
+  category_limit?: string[] | null
 }
 
 const MANAGER_LIKE = new Set(['manager', 'sales_manager', 'regional_manager', 'operations'])
@@ -35,6 +38,7 @@ export async function resolveThreadViewer(admin: SupabaseClient, profile: Viewer
     resolveSalesDocAccessBarred(admin, profile.id, { role: profile.role, custom_role_id: profile.custom_role_id ?? null }),
   ])
   const ownerLike = isOrgSuperuserRoleSlug(role) || isSuperAdmin(profile)
+  const categoryScope = await resolveCategoryScope(admin, profile)
   return {
     userId: profile.id,
     orgId: profile.org_id,
@@ -48,5 +52,6 @@ export async function resolveThreadViewer(admin: SupabaseClient, profile: Viewer
     setterLike: (role === 'setter' || role === 'canvasser') && !insideSales,
     pricingBarred,
     insideSales,
+    categoryScope,
   }
 }

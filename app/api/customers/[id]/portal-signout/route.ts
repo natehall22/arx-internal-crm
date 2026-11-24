@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { UNLIMITED_SCOPE, customerInScope } from '@/lib/category-scope'
 import { crossSiteWrite } from '@/lib/online-payments/access'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { logPortalEvent, revokeCustomerPortalAccess } from '@/lib/portal/server'
@@ -14,6 +15,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
   const { admin, viewer } = ctx
+  if (!(await customerInScope(admin, viewer.orgId, viewer.categoryScope ?? UNLIMITED_SCOPE, params.id))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!(viewer.ownerLike || viewer.managerLike || viewer.jobBoard)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!(await isOrgFeatureOn(viewer.orgId, 'customerPortal'))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const { data } = await orgDb(admin, viewer.orgId).from('customers').select('id').eq('id', params.id).maybeSingle()

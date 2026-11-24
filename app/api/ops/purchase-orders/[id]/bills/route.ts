@@ -3,6 +3,7 @@
  * The cost lands in the job ledger through addJobCostLine (the one writer) once per bill. The bill's file is attached with the
  * existing cost-attachments route using the returned costLineId (drag and drop on the screen).
  */
+import { purchaseOrderInScope, recordHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { crossSiteWrite } from '@/lib/online-payments/access'
@@ -15,6 +16,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const a = await authorizePo('canBill')
   if ('error' in a) return a.error
+  if (await recordHiddenFrom(a.ctx.admin, a.ctx.profile, params.id, purchaseOrderInScope)) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (crossSiteWrite(request)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const parsed = parseBillInput(body)

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { loadAllWork, ALL_WORK_MAX_DAYS } from '@/lib/all-work-db'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
   const { data: me } = await ctx.admin.from('users').select('role, custom_role_id').eq('id', ctx.userId).eq('org_id', ctx.orgId).maybeSingle()
   const appointments = me ? await resolveCanReassignAppointment(ctx.admin, me as { role: string; custom_role_id?: string | null }).catch(() => false) : false
   const [work, led] = await Promise.all([
-    loadAllWork(ctx.admin, ctx.orgId, from, to, { visits: ctx.access.view, appointments, timeZone }),
+    loadAllWork(ctx.admin, ctx.orgId, from, to, { visits: ctx.access.view, appointments, timeZone, scope: categoryScopeOf(ctx.profile) }),
     loadCrewSubIds(ctx.admin, ctx.orgId, ctx.userId).catch(() => ({ all: [] as string[], led: [] as string[] })),
   ])
   return NextResponse.json({ ...work, today, myCrewIds: led.led, appointments })

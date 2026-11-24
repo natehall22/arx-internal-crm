@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { applyCategoryScope, categoryScopeOf } from '@/lib/category-scope'
 import { withoutCustomFields } from '@/lib/custom-fields'
 
 export const dynamic = 'force-dynamic'
@@ -79,7 +80,7 @@ export async function GET(request: Request) {
           .eq('org_id', profile.org_id)
           .ilike('phone', `%${normalizedPhone.slice(-7)}%`)
         if (allowedCustomerIds) q = q.in('id', allowedCustomerIds)
-        return q.limit(10)
+        return applyCategoryScope(q, categoryScopeOf(profile)).limit(10)
       })()
       
       if (phoneMatches?.length) {
@@ -96,7 +97,7 @@ export async function GET(request: Request) {
           .eq('org_id', profile.org_id)
           .ilike('email', `%${emailLower}%`)
         if (allowedCustomerIds) q = q.in('id', allowedCustomerIds)
-        return q.limit(10)
+        return applyCategoryScope(q, categoryScopeOf(profile)).limit(10)
       })()
       
       if (emailMatches?.length) {
@@ -114,7 +115,7 @@ export async function GET(request: Request) {
           .ilike('name', `%${query}%`)
           .order('created_at', { ascending: false })
         if (allowedCustomerIds) q = q.in('id', allowedCustomerIds)
-        return q.limit(10)
+        return applyCategoryScope(q, categoryScopeOf(profile)).limit(10)
       })()
       
       customers = nameMatches || []

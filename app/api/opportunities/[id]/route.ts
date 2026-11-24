@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { insuranceFieldsSetInPatch } from '@/lib/org-features'
@@ -58,6 +59,7 @@ export async function GET(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await dealHiddenFrom(createServiceClient(), authContext.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const profile = authContext.profile
     const adminClient = createServiceClient()
@@ -101,6 +103,7 @@ export async function PATCH(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await dealHiddenFrom(createServiceClient(), authContext.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const profile = authContext.profile
     const adminClient = createServiceClient()
@@ -269,6 +272,7 @@ export async function DELETE(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await dealHiddenFrom(createServiceClient(), authContext.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const profile = authContext.profile
     const adminClient = createServiceClient()

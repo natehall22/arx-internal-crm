@@ -1,3 +1,4 @@
+import { categoryScopeOf } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -47,6 +48,10 @@ function stageLabel(stage: string): string {
 export async function GET(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
+    // Company-wide totals cannot be cut by work category: not for a person limited to some categories.
+    if (categoryScopeOf(profile).limited) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
     const supabase = createServiceClient()
     const reportPermissions = await resolveEffectivePermissionNames(supabase, profile.id, profile)
     if (!canAccessReportsFromPermissionNames(reportPermissions)) {
@@ -323,6 +328,8 @@ export async function PATCH(request: NextRequest) {
     if (!['admin', 'owner', 'sales_manager', 'regional_manager'].includes(profile.role) || !(await canSeeFinancials(createServiceClient(), profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    // The company revenue goal is a company-wide number, like the forecast it feeds: not for a person limited to some categories.
+    if (categoryScopeOf(profile).limited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const body = await request.json()
     const period = body?.period as string

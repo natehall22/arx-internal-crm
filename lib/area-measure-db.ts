@@ -81,7 +81,7 @@ export async function resolveAreaMeasureTarget(admin: SupabaseClient, viewer: Th
   let leadCustomerId: string | null = null
 
   if (opportunityId) {
-    const deal = await loadDeal(admin, viewer.orgId, opportunityId)
+    const deal = await loadDeal(admin, viewer.orgId, opportunityId, viewer.categoryScope)
     if (!deal || !canOpenDeal(viewer, deal)) return NOT_FOUND
     if (customerId && deal.customer_id && customerId !== deal.customer_id) return { ok: false, status: 400, error: 'That deal belongs to another customer' }
     if (leadId && deal.lead_id && leadId !== deal.lead_id) return { ok: false, status: 400, error: 'That deal belongs to another lead' }

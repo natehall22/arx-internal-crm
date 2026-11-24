@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
@@ -16,6 +17,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
     const { profile } = await requireAuthApi()
+    if (await dealHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
     if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()
@@ -36,6 +38,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const { profile, authUser } = await requireAuthApi()
+    if (await dealHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
     if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()

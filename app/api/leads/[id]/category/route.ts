@@ -1,3 +1,4 @@
+import { categoryScopeOf, leadInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -23,7 +24,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   let own = admin.from('leads').select('id').eq('id', params.id).eq('org_id', profile.org_id)
   if (profile.role === 'rep') own = own.eq('owner_user_id', profile.id)
   const { data: found } = await own.maybeSingle()
-  if (!found || !(await mayReadLead(admin, profile, params.id))) return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+  if (!found || !(await leadInScope(admin, profile.org_id, categoryScopeOf(profile), params.id)) || !(await mayReadLead(admin, profile, params.id))) return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
   const body = (await request.json().catch(() => null)) as { category?: unknown } | null
   if (!body || !('category' in body)) return NextResponse.json({ error: 'category is required (use null to clear)' }, { status: 400 })
   const r = await setLeadCategory(admin, profile.org_id, params.id, body.category)

@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -18,6 +19,7 @@ export async function GET(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await dealHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const admin = createServiceClient()
 
     const { data, error } = await admin
@@ -44,6 +46,7 @@ export async function POST(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await dealHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     if (!ROLES_CAN_SUBMIT.has(profile.role)) {
       return NextResponse.json({ error: 'Not authorized to submit inspection results' }, { status: 403 })

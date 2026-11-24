@@ -1,3 +1,4 @@
+import { customerInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { billingRouteAuth } from '@/lib/service-billing-access'
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic'
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const ctx = await billingRouteAuth() // same gate as the customer's invoice routes: service plans on + money:record
   if (ctx instanceof Response) return ctx
+  if (!(await customerInScope(ctx.admin, ctx.orgId, ctx.scope, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const body = (await request.json().catch(() => null)) as { terms?: unknown } | null
   if (!body || !('terms' in body)) return NextResponse.json({ error: 'Pick the terms' }, { status: 400 })
   const terms = body.terms === null || body.terms === '' ? null : parsePaymentTerms(body.terms)

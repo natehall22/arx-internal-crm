@@ -6,6 +6,7 @@
  * `previewToken` must match what the server would preview right now, so a person always sends
  * exactly what they just looked at.
  */
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   let auth
   try {
     const { authUser, profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const admin = createServiceClient()
     const access = await resolveSupplierOrderAccess(admin, authUser.id, profile)
     auth = { admin, authUser, profile, ...access }

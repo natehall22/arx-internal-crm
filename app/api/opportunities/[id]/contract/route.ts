@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { storageSafeFileName } from '@/lib/files/files-object'
 import { requireAuthApi } from '@/lib/auth'
@@ -18,6 +19,7 @@ export async function POST(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await dealHiddenFrom(createServiceClient(), authContext.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const adminClient = createServiceClient()
     const profile = authContext.profile

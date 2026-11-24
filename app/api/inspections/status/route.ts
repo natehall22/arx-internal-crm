@@ -1,3 +1,4 @@
+import { categoryScopeOf, leadInScope, limitCol } from '@/lib/category-scope'
 import { insertOpportunityRow } from '@/lib/new-deal'
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { PRODUCT_NAME } from '@/lib/product'
@@ -200,7 +201,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('users')
-      .select('org_id, full_name, role, custom_role_id')
+      .select(`org_id, full_name, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -213,6 +214,19 @@ export async function POST(request: NextRequest) {
 
     if ((!appointment_id && !directLeadId) || !outcome) {
       return NextResponse.json({ error: 'Missing required fields (need appointment_id or lead_id, and outcome)' }, { status: 400 })
+    }
+
+    // A person limited to some work categories updates only appointments / leads inside them (no limit: no query).
+    const statusScope = categoryScopeOf(profile)
+    if (statusScope.limited) {
+      let leadForScope: string | null = directLeadId ?? null
+      if (appointment_id) {
+        const { data: apptRow } = await supabase.from('scheduled_appointments').select('lead_id').eq('id', appointment_id).eq('org_id', profile.org_id).maybeSingle()
+        leadForScope = (apptRow as { lead_id?: string | null } | null)?.lead_id ?? leadForScope
+      }
+      if (!(await leadInScope(supabase, profile.org_id, statusScope, leadForScope))) {
+        return NextResponse.json({ error: 'Neither appointment nor lead found' }, { status: 404 })
+      }
     }
 
     console.log('=== INSPECTION STATUS UPDATE ===')

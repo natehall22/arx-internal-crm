@@ -1,3 +1,4 @@
+import { invoiceInScope, recordHiddenFrom } from '@/lib/category-scope'
 import { isTimeAndMaterialsJob, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { invoiceHasBilledHours } from '@/lib/hourly-billing-db'
 import { NextResponse } from 'next/server'
@@ -43,6 +44,7 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    if (await recordHiddenFrom(adminClient, profile, params.invoiceId, invoiceInScope)) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     const invoiceCheck = await findOrgInvoice(adminClient, params.invoiceId, profile.org_id)
     if (!invoiceCheck) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
@@ -80,6 +82,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    if (await recordHiddenFrom(adminClient, profile, params.invoiceId, invoiceInScope)) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     const invoiceCheck = await findOrgInvoice(adminClient, params.invoiceId, profile.org_id)
     if (!invoiceCheck) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })

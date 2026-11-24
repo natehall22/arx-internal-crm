@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -21,6 +22,7 @@ export async function GET(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await dealHiddenFrom(createServiceClient(), authContext.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const adminClient = createServiceClient()
     const profile = authContext.profile

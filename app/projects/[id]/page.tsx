@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
 import { visibleActivities } from '@/lib/threads/legacy-feed'
@@ -48,6 +49,8 @@ export default async function ProjectDetailPage({
 }) {
   await redirectProjectToFile(params.id)
   const { profile, authUser } = await requireAuth()
+  // A person limited to some work categories does not get this page (it is not split by category).
+  if (categoryScopeOf(profile).limited) notFound()
   const supabase = createServiceClient()
   const { canJobBoard: showOpsJobLinks } = await resolveOpsAccess(supabase, authUser.id, profile)
   const projectPermissions = await resolveEffectivePermissionNames(supabase, authUser.id, profile)

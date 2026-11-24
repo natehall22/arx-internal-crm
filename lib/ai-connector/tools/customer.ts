@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { categoryScopeOf, filterJobsToScope } from '@/lib/category-scope'
 import { wrapUntrusted } from '@/lib/ai-connector/untrusted'
 import { loadCustomerForCaller } from '@/lib/customer-file/customer-read'
 import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
@@ -34,8 +35,9 @@ export const getCustomer: McpTool = {
     // Jobs are production data: job-board people only, never field roles (setters, canvassers, inside sales).
     let jobs: Array<Record<string, unknown>> = []
     if (viewer.jobBoard && !isFieldRole(viewer)) {
-      const { data } = await orgDb(ctx.admin, ctx.orgId).from('production_jobs').select('id, job_number, status, scheduled_date').eq('customer_id', args.customer_id).order('created_at', { ascending: false }).limit(20)
-      jobs = (data ?? []) as Array<Record<string, unknown>>
+      const { data } = await orgDb(ctx.admin, ctx.orgId).from('production_jobs').select('id, customer_id, job_number, status, scheduled_date').eq('customer_id', args.customer_id).order('created_at', { ascending: false }).limit(20)
+      // A job whose own category is outside the person's limit is left out even when its customer is inside it.
+      jobs = (await filterJobsToScope(ctx.admin, ctx.orgId, categoryScopeOf(ctx.profile), (data ?? []) as Array<{ id: string; customer_id: string | null } & Record<string, unknown>>)).map(({ customer_id: _c, ...rest }) => rest)
     }
     return {
       data: {

@@ -4,10 +4,11 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { categoryAllowed, categoryScopeOf } from '@/lib/category-scope'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 
-type Caller = { id: string; org_id: string; role: string; custom_role_id?: string | null }
+type Caller = { id: string; org_id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null; active?: boolean | null; category_limit?: string[] | null }
 
 export async function loadCustomerForCaller(
   admin: SupabaseClient,
@@ -19,6 +20,8 @@ export async function loadCustomerForCaller(
 
   const { data: customer, error } = await admin.from('customers').select('*').eq('id', customerId).eq('org_id', profile.org_id).single()
   if (error || !customer) return { ok: false, status: 404 }
+  // Limited to some work categories: a customer outside them is "not found".
+  if (!categoryAllowed(categoryScopeOf(profile), (customer as { category?: string | null }).category)) return { ok: false, status: 404 }
 
   if (isRepLikeCustomerRecordRole(profile.role)) {
     const [{ data: ownedProjects }, { data: ownedOpportunities }] = await Promise.all([

@@ -1,3 +1,4 @@
+import { recordHiddenFrom, visitInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
@@ -10,6 +11,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   const ctx = await servicePlanRouteAuth('view')
   if (ctx instanceof Response) return ctx
+  if (await recordHiddenFrom(ctx.admin, ctx.profile, params.id, visitInScope)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const db = orgDb(ctx.admin, ctx.orgId)
   const { data: visit } = await db.from('work_orders').select('id').eq('id', params.id).eq('work_order_type', SERVICE_VISIT_TYPE).maybeSingle()
   if (!visit) return NextResponse.json({ error: 'Not found' }, { status: 404 })

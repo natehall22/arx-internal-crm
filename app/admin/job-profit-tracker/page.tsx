@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import SettingsBackLink from '@/components/admin/SettingsBackLink'
 import JobProfitTable from '@/components/admin/JobProfitTable'
 import { requireAuth } from '@/lib/auth'
+import { categoryScopeOf } from '@/lib/category-scope'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
@@ -94,6 +95,10 @@ export default async function AdminJobProfitTrackerPage({
   searchParams?: SearchParams
 }) {
   const { profile } = await requireAuth()
+  // Company-wide revenue, cost and profit cannot be cut by work category: not for a person limited to some categories.
+  if (categoryScopeOf(profile).limited) {
+    redirect('/dashboard')
+  }
   if (!isPayrollAdminRole(profile.role)) {
     redirect('/dashboard')
   }

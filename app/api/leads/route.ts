@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { applyCategoryScope, categoryScopeOf, limitCol } from '@/lib/category-scope'
 import { createClient } from '@supabase/supabase-js'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import {
@@ -181,7 +182,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, team_id, custom_role_id, custom_role:custom_roles(name, display_name)')
+      .select(`org_id, role, team_id, custom_role_id, is_super_admin${await limitCol()}, custom_role:custom_roles(name, display_name)` as '*')
       .eq('id', user.id)
       .single()
 
@@ -330,6 +331,9 @@ export async function GET(request: NextRequest) {
       if (sourceId) {
         q = q.eq('lead_source_id', sourceId)
       }
+
+      // A person limited to some work categories sees only leads in them (leads.category; no limit = no change).
+      q = applyCategoryScope(q, categoryScopeOf(profile))
 
       // Category filter
       if (categoryFilter) {

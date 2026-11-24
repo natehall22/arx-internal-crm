@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 
 import PrintButton from '@/app/invoices/[invoiceId]/print/PrintButton'
 import { requireAuth } from '@/lib/auth'
+import { categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { loadCustomerStatement } from '@/lib/customer-statement'
 import { canBillService } from '@/lib/service-billing-access'
 import { companyIdentity } from '@/lib/customer-messages-db'
@@ -17,7 +18,8 @@ export default async function CustomerStatementPage({ params }: { params: { id: 
   const { profile } = await requireAuth()
   const admin = createServiceClient()
   if (!(await canBillService(admin, profile)).bill) redirect('/dashboard')
-  const statement = await loadCustomerStatement(admin, profile.org_id, params.id)
+  if (!(await customerInScope(admin, profile.org_id, categoryScopeOf(profile), params.id))) return <div className="p-8 text-center text-ink">Customer not found</div>
+  const statement = await loadCustomerStatement(admin, profile.org_id, params.id, categoryScopeOf(profile))
   if (!statement) return <div className="p-8 text-center text-ink">Customer not found</div>
   const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings').eq('id', profile.org_id).maybeSingle()
   const company = org ? companyIdentity(org as Parameters<typeof companyIdentity>[0], null).company : null

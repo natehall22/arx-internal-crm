@@ -1,3 +1,4 @@
+import { customerInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { billingRouteAuth } from '@/lib/service-billing-access'
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic'
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const ctx = await billingRouteAuth()
   if (ctx instanceof Response) return ctx
+  if (!(await customerInScope(ctx.admin, ctx.orgId, ctx.scope, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const body = (await request.json().catch(() => null)) as { po?: unknown } | null
   if (!body || !('po' in body) || (body.po !== null && typeof body.po !== 'string')) return NextResponse.json({ error: 'Type the PO number' }, { status: 400 })
   const po = typeof body.po === 'string' ? body.po.trim() : ''

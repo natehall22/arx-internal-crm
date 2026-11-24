@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
+import { isBarredFromProjectsUi, isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { projectHiddenFrom } from '@/lib/category-scope'
 
 // DELETE - Delete a project
 export async function DELETE(
@@ -87,6 +89,15 @@ export async function PATCH(
     }
 
     const adminClient = createServiceClient()
+
+    // Same people the project page lets edit it (it shows the edit controls to superusers, operations and regional managers);
+    // this route had no role check at all, so any signed-in person could change any project by id.
+    if (isBarredFromProjectsUi(profile.role) || !(isOrgSuperuserRoleSlug(profile.role) || ['operations', 'regional_manager'].includes(String(profile.role)))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    if (await projectHiddenFrom(adminClient, profile, params.id)) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+    }
 
     const body = await request.json()
 

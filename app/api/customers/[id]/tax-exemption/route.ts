@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
@@ -22,6 +23,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const admin = createServiceClient()
+  if (!(await customerInScope(admin, profile.org_id, categoryScopeOf(profile), params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   if (!(await callerCanAccessJobBilling(admin, profile))) {
     return NextResponse.json({ error: 'Only billing staff can change tax exemption' }, { status: 403 })
   }

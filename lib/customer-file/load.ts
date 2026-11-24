@@ -8,6 +8,7 @@ import { defaultTab, tabLabelsFor, tabsFor, type FileTab } from '@/lib/customer-
 import { loadOrgProfile } from '@/lib/org-profile'
 import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
 import type { Category } from '@/lib/categories'
+import { jobInScope } from '@/lib/category-scope'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { buildStages, nextAction, type StageStep } from '@/lib/customer-file/stage'
@@ -66,7 +67,7 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
   const admin = createServiceClient()
   const viewer = await resolveThreadViewer(admin, profile)
 
-  const dealRow = await loadDeal(admin, viewer.orgId, dealId)
+  const dealRow = await loadDeal(admin, viewer.orgId, dealId, viewer.categoryScope)
   if (!dealRow || dealRow.customer_id !== customerId || !canOpenDeal(viewer, dealRow)) notFound()
 
   const [customerRes, dealsRes, projectRes] = await Promise.all([
@@ -93,6 +94,8 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
       .limit(1)
       .maybeSingle()
     job = (data as FileJob | null) ?? null
+    // The job may carry its own category (override); outside the person's categories it is not shown on the file.
+    if (job && viewer.categoryScope?.limited && !(await jobInScope(admin, viewer.orgId, viewer.categoryScope, job.id))) job = null
   }
 
   const [proposals, contracts, orgProfile] = await Promise.all([

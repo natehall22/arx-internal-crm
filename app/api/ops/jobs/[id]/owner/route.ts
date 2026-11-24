@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -32,6 +33,7 @@ export async function GET() {
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   const r = await editor()
   if (r.error) return r.error
+  if (await jobHiddenFrom(r.admin, r.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   const body = (await request.json().catch(() => null)) as { userId?: unknown } | null
   if (!body || !('userId' in body) || (body.userId !== null && typeof body.userId !== 'string')) {
     return NextResponse.json({ error: 'userId must be a user id or null' }, { status: 400 })

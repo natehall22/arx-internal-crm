@@ -1,3 +1,4 @@
+import { categoryScopeOf, leadInScope } from '@/lib/category-scope'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
@@ -76,6 +77,10 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (appointmentError || !originalAppointment) {
+      return NextResponse.json({ error: 'Original appointment not found' }, { status: 404 })
+    }
+    // A person limited to some work categories reschedules only appointments on leads inside them.
+    if (!(await leadInScope(supabase, profile.org_id, categoryScopeOf(profile), originalAppointment.lead_id))) {
       return NextResponse.json({ error: 'Original appointment not found' }, { status: 404 })
     }
 

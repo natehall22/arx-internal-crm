@@ -1,3 +1,4 @@
+import { recordHiddenFrom, workOrderInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -19,5 +20,6 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const profile = ctx.profile as { id: string; org_id: string; role: string; custom_role_id?: string | null }
   const { canJobBoard } = await resolveOpsAccess(admin, ctx.authUser.id, profile)
   if (!canJobBoard) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (await recordHiddenFrom(admin, profile, params.id, workOrderInScope)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json({ moves: await loadMoveHistory(admin, profile.org_id, params.id) })
 }

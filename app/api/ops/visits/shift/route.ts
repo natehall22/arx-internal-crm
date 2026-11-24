@@ -1,3 +1,4 @@
+import { categoryScopeOf } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
@@ -17,6 +18,8 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request) {
   const ctx = await servicePlanRouteAuth('edit')
   if (ctx instanceof Response) return ctx
+  // A whole crew's day spans every customer: a person limited to some work categories cannot use it.
+  if (categoryScopeOf(ctx.profile).limited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const body = await request.json().catch(() => null)
   const shift = parseBulkShift(body)
   if ('error' in shift) return NextResponse.json({ error: shift.error }, { status: 400 })

@@ -12,6 +12,7 @@ import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { changeOrderDocumentName } from '@/lib/contracts/change-order-wording'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { jobHiddenFrom, projectHiddenFrom } from '@/lib/category-scope'
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,6 +65,10 @@ export async function POST(request: NextRequest) {
       originalContractId: ['order_form_contracts', originalContractId],
     })
     if (foreign) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+    // Limited to some work categories: the job (else the project's job / customer) must be inside them.
+    if (jobId ? await jobHiddenFrom(createServiceClient(), profile, jobId) : await projectHiddenFrom(createServiceClient(), profile, projectId)) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+    }
     if (!isSendToCustomer && !customerSignature) {
       return NextResponse.json(
         { error: 'Customer signature is required for in-person signing' },

@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { loadJobNotes } from '@/lib/threads/job-notes'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
@@ -13,6 +14,7 @@ export async function POST(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const supabase = createClient()
     
     let body: { force?: boolean } = {}
@@ -242,6 +244,7 @@ export async function GET(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const supabase = createClient()
 
     // Check if packet PDF already exists

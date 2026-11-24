@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { enqueueRecordEvent } from '@/lib/integrations'
 import { NextResponse } from 'next/server'
 
@@ -74,6 +75,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const ctx = await authenticate()
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { authUser, profile } = ctx
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   const adminClient = createServiceClient()
   const { canEditJobs } = await resolveOpsAccess(adminClient, authUser.id, profile)
@@ -184,6 +186,7 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
   const ctx = await authenticate()
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { authUser, profile } = ctx
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   const adminClient = createServiceClient()
   const { canDeleteProductionJob } = await resolveOpsAccess(adminClient, authUser.id, profile)

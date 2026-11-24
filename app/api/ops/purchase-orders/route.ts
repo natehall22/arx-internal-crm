@@ -4,14 +4,18 @@
  *   POST { jobId | workOrderId, id?, vendorId, lines[], date, dateKind, address, note, title } — save a DRAFT (one PO per vendor
  *        per job: the same vendor edits that PO). Sends nothing; sending is POST /api/ops/purchase-orders/[id]/send.
  */
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
+import { categoryScopeOf, refInScope } from '@/lib/category-scope'
 import { crossSiteWrite } from '@/lib/online-payments/access'
 import { isUuid, parsePoDraft } from '@/lib/purchase-orders'
 import { listPurchaseOrders, loadPoTarget, loadVendorDirectory, savePoDraft, isPurchaseOrdersNotReady } from '@/lib/purchase-orders-db'
 import { authorizePo } from '@/lib/purchase-orders-route'
 
 export const dynamic = 'force-dynamic'
+
+type GateProfileLike = Parameters<typeof categoryScopeOf>[0] & object
 
 function scopeOf(src: { get(k: string): unknown }): { jobId: string } | { workOrderId: string } | null {
   const jobId = src.get('jobId')
@@ -21,12 +25,25 @@ function scopeOf(src: { get(k: string): unknown }): { jobId: string } | { workOr
   return null
 }
 
+/** A person limited to some work categories reaches only the orders of a job / visit inside them (no limit: no query). */
+async function refHidden(ctx: { admin: SupabaseClient; orgId: string; profile: GateProfileLike }, scope: { jobId: string } | { workOrderId: string }): Promise<boolean> {
+  const limit = categoryScopeOf(ctx.profile)
+  if (!limit.limited) return false
+  try {
+    return !(await refInScope(ctx.admin, ctx.orgId, limit, 'jobId' in scope ? { jobId: scope.jobId } : { workOrderId: scope.workOrderId }))
+  } catch (e) {
+    console.error('[purchase-orders] scope failed closed', e)
+    return true
+  }
+}
+
 export async function GET(request: NextRequest) {
   const a = await authorizePo('canView')
   if ('error' in a) return a.error
   const { admin, orgId, access } = a.ctx
   const scope = scopeOf(request.nextUrl.searchParams)
   if (!scope) return NextResponse.json({ error: 'jobId or workOrderId is required' }, { status: 400 })
+  if (await refHidden(a.ctx, scope)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   try {
     const target = await loadPoTarget(admin, orgId, scope)
     if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -56,6 +73,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const scope = scopeOf({ get: (k) => body?.[k] })
   if (!scope) return NextResponse.json({ error: 'jobId or workOrderId is required' }, { status: 400 })
+  if (await refHidden(a.ctx, scope)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const parsed = parsePoDraft(body)
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const target = await loadPoTarget(admin, orgId, scope)

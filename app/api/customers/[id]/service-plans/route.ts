@@ -1,3 +1,4 @@
+import { UNLIMITED_SCOPE, categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
@@ -21,6 +22,7 @@ async function customerInOrg(admin: Parameters<typeof orgDb>[0], orgId: string, 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   const ctx = await servicePlanRouteAuth('view')
   if (ctx instanceof Response) return ctx
+  if (!(await customerInScope(ctx.admin, ctx.orgId, categoryScopeOf(ctx.profile), params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   if (!(await customerInOrg(ctx.admin, ctx.orgId, params.id))) return notFound()
   const [plans, options] = await Promise.all([
     loadServicePlans(ctx.admin, ctx.orgId, { customerId: params.id }),
@@ -54,6 +56,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const ctx = await servicePlanRouteAuth('edit')
   if (ctx instanceof Response) return ctx
+  if (!(await customerInScope(ctx.admin, ctx.orgId, categoryScopeOf(ctx.profile), params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   if (!(await customerInOrg(ctx.admin, ctx.orgId, params.id))) return notFound()
   const body = await request.json().catch(() => null)
   const result = await createServicePlan(ctx.admin, ctx.orgId, ctx.userId, params.id, body)

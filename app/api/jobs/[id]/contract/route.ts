@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import { signFilesObject } from '@/lib/files/files-object'
 import { createClient } from '@/lib/supabase/server'
@@ -14,6 +15,7 @@ export async function GET(
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   const supabase = createClient()
   const serviceSupabase = createServiceClient()
 

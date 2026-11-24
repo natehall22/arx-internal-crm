@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { proposalHiddenFrom } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import { crossSiteWrite } from '@/lib/online-payments/access'
 import { listProposalSnapshots, loadProposalSnapshot, MAX_SNAPSHOT_BYTES, resolveSnapshotAccess, saveProposalSnapshot, SNAPSHOT_REASONS, validateSnapshotInput, type SnapshotReason } from '@/lib/proposal-snapshots'
@@ -21,6 +22,7 @@ async function caller(request: Request, proposalId: string): Promise<Caller> {
   }
   if (!UUID.test(proposalId)) return { error: NextResponse.json({ error: 'Proposal not found' }, { status: 404 }) }
   const admin = createServiceClient()
+  if (await proposalHiddenFrom(admin, auth.profile, proposalId)) return { error: NextResponse.json({ error: 'Proposal not found' }, { status: 404 }) }
   const access = await resolveSnapshotAccess(admin, auth.profile, auth.authUser.id, proposalId)
   if (!access.ok) return { error: NextResponse.json({ error: access.status === 403 ? 'Forbidden' : 'Proposal not found' }, { status: access.status }) }
   return { admin, auth }

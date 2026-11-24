@@ -1,4 +1,5 @@
 import { ADJUSTER_MEETING_APPOINTMENT_TYPE } from '@/lib/adjuster-meeting'
+import { categoryScopeOf, filterByLeadScope, limitCol } from '@/lib/category-scope'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, team_id, region_id, custom_role_id, custom_role:custom_roles(name, display_name)')
+      .select(`org_id, role, team_id, region_id, custom_role_id, is_super_admin${await limitCol()}, custom_role:custom_roles(name, display_name)` as '*')
       .eq('id', user.id)
       .single()
 
@@ -110,12 +111,15 @@ export async function GET(request: NextRequest) {
 
     query = query.order('scheduled_for', { ascending: filter === 'upcoming' })
 
-    const { data: appointments, error: appointmentsError } = await query.limit(100)
+    const { data: appointmentsAll, error: appointmentsError } = await query.limit(100)
 
     if (appointmentsError) {
       console.error('Appointments fetch error:', appointmentsError)
       return NextResponse.json({ error: 'Failed to fetch appointments' }, { status: 500 })
     }
+
+    // Limited to some work categories: only appointments on leads inside them (no limit = unchanged).
+    const appointments = appointmentsAll ? await filterByLeadScope(adminClient, profile.org_id, categoryScopeOf(profile), appointmentsAll, (a) => a.lead_id) : appointmentsAll
 
     // Get user info for closers and setters
     const userIds = new Set<string>()
@@ -127,6 +131,7 @@ export async function GET(request: NextRequest) {
     let usersMap: Record<string, any> = {}
     if (userIds.size > 0) {
       const { data: usersData } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('users')
         .select('id, full_name, role')
         .in('id', Array.from(userIds))
@@ -142,6 +147,7 @@ export async function GET(request: NextRequest) {
     
     if (appointmentIds.length > 0) {
       const { data: statusUpdates } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('inspection_status_updates')
         .select('appointment_id, outcome, notes, setter_feedback, completed_at')
         .in('appointment_id', appointmentIds)

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { categoryScopeOf, filterJobsToScope, jobHiddenFrom } from '@/lib/category-scope'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { computeInvoiceBalance, getInvoicesForJob } from '@/lib/invoices'
 import { loadCustomerServiceInvoices } from '@/lib/service-billing-db'
@@ -48,7 +49,7 @@ export const listInvoices: McpTool = {
 
     if (args.job_id) {
       const { data: job } = await db.from('production_jobs').select('id').eq('id', args.job_id).maybeSingle()
-      if (!job) throw new ToolError('not_found')
+      if (!job || (await jobHiddenFrom(ctx.admin, ctx.profile, args.job_id))) throw new ToolError('not_found')
       const invoices = (await getInvoicesForJob(ctx.admin, args.job_id)).slice(0, 25)
       for (const i of invoices) {
         const b = await computeInvoiceBalance(ctx.admin, i.id)
@@ -62,8 +63,8 @@ export const listInvoices: McpTool = {
         const invoices = (await loadCustomerServiceInvoices(ctx.admin, ctx.orgId, args.customer_id)) ?? []
         for (const i of invoices.slice(0, 25)) out.push(view(i, i.applied_cents, i.balance_cents))
       }
-      const { data: jobs } = await db.from('production_jobs').select('id').eq('customer_id', args.customer_id).limit(10)
-      for (const j of (jobs ?? []) as Array<{ id: string }>) {
+      const { data: jobs } = await db.from('production_jobs').select('id, customer_id').eq('customer_id', args.customer_id).limit(10)
+      for (const j of await filterJobsToScope(ctx.admin, ctx.orgId, categoryScopeOf(ctx.profile), (jobs ?? []) as Array<{ id: string; customer_id: string | null }>)) {
         for (const i of (await getInvoicesForJob(ctx.admin, j.id)).slice(0, 10)) {
           const b = await computeInvoiceBalance(ctx.admin, i.id)
           out.push(view(i, b.applied_cents, b.balance_cents))

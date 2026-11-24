@@ -1,3 +1,4 @@
+import { recordHiddenFrom, servicePlanInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   const ctx = await servicePlanRouteAuth('view')
   if (ctx instanceof Response) return ctx
+  if (await recordHiddenFrom(ctx.admin, ctx.profile, params.id, servicePlanInScope)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const plan = await loadServicePlan(ctx.admin, ctx.orgId, params.id)
   if (!plan) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const history = await loadChangeHistory(ctx.admin, ctx.orgId, { planId: plan.id })

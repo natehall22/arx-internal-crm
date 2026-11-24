@@ -4,6 +4,7 @@
  * Same contract as the run sheet PDF route: never cached, never written to storage, because the
  * sheet is only useful if it reflects the quantities as they stand right now.
  */
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   let admin
   try {
     const auth = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), auth.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     profile = auth.profile
     admin = createServiceClient()
     const access = await resolveOpsAccess(admin, auth.authUser.id, profile)

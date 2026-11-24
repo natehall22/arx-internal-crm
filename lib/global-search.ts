@@ -3,6 +3,8 @@
  * what their list pages already allow — search must never be a way around a page permission. The matching itself is
  * the `search_all` SQL function (pg_trgm: typos, partial phone numbers, job numbers, proposal numbers).
  */
+import { categoryAllowed, customerCategoryMap, dealInScope, inScopeJobIds, type CategoryScope } from '@/lib/category-scope'
+import { orgDb } from '@/lib/supabase/org-db'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatPhonesInText } from '@/lib/format'
 import { customerHref } from '@/lib/customer-file/links'
@@ -46,9 +48,11 @@ export function cleanQuery(raw: unknown): string | null {
 /** Most keyword ("what the work is") hits per kind: they add to the number / name / address results, never crowd them out. */
 const WORK_HITS_PER_KIND = 5
 
-export async function runSearch(admin: SupabaseClient, orgId: string, q: string, groups: SearchGroup[], limit = 20, viewerId?: string): Promise<SearchHit[]> {
+export async function runSearch(admin: SupabaseClient, orgId: string, q: string, groups: SearchGroup[], limit = 20, viewerId?: string, scope?: CategoryScope): Promise<SearchHit[]> {
+  // A limited person's hits are cut after the search, so ask for more to still fill the list.
+  const fetchLimit = scope?.limited ? Math.min(limit * 4, 80) : limit
   const results = await Promise.all(
-    groups.map((g) => admin.rpc('search_all', { p_org: orgId, p_q: q, p_kinds: g.kinds, p_owner: g.owner, p_limit: limit }))
+    groups.map((g) => admin.rpc('search_all', { p_org: orgId, p_q: q, p_kinds: g.kinds, p_owner: g.owner, p_limit: fetchLimit }))
   )
   const hits: SearchHit[] = []
   for (const r of results) {
@@ -78,7 +82,51 @@ export async function runSearch(admin: SupabaseClient, orgId: string, q: string,
       }
     }
   }
-  return hits.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, limit)
+  const visible = scope?.limited ? await scopeSearchHits(admin, orgId, scope, hits) : hits
+  return visible.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, limit)
+}
+
+/**
+ * Post-filter for a person limited to some work categories (Cmd-K and the AI connector share runSearch). Customers follow their own
+ * category; a job its override, else its customer; an opportunity its customer, else its lead; a proposal its opportunity's deal.
+ * Anything that cannot be read is dropped (fail closed).
+ */
+export async function scopeSearchHits(admin: SupabaseClient, orgId: string, scope: CategoryScope, hits: SearchHit[]): Promise<SearchHit[]> {
+  if (!scope.limited || hits.length === 0) return hits
+  try {
+    const ids = (kind: SearchKind) => hits.filter((h) => h.kind === kind).map((h) => h.id)
+    const db = orgDb(admin, orgId)
+    const keep = new Set<string>()
+    const customers = await customerCategoryMap(admin, orgId, ids('customer'))
+    for (const id of ids('customer')) if (customers.has(id) && categoryAllowed(scope, customers.get(id))) keep.add(`customer:${id}`)
+    const jobIds = ids('job')
+    if (jobIds.length) {
+      const { data, error } = await db.from('production_jobs').select('id, customer_id').in('id', jobIds)
+      if (error) throw error
+      const ok = await inScopeJobIds(admin, orgId, scope, (data ?? []) as Array<{ id: string; customer_id: string | null }>)
+      ok.forEach((id) => keep.add(`job:${id}`))
+    }
+    const proposalIds = ids('proposal')
+    const propDeal = new Map<string, string>()
+    if (proposalIds.length) {
+      const { data, error } = await db.from('proposals').select('id, opportunity_id').in('id', proposalIds)
+      if (error) throw error
+      for (const p of (data ?? []) as Array<{ id: string; opportunity_id: string | null }>) if (p.opportunity_id) propDeal.set(p.id, p.opportunity_id)
+    }
+    const dealIds = Array.from(new Set([...ids('opportunity'), ...Array.from(propDeal.values())]))
+    const dealOk = new Map<string, boolean>()
+    if (dealIds.length) {
+      const { data, error } = await db.from('opportunities').select('id, customer_id, lead_id').in('id', dealIds)
+      if (error) throw error
+      for (const d of (data ?? []) as Array<{ id: string; customer_id: string | null; lead_id: string | null }>) dealOk.set(d.id, await dealInScope(admin, orgId, scope, d))
+    }
+    for (const id of ids('opportunity')) if (dealOk.get(id)) keep.add(`opportunity:${id}`)
+    for (const id of proposalIds) if (propDeal.has(id) && dealOk.get(propDeal.get(id) as string)) keep.add(`proposal:${id}`)
+    return hits.filter((h) => keep.has(`${h.kind}:${h.id}`))
+  } catch (e) {
+    console.error('search scope failed', e)
+    return []
+  }
 }
 
 /** Where each kind opens. Customers open the Customer File where it is the company's default (lib/customer-file/links.ts). */

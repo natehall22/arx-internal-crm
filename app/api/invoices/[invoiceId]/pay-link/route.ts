@@ -1,3 +1,4 @@
+import { invoiceInScope, recordHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { emailInvoicePayLink, ON_MASTER_INVOICE } from '@/lib/invoice-email'
@@ -23,6 +24,7 @@ export async function POST(request: Request, { params }: { params: { invoiceId: 
   const op = await loadOnlinePayments(a.admin, orgId)
   if (!op.featureOn) return NextResponse.json({ error: 'Online payments are off for this company' }, { status: 404 })
   if (!op.ready) return NextResponse.json({ error: 'Connect your Stripe account first (Settings → Online payments)' }, { status: 409 })
+  if (await recordHiddenFrom(a.admin, a.profile, params.invoiceId, invoiceInScope)) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
   const found = await findOrgInvoice(a.admin, params.invoiceId, orgId)
   if (!found) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
   if (found.status === 'void') return NextResponse.json({ error: 'This invoice is void' }, { status: 409 })

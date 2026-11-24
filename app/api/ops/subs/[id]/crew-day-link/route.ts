@@ -1,3 +1,4 @@
+import { categoryScopeOf } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
@@ -12,6 +13,8 @@ export const dynamic = 'force-dynamic'
 export async function POST(_request: Request, { params }: { params: { id: string } }) {
   const ctx = await servicePlanRouteAuth('edit')
   if (ctx instanceof Response) return ctx
+  // A crew's day link lists every customer on it: not for a person limited to some work categories.
+  if (categoryScopeOf(ctx.profile).limited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const res = await rotateCrewDayToken(ctx.admin, ctx.orgId, params.id, ctx.userId)
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
   return NextResponse.json({ path: `/crew/day/${res.token}`, expiresInDays: res.expiresInDays })

@@ -12,6 +12,8 @@ import EmployeeAgreementPanel from '@/components/employee-agreements/EmployeeAgr
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { roofingOr } from '@/lib/org-profile'
+import { activeCategories, type Category } from '@/lib/categories'
+import { NO_CATEGORY } from '@/lib/category-scope'
 
 type Permission = {
   id: string
@@ -91,6 +93,10 @@ export default function UsersPage() {
   const [formShowInReports, setFormShowInReports] = useState(true)
   const [formCanReceiveAppointments, setFormCanReceiveAppointments] = useState<boolean | null>(null)
   const [formDashboardView, setFormDashboardView] = useState<'sales' | 'ops'>('sales')
+  const [categories, setCategories] = useState<Category[]>([])
+  const [canLimitCategories, setCanLimitCategories] = useState(false)
+  // null = All (no limit). Otherwise the slugs (and NO_CATEGORY) this person may see.
+  const [formCategoryLimit, setFormCategoryLimit] = useState<string[] | null>(null)
   const [formEmail, setFormEmail] = useState('')
   const [formPhone, setFormPhone] = useState('')
   const [formFullName, setFormFullName] = useState('')
@@ -129,6 +135,8 @@ export default function UsersPage() {
       setCustomRoles(data.customRoles || [])
       setAllPermissions(data.permissions || [])
       setPermissionPresets(data.permissionPresets || [])
+      setCategories(data.categories || [])
+      setCanLimitCategories(data.canLimitCategories === true)
     } catch (err) {
       setError('Failed to load data')
     }
@@ -328,6 +336,7 @@ export default function UsersPage() {
     setFormShowInReports((user as any).show_in_reports !== false) // Default true if not set
     setFormCanReceiveAppointments((user as any).can_receive_appointments ?? null)
     setFormDashboardView((user as any).dashboard_view || 'sales')
+    setFormCategoryLimit(Array.isArray((user as any).category_limit) ? ((user as any).category_limit as string[]) : null)
     setFormEmail(user.email || '')
     setFormPhone((user as any).phone || '')
     setFormFullName(user.full_name || '')
@@ -359,6 +368,8 @@ export default function UsersPage() {
           show_in_reports: formShowInReports,
           can_receive_appointments: formCanReceiveAppointments,
           dashboard_view: formDashboardView,
+          // Sent only when an admin changed it, so a save by anyone else never touches it.
+          ...(canLimitCategories && JSON.stringify(formCategoryLimit) !== JSON.stringify((editingUser as any).category_limit ?? null) ? { category_limit: formCategoryLimit } : {}),
         }),
       })
 
@@ -1194,6 +1205,44 @@ export default function UsersPage() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Work categories */}
+                  {canLimitCategories && categories.length > 0 && (
+                    <div className="border-t pt-4">
+                      <h3 className="text-sm font-medium text-gray-900 mb-2">Work categories</h3>
+                      <p className="text-xs text-gray-700 mb-3">
+                        Limit what this person can see. Other categories are hidden everywhere. Owners and admins always see everything.
+                      </p>
+                      <div className="space-y-1">
+                        <label className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
+                          <input type="radio" name="category-limit-mode" className="h-5 w-5" checked={formCategoryLimit === null} onChange={() => setFormCategoryLimit(null)} />
+                          All categories
+                        </label>
+                        <label className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
+                          <input type="radio" name="category-limit-mode" className="h-5 w-5" checked={formCategoryLimit !== null} onChange={() => setFormCategoryLimit(formCategoryLimit ?? [])} />
+                          Only these
+                        </label>
+                        {formCategoryLimit !== null && (
+                          <div className="ml-8 space-y-1">
+                            {[...activeCategories(categories).map((c) => ({ value: c.slug, label: c.label })), { value: NO_CATEGORY, label: 'Not set' }].map((o) => (
+                              <label key={o.value} className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
+                                <input
+                                  type="checkbox"
+                                  className="h-5 w-5"
+                                  checked={formCategoryLimit.includes(o.value)}
+                                  onChange={(e) =>
+                                    setFormCategoryLimit(e.target.checked ? [...formCategoryLimit, o.value] : formCategoryLimit.filter((v) => v !== o.value))
+                                  }
+                                />
+                                {o.label}
+                              </label>
+                            ))}
+                            {formCategoryLimit.length === 0 && <p className="text-xs text-red-700">Pick at least one, or choose All categories.</p>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Canvass Pin Visibility */}
                   {canvassingOn && (

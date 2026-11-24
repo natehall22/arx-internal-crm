@@ -13,6 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { dealRefsFor } from '@/lib/threads/get-thread'
 import { canOpenDeal } from '@/lib/threads/api'
 import { isFieldRole, type ThreadViewer } from '@/lib/threads/visibility'
+import { customerInScope } from '@/lib/category-scope'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export type CustomerAccess = {
@@ -45,6 +46,8 @@ export async function resolveCustomerAccess(admin: SupabaseClient, viewer: Threa
   const db = orgDb(admin, viewer.orgId)
   const { data: customer } = await db.from('customers').select('id').eq('id', customerId).maybeSingle()
   if (!customer) return null
+  // Limited to some work categories: a customer outside them is "not found", like one that does not exist.
+  if (viewer.categoryScope?.limited && !(await customerInScope(admin, viewer.orgId, viewer.categoryScope, customerId))) return null
   let canOpenAnyDeal = false
   if (!(viewer.ownerLike || viewer.jobBoard || viewer.managerLike)) {
     const { data: deals } = await db.from('opportunities').select('id, owner_user_id, setter_user_id').eq('customer_id', customerId)

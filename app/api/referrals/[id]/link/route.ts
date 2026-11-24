@@ -1,3 +1,6 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { orgDb } from '@/lib/supabase/org-db'
+import { categoryScopeOf, customerInScope, leadInScope, dealInScope, type CategoryScope } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -37,7 +40,7 @@ async function authorize() {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
 
-  return { adminClient, userId: profile.id, orgId: profile.org_id as string }
+  return { adminClient, userId: profile.id, orgId: profile.org_id as string, scope: categoryScopeOf(profile) }
 }
 
 /** Loads the referral and proves it belongs to the caller's org before any write. */
@@ -59,11 +62,25 @@ async function loadReferral(
 }
 
 // POST - attach an existing record, or create a lead from the referral and attach that
+/** A person limited to some work categories links only records inside them (no limit: no query). */
+async function targetInScope(admin: SupabaseClient, orgId: string, scope: CategoryScope, type: string, id: string): Promise<boolean> {
+  if (!scope.limited) return true
+  try {
+    if (type === 'customer') return await customerInScope(admin, orgId, scope, id)
+    if (type === 'lead') return await leadInScope(admin, orgId, scope, id)
+    const { data } = await orgDb(admin, orgId).from('opportunities').select('id, customer_id, lead_id').eq('id', id).maybeSingle()
+    return !!data && (await dealInScope(admin, orgId, scope, data as { customer_id: string | null; lead_id: string | null }))
+  } catch (e) {
+    console.error('[referrals] scope failed closed', e)
+    return false
+  }
+}
+
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const auth = await authorize()
     if ('error' in auth) return auth.error
-    const { adminClient, orgId, userId } = auth
+    const { adminClient, orgId, userId, scope } = auth
 
     const referral = await loadReferral(adminClient, params.id, orgId)
     if (!referral) {
@@ -154,7 +171,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .eq('org_id', orgId)
       .maybeSingle()
 
-    if (!target) {
+    if (!target || !(await targetInScope(adminClient, orgId, scope, targetType, targetId))) {
       return NextResponse.json({ error: `${targetType} not found in this org` }, { status: 404 })
     }
 

@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { categoryScopeOf, filterJobsToScope } from '@/lib/category-scope'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
@@ -54,7 +55,7 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
       supabase
         .from('production_jobs')
         .select(`
-          id, job_number, status, job_type, address_text,
+          id, customer_id, job_number, status, job_type, address_text,
           scheduled_date, scheduled_time_start, estimated_duration_hours, priority,
           assigned_crew:crews(id, name, color),
           assigned_sub:sub_contractors(id, company_name),
@@ -66,7 +67,9 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
         .order('scheduled_date'),
       supabase.from('crews').select('id, name, color, daily_capacity').eq('org_id', profile.org_id).eq('active', true).order('name'),
     ])
-    calendarJobs = transformCalendarJobs((jobsRes.data ?? []) as unknown[])
+    // Limited to some work categories: only jobs inside them (job override, else customer).
+    const calendarRows = await filterJobsToScope(createServiceClient(), profile.org_id, categoryScopeOf(profile), (jobsRes.data ?? []) as unknown as Array<{ id: string; customer_id?: string | null }>)
+    calendarJobs = transformCalendarJobs(calendarRows as unknown[])
     crews = (crewsRes.data ?? []) as ProductionCalendarCrew[]
   }
 

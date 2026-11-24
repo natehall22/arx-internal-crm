@@ -1,3 +1,4 @@
+import { dealHiddenFrom, proposalHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { orgAppUrl } from '@/lib/company-links'
 import { requireAuthApi } from '@/lib/auth'
@@ -151,7 +152,7 @@ export async function POST(request: NextRequest) {
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
         .maybeSingle()
-      if (!opportunity) {
+      if (!opportunity || (await dealHiddenFrom(supabase, profile, opportunityId))) {
         return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
       }
     }
@@ -162,7 +163,7 @@ export async function POST(request: NextRequest) {
         .eq('id', proposalId)
         .eq('org_id', profile.org_id)
         .maybeSingle()
-      if (!proposal) {
+      if (!proposal || (await proposalHiddenFrom(supabase, profile, proposalId))) {
         return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
       }
     }

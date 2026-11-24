@@ -5,6 +5,7 @@
  * POST -> { to: string[] } sends it. Every address must be one GET returned: this route can only
  *         reach a job's own subs, never an address somebody typed in.
  */
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -58,6 +59,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(ctx.admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   if (!ctx.access.canJobBoard) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const recipients = await crewRecipients(ctx.admin, ctx.profile.org_id, params.id)
   if (!recipients) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
@@ -71,6 +73,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(ctx.admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   if (!ctx.access.canEditJobs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   if (!(request.headers.get('content-type') ?? '').includes('application/json')) {
     return NextResponse.json({ error: 'JSON only' }, { status: 415 })

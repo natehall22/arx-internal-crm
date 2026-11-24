@@ -1,3 +1,4 @@
+import { categoryScopeOf } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { format } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
@@ -23,6 +24,10 @@ export async function GET(request: NextRequest) {
     const supabase = createServiceClient()
 
     // Production counts: field roles never (CLAUDE.md), and only with the ops dashboard permission — same gate as /api/dashboard/ops.
+    // Company-wide totals cannot be cut by work category: not for a person limited to some categories.
+    if (categoryScopeOf(profile).limited) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
     if (await resolveIsFieldRole(supabase, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }

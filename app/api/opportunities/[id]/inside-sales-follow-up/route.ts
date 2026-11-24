@@ -1,4 +1,5 @@
 import { calendarSendUpdates } from '@/lib/demo-org'
+import { dealHiddenFrom, limitCol } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -417,13 +418,14 @@ export async function POST(
 
     const { data: profile } = await admin
       .from('users')
-      .select('id, org_id, role, full_name, custom_role_id, custom_role:custom_roles(name, display_name)')
+      .select(`id, org_id, role, full_name, custom_role_id, is_super_admin${await limitCol()}, custom_role:custom_roles(name, display_name)` as '*')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
+    if (await dealHiddenFrom(admin, profile, opportunityId)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const profileCustomRole = Array.isArray((profile as any).custom_role)
       ? (profile as any).custom_role[0]

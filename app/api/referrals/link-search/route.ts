@@ -1,3 +1,4 @@
+import { categoryScopeOf, filterByCustomerScope, filterByLeadScope, filterDealsToScope } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -74,8 +75,10 @@ export async function GET(request: NextRequest) {
         .limit(RESULT_LIMIT),
     ])
 
-    const customers = customersResult.data || []
-    const leads = leadsResult.data || []
+    // A person limited to some work categories finds only records inside them (no limit: the same rows, no query).
+    const scope = categoryScopeOf(profile)
+    const customers = await filterByCustomerScope(adminClient, profile.org_id, scope, customersResult.data || [], (c) => c.id)
+    const leads = await filterByLeadScope(adminClient, profile.org_id, scope, leadsResult.data || [], (l) => l.id)
 
     const matchedCustomerIds = customers.map((c) => c.id)
     const matchedLeadIds = leads.map((l) => l.id)
@@ -96,7 +99,8 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(RESULT_LIMIT)
 
-    const opportunities: ReferralLinkTarget[] = (opportunityRows || []).map((row) => {
+    const visibleOpportunityRows = await filterDealsToScope(adminClient, profile.org_id, scope, opportunityRows || [])
+    const opportunities: ReferralLinkTarget[] = visibleOpportunityRows.map((row) => {
       const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers
       const lead = Array.isArray(row.leads) ? row.leads[0] : row.leads
       const name =

@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
 import { clientOrgProfile, loadOrgProfile, t } from '@/lib/org-profile'
@@ -122,6 +123,8 @@ export default async function JobView({ params, embedded = false, initialTab = n
   if (!jobRes.data) {
     notFound()
   }
+  // Limited to some work categories: a job outside them is "not found".
+  if (await jobHiddenFrom(admin, profile, params.id)) notFound()
 
   const rawProject = Array.isArray(jobRes.data.project) ? jobRes.data.project[0] : jobRes.data.project
   const rawCustomer = Array.isArray(jobRes.data.customer) ? jobRes.data.customer[0] : jobRes.data.customer

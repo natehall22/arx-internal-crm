@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
@@ -15,6 +16,7 @@ export async function GET(
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   // RLS-bound client: this route's reads/writes rely on the org policies on the
   // tables below, so it must stay the caller's client rather than a service client.
@@ -66,6 +68,7 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   // RLS-bound client: this route's reads/writes rely on the org policies on the
   // tables below, so it must stay the caller's client rather than a service client.
@@ -136,6 +139,7 @@ export async function DELETE(
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   // RLS-bound client: this route's reads/writes rely on the org policies on the
   // tables below, so it must stay the caller's client rather than a service client.

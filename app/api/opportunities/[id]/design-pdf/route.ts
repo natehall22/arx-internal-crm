@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
@@ -20,6 +21,7 @@ export async function POST(
 ) {
   try {
     const { authUser, profile } = await requireAuthApi()
+    if (await dealHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const admin = createServiceClient()
 
     if (await resolveSalesDocAccessBarred(admin, authUser.id, profile)) {

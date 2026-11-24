@@ -6,13 +6,14 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { categoryScopeOf, leadInScope } from '@/lib/category-scope'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { isFieldRoleLike } from '@/lib/permissions'
 
 /** Lead columns that identify a person. Everything else on a pin (address, lat/lng, disposition, owner, status) stays. */
 export const LEAD_CONTACT_FIELDS = ['homeowner_name', 'phone', 'email', 'notes', 'canvass_notes', 'raw_payload', 'external_lead_id', 'customer_id'] as const
 
-export type ScopeProfile = { id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null }
+export type ScopeProfile = { id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null; org_id?: string; category_limit?: unknown }
 
 /** Setter / canvasser (not inside sales, which works the whole queue; not owners). Mirrors public.is_setter_canvasser_self(). */
 export function isSetterCanvasserLike(input: { role?: string | null; customRoleName?: string | null; customRoleDisplayName?: string | null; isSuperAdmin?: boolean | null }): boolean {
@@ -47,6 +48,11 @@ export async function myLeadIds(admin: SupabaseClient, userId: string, ids: stri
 }
 
 export async function mayReadLead(admin: SupabaseClient, profile: ScopeProfile, leadId: string): Promise<boolean> {
+  // A person limited to some work categories (a full user row carries `category_limit`) opens only leads inside them (leads.category).
+  if (profile.org_id && profile.category_limit != null) {
+    const scope = categoryScopeOf({ role: profile.role, is_super_admin: profile.is_super_admin, category_limit: profile.category_limit })
+    if (scope.limited && !(await leadInScope(admin, profile.org_id, scope, leadId))) return false
+  }
   if (!(await isContactScoped(admin, profile))) return true
   return (await myLeadIds(admin, profile.id, [leadId])).has(leadId)
 }

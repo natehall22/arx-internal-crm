@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -74,6 +75,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const auth = await authorize()
   if (auth.error) return auth.error
   const { profile } = auth
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   const input = await readReason(request)
   if (!input) {
@@ -162,6 +164,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
   const auth = await authorize()
   if (auth.error) return auth.error
   const { profile } = auth
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   const input = await readReason(request)
   if (!input) return NextResponse.json({ error: 'A reason is required.' }, { status: 400 })

@@ -1,3 +1,4 @@
+import { dealHiddenFrom, limitCol } from '@/lib/category-scope'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile, error: profileError } = await admin
       .from('users')
-      .select('id, org_id, role')
+      .select(`id, org_id, role, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -157,6 +158,10 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (oppError || !opportunity) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
+    if (await dealHiddenFrom(admin, profile, opportunityId)) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
 

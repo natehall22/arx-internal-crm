@@ -1,3 +1,4 @@
+import { recordHiddenFrom, workOrderInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'workOrderId is required' }, { status: 400 })
   }
 
+  if (await recordHiddenFrom(adminClient, profile, workOrderId, workOrderInScope)) return NextResponse.json({ error: 'Trade not found' }, { status: 404 })
   const orgId = profile.org_id
   const loaded = await loadTradeWithJob(adminClient, orgId, workOrderId)
   if (!loaded) {

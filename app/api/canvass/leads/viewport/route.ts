@@ -11,6 +11,7 @@
  *   - excludeIds: Comma-separated IDs already loaded (optional, for incremental loading)
  */
 
+import { categoryOrFilter, categoryScopeOf, limitCol } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createClient } from '@supabase/supabase-js'
@@ -231,7 +232,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and visibility settings
     const { data: profile, error: profileError } = await adminClient
       .from('users')
-      .select('role, org_id, team_id, region_id, canvass_pin_visibility')
+      .select(`role, org_id, team_id, region_id, canvass_pin_visibility, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -327,6 +328,10 @@ export async function GET(request: NextRequest) {
     if (excludeIds.length > 0 && excludeIds.length < 1000) {
       query = query.filter('id', 'not.in', `(${excludeIds.join(',')})`)
     }
+
+    // Limited to some work categories: only pins whose category is allowed (a repeated .or() is ANDed with the others).
+    const scopeOr = categoryOrFilter(categoryScopeOf(profile))
+    if (scopeOr) query = query.or(scopeOr)
 
     // Order by recency for consistent pagination
     query = query.order('created_at', { ascending: false })
@@ -424,7 +429,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, canvass_pin_visibility, custom_role_id, is_super_admin')
+      .select(`org_id, role, canvass_pin_visibility, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 

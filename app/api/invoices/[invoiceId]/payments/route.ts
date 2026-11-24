@@ -1,3 +1,4 @@
+import { invoiceInScope, recordHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -23,6 +24,7 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    if (await recordHiddenFrom(adminClient, profile, params.invoiceId, invoiceInScope)) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     const invoiceCheck = await findOrgInvoice(adminClient, params.invoiceId, profile.org_id)
     if (!invoiceCheck) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
@@ -103,6 +105,7 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    if (await recordHiddenFrom(adminClient, profile, params.invoiceId, invoiceInScope)) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     const invoiceCheck = await findOrgInvoice(adminClient, params.invoiceId, profile.org_id)
     if (!invoiceCheck) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })

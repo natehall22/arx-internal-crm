@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { wrapUntrusted } from '@/lib/ai-connector/untrusted'
 import { cleanQuery, runSearch, type SearchKind } from '@/lib/global-search'
 import { searchGroupsForCaller } from '@/lib/global-search-server'
@@ -16,7 +17,7 @@ async function find(ctx: ToolContext, kind: SearchKind, query: string) {
     .map((g) => ({ ...g, kinds: g.kinds.filter((k) => k === kind) }))
     .filter((g) => g.kinds.length > 0)
   if (groups.length === 0) return { data: { results: [] }, recordIds: [] as string[] }
-  let hits = await runSearch(ctx.admin, ctx.orgId, q, groups, 10)
+  let hits = await runSearch(ctx.admin, ctx.orgId, q, groups, 10, undefined, categoryScopeOf(ctx.profile))
   if (kind === 'customer') {
     // Setters / canvassers: only customers that are their own work (a hit on someone else's would reveal their phone or email).
     const own = await ownCustomerIds(ctx, hits.map((h) => h.id))

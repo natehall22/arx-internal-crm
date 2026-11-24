@@ -1,3 +1,4 @@
+import { recordHiddenFrom, servicePlanInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
@@ -16,6 +17,7 @@ export const dynamic = 'force-dynamic'
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const ctx = await servicePlanRouteAuth('edit')
   if (ctx instanceof Response) return ctx
+  if (await recordHiddenFrom(ctx.admin, ctx.profile, params.id, servicePlanInScope)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   const today = ymdInZone(new Date(), await loadOrgTimeZone(ctx.admin, ctx.orgId))

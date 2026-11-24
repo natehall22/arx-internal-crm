@@ -1,3 +1,4 @@
+import { categoryScopeOf } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -179,6 +180,8 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  // A list of sold jobs cannot be cut by work category here: not for a person limited to some categories.
+  if (categoryScopeOf(profile).limited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   try {
     const supabase = createServiceClient()
     // Field roles (setter / canvasser / inside sales / call center, by role slug or custom-role NAME) never see money or production
