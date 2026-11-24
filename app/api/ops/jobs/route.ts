@@ -12,7 +12,7 @@ import {
 import { requireAuthApi } from '@/lib/auth'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
-import { categoryScopeOf, filterJobsToScope } from '@/lib/category-scope'
+import { categoryScopeOf, filterJobsToScope, projectHiddenFrom } from '@/lib/category-scope'
 import { enrichJobsWithCategory } from '@/lib/categories-db'
 import { enrichJobsWithCostLedger } from '@/lib/job-cost-ledger'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
@@ -68,6 +68,9 @@ export async function POST(request: Request) {
       .single()
 
     if (projectError || !project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+    }
+    if (await projectHiddenFrom(adminClient, profile, project_id)) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 

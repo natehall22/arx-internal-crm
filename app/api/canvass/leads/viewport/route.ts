@@ -11,7 +11,7 @@
  *   - excludeIds: Comma-separated IDs already loaded (optional, for incremental loading)
  */
 
-import { applyCategoryScope, categoryScopeOf, limitCol } from '@/lib/category-scope'
+import { categoryOrFilter, categoryScopeOf, limitCol } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createClient } from '@supabase/supabase-js'
@@ -289,7 +289,7 @@ export async function GET(request: NextRequest) {
 
     // MINIMAL SELECT - only what's needed for pin rendering
     // Full details fetched via /api/canvass/lead/[id] on click
-    let query = applyCategoryScope(adminClient
+    let query = adminClient
       .from('leads')
       .select('id, lat, lng, canvass_disposition, status, owner_user_id, pin_attributed_user_id, created_at, installation_agreement_signed_at')
       .eq('org_id', profile.org_id)
@@ -298,7 +298,7 @@ export async function GET(request: NextRequest) {
       .gte('lat', minLat)
       .lte('lat', maxLat)
       .gte('lng', minLng)
-      .lte('lng', maxLng), categoryScopeOf(profile))
+      .lte('lng', maxLng)
       .limit(queryLimit)
 
     // Apply visibility filter (include pin_attributed_user_id so deleted users' pins stay visible)
@@ -328,6 +328,10 @@ export async function GET(request: NextRequest) {
     if (excludeIds.length > 0 && excludeIds.length < 1000) {
       query = query.filter('id', 'not.in', `(${excludeIds.join(',')})`)
     }
+
+    // Limited to some work categories: only pins whose category is allowed (a repeated .or() is ANDed with the others).
+    const scopeOr = categoryOrFilter(categoryScopeOf(profile))
+    if (scopeOr) query = query.or(scopeOr)
 
     // Order by recency for consistent pagination
     query = query.order('created_at', { ascending: false })

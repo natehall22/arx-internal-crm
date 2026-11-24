@@ -684,6 +684,10 @@ export async function PUT(request: NextRequest) {
     if (existingError || !existing) {
       return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
     }
+    // Limited to some work categories: a proposal on a deal outside them answers like it does not exist.
+    if (await proposalHiddenFrom(adminClient, profile, proposal_id)) {
+      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
+    }
 
     if (['accepted', 'declined'].includes(String(existing.status))) {
       return NextResponse.json(

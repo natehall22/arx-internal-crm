@@ -19,6 +19,8 @@ import {
   invoiceInScope,
   leadInScope,
   limitCol,
+  customerHiddenFrom,
+  projectHiddenFrom,
   proposalHiddenFrom,
   purchaseOrderInScope,
   recordHiddenFrom,
@@ -42,6 +44,7 @@ jest.mock('@/lib/auth', () => ({
 }))
 let db: ReturnType<typeof createFakeDb>
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => db.client }))
+jest.mock('@/lib/supabase/server', () => ({ createClient: () => ({}) }))
 jest.mock('@/lib/finance-access', () => ({ callerCanAccessJobBilling: async () => true }))
 jest.mock('@/lib/ops-access', () => ({ resolveOpsAccess: async () => ({ canJobBoard: true, canEditJobs: true, canViewJobFinancials: true }) }))
 jest.mock('@/lib/effective-permissions', () => ({ ...jest.requireActual('@/lib/effective-permissions'), resolveEffectivePermissionNames: async () => ['customers:edit'] }))
@@ -56,6 +59,8 @@ jest.mock('@/lib/purchase-orders-db', () => ({
 }))
 
 import { PATCH as customerPatch } from '@/app/api/customers/[id]/route'
+import { PATCH as projectPatch } from '@/app/api/projects/[id]/route'
+import { POST as changeOrderCreate } from '@/app/api/change-orders/create/route'
 import { addCostLine, draftInvoice, draftPurchaseOrder } from '@/lib/ai-connector/tools/writes'
 import { authorizeJobCost } from '@/lib/job-cost-record'
 
@@ -74,8 +79,8 @@ const seed = () =>
       { id: 'c-com', org_id: ORG, category: 'commercial', name: 'Com', email: null, phone: null, address_text: null },
     ],
     production_jobs: [
-      { id: 'j-res', org_id: ORG, customer_id: 'c-res', category: null },
-      { id: 'j-com', org_id: ORG, customer_id: 'c-com', category: null },
+      { id: 'j-res', org_id: ORG, customer_id: 'c-res', category: null, project_id: 'pr-res-job' },
+      { id: 'j-com', org_id: ORG, customer_id: 'c-com', category: null, project_id: 'pr-com-job' },
     ],
     leads: [
       { id: 'l-res', org_id: ORG, category: 'residential' },
@@ -120,6 +125,14 @@ const seed = () =>
       { id: 'vc-com', org_id: ORG, customer_id: 'c-com' },
     ],
     scheduled_appointments: [{ id: 'a-com', org_id: ORG, lead_id: 'l-com' }],
+    projects: [
+      { id: 'pr-res-job', org_id: ORG, customer_id: 'c-com', opportunity_id: null }, // job decides, not the project's own customer
+      { id: 'pr-com-job', org_id: ORG, customer_id: 'c-res', opportunity_id: null },
+      { id: 'pr-com', org_id: ORG, customer_id: 'c-com', opportunity_id: null },
+      { id: 'pr-res', org_id: ORG, customer_id: 'c-res', opportunity_id: null },
+      { id: 'pr-deal-com', org_id: ORG, customer_id: null, opportunity_id: 'o-com' },
+      { id: 'pr-none', org_id: ORG, customer_id: null, opportunity_id: null },
+    ],
     users: [mgr, admin],
   })
 
@@ -328,6 +341,94 @@ describe('MEDIUM 5 — customer PATCH', () => {
     authResult = asAuth(admin)
     const res = await patch('c-com', { name: 'Com 2' })
     expect(res.status).not.toBe(404)
+  })
+})
+
+describe('Review round 3 — builder PUT, change orders, projects PATCH, profit tracker, morning email', () => {
+  const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf8')
+  const ops = { ...mgr, role: 'operations' }
+  it('projectHiddenFrom: job first (then customer, then deal, else Not set); unlimited reads nothing', async () => {
+    const c = db.client as never
+    const h = (profile: unknown, id: string) => projectHiddenFrom(c, profile as never, id)
+    expect(await h(mgr, 'pr-res-job')).toBe(false)
+    expect(await h(mgr, 'pr-com-job')).toBe(true)
+    expect(await h(mgr, 'pr-res')).toBe(false)
+    expect(await h(mgr, 'pr-com')).toBe(true)
+    expect(await h(mgr, 'pr-deal-com')).toBe(true)
+    expect(await h(mgr, 'pr-none')).toBe(true)
+    expect(await h(mgr, 'nope')).toBe(true)
+    expect(await h(admin, 'pr-com')).toBe(false)
+    const { client, calls } = counting()
+    expect(await projectHiddenFrom(client, { ...mgr, category_limit: null } as never, 'pr-com')).toBe(false)
+    expect(await customerHiddenFrom(client, { ...mgr, category_limit: null } as never, 'c-com')).toBe(false)
+    expect(calls).toEqual([])
+    expect(await customerHiddenFrom(c, mgr as never, 'c-com')).toBe(true)
+    expect(await customerHiddenFrom(c, mgr as never, 'c-res')).toBe(false)
+  })
+  const co = (body: Record<string, unknown>) =>
+    changeOrderCreate(new NextRequest('https://crm.example/api/change-orders/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }))
+  const coBody = (extra: Record<string, unknown>) => ({ coNumber: 1, description: 'x', customerPrintName: 'x', repName: 'x', repSignature: 'x', signingMode: 'send_to_customer', ...extra })
+  it('change-orders/create: a job outside the categories is 404 (and so is its project); in scope is not', async () => {
+    authResult = asAuth(ops)
+    expect((await co(coBody({ projectId: 'pr-com-job', jobId: 'j-com' }))).status).toBe(404)
+    expect((await co(coBody({ projectId: 'pr-com', jobId: null }))).status).toBe(404)
+    expect((await co(coBody({ projectId: 'pr-res-job', jobId: 'j-res' }))).status).not.toBe(404)
+  })
+  it('projects PATCH: role gate (403 for a plain sales role), 404 outside the categories, open for an admin', async () => {
+    const patch = (id: string) => projectPatch(new Request('https://crm.example/api/projects/x', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ notes: 'hi' }) }), { params: { id } })
+    authResult = asAuth({ ...mgr, category_limit: null })
+    expect((await patch('pr-res')).status).toBe(403)
+    authResult = asAuth(ops)
+    expect((await patch('pr-com')).status).toBe(404)
+    expect((await patch('pr-res')).status).not.toBe(404)
+    authResult = asAuth(admin)
+    expect((await patch('pr-com')).status).not.toBe(404)
+    expect((await patch('pr-com')).status).not.toBe(403)
+  })
+  it('every exported handler of the builder / profit tracker / new gates keeps its check', () => {
+    const builder = read('app/api/proposals/builder/route.ts')
+    const put = builder.slice(builder.indexOf('export async function PUT'))
+    expect(put).toMatch(/proposalHiddenFrom\(adminClient, profile, proposal_id\)/)
+    expect(read('app/admin/job-profit-tracker/page.tsx')).toMatch(/categoryScopeOf\(profile\)\.limited[\s\S]*redirect/)
+    expect(read('app/api/reports/forecast/route.ts').split('export async function PATCH')[1]).toMatch(/categoryScopeOf\(profile\)\.limited/)
+    expect(read('app/api/inspection-reports/route.ts')).toMatch(/dealHiddenFrom/)
+    expect(read('app/api/contracts/[id]/regenerate-pdf/route.ts')).toMatch(/dealHiddenFrom/)
+    expect(read('app/api/customers/link/route.ts')).toMatch(/customerHiddenFrom/)
+    expect(read('app/api/ops/visits/route.ts')).toMatch(/customerHiddenFrom/)
+    expect(read('app/api/ops/jobs/route.ts')).toMatch(/projectHiddenFrom/)
+  })
+  it('morning email: an unreadable recipient list sends nothing (fail closed)', async () => {
+    process.env.SMTP_HOST = 'smtp.example.test'
+    const sendMail = jest.fn(async () => ({}))
+    jest.resetModules()
+    jest.doMock('@/lib/setter-email', () => ({ getCrmEmailFrom: async () => 'x@example.com', getMailTransport: () => ({ sendMail }) }))
+    jest.doMock('@/lib/crm-email-from', () => ({ getCrmEmailFrom: async () => 'x@example.com' }))
+    const { sendMorningUpdateEmail } = await import('@/lib/morning-update-email')
+    const failing = createFakeDb({ orgs: [{ id: ORG, settings: {} }] })
+    const fc = failing.client as unknown as { from: (t: string) => unknown }
+    const realFrom = fc.from.bind(fc)
+    fc.from = (t: string) => {
+      if (t !== 'users') return realFrom(t)
+      const q: Record<string, unknown> = {}
+      for (const m of ['select', 'eq', 'in', 'is', 'neq', 'or', 'limit', 'order']) q[m] = () => q
+      q.then = (res: (v: unknown) => unknown) => res({ data: null, error: { code: 'XX000', message: 'down' } })
+      return q
+    }
+    const res = await sendMorningUpdateEmail(failing.client as never, { orgId: ORG, testToEmails: ['boss@example.com'], metrics: {} as never })
+    expect(res).toMatchObject({ sent: 0, skipped: true })
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+  it('limitCol: a transient error is not cached as "column present"; the next call probes again', async () => {
+    let n = 0
+    const flaky = { from: jest.fn(() => ({ select: () => ({ limit: async () => (++n === 1 ? { data: null, error: { code: 'XX000', message: 'timeout' } } : { data: null, error: { code: '42703', message: 'column users.category_limit does not exist' } }) }) })) }
+    jest.resetModules()
+    jest.doMock('@/lib/supabase/service', () => ({ createServiceClient: () => flaky }))
+    const mod = await import('@/lib/category-scope')
+    expect(await mod.limitCol()).toBe(', category_limit')
+    expect(await mod.limitCol()).toBe('')
+    expect(flaky.from).toHaveBeenCalledTimes(2)
+    expect(await mod.limitCol()).toBe('')
+    expect(flaky.from).toHaveBeenCalledTimes(2)
   })
 })
 

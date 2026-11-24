@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { createServiceClient } from '@/lib/supabase/service'
 import { REPORT_EDIT_ROLES } from '@/lib/inspection-report/types'
 import { authErrorResponse, attachSignedUrls, fetchReportPhotos, getOrCreateReport } from '@/lib/inspection-report/server'
@@ -20,6 +21,9 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = createServiceClient()
+    if (await dealHiddenFrom(admin, profile, opportunityId)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
     const result = await getOrCreateReport(admin, {
       opportunityId,
       profile,

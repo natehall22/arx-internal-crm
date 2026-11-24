@@ -475,10 +475,16 @@ export async function limitCol(): Promise<string> {
   // org-scope-ok: column probe, not company data (limit 0 reads no rows)
   let error: { code?: string; message?: string } | null
   try {
+    // org-scope-ok: column probe, not company data (limit 0 reads no rows)
     ;({ error } = await createServiceClient().from('users').select('category_limit').limit(0))
   } catch {
     // No client (e.g. no service credentials): behave as "no limit column", never throw from an auth path, and do not cache.
     return ''
+  }
+  if (error && !isMissingColumn(error, 'category_limit')) {
+    // A transient failure proves nothing about the column: ask for it (a real read then fails loudly, never opens a limit) and
+    // probe again on the next call instead of caching "present".
+    return ', category_limit'
   }
   limitColumnKnown = { present: !isMissingColumn(error, 'category_limit'), at: Date.now() }
   return limitColumnKnown.present ? ', category_limit' : ''
@@ -566,6 +572,49 @@ export async function recordHiddenFrom(
     return !(await inScope(admin, profile.org_id, scope, id))
   } catch (e) {
     console.error('[category-scope] record gate failed closed', e)
+    return true
+  }
+}
+
+/** Customer hidden from this person? Unlimited: false, no query. A read failure hides it (fail closed). */
+export async function customerHiddenFrom(
+  admin: SupabaseClient,
+  profile: { org_id: string } & NonNullable<ScopeProfile>,
+  customerId: string | null | undefined
+): Promise<boolean> {
+  const scope = categoryScopeOf(profile)
+  if (!scope.limited) return false
+  try {
+    return !(await customerInScope(admin, profile.org_id, scope, customerId))
+  } catch (e) {
+    console.error('[category-scope] customer gate failed closed', e)
+    return true
+  }
+}
+
+/**
+ * A project follows its production job (override, else customer); a project with no job follows its own customer, else its deal's
+ * customer / lead; one with none of those is Not set. Unlimited: false, no query. A read failure hides it.
+ */
+export async function projectHiddenFrom(
+  admin: SupabaseClient,
+  profile: { org_id: string } & NonNullable<ScopeProfile>,
+  projectId: string
+): Promise<boolean> {
+  const scope = categoryScopeOf(profile)
+  if (!scope.limited) return false
+  try {
+    const db = orgDb(admin, profile.org_id)
+    const { data: job } = await db.from('production_jobs').select('id').eq('project_id', projectId).limit(1).maybeSingle()
+    if (job?.id) return !(await jobInScope(admin, profile.org_id, scope, String(job.id)))
+    const { data: project, error } = await db.from('projects').select('id, customer_id, opportunity_id').eq('id', projectId).maybeSingle()
+    if (error || !project) return true
+    const p = project as { customer_id: string | null; opportunity_id: string | null }
+    if (p.customer_id) return !(await customerInScope(admin, profile.org_id, scope, p.customer_id))
+    if (p.opportunity_id) return await dealHiddenFrom(admin, { ...profile, org_id: profile.org_id }, p.opportunity_id)
+    return !categoryAllowed(scope, null)
+  } catch (e) {
+    console.error('[category-scope] project gate failed closed', e)
     return true
   }
 }

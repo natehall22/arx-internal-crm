@@ -503,6 +503,9 @@ export async function sendMorningUpdateEmail(
   if (recipientError) {
     // Fail closed: without the user list nobody gets the section.
     console.error('sendMorningUpdateEmail: could not load recipients (is migration 202610210010 applied?)', recipientError.message)
+    // Without the user rows nobody can be told apart (owner / limited to some categories / no role): send nothing rather than
+    // company-wide numbers to someone who may be limited. The next run retries.
+    return { sent: 0, skipped: true, reason: 'recipients_unreadable' }
   }
   type Viewer = { id: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null }
   const viewerByEmail = new Map<string, Viewer>()

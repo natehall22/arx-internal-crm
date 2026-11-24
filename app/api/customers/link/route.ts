@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { customerHiddenFrom } from '@/lib/category-scope'
 import { orgDb } from '@/lib/supabase/org-db'
 import { createServiceClient } from '@/lib/supabase/service'
 import { upsertCustomer } from '@/lib/customers'
@@ -60,6 +61,9 @@ export async function POST(request: Request) {
         .eq('org_id', profile.org_id)
         .single()
 
+      if (customer && (await customerHiddenFrom(adminClient, profile, String(customer_id)))) {
+        return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+      }
       if (!customer) {
         return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
       }

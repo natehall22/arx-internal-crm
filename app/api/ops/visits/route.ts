@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
-import { categoryScopeOf } from '@/lib/category-scope'
+import { categoryScopeOf, customerHiddenFrom } from '@/lib/category-scope'
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
 import { SERVICE_PLANS_NOT_READY, createOneOffVisit, crewDayLinkSubIds, ensureServiceVisits, loadVisitsPage } from '@/lib/service-plans-db'
 import { addDaysYmd, daysBetweenYmd, isYmd, ymdInZone } from '@/lib/service-plans'
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
   const customerId = typeof body?.customer_id === 'string' ? body.customer_id : ''
   if (!customerId) return NextResponse.json({ error: 'Pick the customer' }, { status: 400 })
   const { data: customer } = await orgDb(ctx.admin, ctx.orgId).from('customers').select('id').eq('id', customerId).maybeSingle()
-  if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!customer || (await customerHiddenFrom(ctx.admin, ctx.profile, customerId))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const reminderId = body?.reminder_id
   const actor = { id: ctx.userId, seesAll: canSeeAllReminders(ctx.profile) }
   let reminderAlreadyDone = false

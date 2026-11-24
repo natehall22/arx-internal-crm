@@ -328,6 +328,8 @@ export async function PATCH(request: NextRequest) {
     if (!['admin', 'owner', 'sales_manager', 'regional_manager'].includes(profile.role) || !(await canSeeFinancials(createServiceClient(), profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    // The company revenue goal is a company-wide number, like the forecast it feeds: not for a person limited to some categories.
+    if (categoryScopeOf(profile).limited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const body = await request.json()
     const period = body?.period as string
