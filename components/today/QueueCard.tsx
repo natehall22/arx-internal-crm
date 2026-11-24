@@ -3,15 +3,17 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ReminderDoneButton } from '@/components/reminders/ReminderDoneButton'
+import { ReminderVisitButton } from '@/components/reminders/ReminderVisitButton'
 import type { Queue } from '@/lib/today'
 
 function QueueRow({ item: i }: { item: Queue['items'][number] }) {
   return (
-    <li className={i.reminderId ? 'flex items-center gap-2' : undefined}>
+    <li className={i.reminderId ? 'flex flex-wrap items-center gap-2' : undefined}>
       <Link href={i.href} className="flex min-h-tap min-w-0 flex-1 flex-col justify-center py-2 hover:bg-surface-subtle">
         <span className="font-semibold text-ink">{i.title}</span>
         {i.detail ? <span className="text-ui-sm text-ink-muted">{i.detail}</span> : null}
       </Link>
+      {i.reminderId && i.visit ? <ReminderVisitButton reminderId={i.reminderId} {...i.visit} /> : null}
       {i.reminderId ? <ReminderDoneButton id={i.reminderId} /> : null}
     </li>
   )

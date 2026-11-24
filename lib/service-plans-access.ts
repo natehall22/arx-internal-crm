@@ -40,6 +40,7 @@ export async function servicePlanRouteAuth(need: 'view' | 'edit' | 'owner'): Pro
       admin: SupabaseClient
       userId: string
       orgId: string
+      profile: { id: string; org_id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null; active?: boolean | null }
       access: ServicePlanAccess
       /** Owner (super admin): manages plan templates. */
       owner: boolean
@@ -63,7 +64,7 @@ export async function servicePlanRouteAuth(need: 'view' | 'edit' | 'owner'): Pro
   const owner = isSuperAdmin(profile)
   const allowed = need === 'view' ? access.view || owner : need === 'edit' ? access.edit : owner
   if (!allowed) return NextResponse.json({ error: need === 'owner' ? 'Only an owner can change plan templates' : 'Forbidden' }, { status: 403 })
-  return { admin, userId: profile.id, orgId: profile.org_id, access, owner }
+  return { admin, userId: profile.id, orgId: profile.org_id, profile, access, owner }
 }
 
 /**

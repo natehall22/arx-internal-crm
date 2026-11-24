@@ -17,7 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgTodayYmd } from '@/lib/project-tools/org-today'
 import type { ThreadViewer } from '@/lib/threads/visibility'
-import { isYmd } from '@/lib/service-plans'
+import { isYmd, reminderCanBecomeVisit } from '@/lib/service-plans'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { orgDb } from '@/lib/supabase/org-db'
 
@@ -64,6 +64,48 @@ export function reminderHref(r: Pick<ReminderRow, 'jobId' | 'customerId' | 'part
 }
 
 type Fail = { ok: false; status: number; error: string }
+
+/**
+ * Checked BEFORE a visit is made from a reminder: it is this company's, the person may finish it (assignee, maker or office —
+ * anything else is "Not found"), it is about a customer / property and not a job or partner, that customer is the one the visit is
+ * for, and when the reminder names a property the visit is at that property. A DONE reminder is refused (a stale page or a second
+ * person must not make a second visit) unless the request's `oneOffKey` already belongs to a visit of this customer: then it is a
+ * retry and gets that same visit back. `alreadyDone` tells the caller not to touch the reminder again.
+ */
+export async function checkReminderForVisit(
+  admin: SupabaseClient,
+  orgId: string,
+  actor: { id: string; seesAll: boolean },
+  reminderId: unknown,
+  visit: { customerId: string; propertyId?: unknown; oneOffKey?: unknown }
+): Promise<{ ok: true; alreadyDone: boolean } | Fail> {
+  if (!isReminderId(reminderId)) return { ok: false, status: 400, error: 'Not a valid reminder' }
+  const db = orgDb(admin, orgId)
+  const { data } = await db.from('reminders').select('assignee_user_id, created_by, job_id, partner_id, customer_id, property_id, done_at').eq('id', reminderId).maybeSingle()
+  const r = data as { assignee_user_id: string; created_by: string | null; job_id: string | null; partner_id: string | null; customer_id: string | null; property_id: string | null; done_at: string | null } | null
+  if (!r || (!actor.seesAll && r.assignee_user_id !== actor.id && r.created_by !== actor.id)) return { ok: false, status: 404, error: 'Not found' }
+  if (!reminderCanBecomeVisit({ jobId: r.job_id, partnerId: r.partner_id, customerId: r.customer_id, propertyId: r.property_id }, true)) {
+    return { ok: false, status: 400, error: 'That reminder can’t become a visit' }
+  }
+  let owner = r.customer_id
+  if (!owner && r.property_id) {
+    const { data: p } = await db.from('properties').select('customer_id').eq('id', r.property_id).maybeSingle()
+    owner = (p as { customer_id: string | null } | null)?.customer_id ?? null
+  }
+  if (owner !== visit.customerId) return { ok: false, status: 400, error: 'That reminder is about someone else' }
+  if (r.property_id && visit.propertyId !== r.property_id) return { ok: false, status: 400, error: 'That reminder is about another property' }
+  if (r.done_at) {
+    const key = typeof visit.oneOffKey === 'string' && visit.oneOffKey ? visit.oneOffKey : null
+    let retry = false
+    if (key) {
+      const { data: plan } = await db.from('service_plans').select('id, customer_id').eq('one_off_key', key).maybeSingle()
+      retry = (plan as { customer_id: string } | null)?.customer_id === visit.customerId
+    }
+    if (!retry) return { ok: false, status: 409, error: 'That reminder is already done' }
+    return { ok: true, alreadyDone: true }
+  }
+  return { ok: true, alreadyDone: false }
+}
 
 export function parseReminderInput(raw: unknown, today: string): { ok: true; input: ReminderInput } | Fail {
   const b = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
