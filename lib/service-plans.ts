@@ -371,6 +371,24 @@ export function cleanOneOffVisit(body: unknown, today: string): { ok: true; valu
   }
 }
 
+/**
+ * "Make a visit" is offered only on a reminder about a customer or a property: never one about a job (the job is the work) or a
+ * referral partner. Pure; the caller decides `allowed` (service plans on AND the viewer may edit visits).
+ */
+export function reminderCanBecomeVisit(r: { jobId?: string | null; partnerId?: string | null; customerId?: string | null; propertyId?: string | null }, allowed: boolean): boolean {
+  return allowed && !r.jobId && !r.partnerId && !!(r.customerId || r.propertyId)
+}
+
+/**
+ * The day a visit made from a reminder is offered on: the reminder's day, or today when that day has passed, and never past the
+ * 6-week window a visit can be placed in. `today` is the company's calendar day.
+ */
+export function visitDateForReminder(dueOn: string, today: string): string {
+  const horizon = visitHorizon(today).to
+  if (dueOn < today) return today
+  return dueOn > horizon ? horizon : dueOn
+}
+
 /** The plan body that makes exactly one visit, on `date`: billed per visit, never repeating. */
 export function oneOffPlanBody(v: OneOffVisitInput): Record<string, unknown> {
   return {

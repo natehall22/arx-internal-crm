@@ -4,6 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { orgTodayYmd } from '@/lib/project-tools/org-today'
 import { canSeeAllReminders, createReminder, isReminderId, listReminders } from '@/lib/reminders'
+import { resolveServicePlanAccess } from '@/lib/service-plans-access'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -41,7 +42,9 @@ export async function GET(request: Request) {
       listReminders(admin, profile.org_id, { viewerId: profile.id, all: seesAll && (onRecord || url.searchParams.get('scope') === 'all'), target }),
       orgTodayYmd(admin, profile.org_id),
     ])
-    return NextResponse.json({ reminders, today, seesAll, meId: profile.id })
+    // "Make a visit" is offered only to people who may edit visits in a company with service plans on.
+    const canMakeVisit = (await resolveServicePlanAccess(admin, profile.id, profile).catch(() => null))?.edit === true
+    return NextResponse.json({ reminders, today, seesAll, meId: profile.id, canMakeVisit })
   } catch (e) {
     console.error('[reminders] list failed', e)
     return NextResponse.json({ error: 'Could not load reminders' }, { status: 500 })

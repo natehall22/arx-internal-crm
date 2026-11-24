@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import { canSeeAllReminders } from '@/lib/reminders'
+import { resolveServicePlanAccess } from '@/lib/service-plans-access'
 import Nav from '@/components/Nav'
 import MyDayClock from '@/components/time/MyDayClock'
 import WaitingOnYou from '@/components/threads/WaitingOnYou'
@@ -153,8 +154,10 @@ export default async function TodayPage() {
   const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
   // Reminders (company switch on): mine for everyone, everyone else's for owner / office (the same reader, lib/reminders.ts).
   const remindersOn = orgProfile.features.reminders
-  const myReminders = remindersOn ? await loadRemindersQueue(admin, profile.org_id, profile, 'mine').catch((e) => { console.error('today: my reminders failed', e); return null }) : null
-  const otherReminders = remindersOn && canSeeAllReminders(profile) ? await loadRemindersQueue(admin, profile.org_id, profile, 'others').catch((e) => { console.error('today: reminders failed', e); return null }) : null
+  // "Make a visit" on a reminder: service plans on AND the viewer may edit visits (lib/service-plans-access.ts).
+  const canMakeVisit = remindersOn && orgProfile.features.servicePlans ? (await resolveServicePlanAccess(admin, profile.id, profile).catch(() => null))?.edit === true : false
+  const myReminders = remindersOn ? await loadRemindersQueue(admin, profile.org_id, profile, 'mine', new Date(), { canMakeVisit }).catch((e) => { console.error('today: my reminders failed', e); return null }) : null
+  const otherReminders = remindersOn && canSeeAllReminders(profile) ? await loadRemindersQueue(admin, profile.org_id, profile, 'others', new Date(), { canMakeVisit }).catch((e) => { console.error('today: reminders failed', e); return null }) : null
   const queues = [...(myReminders && (myReminders.count > 0 || (myReminders.upcoming?.length ?? 0) > 0) ? [myReminders] : []), ...(otherReminders && (otherReminders.count > 0 || (otherReminders.upcoming?.length ?? 0) > 0) ? [otherReminders] : []), ...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...(visitCardsOn ? visitQueues : []), ...(doorCollections && doorCollections.count > 0 ? [doorCollections] : []), ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...(myLeadsWaiting && (myLeadsWaiting.count > 0 || myLeadsWaiting.empty.includes('couldn’t load')) ? [myLeadsWaiting] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
 
   return (

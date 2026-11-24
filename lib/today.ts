@@ -15,7 +15,8 @@ import { loadCheckups } from '@/lib/checkups'
 import { listBlockedQuotes } from '@/lib/quotes/blocked'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
-import { SERVICE_VISIT_TYPE, SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
+import { SERVICE_VISIT_TYPE, SKIP_REASON_LABELS, addDaysYmd, reminderCanBecomeVisit, visitDateForReminder, ymdInZone } from '@/lib/service-plans'
+import { orgDb } from '@/lib/supabase/org-db'
 import { loadVisits } from '@/lib/service-plans-db'
 import { jobsPaidInFull } from '@/lib/job-collection-db'
 import { loadUnpaidInvoices } from '@/lib/service-billing-db'
@@ -32,7 +33,9 @@ export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer' | 'crew'
  * proposal number and plain facts, never a customer name or address — except the storm-hits queue, which is a call
  * list and carries the customer's name and `phone` (owner "Everything" email only; Nathan, 2026-11-06).
  */
-export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string; phone?: string | null; /** A reminder row: the card shows a Done button for it. */ reminderId?: string }
+export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string; phone?: string | null; /** A reminder row: the card shows a Done button for it. */ reminderId?: string
+  /** A reminder about a customer / property when the viewer may make visits: what the "Make a visit" sheet starts with. */
+  visit?: { customerId: string; propertyId: string | null; date: string; notes: string } }
 export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string; /** Collapsed under the list ("Upcoming (N)"); not part of `count`. */ upcoming?: QueueItem[] }
 
 export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean; customRoleName?: string | null; customRoleDisplayName?: string | null }): TodayKind {
@@ -678,11 +681,25 @@ export async function loadRemindersQueue(
   orgId: string,
   viewer: { id: string },
   scope: 'mine' | 'others',
-  now = new Date()
+  now = new Date(),
+  opts: { canMakeVisit?: boolean } = {}
 ): Promise<Queue> {
   const today = await orgTodayYmd(admin, orgId, now)
   const rows = await listReminders(admin, orgId, { viewerId: viewer.id, all: scope === 'others', limit: 200 })
   const picked = rows.filter((r) => (scope === 'mine' ? r.assigneeId === viewer.id : r.assigneeId !== viewer.id))
+  // "Make a visit" (service plans on + the viewer may edit visits): a property-only reminder gets its customer from the property.
+  const customerOf = new Map<string, string>()
+  const visitable = picked.filter((r) => reminderCanBecomeVisit(r, !!opts.canMakeVisit))
+  const needCustomer = Array.from(new Set(visitable.filter((r) => !r.customerId && r.propertyId).map((r) => r.propertyId as string)))
+  if (needCustomer.length > 0) {
+    const { data } = await orgDb(admin, orgId).from('properties').select('id, customer_id').in('id', needCustomer)
+    for (const p of (data ?? []) as Array<{ id: string; customer_id: string | null }>) if (p.customer_id) customerOf.set(p.id, p.customer_id)
+  }
+  const visitFor = (r: (typeof picked)[number]): QueueItem['visit'] => {
+    if (!reminderCanBecomeVisit(r, !!opts.canMakeVisit)) return undefined
+    const customerId = r.customerId ?? (r.propertyId ? customerOf.get(r.propertyId) : undefined)
+    return customerId ? { customerId, propertyId: r.propertyId, date: visitDateForReminder(r.dueOn, today), notes: r.body } : undefined
+  }
   const asItem = (r: (typeof picked)[number]): QueueItem => ({
     id: r.id,
     reminderId: r.id,
@@ -691,6 +708,7 @@ export async function loadRemindersQueue(
     href: reminderHref(r) ?? '/today',
     ref: 'Reminder',
     note: r.dueOn < today ? 'Overdue' : r.dueOn === today ? 'Due today' : 'Coming up',
+    ...(visitFor(r) ? { visit: visitFor(r) } : {}),
   })
   // What needs attention now (due today + overdue) is the list and the count; later days sit collapsed under it.
   const due = picked.filter((r) => r.dueOn <= today)

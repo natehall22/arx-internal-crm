@@ -4,12 +4,13 @@ import * as React from 'react'
 
 import { Button, Dialog, DialogContent, DialogFooter, Field, Input, Select, toast } from '@/components/ui'
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
-import { addDaysYmd, weekdayOfYmd } from '@/lib/service-plans'
+import OneOffVisit from '@/components/service-plans/OneOffVisit'
+import { addDaysYmd, reminderCanBecomeVisit, visitDateForReminder, weekdayOfYmd } from '@/lib/service-plans'
 import { formatDateWeekday } from '@/lib/format'
 
 type Target = { jobId?: string; customerId?: string; partnerId?: string }
-type Item = { id: string; body: string; dueOn: string; assigneeId: string; assigneeName: string | null; createdById: string | null; createdByName: string | null }
-type Load = { reminders: Item[]; today: string; seesAll: boolean; meId: string }
+type Item = { id: string; body: string; dueOn: string; assigneeId: string; assigneeName: string | null; createdById: string | null; createdByName: string | null; jobId?: string | null; customerId?: string | null; partnerId?: string | null; propertyId?: string | null }
+type Load = { reminders: Item[]; today: string; seesAll: boolean; meId: string; canMakeVisit?: boolean }
 
 /** Next Monday after `today` (the "Next week" chip). */
 export function nextWeekYmd(today: string): string {
@@ -107,7 +108,12 @@ export default function RemindButton({ target, className }: { target: Target; cl
                       <p className="min-w-0 break-words text-ui-base text-ink">
                         <span className="font-semibold">{formatDateWeekday(r.dueOn)}</span> · {r.assigneeName ?? 'Someone'} — {r.body}
                       </p>
-                      {r.assigneeId === data?.meId || r.createdById === data?.meId || data?.seesAll ? <Button size="sm" variant="secondary" onClick={() => void done(r.id)}>Done</Button> : null}
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        {r.customerId && reminderCanBecomeVisit({ jobId: r.jobId ?? null, partnerId: r.partnerId ?? null, customerId: r.customerId, propertyId: r.propertyId ?? null }, data?.canMakeVisit === true) ? (
+                          <OneOffVisit prefill={{ reminderId: r.id, customerId: r.customerId, propertyId: r.propertyId ?? null, date: visitDateForReminder(r.dueOn, today), notes: r.body }} label="Make a visit" className="min-h-tap" onCreated={() => void load()} />
+                        ) : null}
+                        {r.assigneeId === data?.meId || r.createdById === data?.meId || data?.seesAll ? <Button size="sm" variant="secondary" onClick={() => void done(r.id)}>Done</Button> : null}
+                      </div>
                     </li>
                   ))}
                 </ul>

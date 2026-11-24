@@ -1767,7 +1767,7 @@ test('remind sheet / phone: tap targets, 16px inputs, Done for the creator, sets
       posted.push(JSON.parse(route.request().postData() || '{}'))
       return route.fulfill(json({ reminder: { id: 'r2' } }, 201))
     }
-    return route.fulfill(json({ today: '2026-11-10', seesAll: false, meId: 'u1', reminders: [{ id: 'r1', body: 'Call about the sprinkler quote', dueOn: '2026-11-11', assigneeId: 'u3', assigneeName: 'Riley Ops', createdById: 'u1', createdByName: 'Me', jobId: null, customerId: 'cust-1' }] }))
+    return route.fulfill(json({ today: '2026-11-10', seesAll: false, meId: 'u1', canMakeVisit: true, reminders: [{ id: 'r1', body: 'Call about the sprinkler quote', dueOn: '2026-11-11', assigneeId: 'u3', assigneeName: 'Riley Ops', createdById: 'u1', createdByName: 'Me', jobId: null, customerId: 'cust-1' }] }))
   })
   await page.goto('/dev-harness/remind')
   const open = page.getByRole('button', { name: /^Remind…/ })
@@ -1777,6 +1777,8 @@ test('remind sheet / phone: tap targets, 16px inputs, Done for the creator, sets
   await dialog.waitFor()
   // The creator can finish a reminder they made for someone else.
   await expect(dialog.getByRole('button', { name: 'Done' })).toBeVisible()
+  // A customer reminder offers "Make a visit" (service plans on + may edit visits): a full-size tap target.
+  await expect(dialog.getByRole('button', { name: 'Make a visit' })).toBeVisible()
   const vw = page.viewportSize()!.width
   for (const b of await dialog.getByRole('button').all()) {
     const r = (await b.boundingBox())!
@@ -1792,6 +1794,21 @@ test('remind sheet / phone: tap targets, 16px inputs, Done for the creator, sets
   await dialog.getByRole('button', { name: 'Set reminder' }).click()
   await expect.poll(() => posted.length).toBe(1)
   expect(posted[0]).toMatchObject({ body: 'Check the gate latch', customerId: 'cust-1' })
+  await expectNoSidewaysScroll(page)
+  // "Make a visit" opens the one-off visit sheet filled in from the reminder, and the save names the reminder.
+  const visits: Array<Record<string, unknown>> = []
+  await page.route('**/api/customers/cust-1/service-plans', (route) => route.fulfill(json(HARNESS_SERVICE_PLANS)))
+  await page.route('**/api/ops/visits', async (route) => {
+    visits.push(JSON.parse(route.request().postData() || '{}'))
+    return route.fulfill(json({ visitId: 'v1', workOrderNumber: 'WO-00001', date: '2026-11-11', reminderDone: true }, 201))
+  })
+  await dialog.getByRole('button', { name: 'Make a visit' }).first().click()
+  const sheet = page.getByRole('dialog', { name: 'One-off visit' })
+  await sheet.waitFor()
+  await expect(sheet.getByLabel('Notes for the crew (optional)')).toHaveValue('Call about the sprinkler quote')
+  await sheet.getByRole('button', { name: 'Add visit' }).click()
+  await expect.poll(() => visits.length).toBe(1)
+  expect(visits[0]).toMatchObject({ customer_id: 'cust-1', reminder_id: 'r1', notes: 'Call about the sprinkler quote' })
   await expectNoSidewaysScroll(page)
 })
 

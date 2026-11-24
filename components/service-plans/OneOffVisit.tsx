@@ -13,7 +13,14 @@ type Found = { id: string; name: string | null; phone?: string | null }
  * Used on the Visits board (the person searches for the customer) and on the Customer File (customer already known).
  * Saves through POST /api/ops/visits; the visit is an ordinary service visit (visit code, crew-day stop, billed like a plan visit).
  */
-export default function OneOffVisit({ customerId, onCreated, size = 'sm', variant = 'secondary' }: { customerId?: string; onCreated?: () => void; size?: 'sm' | 'md'; variant?: 'primary' | 'secondary' }) {
+export type OneOffPrefill = { customerId: string; propertyId?: string | null; date: string; notes: string; reminderId: string }
+
+/**
+ * `prefill` = "Make a visit" from a reminder: the customer (and property, when the reminder has one), the day and the reminder
+ * text as the crew note are filled in, and the save also sends the reminder id so the server marks the reminder done.
+ */
+export default function OneOffVisit({ customerId, onCreated, size = 'sm', variant = 'secondary', prefill, label = '+ One-off visit', className }: { customerId?: string; onCreated?: () => void; size?: 'sm' | 'md'; variant?: 'primary' | 'secondary'; prefill?: OneOffPrefill; label?: string; className?: string }) {
+  customerId = prefill?.customerId ?? customerId
   const [open, setOpen] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [customer, setCustomer] = React.useState<Found | null>(customerId ? { id: customerId, name: null } : null)
@@ -33,7 +40,7 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
     setFound([])
     setOptions(null)
     setOptionsFailed(false)
-    setF({ property_id: '', trade: '', name: '', date: todayLocal(), sub_id: '', price: '', taxable: false, notes: '' })
+    setF({ property_id: '', trade: '', name: '', date: prefill?.date ?? todayLocal(), sub_id: '', price: '', taxable: false, notes: prefill?.notes ?? '' })
     keyRef.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `k${Date.now()}${Math.random().toString(36).slice(2)}`
     setOpen(true)
   }
@@ -62,12 +69,13 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
       .then((o) => {
         if (!live) return
         setOptions(o)
-        setF((x) => ({ ...x, property_id: o.properties[0]?.id ?? '', trade: o.trades[0]?.slug ?? '' }))
+        setF((x) => ({ ...x, property_id: (prefill?.propertyId && o.properties.some((p) => p.id === prefill.propertyId) ? prefill.propertyId : o.properties[0]?.id) ?? '', trade: o.trades[0]?.slug ?? '' }))
       })
       .catch(() => live && setOptionsFailed(true))
     return () => {
       live = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the prefill is read once, when the sheet opens
   }, [open, cid])
 
   const ready = !!customer && !!options && !!f.property_id && !!f.trade && !!f.date && f.date >= today
@@ -78,19 +86,20 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
     const res = await fetch('/api/ops/visits', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idempotency_key: keyRef.current, customer_id: customer.id, property_id: f.property_id, trade: f.trade, name: f.name, date: f.date, sub_id: f.sub_id || null, price: f.price, taxable: f.taxable, notes: f.notes }),
+      body: JSON.stringify({ idempotency_key: keyRef.current, customer_id: customer.id, property_id: f.property_id, trade: f.trade, name: f.name, date: f.date, sub_id: f.sub_id || null, price: f.price, taxable: f.taxable, notes: f.notes, ...(prefill ? { reminder_id: prefill.reminderId } : {}) }),
     }).catch(() => null)
-    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; workOrderNumber?: string | null }
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; workOrderNumber?: string | null; reminderDone?: boolean }
     setSaving(false)
     if (!res || !res.ok) return toast.error(out.error || 'Could not save')
     toast.success(out.workOrderNumber ? `Visit ${out.workOrderNumber} added` : 'Visit added')
+    if (prefill && out.reminderDone === false) toast.error('Visit added, but the reminder is still open. Tap Done on it.')
     setOpen(false)
     onCreated?.()
   }
 
   return (
     <>
-      <Button size={size} variant={variant} onClick={start}>+ One-off visit</Button>
+      <Button size={size} variant={variant} className={className} onClick={start}>{label}</Button>
       {open ? (
         <Dialog open onOpenChange={(o) => !o && !saving && setOpen(false)}>
           <DialogContent className="scroll-pb-40" title="One-off visit" description="One visit, not a plan. It goes on the crew’s day and is billed like any visit.">
