@@ -12,6 +12,8 @@ import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import OneOffVisit from '@/components/service-plans/OneOffVisit'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 import VisitIncentiveMarks from '@/components/service-plans/VisitIncentiveMarks'
+import CrewDayNote from '@/components/service-plans/CrewDayNote'
+import VisitMachines from '@/components/service-plans/VisitMachines'
 import { checklistSummary } from '@/lib/visit-checklist'
 import MoveHistory from '@/components/schedule/MoveHistory'
 import RollButton from '@/components/schedule/RollButton'
@@ -273,6 +275,7 @@ export default function VisitsBoard() {
                   Print sheet
                 </a>
               ) : null}
+              {crewPicked && d.canEdit ? <CrewDayNote crewId={crewPicked} day={day} crewName={d.crews.find((c) => c.id === crewPicked)?.name ?? 'the crew'} /> : null}
               {d.canEdit
                 ? crewsWithStops.map((id) => (
                     <Button key={id} size="sm" variant="secondary" disabled={busy} onClick={() => void runRoute(day, id, 'best')}>
@@ -387,6 +390,7 @@ export default function VisitsBoard() {
                                 ))}
                               </Select>
                             ) : null}
+                            {v.status === 'scheduled' && v.step === SERVICE_STEP ? <VisitMachines visitId={v.id} onSaved={() => void load()} /> : null}
                             {d.incentiveMarks && v.status === 'completed' ? (
                               <VisitIncentiveMarks workOrderId={v.id} initial={d.incentiveMarks[v.id] ?? { review: false, callback: false }} onChanged={() => void load()} />
                             ) : null}

@@ -943,6 +943,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'crew-day':
       return <CrewDayList token="harness-token-harness-token-harness-1" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} />
+    case 'crew-day-note':
+      return <CrewDayList token="harness-token-harness-token-harness-6" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} officeNote={'Gate code changed to 9921.\nBring the long hose for the Oak Ridge stop.'} />
     case 'crew-day-money':
       return <CrewDayList token="harness-token-harness-token-harness-5" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY_MONEY as CrewDayVisit[]} />
     case 'crew-day-clock':

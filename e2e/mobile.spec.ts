@@ -474,6 +474,7 @@ const SCREENS: Screen[] = [
   },
     states: [
       { name: 'editor', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.waitForSelector('[role=dialog] >> text=How often, by season'); await p.waitForSelector('[role=dialog] >> text=New price starts on') } },
+      { name: 'editor-machines', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Machines (optional)'); await p.waitForSelector('[role=dialog] >> text=Zero-turn mower') } },
       { name: 'new-plan', run: async (p) => { await p.getByRole('button', { name: '+ Add plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Plan template'); await p.getByRole('button', { name: 'Change', exact: true }).waitFor() } },
       { name: 'new-plan-details', run: async (p) => { await p.getByRole('button', { name: '+ Add plan' }).click(); await p.getByRole('button', { name: 'Change', exact: true }).click(); await p.waitForSelector('[role=dialog] >> text=How often, by season') } },
       { name: 'pause', run: async (p) => { await p.getByRole('button', { name: 'Pause' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Resume on (optional)') } },
@@ -498,6 +499,8 @@ const SCREENS: Screen[] = [
     await p.route('**/api/ops/visits/*/photos', (route) => route.fulfill(json({ photos: [{ id: 'ph1', filename: 'front.jpg', created_at: '2026-11-10T15:00:00Z' }] })))
     await p.route(/\/api\/service-plans$/, (route) => route.fulfill(json({ ...HARNESS_SERVICE_PLANS, properties: [] })))
     await p.route('**/api/ops/subs/*/crew-day-link', (route) => route.fulfill(json({ path: '/crew/day/tok123' })))
+    await p.route(/\/api\/ops\/visits\/crew-note/, (route) => route.fulfill(json({ note: 'Gate code changed to 9921.' })))
+    await p.route(/\/api\/ops\/visits\/[^/]+\/equipment$/, (route) => route.fulfill(json({ visitId: 'v1', planId: 'pl1', status: 'scheduled', own: null, plan: ['m1'], names: { m1: 'Zero-turn mower' }, machines: [{ id: 'm1', name: 'Zero-turn mower' }, { id: 'm2', name: 'Backpack blower' }] })))
     await p.route('**/api/ops/visits/shift', (route) => route.fulfill(json({ preview: { selectionKey: 'k1', count: 9, landing: [{ day: '2026-11-18', count: 5 }, { day: '2026-11-19', count: 4 }], sample: [{ id: 'v1', from: '2026-11-17', to: '2026-11-18', what: 'Weekly mowing', customer: 'Pat Lee', crew: 'Green Crew' }], staying: { done: 2, skipped: 1 }, intoPast: 0 } })))
   },
     states: [
@@ -506,6 +509,8 @@ const SCREENS: Screen[] = [
       { name: 'step-result', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=How did it go?') } },
       { name: 'bulk-move', run: async (p) => { await p.getByRole('button', { name: 'Rain day — move visits' }).click(); await p.waitForSelector('[role=dialog] >> text=Move them to'); await p.getByRole('button', { name: 'Pick a day' }).click(); await p.waitForSelector('[role=dialog] >> text=New day for the first one') } },
       { name: 'bulk-move-preview', run: async (p) => { await p.getByRole('button', { name: 'Rain day — move visits' }).click(); await p.getByRole('button', { name: 'Preview' }).click(); await p.waitForSelector('[role=dialog] >> text=9 visits will move.'); await p.getByRole('button', { name: 'Move 9 visits' }).waitFor() } },
+      { name: 'crew-note', run: async (p) => { await p.getByLabel('Crew', { exact: true }).selectOption({ label: 'Green Team' }); await p.getByRole('button', { name: /note for the crew/i }).first().click(); await p.waitForSelector('[role=dialog] >> text=Note for the crew (they will see this)') } },
+      { name: 'visit-machines', run: async (p) => { await p.getByRole('button', { name: 'More', exact: true }).first().click(); await p.getByRole('button', { name: 'Machines', exact: true }).first().click(); await p.waitForSelector('[role=dialog] >> text=Different machines for this visit'); await p.getByLabel('Different machines for this visit').check(); await p.waitForSelector('[role=dialog] >> text=Backpack blower') } },
       { name: 'crew-links', run: async (p) => { await p.getByRole('button', { name: 'Crew phone links' }).click(); await p.getByRole('button', { name: 'Make link' }).first().click(); await p.getByRole('button', { name: 'Copy' }).waitFor() } },
       { name: 'more', run: async (p) => { await p.getByRole('button', { name: 'More', exact: true }).first().click(); await p.waitForSelector('text=Add photos (drop or tap)') } },
       { name: 'new-customer', run: async (p) => { await p.getByRole('button', { name: '+ New customer + plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Customer name *') } },
@@ -618,6 +623,10 @@ const SCREENS: Screen[] = [
       { name: 'roll-chips', run: async (p) => { await p.getByRole('button', { name: 'Not ready — roll' }).first().click(); await p.getByRole('button', { name: 'Builder asked' }).waitFor(); await p.getByRole('button', { name: 'Just roll' }).waitFor() } },
       { name: 'step-results', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('text=Needs a return trip') } },
     ] },
+  { name: 'crew-day-note', path: '/dev-harness/crew-day-note', ready: 'text=Note from the office',
+    mock: async (p) => {
+      await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
+    } },
   { name: 'crew-day-money', path: '/dev-harness/crew-day-money', ready: 'text=Customer owes $70.00',
     mock: async (p) => {
       await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))

@@ -66,6 +66,8 @@ import {
 import type { Development } from '@/lib/developments-db'
 import { orgDb } from '@/lib/supabase/org-db'
 import { loadWorkOrderRollCounts, recordWorkOrderMoves } from '@/lib/work-order-moves-db'
+import { loadEquipmentNames, loadPlanEquipment, machinesRefusal, savePlanEquipment } from '@/lib/truck-sheet-db'
+import { cleanEquipmentIds, sameIds } from '@/lib/truck-sheet'
 import type { MoveKind, RollReason } from '@/lib/work-order-rolls'
 import { upsertCustomer } from '@/lib/customers'
 import { createProperty, loadCustomerProperties } from '@/lib/properties-db'
@@ -601,6 +603,10 @@ async function prepareNewPlan(
   if (!p.ok) return p
   const hourly = await hourlyBasisRefusal(orgId, p.value.billing_basis, 'pricing' in clean.value ? clean.value.pricing : null)
   if (hourly) return hourly
+  if (clean.value.equipment_item_ids) {
+    const bad = await machinesRefusal(admin, orgId, clean.value.equipment_item_ids)
+    if (bad) return bad
+  }
   return { ok: true, base, v: p.value as ServicePlanInput }
 }
 
@@ -860,7 +866,8 @@ async function planPatch(
   }
   const clean = cleanPlanInput(body, true)
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
-  const v = clean.value
+  // Machines are saved beside the plan transaction (updateServicePlan → equipmentEdit), never through the patch.
+  const { equipment_item_ids: _machines, ...v } = clean.value
   const start = v.start_date ?? old.start_date
   const end = 'end_date' in v ? (v.end_date ?? null) : old.end_date
   if (end && end < start)
@@ -961,6 +968,31 @@ function rpcFail(error: { code?: string; message?: string }): Fail {
 }
 
 /**
+ * A plan edit's machines (price-book items the plan's visits use by default). They live beside the plan transaction, like "What's
+ * included": a visit never changes because of them (a visit with no list of its own reads the plan's when the sheet is made).
+ * Returns null when the request does not name machines or names the ones already set.
+ */
+async function equipmentEdit(
+  admin: SupabaseClient,
+  orgId: string,
+  planId: string,
+  b: Record<string, unknown>
+): Promise<{ ok: true; change: { ids: string[] | null; entry: FieldChange } | null } | Fail> {
+  if (!('equipment_item_ids' in b)) return { ok: true, change: null }
+  const clean = cleanEquipmentIds(b.equipment_item_ids)
+  if (!clean.ok) return { ok: false, status: 400, error: clean.error }
+  if (clean.value) {
+    const bad = await machinesRefusal(admin, orgId, clean.value)
+    if (bad) return bad
+  }
+  const before = (await loadPlanEquipment(admin, orgId, [planId])).get(planId) ?? null
+  if (sameIds(before, clean.value)) return { ok: true, change: null }
+  const names = await loadEquipmentNames(admin, orgId, [...(before ?? []), ...(clean.value ?? [])])
+  const show = (ids: string[] | null) => (ids ? ids.map((i) => names.get(i) ?? 'Machine') : null)
+  return { ok: true, change: { ids: clean.value, entry: { field: 'equipment_item_ids', label: 'Machines', old: show(before), new: show(clean.value) } } }
+}
+
+/**
  * Edit a plan or change its status. `preview: true` in the body = say what would change (fields + visits removed /
  * added / updated) and write nothing. Otherwise: save, bring future unstarted visits in line, top up the horizon and
  * write the history. Done / skipped visits and anything today or earlier never change. `expectedUpdatedAt` guards two
@@ -992,6 +1024,9 @@ export async function updateServicePlan(
     [old.property_id, patch.property_id as string | undefined]
   )
   const changes = planChanges(old, patch, names)
+  const machines = await equipmentEdit(admin, orgId, planId, b)
+  if (!machines.ok) return machines
+  if (machines.change) changes.push(machines.change.entry)
   const next = { ...old, ...patch } as ServicePlan
 
   if (b.preview === true) {
@@ -1004,7 +1039,16 @@ export async function updateServicePlan(
       summary: describeVisitEffect(effect),
     }
   }
-  if (Object.keys(patch).length === 0) return { ok: false, status: 400, error: 'Nothing changed' }
+  if (Object.keys(patch).length === 0 && !machines.change) return { ok: false, status: 400, error: 'Nothing changed' }
+  if (Object.keys(patch).length === 0 && machines.change) {
+    // Machines only: nothing about a visit's day, crew or price moves, so there is no plan transaction to run.
+    const saved = await savePlanEquipment(admin, orgId, planId, machines.change.ids)
+    if (!saved.ok) return saved
+    const effect: VisitEffect = { removed: 0, added: 0, updated: 0 }
+    await writeChange(admin, orgId, { plan_id: planId, action: opts.action ?? made.action, changed_by: userId, changes, visit_effect: effect })
+    const fresh = await loadServicePlan(admin, orgId, planId)
+    return { ok: true, plan: fresh ?? old, effect, changes }
+  }
 
   // The plan row and its visit changes in ONE transaction, under the plan's lock (service_plan_save).
   const steps = await regenerationSteps(admin, orgId, old, next, today)
@@ -1039,6 +1083,10 @@ export async function updateServicePlan(
       return { ok: false, status: 500, error: 'Saved, but “What’s included” did not save. Try again.' }
     }
     plan = planFromRow(saved as Record<string, unknown>)
+  }
+  if (machines.change) {
+    const saved = await savePlanEquipment(admin, orgId, plan.id, machines.change.ids)
+    if (!saved.ok) return { ok: false, status: saved.status, error: `Saved, but the machines did not save. ${saved.error}` }
   }
   const { created } = await ensureServiceVisits(admin, orgId, {
     now,

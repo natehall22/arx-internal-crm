@@ -6,6 +6,7 @@ import { SERVICE_PLANS_NOT_READY, createServicePlan, loadServicePlans, loadVisit
 import { hideTierPrices, loadPlanEditorOptions } from '@/lib/service-plans-options'
 import { isOneOffPlan, redactPlanPrices, visitHorizon, ymdInZone } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
+import { loadPlanEquipment } from '@/lib/truck-sheet-db'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +26,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     loadServicePlans(ctx.admin, ctx.orgId, { customerId: params.id }),
     loadPlanEditorOptions(ctx.admin, ctx.orgId, ctx.access, params.id),
   ])
+  // Each plan's default machines (read apart from the plan columns so a company without the database update still loads its plans).
+  const machinesByPlan = await loadPlanEquipment(ctx.admin, ctx.orgId, plans.plans.map((p) => p.id))
   // Upcoming one-off visits (a one-off is a plan that makes one visit): listed apart from the recurring plans, each with its visit
   // so the card can move it, change its crew or cancel it.
   const oneOffPlans = plans.plans.filter((p) => isOneOffPlan(p) && p.status === 'active')
@@ -41,7 +44,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   return NextResponse.json({
     ready: plans.ready,
     oneOffs,
-    plans: plans.plans.filter((p) => !isOneOffPlan(p)).map((p) => ({ ...redactPlanPrices(p, ctx.access.prices), pricing: hideTierPrices(p.pricing, ctx.access.prices) })),
+    plans: plans.plans.filter((p) => !isOneOffPlan(p)).map((p) => ({ ...redactPlanPrices(p, ctx.access.prices), pricing: hideTierPrices(p.pricing, ctx.access.prices), equipment_item_ids: machinesByPlan.get(p.id) ?? null })),
     canEdit: ctx.access.edit,
     ...options,
   })

@@ -725,6 +725,7 @@ export const HARNESS_SERVICE_PLANS = {
   properties: [{ id: 'prop-1', name: 'Main office · 2410 Crawfordville Hwy' }, { id: 'prop-2', name: 'Rental on Oak · 88 Oak Ridge Rd' }],
   trades: HARNESS_PLAN_TEMPLATES.trades,
   crews: HARNESS_PLAN_TEMPLATES.crews,
+  machines: [{ id: 'm1', name: 'Zero-turn mower' }, { id: 'm2', name: 'Backpack blower' }],
   people: HARNESS_PLAN_TEMPLATES.people,
   templates: HARNESS_PLAN_TEMPLATES.templates,
   plans: [

@@ -14,6 +14,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { readCustomerMessageSettings } from '@/lib/customer-messages'
 import { loadScoreboard } from '@/lib/crew-incentives-db'
 import { loadCrewProjectStops } from '@/lib/crew-day-projects'
+import { loadCrewDayNote } from '@/lib/truck-sheet-db'
 import CrewDayList from './CrewDayList'
 
 export const dynamic = 'force-dynamic'
@@ -79,8 +80,11 @@ export default async function CrewDayPage({ params }: { params: { token: string 
     console.error('[crew-day] scoreboard failed', e)
     return null
   })
+  // The office's note for THIS crew and today (read by the link's own crew id, never a request value).
+  const officeNote = (await loadCrewDayNote(admin, crew.orgId, crew.subId, today))?.note ?? null
   return (
     <CrewDayList
+      officeNote={officeNote}
       scoreboard={scoreboard}
       token={params.token}
       onTheWay={onTheWay}

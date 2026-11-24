@@ -74,6 +74,7 @@ export default function CrewDayList({
   clock: initialClock = null,
   onTheWay = false,
   scoreboard = null,
+  officeNote = null,
 }: {
   token: string
   crewName: string
@@ -88,6 +89,8 @@ export default function CrewDayList({
   onTheWay?: boolean
   /** This crew's bonuses this week (only when the company turned crew incentives on; never another crew's). */
   scoreboard?: Scoreboard | null
+  /** The office's note to this crew for today (the same words the printed sheet carries). */
+  officeNote?: string | null
 }) {
   const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(() => initial.map((v) => ({ ...v, checklist: v.checklist ?? [] })))
   const [busy, setBusy] = useState<string | null>(null)
@@ -348,12 +351,18 @@ export default function CrewDayList({
                 ? 'All visits finished. Nice work.'
                 : `${open} of ${visits.length} visit${visits.length === 1 ? '' : 's'} left`}
           </p>
-          {visits.length > 0 ? (
+          {visits.length > 0 || projects.length > 0 ? (
             <a href={`/api/crew/day/${token}/sheet`} target="_blank" rel="noopener noreferrer" className={`${btn} mt-2 w-full border-2 border-[#2c2c2a] bg-white`}>
               Print today’s sheet
             </a>
           ) : null}
         </header>
+        {officeNote ? (
+          <section aria-label="Note from the office" className="rounded-lg border-2 border-[#2c2c2a] bg-white p-3">
+            <h2 className="text-base font-bold">Note from the office</h2>
+            <p className="mt-1 whitespace-pre-wrap break-words text-base">{officeNote}</p>
+          </section>
+        ) : null}
         {error ? (
           <p role="alert" className="rounded-lg border-2 border-red-700 bg-white p-3 text-base font-semibold text-red-800">
             {error}

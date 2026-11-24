@@ -5,6 +5,7 @@ import * as React from 'react'
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 
 import { Button, Field, Input, Select, Textarea } from '@/components/ui'
+import MachinePicker from '@/components/service-plans/MachinePicker'
 import { SeasonsEditor, StepsEditor } from '@/components/service-plans/PlanSpecEditors'
 import { formatMoney } from '@/lib/format'
 import {
@@ -30,7 +31,7 @@ import {
  * (`key={f.template_id}`) so a new plan type starts tidy again.
  */
 
-export type PlanRow = ServicePlan & { priceHidden?: boolean }
+export type PlanRow = ServicePlan & { priceHidden?: boolean; /** The plan's default machines (price-book items); null / missing = none set. */ equipment_item_ids?: string[] | null }
 export type Option = { id: string; name: string }
 export type PlanEditorOptions = {
   prices: boolean
@@ -39,6 +40,8 @@ export type PlanEditorOptions = {
   crews: Option[]
   people: Option[]
   templates: ServicePlanTemplate[]
+  /** Machines the company has (the time clock's list); missing = none offered. */
+  machines?: Option[]
 }
 
 export type PlanFormValues = {
@@ -64,6 +67,9 @@ export type PlanFormValues = {
   default_sub_id: string
   route_position: string
   steps: PlanStep[]
+  /** Default machines for the plan's visits; only sent when `equipmentTouched`. */
+  equipment: string[]
+  equipmentTouched: boolean
 }
 
 export function todayLocal(): string {
@@ -94,6 +100,8 @@ export function formFromTemplate(t: ServicePlanTemplate | null, d: PlanEditorOpt
     taxable: t?.taxable ?? false,
     default_sub_id: '',
     route_position: '',
+    equipment: [],
+    equipmentTouched: false,
     steps: t ? clone(t.steps) : [],
   }
 }
@@ -120,6 +128,8 @@ export function formFromPlan(p: PlanRow): PlanFormValues {
     default_sub_id: p.default_sub_id ?? '',
     route_position: p.route_position != null ? String(p.route_position) : '',
     steps: clone(p.steps),
+    equipment: [...(p.equipment_item_ids ?? [])],
+    equipmentTouched: false,
   }
 }
 
@@ -145,6 +155,7 @@ export function bodyFrom(f: PlanFormValues, isNew: boolean): Record<string, unkn
     default_sub_id: f.default_sub_id || null,
     route_position: f.route_position,
     steps: f.steps,
+    ...(f.equipmentTouched ? { equipment_item_ids: f.equipment.length ? f.equipment : null } : {}),
   }
 }
 
@@ -334,6 +345,13 @@ export function PlanFields({
           <Field label="Stop #" hint="Order on the crew’s day">{(a) => <Input {...a} type="number" inputMode="numeric" min={1} max={999} className="text-base" value={f.route_position} onChange={(e) => set({ route_position: e.target.value })} />}</Field>
           <StepsEditor value={f.steps} onChange={(steps) => set({ steps })} crews={d.crews} people={d.people} />
           <Field label="What’s included (one per line)" hint="The crew checks these off on every visit — e.g. Mow, Edge, Blow, Beds. No prices.">{(a) => <Textarea {...a} className="text-base" rows={4} maxLength={1800} value={f.service_lines} onChange={(e) => set({ service_lines: e.target.value })} />}</Field>
+          {(d.machines ?? []).length > 0 || f.equipment.length > 0 ? (
+            <fieldset className="flex flex-col">
+              <legend className="text-ui-base font-semibold text-ink">Machines (optional)</legend>
+              <p className="text-ui-sm text-ink">What every visit of this plan takes on the truck. You can change one visit later.</p>
+              <MachinePicker options={d.machines ?? []} value={f.equipment} onChange={(equipment) => set({ equipment, equipmentTouched: true })} />
+            </fieldset>
+          ) : null}
           <Field label="Notes for the crew (optional)">{(a) => <Textarea {...a} className="text-base" maxLength={2000} value={f.description} onChange={(e) => set({ description: e.target.value })} />}</Field>
         </>
       )}

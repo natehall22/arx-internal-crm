@@ -10,6 +10,7 @@
  */
 import { HEALTH_RESULTS, HEALTH_RESULT_STYLE } from '@/lib/health-result'
 import { cleanServiceLines } from '@/lib/visit-checklist'
+import { cleanEquipmentIds } from '@/lib/truck-sheet'
 import { parseRollReason, type RollReason } from '@/lib/work-order-rolls'
 
 export const SERVICE_FREQUENCIES = ['weekly', 'every_2_weeks', 'every_4_weeks', 'monthly', 'quarterly', 'yearly', 'none'] as const
@@ -462,6 +463,8 @@ export type ServicePlanInput = {
   preferred_weekday: number | null
   default_sub_id: string | null
   route_position: number | null
+  /** Machines the plan's visits use by default (price-book items, unit 'hour'); only present when the request names them (lib/truck-sheet.ts). */
+  equipment_item_ids: string[] | null
 }
 
 const str = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
@@ -547,6 +550,11 @@ export function cleanPlanInput(
       if (!Number.isInteger(n) || n < 0 || n > 6) return { ok: false, error: 'Pick a weekday' }
       out.preferred_weekday = n
     }
+  }
+  if ('equipment_item_ids' in b) {
+    const e = cleanEquipmentIds(b.equipment_item_ids)
+    if (!e.ok) return e
+    out.equipment_item_ids = e.value
   }
   if (has('default_sub_id')) out.default_sub_id = typeof b.default_sub_id === 'string' && b.default_sub_id ? b.default_sub_id : null
   if (has('route_position')) {

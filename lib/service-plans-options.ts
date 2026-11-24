@@ -5,6 +5,7 @@ import { loadCustomerProperties } from '@/lib/properties-db'
 import { propertyDisplayName } from '@/lib/properties'
 import type { ServicePlanAccess } from '@/lib/service-plans-access'
 import { loadTemplates } from '@/lib/service-plans-db'
+import { loadEquipmentChoices } from '@/lib/time-tracking-db'
 import type { PlanPricing } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 
@@ -18,12 +19,14 @@ export function hideTierPrices(p: PlanPricing, prices: boolean): PlanPricing {
  * GET /api/customers/[id]/service-plans and GET /api/service-plans (new customer + plan).
  */
 export async function loadPlanEditorOptions(admin: SupabaseClient, orgId: string, access: ServicePlanAccess, customerId: string | null) {
-  const [props, trades, subs, users, templates] = await Promise.all([
+  const [props, trades, subs, users, templates, machines] = await Promise.all([
     customerId ? loadCustomerProperties(admin, orgId, customerId, { accessNotes: false }) : Promise.resolve({ ready: true, properties: [] }),
     loadOrgTrades(admin, orgId),
     orgDb(admin, orgId).from('sub_contractors').select('id, company_name').eq('active', true).order('company_name'),
     access.edit ? orgDb(admin, orgId).from('users').select('id, full_name').eq('active', true).order('full_name') : Promise.resolve({ data: [] }),
     loadTemplates(admin, orgId, { activeOnly: true }),
+    // Machines for a plan's visits (the time clock's list), for people who can edit plans only.
+    access.edit ? loadEquipmentChoices(admin, orgId).catch(() => []) : Promise.resolve([]),
   ])
   return {
     prices: access.prices,
@@ -32,6 +35,7 @@ export async function loadPlanEditorOptions(admin: SupabaseClient, orgId: string
     crews: ((subs.data ?? []) as Array<{ id: string; company_name: string | null }>).map((s) => ({ id: s.id, name: s.company_name ?? 'Crew' })),
     people: ((users.data ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => ({ id: u.id, name: u.full_name || 'Unnamed user' })),
     // What the company sells: a new plan starts from one of these (copied at sale).
+    machines,
     templates: templates.templates.map((t) => ({ ...t, pricing: hideTierPrices(t.pricing, access.prices) })),
   }
 }
