@@ -3,13 +3,14 @@
  * AI connector's add_cost_line — so who may add a cost, and what a cost line may say, has ONE answer. The write itself is
  * `addJobCostLine` (lib/job-cost-ledger.ts). Server only.
  */
+import { jobHiddenFrom } from '@/lib/category-scope'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { isDealerFeeCostLine, normalizeJobCostType, type JobCostType } from '@/lib/job-cost-ledger'
 import { resolveOpsAccess } from '@/lib/ops-access'
 
-type CostProfile = { id: string; org_id: string; role: string; custom_role_id?: string | null }
+type CostProfile = { id: string; org_id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null; category_limit?: unknown }
 
 export type CostJob = { id: string; org_id: string; job_number?: string | null; address_text?: string | null }
 
@@ -23,6 +24,8 @@ export async function authorizeJobCost(
   if (!canJobBoard || !(await callerCanAccessJobBilling(admin, profile as never))) return { ok: false, status: 403, error: 'Forbidden' }
   const { data: job } = await admin.from('production_jobs').select('id, org_id, job_number, address_text').eq('id', jobId).eq('org_id', profile.org_id).single()
   if (!job) return { ok: false, status: 404, error: 'Job not found' }
+  // A person limited to some work categories adds costs only to jobs inside them (no limit: no query).
+  if (await jobHiddenFrom(admin, profile, jobId)) return { ok: false, status: 404, error: 'Job not found' }
   return { ok: true, job: job as CostJob }
 }
 

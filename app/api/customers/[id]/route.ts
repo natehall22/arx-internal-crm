@@ -1,3 +1,4 @@
+import { categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -69,6 +70,10 @@ export async function PATCH(
       .single()
 
     if (fetchError || !existingCustomer) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+    }
+    // A person limited to some work categories edits only customers inside them (no limit: no query).
+    if (!(await customerInScope(adminClient, profile.org_id, categoryScopeOf(profile), params.id))) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     }
 

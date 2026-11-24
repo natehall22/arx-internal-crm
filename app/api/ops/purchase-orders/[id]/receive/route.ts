@@ -1,4 +1,5 @@
 /** POST { all: true } | { lines: [{ lineId, quantity }] } — record what arrived / was done. Partial quantities are fine. */
+import { purchaseOrderInScope, recordHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { crossSiteWrite } from '@/lib/online-payments/access'
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const a = await authorizePo('canEdit')
   if ('error' in a) return a.error
+  if (await recordHiddenFrom(a.ctx.admin, a.ctx.profile, params.id, purchaseOrderInScope)) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (crossSiteWrite(request)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const body = (await request.json().catch(() => null)) as { all?: boolean; lines?: { lineId?: unknown; quantity?: unknown }[] } | null
   let change

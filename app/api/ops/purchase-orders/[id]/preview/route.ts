@@ -2,6 +2,7 @@
  * GET — exactly what "Send order to <vendor>" would send, without sending it. ?kind=order|cancellation, &format=pdf for the PDF.
  * Read-only: writes nothing, sends nothing.
  */
+import { purchaseOrderInScope, recordHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { buildPoPreview, loadPoContext } from '@/lib/purchase-orders-db'
@@ -12,6 +13,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const a = await authorizePo('canEdit')
   if ('error' in a) return a.error
+  if (await recordHiddenFrom(a.ctx.admin, a.ctx.profile, params.id, purchaseOrderInScope)) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   const { admin, orgId, authUser, profile } = a.ctx
   const loaded = await loadPoContext(admin, orgId, params.id)
   if (!loaded.ok) return NextResponse.json({ error: loaded.message }, { status: loaded.status })

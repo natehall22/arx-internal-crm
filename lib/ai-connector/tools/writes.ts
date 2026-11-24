@@ -7,7 +7,7 @@
  * Never here: payments, payroll, sending anything (email, text, invoice, order), deleting, permissions, settings, cancelling.
  * Text typed by the AI is stored as plain text: control characters and anything that looks like an HTML tag are removed.
  */
-import { categoryScopeOf } from '@/lib/category-scope'
+import { categoryScopeOf, customerInScope, jobHiddenFrom } from '@/lib/category-scope'
 import { z } from 'zod'
 
 import { writeTool } from '@/lib/ai-connector/changes'
@@ -454,6 +454,8 @@ async function invoiceGate(ctx: ToolContext, a: z.infer<typeof invoiceSchema>) {
   const db = orgDb(ctx.admin, ctx.orgId)
   const { data: customer } = await db.from('customers').select('id, name').eq('id', a.customer_id).maybeSingle()
   if (!customer) throw new ToolError('not_found')
+  // A person limited to some work categories drafts invoices only for customers inside them (same answer as not found).
+  if (!(await customerInScope(ctx.admin, ctx.orgId, categoryScopeOf(ctx.profile), a.customer_id))) throw new ToolError('not_found')
   if (a.property_id) {
     const { data: prop } = await db.from('properties').select('id, address_text').eq('id', a.property_id).eq('customer_id', a.customer_id).maybeSingle()
     if (!prop) throw new ToolError('not_found')
@@ -529,6 +531,8 @@ async function poGate(ctx: ToolContext, a: z.infer<typeof poSchema>) {
   if (!access.canEdit) throw new ToolError('denied', REFUSED, 'no_permission')
   const target = await loadPoTarget(ctx.admin, ctx.orgId, { jobId: a.job_id })
   if (!target) throw new ToolError('not_found')
+  // A person limited to some work categories orders only for jobs inside them (same answer as not found).
+  if (await jobHiddenFrom(ctx.admin, ctx.profile, a.job_id)) throw new ToolError('not_found')
   if (target.cancelled) throw new ToolError('bad_input', 'This job is cancelled, so orders cannot be made.', 'job_cancelled')
   const db = orgDb(ctx.admin, ctx.orgId)
   const { data: vendor } = await db.from('vendors').select('id, name, active, deleted_at').eq('id', a.vendor_id).maybeSingle()

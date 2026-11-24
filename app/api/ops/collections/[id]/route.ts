@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { collectionInScope, recordHiddenFrom } from '@/lib/category-scope'
 import { requireOnlinePaymentsCaller } from '@/lib/online-payments/access'
 import { confirmCollection, rejectCollection } from '@/lib/visit-collections-db'
 
@@ -13,6 +14,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const a = await requireOnlinePaymentsCaller('billing', request)
   if (a.error) return a.error
+  if (await recordHiddenFrom(a.admin, a.profile, params.id, collectionInScope)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const body = (await request.json().catch(() => ({}))) as { action?: unknown; reason?: unknown }
   if (body.action !== 'confirm' && body.action !== 'reject') return NextResponse.json({ error: 'Confirm or reject' }, { status: 400 })
   const orgId = a.profile.org_id
