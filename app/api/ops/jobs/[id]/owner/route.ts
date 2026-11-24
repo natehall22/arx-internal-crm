@@ -36,7 +36,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   if (!body || !('userId' in body) || (body.userId !== null && typeof body.userId !== 'string')) {
     return NextResponse.json({ error: 'userId must be a user id or null' }, { status: 400 })
   }
-  const result = await setJobOwner(r.admin, r.profile.org_id, params.id, (body.userId as string | null) || null)
+  const result = await setJobOwner(r.admin, r.profile.org_id, params.id, (body.userId as string | null) || null, r.profile.id)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json({ ownerUserId: result.ownerUserId })
 }

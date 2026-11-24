@@ -7,6 +7,7 @@ import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveOpsAccess, redactProductionJobFinancialSummaryFields } from '@/lib/ops-access'
 import { CANCELLED_JOB_STATUS, projectStatusForJobStatus } from '@/lib/job-status'
 import { normalizeCustomerPo } from '@/lib/invoice-batch'
+import { jobPatchChanges, recordJobChanges, splitStatusChange } from '@/lib/job-changes'
 
 const jobSelectWithPaymentMethod = `
   *,
@@ -144,6 +145,14 @@ export async function PATCH(
       }
     }
 
+    // What the patched columns say now, for the job's history (a failed read just means no history line).
+    const { data: beforeRow } = await adminClient
+      .from('production_jobs')
+      .select(Object.keys(updateData).join(','))
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .maybeSingle()
+
     // Update the job
     const { data: updatedJob, error: updateError } = await adminClient
       .from('production_jobs')
@@ -156,6 +165,12 @@ export async function PATCH(
     if (updateError) {
       console.error('Error updating job:', updateError)
       return NextResponse.json({ error: 'Failed to update job' }, { status: 500 })
+    }
+
+    if (beforeRow && updatedJob) {
+      const { status, rest } = splitStatusChange(jobPatchChanges(beforeRow as unknown as Record<string, unknown>, updatedJob as Record<string, unknown>))
+      await recordJobChanges(adminClient, profile.org_id, params.id, profile.id, 'status', status)
+      await recordJobChanges(adminClient, profile.org_id, params.id, profile.id, 'job_edit', rest)
     }
 
     if (oldPo !== undefined && (updatedJob?.customer_po ?? null) !== oldPo) {

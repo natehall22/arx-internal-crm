@@ -7,6 +7,8 @@ import { removeInstallFromCalendar } from '@/lib/install-calendar'
 import { loadTradeWithJob } from '@/lib/job-trade-calendar'
 import { JOB_TRADE_COLUMNS } from '@/lib/job-trades'
 import { syncJobScheduleFromTrades } from '@/lib/job-trades-db'
+import { recordJobChanges, tradeScheduleChanges } from '@/lib/job-changes'
+import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 
 /**
  * POST /api/ops/install-schedule/unassign
@@ -76,7 +78,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to unassign install' }, { status: 500 })
   }
 
-  await syncJobScheduleFromTrades(adminClient, orgId, job.id, { revertToMaterials: true })
+  await syncJobScheduleFromTrades(adminClient, orgId, job.id, { revertToMaterials: true, changedBy: profile.id })
+
+  // The job's history (never blocks the unassign).
+  try {
+    let oldCrew: string | null = null
+    if (trade.assigned_sub_id) {
+      const { data: prev } = await adminClient.from('sub_contractors').select('company_name').eq('id', trade.assigned_sub_id).eq('org_id', orgId).maybeSingle()
+      oldCrew = (prev as { company_name?: string | null } | null)?.company_name ?? 'A crew'
+    }
+    const name = tradeLabel(trade.trade, await loadOrgTrades(adminClient, orgId))
+    await recordJobChanges(adminClient, orgId, job.id, profile.id, 'schedule', tradeScheduleChanges(name, { scheduled_date: trade.scheduled_date, install_days: trade.install_days, crew: oldCrew }, { scheduled_date: null, install_days: null, crew: null }))
+  } catch (e) {
+    console.error('[install-schedule unassign] history failed', e)
+  }
 
   // `trade` was read before the update, so it still carries the event ids to remove.
   const removal = await removeInstallFromCalendar(adminClient, {

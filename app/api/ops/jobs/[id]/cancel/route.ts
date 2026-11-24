@@ -5,7 +5,8 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { removeInstallFromCalendar } from '@/lib/install-calendar'
-import { isJobCancellationReason } from '@/lib/job-status'
+import { isJobCancellationReason, jobCancellationReasonLabel } from '@/lib/job-status'
+import { jobStatusWord, recordJobChanges } from '@/lib/job-changes'
 import { JOB_TRADE_COLUMNS, type JobTradeRow } from '@/lib/job-trades'
 
 const MAX_NOTES_LENGTH = 500
@@ -113,6 +114,16 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const result = data as CancelResult
 
+  await recordJobChanges(
+    adminClient,
+    profile.org_id,
+    result.job_id,
+    profile.id,
+    'cancel',
+    [{ field: 'status', label: 'Status', old: jobStatusWord(result.previous_status), new: jobStatusWord('cancelled') }],
+    `${jobCancellationReasonLabel(reason)}${notes ? ` — ${notes}` : ''}`
+  )
+
   // QuickBooks: a cancelled sale's invoice is voided there (void keeps the record; never deleted). Never blocks the cancel.
   await enqueueRecordEvent(adminClient, profile.org_id, { eventType: 'invoice.voided', table: 'production_jobs', id: result.job_id, version: Date.now() })
 
@@ -188,6 +199,8 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
   if (error) return rpcErrorResponse(error, 'Failed to undo cancellation')
 
   const result = data as { job_id: string; contracts_restored: number }
+  // The function returns the job to sold (see above), so that is what the history says.
+  await recordJobChanges(adminClient, profile.org_id, result.job_id, profile.id, 'uncancel', [{ field: 'status', label: 'Status', old: jobStatusWord('cancelled'), new: jobStatusWord('sold') }], 'Cancellation undone')
   // QuickBooks: the voided invoice cannot be un-voided there, so the restored sale is sent again as a new invoice (never blocks the undo).
   await enqueueRecordEvent(adminClient, profile.org_id, { eventType: 'invoice.upserted', table: 'production_jobs', id: result.job_id, version: Date.now() })
   return NextResponse.json({ jobId: result.job_id, contractsRestored: result.contracts_restored })

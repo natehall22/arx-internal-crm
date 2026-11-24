@@ -23,7 +23,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (!isUuidLike(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const parsed = parseJobHourlyPatch(await request.json().catch(() => null))
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
-  const r = await saveJobHourlySetup(ctx.admin, ctx.orgId, params.id, parsed.patch)
+  const r = await saveJobHourlySetup(ctx.admin, ctx.orgId, params.id, parsed.patch, ctx.userId)
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
   const fresh = await loadJobHourlySetup(ctx.admin, ctx.orgId, params.id)
   return NextResponse.json('ok' in fresh ? { ok: true } : { ok: true, ...fresh, canEdit: true, canBill: ctx.access.bill })

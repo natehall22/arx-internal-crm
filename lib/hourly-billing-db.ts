@@ -34,6 +34,8 @@ import {
   type TargetKey,
 } from '@/lib/hourly-billing'
 // Send = THE no-job invoice send (autopay + pay link when online payments are ready; else exactly sendCustomerInvoice).
+import type { FieldChange } from '@/lib/change-log'
+import { recordJobChanges } from '@/lib/job-changes'
 import { copyCustomerPo } from '@/lib/invoices'
 import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
 import { syncJobSaleAndCommissionBase, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
@@ -746,10 +748,10 @@ export async function invoiceHasBilledHours(admin: SupabaseClient, orgId: string
  * Save a job's billing setup. The rate must be this company's price-book item priced per hour. Back to "as sold" is refused
  * while billed hours sit on a live invoice (void those first). The commission base follows (lib/job-commission-base.ts).
  */
-export async function saveJobHourlySetup(admin: SupabaseClient, orgId: string, jobId: string, patch: JobHourlyPatch): Promise<{ ok: true } | Fail> {
+export async function saveJobHourlySetup(admin: SupabaseClient, orgId: string, jobId: string, patch: JobHourlyPatch, userId: string | null = null): Promise<{ ok: true } | Fail> {
   // Paid on an approved week: how it is billed can no longer change (its commission was paid on that basis; later
   // changes in what it is invoiced go through commission change lines, lib/payroll-commission-change.ts).
-  const { data: current } = await orgDb(admin, orgId).from('production_jobs').select('billing_mode').eq('id', jobId).maybeSingle()
+  const { data: current } = await orgDb(admin, orgId).from('production_jobs').select('billing_mode, estimated_hours').eq('id', jobId).maybeSingle()
   const currentMode = (current as { billing_mode?: string | null } | null)?.billing_mode === 'time_materials' ? 'time_materials' : 'fixed'
   if (current && currentMode !== patch.mode && (await jobPaidOnApprovedWeek(admin, orgId, jobId))) {
     return { ok: false, status: 409, error: 'This job’s commission was already paid, so how it is billed can’t change now' }
@@ -781,6 +783,12 @@ export async function saveJobHourlySetup(admin: SupabaseClient, orgId: string, j
     throw new Error(`hourly billing: save job: ${error.message}`)
   }
   if (!data) return { ok: false, status: 404, error: 'Not found' }
+  const billingWord = (m: string) => (m === 'time_materials' ? 'By the hour' : 'As sold')
+  const billingChanges: FieldChange[] = []
+  if (currentMode !== patch.mode) billingChanges.push({ field: 'billing_mode', label: 'Billing', old: billingWord(currentMode), new: billingWord(patch.mode) })
+  const oldHours = (current as { estimated_hours?: number | null } | null)?.estimated_hours ?? null
+  if (patch.mode === 'time_materials' && Number(oldHours ?? NaN) !== Number(patch.estimatedHours ?? NaN)) billingChanges.push({ field: 'estimated_hours', label: 'Estimated hours', old: oldHours, new: patch.estimatedHours ?? null })
+  await recordJobChanges(admin, orgId, jobId, userId, 'billing', billingChanges)
   // By the hour: base = invoiced pre-tax; as sold: back to the signed contract (both through the one writer).
   if (patch.mode === 'time_materials') await syncTimeAndMaterialsCommissionBase(admin, orgId, jobId)
   else await syncJobSaleAndCommissionBase(admin, { orgId, jobId })

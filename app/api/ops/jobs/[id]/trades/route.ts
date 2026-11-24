@@ -8,13 +8,14 @@ import { removeInstallFromCalendar } from '@/lib/install-calendar'
 import { loadTradeWithJob } from '@/lib/job-trade-calendar'
 import { missingRequiredPhotoTags } from '@/lib/final-photo-tags'
 import { JOB_TRADE_COLUMNS, crewLinkUrl, installDaysOrDefault, type JobTradeRow } from '@/lib/job-trades'
-import { activeTrades, isAddableTrade, loadOrgTrades, sortTrades, tradeOptions } from '@/lib/org-trades'
+import { activeTrades, isAddableTrade, loadOrgTrades, sortTrades, tradeLabel, tradeOptions } from '@/lib/org-trades'
 import { loadBeforeYou } from '@/lib/before-you-db'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { loadWorkOrderRollCounts } from '@/lib/work-order-moves-db'
 import { canRollTrade } from '@/lib/work-order-rolls'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { ymdInZone } from '@/lib/service-plans'
+import { recordJobChanges } from '@/lib/job-changes'
 import { addManualTrade, ensureJobTrades, syncJobScheduleFromTrades } from '@/lib/job-trades-db'
 
 type AuthCtx = { authUser: { id: string }; profile: { id: string; org_id: string; role: string; custom_role_id?: string | null } }
@@ -269,6 +270,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
   const derived = await syncJobScheduleFromTrades(admin, orgId, job.id, {
     revertToMaterials: action === 'remove',
+    changedBy: ctx.profile.id,
   })
+  // The job's history: this trade's work marked done / reopened / removed (never blocks the change).
+  {
+    const tradeName = tradeLabel(trade.trade, await loadOrgTrades(admin, orgId).catch(() => undefined))
+    const words = action === 'complete' ? ['In progress', 'Done'] : action === 'reopen' ? ['Done', 'In progress'] : ['On the job', 'Removed']
+    await recordJobChanges(admin, orgId, job.id, ctx.profile.id, 'schedule', [{ field: 'trade_status', label: `${tradeName} work`, old: words[0], new: words[1] }])
+  }
   return NextResponse.json({ ok: true, jobStatus: derived?.status ?? job.status, calendarWarning })
 }

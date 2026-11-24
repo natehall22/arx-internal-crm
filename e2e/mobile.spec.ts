@@ -14,6 +14,7 @@ async function mockApi(page: Page) {
     const p = url.pathname
     const m = route.request().method()
     if (/\/api\/ops\/jobs\/[^/]+\/payments$/.test(p)) return route.fulfill(json({ payments: [{ id: 'pay1', job_id: 'job-1', paid_at: '2026-10-10', amount_cents: 1632500, payment_type: 'final', method: 'financing', payer: 'financing', note: null, created_at: '2026-10-10T12:00:00Z', created_by: 'u1', funding_status: 'cleared' }], collected_cents: 1632500, collected_dollars: 16325, sale_amount_cents: 1632500, sale_amount_dollars: 16325, remaining_cents: 0, remaining_dollars: 0, payment_count: 1, paid_in_full: true, paid_by_payments: true }))
+    if (/\/api\/ops\/jobs\/[^/]+\/history$/.test(p)) return route.fulfill(json({ entries: [{ id: 'h1', source: 'status', at: '2026-11-23T21:12:00Z', by: 'Dana Whitfield', lines: ['Status: Sold → Scheduled'], note: null }, { id: 'h2', source: 'schedule', at: '2026-11-22T15:00:00Z', by: null, lines: ['Gutters date: 2026-11-04 → 2026-11-06'], note: 'Moved by the crew (phone link)' }], hasMore: false, startsAt: '2026-11-20T12:00:00Z' }))
     if (/\/api\/ops\/jobs\/[^/]+\/notes$/.test(p)) return route.fulfill(json({ notes: [{ id: 'n1', note: 'Customer asked for the crew to park on the street, not the driveway. @Stevo Potts please confirm the dumpster drop.', is_internal: true, created_at: '2026-10-11T14:00:00Z', user: { full_name: 'Nathan Hall' } }] }))
     if (/\/api\/ops\/jobs\/[^/]+\/trades$/.test(p)) return route.fulfill(json({ trades: [] }))
     if (p === '/api/ops/purchase-orders/items') return route.fulfill(json({ items: [] }))
@@ -265,10 +266,13 @@ const SCREENS: Screen[] = [
       { name: 'lots-open', run: async (p) => { await p.getByRole('button', { name: 'Board', exact: true }).click(); await p.getByRole('button', { name: 'Show lots' }).click(); await p.waitForSelector('text=26-0047 >> visible=true') } },
     ] },
   { name: 'job-page', path: '/dev-harness/job-page', ready: 'text=26-0042',
-    states: ['Details', 'Materials', 'Financials', 'Photos & files', 'Notes'].map((tab) => ({
-      name: `tab-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`,
-      run: async (p: Page) => { await p.getByRole('button', { name: tab, exact: true }).click(); await p.waitForTimeout(500) },
-    })) },
+    states: [
+      ...['Details', 'Materials', 'Financials', 'Photos & files', 'Notes'].map((tab) => ({
+        name: `tab-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`,
+        run: async (p: Page) => { await p.getByRole('button', { name: tab, exact: true }).click(); await p.waitForTimeout(500) },
+      })),
+      { name: 'history-open', run: async (p: Page) => { await p.getByRole('button', { name: 'History', exact: true }).click(); await p.waitForSelector('text=Status: Sold → Scheduled') } },
+    ] },
   { name: 'purchase-orders', path: '/dev-harness/purchase-orders', ready: 'text=Gravel Guys Hauling',
     states: [
       // The 4-tap path: + Purchase order, vendor, Review & send, Send.
