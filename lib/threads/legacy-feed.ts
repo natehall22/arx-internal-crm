@@ -8,6 +8,9 @@ type FeedRow = {
   opportunity_id?: string | null
   audience?: Audience | null
   restricted_pricing?: boolean | null
+  /** Private rows: the writer and the listed readers. A caller that does not select them leaves a private row to owners only (fail closed). */
+  user_id?: string | null
+  visible_user_ids?: string[] | null
   deleted_at?: string | null
 }
 
@@ -25,6 +28,6 @@ export async function visibleActivities<T extends FeedRow>(admin: SupabaseClient
   return list.filter((r) => {
     if (!r.audience) return true
     const ref = r.opportunity_id ? refs.get(r.opportunity_id) ?? 'none' : 'none'
-    return canReadRowOnDeal(viewer, ref, { audience: r.audience, restricted_pricing: r.restricted_pricing })
+    return canReadRowOnDeal(viewer, ref, { audience: r.audience, restricted_pricing: r.restricted_pricing, user_id: r.user_id, visible_user_ids: r.visible_user_ids })
   })
 }

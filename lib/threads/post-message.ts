@@ -27,6 +27,7 @@ import {
 
 export const MAX_MESSAGE_LENGTH = 5000
 const URGENT_PER_DAY = 3
+export const MAX_PRIVATE_PEOPLE = 50
 
 export type MessageDraft = {
   body: string
@@ -47,6 +48,8 @@ export type MessageDraft = {
   keepPricingRestricted?: boolean
   /** Text is stored as typed; @names are NOT turned into mentions (nobody is flagged or waiting). Used for text an AI app wrote. */
   noMentions?: boolean
+  /** Private notes only: who else may read it (besides owners and the writer). Active people of the writer's company; anything else is a 400. */
+  visibleUserIds?: string[] | null
   /** A logged call/text/email/visit: the row is written as that type with its outcome, and `body` becomes the optional note. */
   contact?: { kind: ContactKind; outcome: ContactOutcome } | null
 }
@@ -127,6 +130,9 @@ export async function postMessage(
     }
   }
 
+  // Private notes are written by owners only; a reply to one is private too, so nobody else may start one (it would land elsewhere).
+  if (parent?.audience === 'private' && !allowed.includes('private')) return { ok: false, status: 403, error: 'Only owners can reply to a private note' }
+
   let audience: Audience
   // A reply inherits the parent's audience, never 'customer' (that one is always chosen on purpose).
   if (parent?.audience && parent.audience !== 'customer' && allowed.includes(parent.audience)) {
@@ -139,6 +145,8 @@ export async function postMessage(
   }
   // "To customer" needs a customer to send it to (it is emailed and shown in their portal).
   if (audience === 'customer' && !deal.customer_id) return { ok: false, status: 409, error: 'This deal has no customer on file yet, so there is nobody to send it to.' }
+  // A logged contact is shown as the job's "last customer contact" to the whole team: it cannot be private.
+  if (contact && audience === 'private') return { ok: false, status: 400, error: 'A logged contact cannot be private' }
   // A customer contact is never crew talk, and job catch-up does not read sales-audience rows: log it as team
   // (or production when that was picked) so it always shows as the job's "last customer contact".
   if (contact && audience !== 'team' && audience !== 'production') {
@@ -168,6 +176,15 @@ export async function postMessage(
     .select('id, full_name, email, active, role, custom_role_id, is_super_admin, org_id')
     .eq('org_id', viewer.orgId)
     .eq('active', true)
+  // Private: the owner's picked people must be active users of this company (the list was just read org-scoped). The writer needs no entry.
+  let visibleIds: string[] | null = null
+  if (audience === 'private') {
+    const activeIds = new Set(((orgUsers ?? []) as OrgUser[]).map((u) => u.id))
+    const wanted = Array.from(new Set((draft.visibleUserIds ?? (parent?.audience === 'private' ? parent.visible_user_ids : [])).filter((x): x is string => typeof x === 'string'))).filter((id) => id !== viewer.userId)
+    if (wanted.length > MAX_PRIVATE_PEOPLE) return { ok: false, status: 400, error: `Pick at most ${MAX_PRIVATE_PEOPLE} people` }
+    if (wanted.some((id) => !activeIds.has(id))) return { ok: false, status: 400, error: 'Pick people from your own company' }
+    visibleIds = wanted
+  }
   const candidates = mentionCandidates(((orgUsers ?? []) as OrgUser[]).map((u) => ({ ...u })))
   const mentioned = draft.noMentions ? [] : resolveNoteMentions(body, candidates, draft.selectedMentionIds ?? [])
     .filter((u) => u.id !== viewer.userId)
@@ -214,6 +231,7 @@ export async function postMessage(
       priority,
       reply_to_id: parent?.id ?? null,
       mentioned_user_ids: mentioned.map((u) => u.id),
+      ...(visibleIds ? { visible_user_ids: visibleIds } : {}), // only a private note names its readers (column added by migration 202612010010)
       client_id: draft.clientId ?? null,
       source: draft.source ?? 'web',
     })
@@ -253,7 +271,8 @@ export async function postMessage(
     readers.set(u.id, canRead)
     seen.add(u.id)
     if (canRead) recipients.push({ userId: u.id, priority, reason: priority === 'urgent' ? 'urgent' : 'mention' })
-    else blindMentions.push(u.id)
+    // A private note never pings someone who cannot read it, not even a content-free "you were mentioned".
+    else if (audience !== 'private') blindMentions.push(u.id)
   }
   if (parent?.user_id && parent.user_id !== viewer.userId && !seen.has(parent.user_id)) {
     const pu = ((orgUsers ?? []) as OrgUser[]).find((u) => u.id === parent!.user_id)
@@ -270,7 +289,7 @@ export async function loadMessage(admin: SupabaseClient, orgId: string, id: stri
   const { data } = await admin
     .from('activities')
     .select(
-      'id, user_id, type, body, created_at, audience, origin, priority, restricted_pricing, reply_to_id, mentioned_user_ids, pinned_at, pin_scope, pin_expires_at, edited_at, deleted_at, deleted_user_name, users(full_name)'
+      'id, user_id, type, body, created_at, audience, origin, priority, restricted_pricing, reply_to_id, mentioned_user_ids, visible_user_ids, pinned_at, pin_scope, pin_expires_at, edited_at, deleted_at, deleted_user_name, users(full_name)'
     )
     .eq('id', id)
     .eq('org_id', orgId)

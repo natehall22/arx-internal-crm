@@ -12,9 +12,13 @@
  * team by staff, written only by non-field roles). `restricted_pricing` hides a message from anyone
  * barred from sales docs (setters, canvassers, inside sales), whatever its audience.
  * `audience = null` is a legacy row: unchanged behaviour (anyone in the org).
+ * private (owner decision 2026-11-23): written only by owners; read ONLY by owners, the people the owner listed on the message
+ * (`visible_user_ids`) and the writer — whatever their role or job-board permission. A listed field role reads it (the owner's
+ * explicit pick wins over the field-role deny). It ignores the deal-ownership and pricing rules, never reaches the customer or a
+ * crew link, and is never moved onto or off another audience after the fact.
  */
 
-export const AUDIENCES = ['team', 'sales', 'production', 'crew', 'customer'] as const
+export const AUDIENCES = ['team', 'sales', 'production', 'crew', 'customer', 'private'] as const
 export type Audience = (typeof AUDIENCES)[number]
 
 export type Priority = 'fyi' | 'needs_reply' | 'urgent'
@@ -59,6 +63,15 @@ export type DealRef = {
 export type MessageGate = {
   audience: Audience | null
   restricted_pricing?: boolean | null
+  /** Private messages only: the people (besides owners and the writer) who may read it. */
+  visible_user_ids?: string[] | null
+  /** The writer (activities.user_id): a private message is always readable by them. */
+  user_id?: string | null
+}
+
+/** Private messages: owners, the listed people and the writer. Nobody else, whatever their role. */
+export function canReadPrivate(v: ThreadViewer, m: MessageGate): boolean {
+  return v.ownerLike || (!!m.user_id && m.user_id === v.userId) || (m.visible_user_ids ?? []).includes(v.userId)
 }
 
 export function ownsDeal(v: ThreadViewer, deal: DealRef): boolean {
@@ -95,6 +108,7 @@ export function canSeeProduction(v: ThreadViewer, deal: DealRef): boolean {
 export function canReadMessage(v: ThreadViewer, deal: DealRef, m: MessageGate): boolean {
   if (m.audience === null) return true // legacy
   if (v.ownerLike) return true
+  if (m.audience === 'private') return canReadPrivate(v, m) // before the role checks: a listed field role / custom role reads it
   if (!isRecognizedViewer(v)) return false
   if (m.restricted_pricing && v.pricingBarred) return false
   if (m.audience === 'production' || m.audience === 'crew') return canSeeProduction(v, deal)
@@ -106,6 +120,7 @@ export function canReadMessage(v: ThreadViewer, deal: DealRef, m: MessageGate): 
 
 /** A row on a known deal is checked against that deal; a row with no deal ('none') is only for people not scoped to their own deals. */
 export function canReadRowOnDeal(v: ThreadViewer, ref: DealRef | 'none', m: MessageGate): boolean {
+  if (m.audience === 'private') return canReadPrivate(v, m) // not scoped to a deal
   if (ref === 'none') return !(v.setterLike || v.closerLike) && canReadMessage(v, null, m)
   return canReadMessage(v, ref, m)
 }
@@ -122,6 +137,8 @@ export function writableAudiences(v: ThreadViewer, deal: DealRef, customerChanne
   if (!isFieldRole(v) && (v.ownerLike || v.jobEdit)) out.push('crew')
   // "To customer": an email the customer also sees in their portal. Field roles (setters, canvassers, inside sales) do not write it.
   if (customerChannel && !isFieldRole(v)) out.push('customer')
+  // Private: owners only (the owner picks who else may read it).
+  if (v.ownerLike) out.push('private')
   return out
 }
 
@@ -140,7 +157,7 @@ export function defaultAudience(
   if (v.setterLike) return 'team'
   if (input.surface === 'job') return pick('production')
   if (input.surface === 'sales') return v.closerLike && !input.dealSold ? pick('sales') : 'team'
-  if (input.lastUsed && allowed.includes(input.lastUsed) && input.lastUsed !== 'crew') return input.lastUsed
+  if (input.lastUsed && allowed.includes(input.lastUsed) && input.lastUsed !== 'crew' && input.lastUsed !== 'private') return input.lastUsed
   if (v.ownerLike || v.jobEdit) return 'team'
   return 'team'
 }
@@ -179,6 +196,8 @@ export function canPin(v: ThreadViewer, m: { user_id: string | null }): boolean 
 export function canReclassify(v: ThreadViewer, to: Audience, from?: Audience | null): boolean {
   // Nothing is moved onto or off the customer audience after the fact: it is what the customer was (or was not) sent.
   if (to === 'customer' || from === 'customer') return false
+  // Private has its own people list and is never widened (or narrowed) after the fact: write a new note instead.
+  if (to === 'private' || from === 'private') return false
   if (v.ownerLike) return true
   if (to === 'crew' || to === 'production') return v.jobEdit
   if (to === 'team') return v.jobEdit || v.managerLike

@@ -21,6 +21,8 @@ export type ThreadMessage = {
   origin: 'human' | 'system'
   reply_to_id: string | null
   mentioned_user_ids: string[]
+  /** Private messages: who besides owners and the writer may read it (empty for every other audience). */
+  visible_user_ids: string[]
   pinned_at: string | null
   pin_scope: 'customer' | 'deal' | null
   pin_expires_at: string | null
@@ -77,6 +79,7 @@ type Row = {
   restricted_pricing: boolean | null
   reply_to_id: string | null
   mentioned_user_ids: string[] | null
+  visible_user_ids?: string[] | null
   pinned_at: string | null
   pin_scope: 'customer' | 'deal' | null
   pin_expires_at: string | null
@@ -87,7 +90,7 @@ type Row = {
 }
 
 const COLS =
-  'id, opportunity_id, user_id, type, body, created_at, audience, origin, priority, restricted_pricing, reply_to_id, mentioned_user_ids, pinned_at, pin_scope, pin_expires_at, edited_at, deleted_at, deleted_user_name, users(full_name)'
+  'id, opportunity_id, user_id, type, body, created_at, audience, origin, priority, restricted_pricing, reply_to_id, mentioned_user_ids, visible_user_ids, pinned_at, pin_scope, pin_expires_at, edited_at, deleted_at, deleted_user_name, users(full_name)'
 
 export function toMessage(row: Row): ThreadMessage {
   const u = Array.isArray(row.users) ? row.users[0] : row.users
@@ -107,6 +110,7 @@ export function toMessage(row: Row): ThreadMessage {
     via: row.origin === 'sms' ? 'sms' : row.origin === 'customer_portal' ? 'portal' : null,
     reply_to_id: row.reply_to_id,
     mentioned_user_ids: row.mentioned_user_ids ?? [],
+    visible_user_ids: row.visible_user_ids ?? [],
     pinned_at: row.pinned_at,
     pin_scope: row.pin_scope,
     pin_expires_at: row.pin_expires_at,
@@ -221,7 +225,7 @@ export async function getTimeline(
       const m: ThreadMessage = {
         id: `canvass-${deal.lead_id}`, user_id: null, author_name: 'Door note (canvass)', type: 'note', body: note,
         created_at: (lead as { created_at: string }).created_at, audience: 'team', priority: null, restricted_pricing: false, origin: 'human',
-        reply_to_id: null, mentioned_user_ids: [], pinned_at: null, pin_scope: null, pin_expires_at: null, edited_at: null, deleted: false, legacy: false, synthetic: true,
+        reply_to_id: null, mentioned_user_ids: [], visible_user_ids: [], pinned_at: null, pin_scope: null, pin_expires_at: null, edited_at: null, deleted: false, legacy: false, synthetic: true,
       }
       if (canReadMessage(viewer, dealRef, m)) visible.push(m)
     }

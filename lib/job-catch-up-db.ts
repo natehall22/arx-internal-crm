@@ -195,7 +195,8 @@ export async function loadJobCatchUps(
     )
   }
   // The thread's own rule for who reads what. Sales talk stays out of catch-up (ops sees it only behind "Sales history").
-  const visible = (await visibleActivities(admin, viewer, rawActivities)).filter((r) => r.audience !== 'sales')
+  // Private notes never appear in a catch-up summary (it is a status line, and may be read aloud or forwarded).
+  const visible = (await visibleActivities(admin, viewer, rawActivities)).filter((r) => r.audience !== 'sales' && r.audience !== 'private')
   const notesByDeal = groupBy(visible, (r) => r.opportunity_id)
 
   // The Materials tab's answer for the jobs whose next step can be about materials (a few at a time).

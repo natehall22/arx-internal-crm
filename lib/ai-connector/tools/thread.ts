@@ -28,7 +28,8 @@ export const getThread: McpTool = {
     const t = await getTimeline(ctx.admin, viewer, deal, { limit: args.limit ?? 25 })
     return {
       data: {
-        messages: t.messages.slice(0, args.limit ?? 25).map((m) => ({
+        // Private notes stay in the CRM: an outside AI app never receives them, even for an owner.
+        messages: t.messages.filter((m) => m.audience !== 'private').slice(0, args.limit ?? 25).map((m) => ({
           id: m.id,
           when: m.created_at,
           kind: m.type,
@@ -38,7 +39,7 @@ export const getThread: McpTool = {
         })),
         more: t.nextBefore !== null,
       },
-      recordIds: [args.deal_id, ...t.messages.map((m) => m.id)],
+      recordIds: [args.deal_id, ...t.messages.filter((m) => m.audience !== 'private').map((m) => m.id)],
     }
   },
 }

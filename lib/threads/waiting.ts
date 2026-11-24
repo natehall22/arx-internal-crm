@@ -57,15 +57,16 @@ export async function redactThreadNotifications<T extends { type?: string | null
 ): Promise<Array<T & { redacted?: boolean }>> {
   const actIds = Array.from(new Set(rows.map((n) => n.activity_id).filter((x): x is string => !!x)))
   if (actIds.length === 0) return rows
-  const acts = new Map<string, { opportunity_id: string | null; audience: string | null; restricted_pricing: boolean | null; deleted_at: string | null }>()
-  const { data: a } = await admin.from('activities').select('id, opportunity_id, audience, restricted_pricing, deleted_at').eq('org_id', viewer.orgId).in('id', actIds)
-  for (const r of (a ?? []) as Array<{ id: string; opportunity_id: string | null; audience: string | null; restricted_pricing: boolean | null; deleted_at: string | null }>) acts.set(r.id, r)
+  type ActRow = { opportunity_id: string | null; audience: string | null; restricted_pricing: boolean | null; deleted_at: string | null; user_id: string | null; visible_user_ids: string[] | null }
+  const acts = new Map<string, ActRow>()
+  const { data: a } = await admin.from('activities').select('id, opportunity_id, audience, restricted_pricing, deleted_at, user_id, visible_user_ids').eq('org_id', viewer.orgId).in('id', actIds)
+  for (const r of (a ?? []) as Array<ActRow & { id: string }>) acts.set(r.id, r)
   const refs = await dealRefsFor(admin, viewer.orgId, Array.from(acts.values()).map((r) => r.opportunity_id).filter((x): x is string => !!x))
   const canSee = (activityId: string): boolean => {
     const act = acts.get(activityId)
     if (!act || act.deleted_at) return false
     const ref = act.opportunity_id ? refs.get(act.opportunity_id) ?? 'none' : 'none'
-    return canReadRowOnDeal(viewer, ref, { audience: act.audience as never, restricted_pricing: act.restricted_pricing })
+    return canReadRowOnDeal(viewer, ref, { audience: act.audience as never, restricted_pricing: act.restricted_pricing, user_id: act.user_id, visible_user_ids: act.visible_user_ids })
   }
   return rows.map((n) => {
     if (!n.activity_id || n.type === 'thread_mention_blind' || canSee(n.activity_id)) return n

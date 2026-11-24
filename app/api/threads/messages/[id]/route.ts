@@ -18,19 +18,19 @@ async function handlePATCH(request: Request, { params }: { params: { id: string 
 
   const { data: row } = await admin
     .from('activities')
-    .select('id, org_id, opportunity_id, customer_id, user_id, body, created_at, audience, restricted_pricing, deleted_at, pinned_at')
+    .select('id, org_id, opportunity_id, customer_id, user_id, body, created_at, audience, restricted_pricing, deleted_at, pinned_at, visible_user_ids')
     .eq('id', params.id)
     .eq('org_id', viewer.orgId)
     .maybeSingle()
   const r = row as {
     id: string; opportunity_id: string | null; customer_id: string | null; user_id: string | null; body: string | null
-    created_at: string; audience: Audience | null; restricted_pricing: boolean | null; deleted_at: string | null
+    created_at: string; audience: Audience | null; restricted_pricing: boolean | null; deleted_at: string | null; visible_user_ids: string[] | null
   } | null
   if (!r?.opportunity_id) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const deal = await threadDeal(ctx, r.opportunity_id)
   if (!deal) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const dealRef = dealRefOf(deal)
-  if (!canReadMessage(viewer, dealRef, { audience: r.audience, restricted_pricing: r.restricted_pricing })) {
+  if (!canReadMessage(viewer, dealRef, { audience: r.audience, restricted_pricing: r.restricted_pricing, user_id: r.user_id, visible_user_ids: r.visible_user_ids })) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
   if (r.deleted_at) return NextResponse.json({ error: 'Message was removed' }, { status: 409 })

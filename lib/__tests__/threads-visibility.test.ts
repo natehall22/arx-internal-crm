@@ -53,7 +53,7 @@ describe('thread visibility — role × audience', () => {
   })
 
   it('only ops/owners write Crew; setters never write Production', () => {
-    expect(writableAudiences(viewers.owner, deal)).toEqual(['team', 'sales', 'production', 'crew'])
+    expect(writableAudiences(viewers.owner, deal)).toEqual(['team', 'sales', 'production', 'crew', 'private'])
     expect(writableAudiences(viewers.ops, deal)).toContain('crew')
     expect(writableAudiences(viewers.closer, deal)).toEqual(['team', 'sales', 'production'])
     expect(writableAudiences(viewers.setter, deal)).toEqual(['team', 'sales'])
@@ -128,10 +128,10 @@ describe('the customer audience ("To customer")', () => {
     expect(defaultAudience(viewers.owner, { surface: 'other', replyTo: { audience: 'customer' } }, deal)).toBe('team')
     expect(defaultAudience(viewers.owner, { surface: 'other', replyTo: { audience: 'production' } }, deal)).toBe('production')
   })
-  it('the database rule names the same audience set as the app (migration 202611120060)', () => {
+  it('the database rule names the same audience set as the app (migration 202612010010, which re-creates 202611120060\'s)', () => {
     const fs = require('fs') as typeof import('fs')
     const path = require('path') as typeof import('path')
-    const sql = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202611120060_customer_portal.sql'), 'utf8')
+    const sql = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202612010010_private_notes.sql'), 'utf8')
     const fn = sql.slice(sql.indexOf('function arx_private.message_visible_to'))
     expect(fn).toContain("p_audience in ('team','sales','customer')")
     expect(fn).toContain("p_audience in ('production','crew')")

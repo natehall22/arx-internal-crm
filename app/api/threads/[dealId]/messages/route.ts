@@ -55,8 +55,16 @@ async function handleGET(request: Request, { params }: { params: { dealId: strin
   const features = await loadOrgFeatures(ctx.admin, ctx.viewer.orgId)
   const toCustomerIds = features.texting ? timeline.messages.filter((m) => m.audience === 'customer').map((m) => m.id) : []
   const textDeliveries = toCustomerIds.length ? await loadTextDeliveries(ctx.admin, ctx.viewer.orgId, toCustomerIds).catch(() => ({})) : {}
+  // Names for the "Private — you, owners, <names>" badge: only for the private notes this person can already read.
+  const privateIds = Array.from(new Set([...timeline.messages, ...timeline.pinned].filter((m) => m.audience === 'private').flatMap((m) => m.visible_user_ids)))
+  const privateNames: Record<string, string> = {}
+  if (privateIds.length) {
+    const { data: named } = await ctx.admin.from('users').select('id, full_name').eq('org_id', ctx.viewer.orgId).in('id', privateIds)
+    for (const u of (named ?? []) as Array<{ id: string; full_name: string | null }>) privateNames[u.id] = u.full_name || 'Someone'
+  }
   return NextResponse.json({
     ...timeline,
+    ...(privateIds.length ? { privateNames } : {}),
     ...(features.texting ? { texting: true, textDeliveries } : {}),
     writable: writableAudiences(ctx.viewer, dealRef, await customerChannelOn(ctx.viewer.orgId)),
     defaultAudience: defaultAudience(ctx.viewer, { surface }, dealRef),
@@ -100,6 +108,7 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
     audience: (AUDIENCES as readonly string[]).includes(String(body.audience)) ? (body.audience as Audience) : null,
     replyToId: typeof body.replyToId === 'string' ? body.replyToId : null,
     selectedMentionIds: Array.isArray(body.selectedMentionIds) ? body.selectedMentionIds.filter((x): x is string => typeof x === 'string') : [],
+    visibleUserIds: Array.isArray(body.visibleUserIds) ? body.visibleUserIds.filter((x): x is string => typeof x === 'string') : null,
     priority: body.priority === 'urgent' || body.priority === 'needs_reply' ? body.priority : null,
     allowSetters: body.allowSetters === true,
     clientId: typeof body.clientId === 'string' ? body.clientId : null,

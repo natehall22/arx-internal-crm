@@ -29,18 +29,21 @@ type Payload = {
   viewerId: string
   isOwner: boolean
   seesSalesHistoryChip: boolean
+  /** Names of the people listed on the private notes in this payload. */
+  privateNames?: Record<string, string>
 }
 
 const AT_TAIL = new RegExp("@([\\p{L}' -]{0,30})$", 'u')
-const AUDIENCE_LABEL: Record<Audience, string> = { team: 'Team', sales: 'Sales', production: 'Production', crew: 'Crew', customer: 'To customer' }
+const AUDIENCE_LABEL: Record<Audience, string> = { team: 'Team', sales: 'Sales', production: 'Production', crew: 'Crew', customer: 'To customer', private: 'Private' }
 const AUDIENCE_HINT: Record<Audience, string> = {
   team: 'Everyone on this deal',
   sales: 'The sales side. Ops can look it up.',
   production: 'Operations and owners.',
   crew: 'Crew will see this on their link',
   customer: 'Sent to the customer (email or text) and shown in their account',
+  private: 'Only you, owners and the people you pick below',
 }
-const AUDIENCE_TONE: Record<Audience, 'neutral' | 'info' | 'warning' | 'accent'> = { team: 'neutral', sales: 'accent', production: 'info', crew: 'warning', customer: 'warning' }
+const AUDIENCE_TONE: Record<Audience, 'neutral' | 'info' | 'warning' | 'accent'> = { team: 'neutral', sales: 'accent', production: 'info', crew: 'warning', customer: 'warning', private: 'neutral' }
 
 /** Newest-first union by id (a poll refreshes the head; older pages stay). */
 function mergeMessages(head: ThreadMessage[], rest: ThreadMessage[]): ThreadMessage[] {
@@ -55,6 +58,12 @@ function surfaceFor(pathname: string): 'sales' | 'job' | 'overview' | 'other' {
   if (/\/job(\/|$)/.test(pathname)) return 'job'
   if (/\/overview(\/|$)/.test(pathname)) return 'overview'
   return 'other'
+}
+
+/** "Private — you, owners, Sam, Lee": who can read it, from the reader's side. */
+export function privateLabel(m: { visible_user_ids: string[] }, data: { viewerId: string; privateNames?: Record<string, string> }): string {
+  const others = m.visible_user_ids.filter((id) => id !== data.viewerId).map((id) => data.privateNames?.[id] ?? 'Someone')
+  return ['Private — you', 'owners', ...others].join(', ')
 }
 
 function when(iso: string) {
@@ -251,7 +260,12 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
       <div className="flex flex-wrap items-center gap-2 text-ui-sm text-ink-muted">
         <span className="font-semibold text-ink">{m.author_name ?? brandNames.shortName}</span>
         <span>{when(m.created_at)}</span>
-        {m.audience && m.audience !== 'team' && <Badge tone={AUDIENCE_TONE[m.audience]}>{AUDIENCE_LABEL[m.audience]}</Badge>}
+        {m.audience === 'private' ? (
+          <Badge tone="neutral">
+            <svg aria-hidden="true" viewBox="0 0 16 16" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 015 0v2" /></svg>
+            {privateLabel(m, data)}
+          </Badge>
+        ) : m.audience && m.audience !== 'team' && <Badge tone={AUDIENCE_TONE[m.audience]}>{AUDIENCE_LABEL[m.audience]}</Badge>}
         {m.via === 'sms' && <Badge tone="info">By text</Badge>}
         {data.textDeliveries?.[m.id] && (
           <span className={data.textDeliveries[m.id].state === 'failed' || data.textDeliveries[m.id].state === 'not_sent' ? 'font-semibold text-danger' : 'font-semibold text-ink'} title={data.textDeliveries[m.id].detail ?? undefined}>
@@ -277,7 +291,7 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
       )}
       {!m.synthetic && (<>
       <div className="mt-1 flex flex-wrap gap-1 text-ui-sm">
-        <button type="button" onClick={onReply} className="min-h-tap px-2 font-semibold text-brand-800">Reply</button>
+        {!(m.audience === 'private' && !data.writable.includes('private')) && <button type="button" onClick={onReply} className="min-h-tap px-2 font-semibold text-brand-800">Reply</button>}
         <button type="button" onClick={() => setMenu(!menu)} aria-expanded={menu} className="min-h-tap px-2 text-ink-muted">More</button>
       </div>
       {menu && (
@@ -285,7 +299,7 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
           {mine && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => { setEditing(true); setMenu(false) }}>Edit</button>}
           {(data.canPin || (data.canPinOwn && mine)) && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'pin', scope: 'customer' })}>Pin to customer</button>}
           {(data.canPin || (data.canPinOwn && mine)) && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'pin', scope: 'deal' })}>Pin to deal</button>}
-          {data.writable.includes('production') && m.audience && m.audience !== 'production' && data.isOwner && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'reclassify', audience: 'production' })}>Make Production</button>}
+          {data.writable.includes('production') && m.audience && m.audience !== 'production' && m.audience !== 'private' && data.isOwner && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'reclassify', audience: 'production' })}>Make Production</button>}
           {(mine || data.isOwner) && <button type="button" className="min-h-tap px-2 text-danger" onClick={async () => { if (await confirmDialog({ title: 'Remove this message?', confirmLabel: 'Remove', destructive: true })) onAct(m.id, { action: 'delete' }) }}>Remove</button>}
         </div>
       )}
@@ -304,6 +318,9 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
   const [err, setErr] = useState<string | null>(null)
   const [people, setPeople] = useState<{ id: string; full_name: string }[]>([])
   const [picked, setPicked] = useState<string[]>([])
+  // Private notes: who else may read it (owners and you always can).
+  const [everyone, setEveryone] = useState<{ id: string; full_name: string }[]>([])
+  const [readers, setReaders] = useState<string[]>([])
   const clientId = useRef<string>(crypto.randomUUID())
   // "To customer" can go by email (default) or by text — picked on purpose, never inferred. Never chosen for the sender: Text is only ever an explicit pick.
   const [byText, setByText] = useState(false)
@@ -313,8 +330,14 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
   const locked = !!replyTo?.audience && replyTo.audience !== 'customer' // a reply keeps its thread's audience, except customer: that is picked on purpose
   const effective = locked && replyTo?.audience && data.writable.includes(replyTo.audience) ? replyTo.audience : audience
   useEffect(() => {
-    fetch(`/api/threads/${dealId}/mentionable?audience=${effective}`).then((r) => (r.ok ? r.json() : { users: [] })).then((j) => setPeople(j.users ?? [])).catch(() => setPeople([]))
-  }, [dealId, effective])
+    fetch(`/api/threads/${dealId}/mentionable?audience=${effective}${effective === 'private' ? `&visible=${readers.join(',')}` : ''}`).then((r) => (r.ok ? r.json() : { users: [] })).then((j) => setPeople(j.users ?? [])).catch(() => setPeople([]))
+  }, [dealId, effective, readers])
+  // A reply to a private note keeps that note's readers (the server copies them), so the picker only shows for a new private note.
+  const choosingReaders = effective === 'private' && replyTo?.audience !== 'private'
+  useEffect(() => {
+    if (!choosingReaders || everyone.length) return
+    fetch(`/api/threads/${dealId}/mentionable?pick=1`).then((r) => (r.ok ? r.json() : { users: [] })).then((j) => setEveryone(j.users ?? [])).catch(() => setEveryone([]))
+  }, [dealId, choosingReaders, everyone.length])
 
   const toCustomer = effective === 'customer'
   const { data: textData, record: recordTextConsent } = useTextStatus(dealId, !!data.texting && toCustomer)
@@ -333,10 +356,10 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
       const res = await fetch(`/api/threads/${dealId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body, audience: effective, ...(sendingText ? { channel: 'sms' } : {}), replyToId: replyTo?.id ?? null, selectedMentionIds: picked, priority: priority === 'fyi' ? null : priority, allowSetters, clientId: clientId.current, surface: 'other' }),
+        body: JSON.stringify({ body, audience: effective, ...(choosingReaders ? { visibleUserIds: readers } : {}), ...(sendingText ? { channel: 'sms' } : {}), replyToId: replyTo?.id ?? null, selectedMentionIds: picked, priority: priority === 'fyi' ? null : priority, allowSetters, clientId: clientId.current, surface: 'other' }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Not sent — tap to retry')
-      setBody(''); setPicked([]); setPriority('fyi'); setAllowSetters(false); onClearReply()
+      setBody(''); setPicked([]); setReaders([]); setPriority('fyi'); setAllowSetters(false); onClearReply()
       clientId.current = crypto.randomUUID()
       onSent()
     } catch (e) {
@@ -381,6 +404,24 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
       {sendingText && textData?.status?.state === 'blocked' && <div className="mb-2"><TextBlockedNotice status={textData.status} onRecord={recordTextConsent} /></div>}
       {toCustomer && !sendingText && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">The customer gets this by email and can read it in their account. Nothing internal, please.</p>}
       {sendingText && textReady && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">Texts {textData?.status?.state === 'ready' ? textData.status.masked : 'the customer'} from your company number ({body.length}/{STAFF_TEXT_MAX}). They can read it in their account too. Nothing internal, please.</p>}
+      {choosingReaders && (
+        <fieldset className="mb-2 rounded-ui border border-surface-line p-2">
+          <legend className="px-1 text-ui-sm font-semibold text-ink">Who else can read it</legend>
+          <p className="mb-1 text-ui-sm text-ink">Only you, owners and the people you tick. Not the customer, not the crew.</p>
+          {everyone.length === 0 ? <p className="text-ui-sm text-ink">Loading people…</p> : (
+            <ul className="max-h-40 overflow-y-auto">
+              {everyone.map((p) => (
+                <li key={p.id}>
+                  <label className="flex min-h-tap items-center gap-2 text-ui-base text-ink">
+                    <input type="checkbox" className="h-5 w-5" checked={readers.includes(p.id)} onChange={(e) => setReaders(e.target.checked ? [...readers, p.id] : readers.filter((x) => x !== p.id))} />
+                    {p.full_name}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+        </fieldset>
+      )}
       {effective === 'crew' && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">👷 Crew will see this on their link. No prices.</p>}
       {pricing && (
         <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm text-ink">
