@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { categoryScopeOf, limitCol } from '@/lib/category-scope'
 import {
   getOrgEmailBlastSettings,
   morningUpdateFocusFor,
@@ -497,7 +498,7 @@ export async function sendMorningUpdateEmail(
   // row by email; an address with no user row is treated as having no role (no section).
   const { data: recipientRows, error: recipientError } = await supabase
     .from('users')
-    .select('id, email, role, is_super_admin, active')
+    .select(`id, email, role, is_super_admin, active${await limitCol()}` as '*')
     .eq('org_id', params.orgId)
   if (recipientError) {
     // Fail closed: without the user list nobody gets the section.
@@ -505,11 +506,17 @@ export async function sendMorningUpdateEmail(
   }
   type Viewer = { id: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null }
   const viewerByEmail = new Map<string, Viewer>()
+  // A person limited to some work categories gets no morning update: it is company-wide totals (revenue, sales, doors) plus
+  // storm hits and Needs-you rows that cannot be cut by category. Delete, don't half-filter (Nathan 2026-11-24: hide the rest everywhere).
+  const limitedEmails = new Set<string>()
   for (const u of (recipientRows || []) as Array<{ id: string; email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null }>) {
     const key = String(u.email || '').trim().toLowerCase()
     // Two user rows with one address: it is ambiguous who is reading, so fail closed (no section) — never the more privileged row.
+    if (categoryScopeOf(u as { role: string; is_super_admin?: boolean | null; category_limit?: unknown }).limited) limitedEmails.add(key)
     viewerByEmail.set(key, viewerByEmail.has(key) ? { id: null, role: null, is_super_admin: false, active: false } : { id: u.id, role: u.role, is_super_admin: u.is_super_admin, active: u.active })
   }
+  emails = emails.filter((e) => !limitedEmails.has(e.trim().toLowerCase()))
+  if (emails.length === 0) return { sent: 0, skipped: true, reason: 'no_recipients' }
   const focusFor = (to: string): MorningUpdateFocus =>
     (isTest && params.testFocus) || morningUpdateFocusFor(settings.morning_update, viewerByEmail.get(to.trim().toLowerCase())?.id)
 

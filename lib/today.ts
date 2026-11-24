@@ -746,8 +746,7 @@ function recordOfHref(href: string): RecordRef | null {
 /**
  * Today for a person limited to some work categories: a row about a customer, job, deal, lead, proposal or invoice outside their
  * categories is dropped (job override, else the customer; a deal follows its customer, else its lead). A row that is not about one
- * record stays; the visit queues are scoped where they load (loadVisits). The count falls by what was dropped (a capped list keeps
- * its hidden remainder). A record that cannot be read is dropped (fail closed). Unlimited: the same queues, no query.
+ * record stays; the visit queues are scoped where they load (loadVisits). The count is the VISIBLE count (a hidden total would leak). A record that cannot be read is dropped (fail closed). Unlimited: the same queues, no query.
  */
 export async function scopeQueues(admin: SupabaseClient, orgId: string, scope: CategoryScope, queues: Queue[]): Promise<Queue[]> {
   if (!scope.limited) return queues
@@ -795,7 +794,16 @@ export async function scopeQueues(admin: SupabaseClient, orgId: string, scope: C
     if (invoices.length) {
       const { data, error } = await db.from('job_invoices').select('id, job_id, customer_id').in('id', invoices.map((i) => i.id))
       if (error) throw error
-      const keep = await filterJobOrCustomerRows(admin, orgId, scope, ((data ?? []) as Array<{ id: string; job_id: string | null; customer_id: string | null }>), (i) => ({ jobId: i.job_id, customerId: i.customer_id }))
+      const invRows = (data ?? []) as Array<{ id: string; job_id: string | null; customer_id: string | null }>
+      // A job invoice's customer is its JOB's (production_jobs), never the invoice's own column.
+      const jobIds = Array.from(new Set(invRows.map((i) => i.job_id).filter((x): x is string => !!x)))
+      const jobCustomer = new Map<string, string | null>()
+      if (jobIds.length) {
+        const res = await db.from('production_jobs').select('id, customer_id').in('id', jobIds)
+        if (res.error) throw res.error
+        for (const j of (res.data ?? []) as Array<{ id: string; customer_id: string | null }>) jobCustomer.set(j.id, j.customer_id)
+      }
+      const keep = await filterJobOrCustomerRows(admin, orgId, scope, invRows, (i) => ({ jobId: i.job_id, customerId: i.job_id ? jobCustomer.get(i.job_id) ?? null : i.customer_id }))
       keep.forEach((i) => allowed.add(`invoice:${i.id}`))
     }
   } catch (e) {
@@ -809,7 +817,6 @@ export async function scopeQueues(admin: SupabaseClient, orgId: string, scope: C
   return queues.map((q) => {
       const items = q.items.filter(keepRow)
       const upcoming = q.upcoming?.filter(keepRow)
-      const dropped = q.items.length - items.length
-      return { ...q, items, ...(upcoming ? { upcoming } : {}), count: Math.max(items.length, q.count - dropped) }
+      return { ...q, items, ...(upcoming ? { upcoming } : {}), count: items.length }
   })
 }
