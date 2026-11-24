@@ -1,3 +1,4 @@
+import { categoryScopeOf } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
@@ -18,6 +19,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   const ctx = await servicePlanRouteAuth('view')
   if (ctx instanceof Response) return ctx
+  // A whole crew's day spans every customer: a person limited to some work categories cannot use it.
+  if (categoryScopeOf(ctx.profile).limited) return NextResponse.json({ error: 'Crew not found' }, { status: 404 })
   const url = new URL(request.url)
   const subId = url.searchParams.get('crew') ?? ''
   if (!subId) return NextResponse.json({ error: 'Pick a crew' }, { status: 400 })

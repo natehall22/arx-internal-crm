@@ -1,3 +1,4 @@
+import { categoryScopeOf } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { orderCrewDay } from '@/lib/crew-route'
@@ -15,6 +16,8 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request) {
   const ctx = await servicePlanRouteAuth('edit')
   if (ctx instanceof Response) return ctx
+  // A whole crew's day spans every customer: a person limited to some work categories cannot use it.
+  if (categoryScopeOf(ctx.profile).limited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const b = (await request.json().catch(() => null)) as { crew?: unknown; day?: unknown; action?: unknown; order?: unknown } | null
   const crew = typeof b?.crew === 'string' ? b.crew : ''
   if (!crew || !isYmd(b?.day)) return NextResponse.json({ error: 'Pick a crew and a day' }, { status: 400 })

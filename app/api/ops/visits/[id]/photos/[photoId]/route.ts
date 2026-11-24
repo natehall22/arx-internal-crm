@@ -1,3 +1,4 @@
+import { recordHiddenFrom, visitInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { FILES_BUCKET } from '@/lib/files/storage'
@@ -10,6 +11,7 @@ export const runtime = 'nodejs'
 export async function GET(_request: Request, { params }: { params: { id: string; photoId: string } }) {
   const ctx = await servicePlanRouteAuth('view')
   if (ctx instanceof Response) return ctx
+  if (await recordHiddenFrom(ctx.admin, ctx.profile, params.id, visitInScope)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const { data: photo } = await orgDb(ctx.admin, ctx.orgId)
     .from('photos')
     .select('id, storage_path')

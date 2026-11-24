@@ -1,3 +1,4 @@
+import { invoiceInScope, recordHiddenFrom } from '@/lib/category-scope'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
@@ -25,7 +26,7 @@ export default async function PrintInvoicePage({
   // By id, else by invoice_number — both scoped to the caller's company (lib/invoice-document.ts findPrintableInvoice):
   // job invoices through their job, invoices without a job (recurring service) through their own org.
   const found = await findPrintableInvoice(adminClient, profile.org_id, params.invoiceId)
-  if (!found) {
+  if (!found || (await recordHiddenFrom(adminClient, profile, found.id, invoiceInScope))) {
     return <div className="p-8 text-center">Invoice not found</div>
   }
 

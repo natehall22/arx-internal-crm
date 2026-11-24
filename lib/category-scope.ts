@@ -476,3 +476,89 @@ export async function limitCol(): Promise<string> {
   limitColumnKnown = { present: !isMissingColumn(error, 'category_limit'), at: Date.now() }
   return limitColumnKnown.present ? ', category_limit' : ''
 }
+
+// ---- Id-keyed records that hang off a job, a visit or a customer (invoices, service plans, purchase orders, collections) ----
+
+type GateProfile = { org_id: string; id?: string } & NonNullable<ScopeProfile>
+
+/** A record that names a job, a work order and / or a customer, in scope? Job first, then work order, then customer; nothing named = Not set. */
+export async function refInScope(
+  admin: SupabaseClient,
+  orgId: string,
+  scope: CategoryScope,
+  ref: { jobId?: string | null; workOrderId?: string | null; customerId?: string | null }
+): Promise<boolean> {
+  if (!scope.limited) return true
+  if (ref.jobId) return jobInScope(admin, orgId, scope, ref.jobId)
+  if (ref.workOrderId) return workOrderInScope(admin, orgId, scope, ref.workOrderId)
+  if (ref.customerId) return customerInScope(admin, orgId, scope, ref.customerId)
+  return categoryAllowed(scope, null)
+}
+
+/** One work order (visit or a job's trade crew): a job's follows the job, a visit follows its customer. Missing = not in scope. */
+export async function workOrderInScope(admin: SupabaseClient, orgId: string, scope: CategoryScope, workOrderId: string): Promise<boolean> {
+  if (!scope.limited) return true
+  const { data, error } = await orgDb(admin, orgId).from('work_orders').select('id, job_id, customer_id').eq('id', workOrderId).maybeSingle()
+  if (error) throw new Error(`category-scope: work order read: ${error.message}`)
+  if (!data) return false
+  const w = data as { job_id: string | null; customer_id: string | null }
+  return refInScope(admin, orgId, scope, { jobId: w.job_id, customerId: w.customer_id })
+}
+
+/** An invoice: a job invoice follows its job, any other its customer. Missing = not in scope. */
+export async function invoiceInScope(admin: SupabaseClient, orgId: string, scope: CategoryScope, invoiceId: string): Promise<boolean> {
+  if (!scope.limited) return true
+  const { data, error } = await orgDb(admin, orgId).from('job_invoices').select('id, job_id, customer_id').eq('id', invoiceId).maybeSingle()
+  if (error) throw new Error(`category-scope: invoice read: ${error.message}`)
+  if (!data) return false
+  const i = data as { job_id: string | null; customer_id: string | null }
+  return refInScope(admin, orgId, scope, { jobId: i.job_id, customerId: i.customer_id })
+}
+
+/** A service plan follows its customer. Missing = not in scope. */
+export async function servicePlanInScope(admin: SupabaseClient, orgId: string, scope: CategoryScope, planId: string): Promise<boolean> {
+  if (!scope.limited) return true
+  const { data, error } = await orgDb(admin, orgId).from('service_plans').select('id, customer_id').eq('id', planId).maybeSingle()
+  if (error) throw new Error(`category-scope: plan read: ${error.message}`)
+  if (!data) return false
+  return refInScope(admin, orgId, scope, { customerId: (data as { customer_id: string | null }).customer_id })
+}
+
+/** A purchase order follows its job, else its visit, else Not set. Missing = not in scope. */
+export async function purchaseOrderInScope(admin: SupabaseClient, orgId: string, scope: CategoryScope, orderId: string): Promise<boolean> {
+  if (!scope.limited) return true
+  const { data, error } = await orgDb(admin, orgId).from('supplier_orders').select('id, job_id, work_order_id').eq('id', orderId).maybeSingle()
+  if (error) throw new Error(`category-scope: purchase order read: ${error.message}`)
+  if (!data) return false
+  const o = data as { job_id: string | null; work_order_id: string | null }
+  return refInScope(admin, orgId, scope, { jobId: o.job_id, workOrderId: o.work_order_id })
+}
+
+/** A door collection (cash / check a crew took) follows its customer. Missing = not in scope. */
+export async function collectionInScope(admin: SupabaseClient, orgId: string, scope: CategoryScope, collectionId: string): Promise<boolean> {
+  if (!scope.limited) return true
+  const { data, error } = await orgDb(admin, orgId).from('visit_collections').select('id, customer_id').eq('id', collectionId).maybeSingle()
+  if (error) throw new Error(`category-scope: collection read: ${error.message}`)
+  if (!data) return false
+  return refInScope(admin, orgId, scope, { customerId: (data as { customer_id: string | null }).customer_id })
+}
+
+/**
+ * The one-line gate for an id-keyed record: true = answer "not found". No limit = no query, a sync-cheap false. A read error
+ * hides the record (fail closed). `inScope` is one of the *InScope helpers above.
+ */
+export async function recordHiddenFrom(
+  admin: SupabaseClient,
+  profile: GateProfile,
+  id: string,
+  inScope: (admin: SupabaseClient, orgId: string, scope: CategoryScope, id: string) => Promise<boolean>
+): Promise<boolean> {
+  const scope = categoryScopeOf(profile)
+  if (!scope.limited) return false
+  try {
+    return !(await inScope(admin, profile.org_id, scope, id))
+  } catch (e) {
+    console.error('[category-scope] record gate failed closed', e)
+    return true
+  }
+}
