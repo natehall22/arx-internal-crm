@@ -226,7 +226,6 @@ describe('private notes never reach customers or crews', () => {
 })
 
 describe('private notes: deploy-order fallback (column not there yet)', () => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { selectWithVisibleCol, withoutVisibleCol } = require('@/lib/threads/private-columns') as typeof import('@/lib/threads/private-columns')
   const { loadMessage } = require('@/lib/threads/post-message') as typeof import('@/lib/threads/post-message')
   const missing = { code: '42703', message: 'column activities.visible_user_ids does not exist' }
@@ -291,7 +290,6 @@ describe('private notes: replies and notifications', () => {
     jest.doMock('@/lib/crm-email-from', () => ({ getCrmEmailFrom: async () => 'from@x.com' }))
     jest.doMock('@/lib/company-links', () => ({ orgAppUrl: async () => 'https://app.test' }))
     process.env.SMTP_HOST = 'smtp.test'
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { notifyMessage } = require('@/lib/threads/notify') as typeof import('@/lib/threads/notify')
     const inserted: Array<Record<string, unknown>> = []
     const admin = {
