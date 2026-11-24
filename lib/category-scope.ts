@@ -473,7 +473,13 @@ export async function limitCol(): Promise<string> {
     return limitColumnKnown.present ? ', category_limit' : ''
   }
   // org-scope-ok: column probe, not company data (limit 0 reads no rows)
-  const { error } = await createServiceClient().from('users').select('category_limit').limit(0)
+  let error: { code?: string; message?: string } | null
+  try {
+    ;({ error } = await createServiceClient().from('users').select('category_limit').limit(0))
+  } catch {
+    // No client (e.g. no service credentials): behave as "no limit column", never throw from an auth path, and do not cache.
+    return ''
+  }
   limitColumnKnown = { present: !isMissingColumn(error, 'category_limit'), at: Date.now() }
   return limitColumnKnown.present ? ', category_limit' : ''
 }
