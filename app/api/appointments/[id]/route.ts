@@ -1,5 +1,5 @@
 import { appointmentCalendarTitleLabel, canCompleteAdjusterMeeting } from '@/lib/adjuster-meeting'
-import { categoryScopeOf, filterByLeadScope } from '@/lib/category-scope'
+import { categoryScopeOf, filterByLeadScope, limitCol } from '@/lib/category-scope'
 import { PRODUCT_NAME } from '@/lib/product'
 import { orgAppUrl } from '@/lib/company-links'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
@@ -79,7 +79,7 @@ export async function GET(
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, is_super_admin, active, custom_role_id, category_limit')
+      .select(`org_id, role, is_super_admin, active, custom_role_id${await limitCol()}` as '*')
       .eq('id', user.id)
       .maybeSingle()
 
@@ -168,7 +168,7 @@ export async function PATCH(
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, full_name, custom_role_id, is_super_admin, active, category_limit')
+      .select(`org_id, role, full_name, custom_role_id, is_super_admin, active${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 

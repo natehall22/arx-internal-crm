@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { proposalHiddenFrom } from '@/lib/category-scope'
+import { proposalHiddenFrom, limitCol } from '@/lib/category-scope'
 import { createClient } from '@supabase/supabase-js'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
@@ -85,7 +85,7 @@ export async function POST(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 

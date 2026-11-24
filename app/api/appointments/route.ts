@@ -1,5 +1,5 @@
 import { ADJUSTER_MEETING_APPOINTMENT_TYPE } from '@/lib/adjuster-meeting'
-import { categoryScopeOf, filterByLeadScope } from '@/lib/category-scope'
+import { categoryScopeOf, filterByLeadScope, limitCol } from '@/lib/category-scope'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, team_id, region_id, custom_role_id, is_super_admin, category_limit, custom_role:custom_roles(name, display_name)')
+      .select(`org_id, role, team_id, region_id, custom_role_id, is_super_admin${await limitCol()}, custom_role:custom_roles(name, display_name)` as '*')
       .eq('id', user.id)
       .single()
 

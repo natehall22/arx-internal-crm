@@ -1,5 +1,5 @@
 import { insertOpportunityRow } from '@/lib/new-deal'
-import { categoryScopeOf, leadInScope } from '@/lib/category-scope'
+import { categoryScopeOf, leadInScope, limitCol } from '@/lib/category-scope'
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -75,7 +75,7 @@ export async function POST(
 
     const { data: profile, error: profileError } = await adminClient
       .from('users')
-      .select('id, org_id, role, is_super_admin, category_limit')
+      .select(`id, org_id, role, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 

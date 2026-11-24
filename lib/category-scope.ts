@@ -32,6 +32,7 @@ import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { isMissingColumn } from '@/lib/supabase/errors'
 import { orgDb } from '@/lib/supabase/org-db'
+import { createServiceClient } from '@/lib/supabase/service'
 
 /** The special value in `users.category_limit` for records that have no category. */
 export const NO_CATEGORY = '__none'
@@ -457,4 +458,19 @@ export async function filterProposalsToScope<T extends { opportunity_id?: string
   }
   const ok = new Set((await filterDealsToScope(admin, orgId, scope, deals)).map((d) => d.id))
   return rows.filter((r) => (r.opportunity_id ? ok.has(r.opportunity_id) : categoryAllowed(scope, null)))
+}
+
+/**
+ * ", category_limit" for a hand-rolled profile select, or "" until migration 202612010050 is applied, so those routes
+ * keep working before it (a select naming a missing column fails the whole profile read). The probe runs once per
+ * server instance once the column is there (re-checked each minute while it is not): no per-request query.
+ */
+let limitColumnKnown: { present: boolean; at: number } | null = null
+export async function limitCol(): Promise<string> {
+  if (limitColumnKnown && (limitColumnKnown.present || Date.now() - limitColumnKnown.at < 60_000)) {
+    return limitColumnKnown.present ? ', category_limit' : ''
+  }
+  const { error } = await createServiceClient().from('users').select('category_limit').limit(0)
+  limitColumnKnown = { present: !isMissingColumn(error, 'category_limit'), at: Date.now() }
+  return limitColumnKnown.present ? ', category_limit' : ''
 }

@@ -1,5 +1,5 @@
 import { visibleActivities } from '@/lib/threads/legacy-feed'
-import { categoryScopeOf, filterDealsToScope } from '@/lib/category-scope'
+import { categoryScopeOf, filterDealsToScope, limitCol } from '@/lib/category-scope'
 import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -180,7 +180,7 @@ export async function GET(request: NextRequest) {
     const adminClient = createServiceClient()
     const { data: profile } = await adminClient
       .from('users')
-      .select('id, org_id, role, custom_role_id, is_super_admin, category_limit, custom_role:custom_roles(name, display_name)')
+      .select(`id, org_id, role, custom_role_id, is_super_admin${await limitCol()}, custom_role:custom_roles(name, display_name)` as '*')
       .eq('id', user.id)
       .single()
 

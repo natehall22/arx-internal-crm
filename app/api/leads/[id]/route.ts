@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { categoryAllowed, categoryScopeOf, leadInScope } from '@/lib/category-scope'
+import { categoryAllowed, categoryScopeOf, leadInScope, limitCol } from '@/lib/category-scope'
 import { createClient } from '@supabase/supabase-js'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -82,7 +82,7 @@ export async function GET(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -144,7 +144,7 @@ export async function DELETE(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, is_super_admin, category_limit')
+      .select(`org_id, role, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 

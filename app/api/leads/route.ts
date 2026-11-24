@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { applyCategoryScope, categoryScopeOf } from '@/lib/category-scope'
+import { applyCategoryScope, categoryScopeOf, limitCol } from '@/lib/category-scope'
 import { createClient } from '@supabase/supabase-js'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import {
@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, team_id, custom_role_id, is_super_admin, category_limit, custom_role:custom_roles(name, display_name)')
+      .select(`org_id, role, team_id, custom_role_id, is_super_admin${await limitCol()}, custom_role:custom_roles(name, display_name)` as '*')
       .eq('id', user.id)
       .single()
 

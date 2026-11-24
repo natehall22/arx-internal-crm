@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { proposalHiddenFrom } from '@/lib/category-scope'
+import { proposalHiddenFrom, limitCol } from '@/lib/category-scope'
 import { ORG_BRAND_COLUMNS, resolveOrgBrand, usesOriginalCompanyAssets } from '@/lib/org-brand'
 import { resolveOrgProfile } from '@/lib/org-profile'
 import { resolveProposalContent } from '@/lib/proposal-content'
@@ -105,7 +105,7 @@ export async function GET(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -227,7 +227,7 @@ export async function PATCH(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -471,7 +471,7 @@ export async function DELETE(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 

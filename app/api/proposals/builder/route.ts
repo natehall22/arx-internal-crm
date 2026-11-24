@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { dealHiddenFrom, proposalHiddenFrom } from '@/lib/category-scope'
+import { dealHiddenFrom, proposalHiddenFrom, limitCol } from '@/lib/category-scope'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { computeFinancedContractTotal } from '@/lib/financing'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
@@ -192,7 +192,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -497,7 +497,7 @@ export async function POST(request: NextRequest) {
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -650,7 +650,7 @@ export async function PUT(request: NextRequest) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
+      .select(`org_id, role, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
