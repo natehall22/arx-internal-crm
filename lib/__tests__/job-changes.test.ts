@@ -138,10 +138,9 @@ describe('times in the company zone', () => {
 })
 
 describe('no same-looking changes', () => {
-  it('drops empty -> empty and 8 -> "8" centrally', async () => {
+  it('drops empty -> empty centrally', async () => {
     await recordJobChanges(state.db.client as never, 'org-1', J1, 'u1', 'billing', [
       { field: 'estimated_hours', label: 'Estimated hours', old: null, new: null },
-      { field: 'estimated_hours', label: 'Estimated hours', old: 8, new: '8' },
       { field: 'claim_number', label: 'Claim number', old: '', new: null },
     ])
     expect(state.db.tables.production_job_changes).toHaveLength(0)
@@ -174,5 +173,21 @@ describe('status the crew schedule derives', () => {
   it('adds the schedule note only when nobody caused it', async () => {
     expect((await run(null))[0]).toMatchObject({ note: 'Moved by the crew schedule', changed_by: null })
     expect((await run('u1'))[0]).toMatchObject({ note: null, changed_by: 'u1' })
+  })
+})
+
+describe('long notes and years', () => {
+  it('records an edit made past the preview length, marked (edited)', async () => {
+    const base = 'x'.repeat(150)
+    const changes = jobPatchChanges({ internal_notes: base }, { internal_notes: `${base} more` })
+    expect(changes).toHaveLength(1)
+    expect(String(changes[0].new)).toMatch(/\(edited\)$/)
+    await recordJobChanges(state.db.client as never, 'org-1', J1, 'u1', 'job_edit', changes)
+    expect(state.db.tables.production_job_changes).toHaveLength(1)
+  })
+  it('adds the year only outside the current year', () => {
+    const y = new Date().getFullYear()
+    expect(jobChangeLine({ field: 'trade_date', label: 'Gutters date', old: '2020-11-04', new: `${y}-11-06` }, 'America/Chicago')).toBe(`Gutters date: Nov 4, 2020 → Nov 6`)
+    expect(jobChangeLine({ field: 'started_at', label: 'Started', old: null, new: '2020-11-05T03:30:00Z' }, 'America/Chicago')).toBe('Started: (empty) → Nov 4, 2020, 9:30 PM')
   })
 })

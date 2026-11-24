@@ -9,7 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { formatInTimeZone } from 'date-fns-tz'
 
-import { describeChange, diffFields, showValue, type FieldChange } from '@/lib/change-log'
+import { describeChange, diffFields, sameValue, type FieldChange } from '@/lib/change-log'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { formatMoney } from '@/lib/format'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -63,7 +63,13 @@ function shorten(v: unknown): unknown {
  * long notes are shortened, and a field that did not really change (same value sent again) is left out.
  */
 export function jobPatchChanges(before: Record<string, unknown>, after: Record<string, unknown>): FieldChange[] {
-  return diffFields(before, after, JOB_FIELD_LABELS).map((c) => (c.field === 'status' ? { ...c, old: jobStatusWord(c.old) || null, new: jobStatusWord(c.new) || null } : { ...c, old: shorten(c.old), new: shorten(c.new) }))
+  return diffFields(before, after, JOB_FIELD_LABELS).map((c) => {
+    if (c.field === 'status') return { ...c, old: jobStatusWord(c.old) || null, new: jobStatusWord(c.new) || null }
+    const old = shorten(c.old)
+    const next = shorten(c.new)
+    // An edit past the preview length reads the same once shortened: say so instead of showing "same → same".
+    return { ...c, old, new: old === next && c.old !== c.new ? `${String(next)} (edited)` : next }
+  })
 }
 
 /** Pure: split one patch's changes into the status line (its own source) and the rest. */
@@ -82,7 +88,8 @@ export async function recordJobChanges(
   note?: string | null
 ): Promise<void> {
   // A change whose old and new read the same on screen ("(empty) → (empty)", 8 → "8") is not a change.
-  changes = changes.filter((c) => showValue(c.old) !== showValue(c.new))
+  // Compared in FULL (never the shortened text): only null / '' / undefined count as equal.
+  changes = changes.filter((c) => !sameValue(c.old === '' ? null : c.old, c.new === '' ? null : c.new))
   if (!changes.length && !note) return
   try {
     const { error } = await orgDb(admin, orgId)
@@ -104,7 +111,11 @@ function inZone(v: unknown, tz: string, pattern: string, bareDay: boolean): unkn
   if (typeof v !== 'string' || !v) return v
   const d = new Date(bareDay && /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T12:00:00Z` : v)
   if (Number.isNaN(d.getTime())) return v
-  return formatInTimeZone(d, bareDay ? 'UTC' : tz, pattern)
+  // The year is added for a date outside the current year (in the company zone).
+  const zone = bareDay ? 'UTC' : tz
+  const thisYear = formatInTimeZone(new Date(), tz, 'yyyy')
+  const p = formatInTimeZone(d, zone, 'yyyy') === thisYear ? pattern : pattern.replace('MMM d', 'MMM d, yyyy')
+  return formatInTimeZone(d, zone, p)
 }
 
 /** Pure: one line for the screen; money gets a $ sign, instants and days are shown in the company time zone ("Nov 4, 6:12 PM", "Nov 4"). */
