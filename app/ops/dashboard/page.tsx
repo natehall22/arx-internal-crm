@@ -1,8 +1,9 @@
 export const dynamic = 'force-dynamic'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { redirect, notFound } from 'next/navigation'
 import {
   canAccessJobBoardFromPermissionNames,
   canAccessOpsDashboardFromPermissionNames,
@@ -17,6 +18,8 @@ import { isOwnerProfile } from '@/lib/super-admin'
 
 export default async function OpsDashboardPage() {
   const { authUser, profile } = await requireAuth()
+  // A person limited to some work categories does not get this page (it is not split by category).
+  if (categoryScopeOf(profile).limited) notFound()
   const supabase = createClient()
   const admin = createServiceClient()
   const opsPermissions = await resolveEffectivePermissionNames(admin, authUser.id, profile)

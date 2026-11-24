@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -20,6 +21,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await dealHiddenFrom(createServiceClient(), ctx.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const admin = createServiceClient()
   if (await resolveSalesDocAccessBarred(admin, ctx.authUser.id, ctx.profile)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

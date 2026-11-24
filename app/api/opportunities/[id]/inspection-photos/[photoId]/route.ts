@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -10,6 +11,7 @@ export async function DELETE(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await dealHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const admin = createServiceClient()
 
     const { data: photo, error: fetchError } = await admin

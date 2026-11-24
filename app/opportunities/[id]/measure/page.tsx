@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { notFound, redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
@@ -10,6 +11,7 @@ import ExteriorMeasureClient from '@/app/ops/jobs/[id]/measure/ExteriorMeasureCl
 
 export default async function OpportunityMeasurePage({ params }: { params: { id: string } }) {
   const { authUser, profile } = await requireAuth()
+  if (await dealHiddenFrom(createServiceClient(), profile, params.id)) notFound()
   // Roof & exterior measuring switched off (Settings → Features): 404.
   await requireOrgFeaturePage(profile.org_id, 'roofMeasure')
   const supabase = createServiceClient()

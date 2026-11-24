@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { redirect, notFound } from 'next/navigation'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -18,6 +19,7 @@ import ReportBuilder from '@/components/inspection-report/ReportBuilder'
 // Full-screen phone-first builder (no CRM nav chrome — the rep is on a roof).
 export default async function OpportunityReportPage({ params }: { params: { id: string } }) {
   const { profile } = await requireAuth()
+  if (await dealHiddenFrom(createServiceClient(), profile, params.id)) notFound()
   if (!REPORT_EDIT_ROLES.has(profile.role)) {
     redirect(`/opportunities/${params.id}`)
   }

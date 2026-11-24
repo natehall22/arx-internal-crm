@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
-import { redirect } from 'next/navigation'
+import { categoryScopeOf } from '@/lib/category-scope'
+import { redirect, notFound } from 'next/navigation'
 
 import DevelopmentBoard from '@/components/ops/DevelopmentBoard'
 import Nav from '@/components/Nav'
@@ -14,6 +15,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 /** Jobs → Developments: every lot of every development, one cell per crew. Property tools must be on (a company without them never sees it). */
 export default async function DevelopmentsPage({ searchParams }: { searchParams: { customer?: string; development?: string } }) {
   const { authUser, profile } = await requireAuth()
+  // A person limited to some work categories does not get this page (it is not split by category).
+  if (categoryScopeOf(profile).limited) notFound()
   await requireOrgFeaturePage(profile.org_id, 'projectTools')
   const admin = createServiceClient()
   const { canJobBoard } = await resolveOpsAccess(admin, authUser.id, profile)

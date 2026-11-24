@@ -1,4 +1,5 @@
 import { visibleActivities } from '@/lib/threads/legacy-feed'
+import { categoryScopeOf, filterDealsToScope } from '@/lib/category-scope'
 import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -179,7 +180,7 @@ export async function GET(request: NextRequest) {
     const adminClient = createServiceClient()
     const { data: profile } = await adminClient
       .from('users')
-      .select('id, org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
+      .select('id, org_id, role, custom_role_id, is_super_admin, category_limit, custom_role:custom_roles(name, display_name)')
       .eq('id', user.id)
       .single()
 
@@ -232,7 +233,9 @@ export async function GET(request: NextRequest) {
     const inspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
     const closeOutcomeRows = normalizeCloseOutcomeRows(getCloseOutcomeSettings(orgRow?.settings))
 
-    const rawOpportunities = (opportunities || []).map((opportunity: any) => ({
+    // Limited to some work categories: only deals in them (customer, else lead; no limit = unchanged).
+    const scopedOpportunities = await filterDealsToScope(adminClient, profile.org_id, categoryScopeOf(profile), (opportunities || []) as unknown as Array<{ customer_id?: string | null; lead_id?: string | null }>)
+    const rawOpportunities = scopedOpportunities.map((opportunity: any) => ({
       ...opportunity,
       pipeline_stage: opportunity.pipeline_stage ?? null,
       follow_up_at: opportunity.follow_up_at ?? null,

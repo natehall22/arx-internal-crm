@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { proposalHiddenFrom } from '@/lib/category-scope'
 import { requireAuthApi, type AuthContext } from '@/lib/auth'
 import { filesObjectHref, storageSafeFileName } from '@/lib/files/files-object'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
@@ -35,6 +36,7 @@ export async function POST(
     if (await resolveSalesDocAccessBarred(adminClient, userId, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    if (await proposalHiddenFrom(adminClient, profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // Verify proposal belongs to user's org
     const { data: proposal, error: proposalError } = await adminClient
@@ -186,6 +188,7 @@ export async function DELETE(
     if (await resolveSalesDocAccessBarred(adminClient, userId, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    if (await proposalHiddenFrom(adminClient, profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // Verify proposal belongs to user's org
     const { data: proposal } = await adminClient

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { categoryScopeOf, filterDealsToScope } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import {
   mapLatestInspectionByLeadId,
@@ -113,7 +114,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch related data separately to avoid join issues
-    let enrichedOpportunities = opportunities || []
+    // Limited to some work categories: only deals in them (customer, else lead; no limit = unchanged).
+    let enrichedOpportunities = await filterDealsToScope(adminClient, profile.org_id, categoryScopeOf(profile), opportunities || [])
     
     if (fullData && enrichedOpportunities.length > 0) {
       // Get unique IDs for related lookups

@@ -1,4 +1,5 @@
 import { appointmentCalendarTitleLabel, canCompleteAdjusterMeeting } from '@/lib/adjuster-meeting'
+import { categoryScopeOf, filterByLeadScope } from '@/lib/category-scope'
 import { PRODUCT_NAME } from '@/lib/product'
 import { orgAppUrl } from '@/lib/company-links'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
@@ -51,6 +52,18 @@ function leadContactFromAppointment(appointment: { leads?: unknown }): {
 }
 
 // GET - Fetch single appointment
+/** A limited person (work categories) opens only appointments on leads inside them; an appointment with no lead is Not set. */
+async function leadInScope2(admin: ReturnType<typeof createServiceClient>, profile: { org_id: string; role: string; is_super_admin?: boolean | null; category_limit?: unknown }, appointment: { lead_id?: string | null }) {
+  const scope = categoryScopeOf(profile)
+  if (!scope.limited) return true
+  try {
+    return (await filterByLeadScope(admin, profile.org_id, scope, [appointment], (a) => a.lead_id)).length === 1
+  } catch (e) {
+    console.error('appointment scope failed closed', e)
+    return false
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -66,7 +79,7 @@ export async function GET(
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, is_super_admin, active, custom_role_id')
+      .select('org_id, role, is_super_admin, active, custom_role_id, category_limit')
       .eq('id', user.id)
       .maybeSingle()
 
@@ -92,6 +105,7 @@ export async function GET(
     if (error || !appointment) {
       return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
     }
+    if (!(await leadInScope2(adminClient, profile, appointment))) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
 
     // Setters / canvassers open only appointments they set, closed or booked, or on a lead of theirs (lib/contact-scope.ts).
     const scopeProfile = { id: user.id, role: String(profile.role), custom_role_id: (profile as { custom_role_id?: string | null }).custom_role_id ?? null, is_super_admin: profile.is_super_admin }
@@ -154,7 +168,7 @@ export async function PATCH(
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, full_name, custom_role_id, is_super_admin, active')
+      .select('org_id, role, full_name, custom_role_id, is_super_admin, active, category_limit')
       .eq('id', user.id)
       .single()
 
@@ -178,6 +192,7 @@ export async function PATCH(
     if (fetchError || !appointment) {
       return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
     }
+    if (!(await leadInScope2(adminClient, profile, appointment))) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
 
     const isAssignedCloser = appointment.closer_user_id === user.id
     const canEditSchedule = canReassign || isAssignedCloser

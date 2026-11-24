@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import ProjectsView from '@/components/projects/ProjectsView'
@@ -15,6 +16,8 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 export default async function ProjectsPage() {
   const { profile, authUser } = await requireAuth()
+  // A person limited to some work categories does not get this page (it is not split by category).
+  if (categoryScopeOf(profile).limited) notFound()
   const supabase = createServiceClient()
   const projectPermissions = await resolveEffectivePermissionNames(supabase, authUser.id, profile)
   if (

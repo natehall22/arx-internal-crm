@@ -377,3 +377,84 @@ export async function visitInScope(admin: SupabaseClient, orgId: string, scope: 
   const cid = (data as { customer_id: string | null }).customer_id
   return cid ? customerInScope(admin, orgId, scope, cid) : categoryAllowed(scope, null)
 }
+
+/**
+ * Keep only deals (opportunities) in scope — the same rule as {@link dealInScope}: the deal's customer, else its lead, else Not set.
+ * Rows need `customer_id` / `lead_id`. Unlimited: the same array, no query. A read error throws.
+ */
+export async function filterDealsToScope<T extends { customer_id?: string | null; lead_id?: string | null }>(
+  admin: SupabaseClient,
+  orgId: string,
+  scope: CategoryScope,
+  rows: readonly T[]
+): Promise<T[]> {
+  if (!scope.limited) return rows as T[]
+  const withCustomer = rows.filter((r) => !!r.customer_id)
+  const leadOnly = rows.filter((r) => !r.customer_id && !!r.lead_id)
+  const keepC = new Set(await filterByCustomerScope(admin, orgId, scope, withCustomer, (r) => r.customer_id))
+  const keepL = new Set(await filterByLeadScope(admin, orgId, scope, leadOnly, (r) => r.lead_id))
+  return rows.filter((r) => (r.customer_id ? keepC.has(r) : r.lead_id ? keepL.has(r) : categoryAllowed(scope, null)))
+}
+
+/**
+ * The one-line deal route gate: true = answer "not found". No limit = no query. A limited person's read failing hides the deal
+ * (fail closed). A deal that does not exist is hidden too (callers already answer 404 for it).
+ */
+export async function dealHiddenFrom(
+  admin: SupabaseClient,
+  profile: { org_id: string; id?: string } & NonNullable<ScopeProfile>,
+  dealId: string
+): Promise<boolean> {
+  const scope = categoryScopeOf(profile)
+  if (!scope.limited) return false
+  try {
+    const { data, error } = await orgDb(admin, profile.org_id).from('opportunities').select('id, customer_id, lead_id').eq('id', dealId).maybeSingle()
+    if (error || !data) return true
+    return !(await dealInScope(admin, profile.org_id, scope, data as { customer_id: string | null; lead_id: string | null }))
+  } catch (e) {
+    console.error('[category-scope] deal gate failed closed', e)
+    return true
+  }
+}
+
+/**
+ * Proposal route gate: true = answer "not found". A proposal follows its deal (customer, else lead); one with no deal is Not set.
+ * No limit = no query; a read error hides it (fail closed).
+ */
+export async function proposalHiddenFrom(
+  admin: SupabaseClient,
+  profile: { org_id: string; id?: string } & NonNullable<ScopeProfile>,
+  proposalId: string
+): Promise<boolean> {
+  const scope = categoryScopeOf(profile)
+  if (!scope.limited) return false
+  try {
+    const { data, error } = await orgDb(admin, profile.org_id).from('proposals').select('id, opportunity_id').eq('id', proposalId).maybeSingle()
+    if (error || !data) return true
+    const oppId = (data as { opportunity_id: string | null }).opportunity_id
+    if (!oppId) return !categoryAllowed(scope, null)
+    return await dealHiddenFrom(admin, profile, oppId)
+  } catch (e) {
+    console.error('[category-scope] proposal gate failed closed', e)
+    return true
+  }
+}
+
+/** Keep only proposals in scope (rows need `opportunity_id`): the deal's rule; no deal = Not set. Unlimited: same array, no query. */
+export async function filterProposalsToScope<T extends { opportunity_id?: string | null }>(
+  admin: SupabaseClient,
+  orgId: string,
+  scope: CategoryScope,
+  rows: readonly T[]
+): Promise<T[]> {
+  if (!scope.limited) return rows as T[]
+  const oppIds = Array.from(new Set(rows.map((r) => r.opportunity_id).filter((x): x is string => !!x)))
+  const deals: Array<{ id: string; customer_id: string | null; lead_id: string | null }> = []
+  for (let i = 0; i < oppIds.length; i += CHUNK) {
+    const { data, error } = await orgDb(admin, orgId).from('opportunities').select('id, customer_id, lead_id').in('id', oppIds.slice(i, i + CHUNK))
+    if (error) throw new Error(`category-scope: deal read: ${error.message}`)
+    deals.push(...((data ?? []) as typeof deals))
+  }
+  const ok = new Set((await filterDealsToScope(admin, orgId, scope, deals)).map((d) => d.id))
+  return rows.filter((r) => (r.opportunity_id ? ok.has(r.opportunity_id) : categoryAllowed(scope, null)))
+}

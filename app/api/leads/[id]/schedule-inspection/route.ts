@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { categoryScopeOf, leadInScope } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { userHasSchedulingCreate } from '@/lib/scheduling-create-permission'
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       )
     }
 
+    if (!(await leadInScope(supabase, profile.org_id, categoryScopeOf(profile), params.id))) return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
     let leadQuery = supabase.from('leads').select('*').eq('id', params.id).eq('org_id', profile.org_id)
     if (profile.role === 'rep') {
       leadQuery = leadQuery.eq('owner_user_id', profile.id)

@@ -9,6 +9,7 @@
  * and only once a checkup is within CHECKUP_LEAD_DAYS of due. Nothing is ever deleted: declined / can't reach are
  * statuses. Schedule + labels: lib/checkups-settings.ts.
  */
+import { inScopeJobIds, type CategoryScope } from '@/lib/category-scope'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
@@ -181,7 +182,7 @@ export async function ensureCheckups(admin: SupabaseClient, orgId: string, now =
 export async function loadCheckups(
   admin: SupabaseClient,
   orgId: string,
-  opts: { customerId?: string; jobId?: string; open?: boolean; closedSince?: string; limit?: number } = {}
+  opts: { customerId?: string; jobId?: string; open?: boolean; closedSince?: string; limit?: number; scope?: CategoryScope } = {}
 ): Promise<CheckupView[]> {
   // Closed lists read newest first so old history never crowds out recent rows under the limit.
   let q = admin.from('job_checkups').select(COLS).eq('org_id', orgId).order(opts.closedSince ? 'done_at' : 'due_on', { ascending: !opts.closedSince }).limit(opts.limit ?? 1000)
@@ -191,7 +192,10 @@ export async function loadCheckups(
   if (opts.closedSince) q = q.not('status', 'in', `(${OPEN_CHECKUP_STATUSES.join(',')})`).gte('done_at', opts.closedSince)
   const { data, error } = await q
   if (error) throw error
-  const rows = (data ?? []) as CheckupRow[]
+  const allRows = (data ?? []) as CheckupRow[]
+  // A person limited to some work categories sees only checkups on jobs inside them (job override, else customer).
+  const keep = opts.scope?.limited ? await inScopeJobIds(admin, orgId, opts.scope, allRows.map((r) => ({ id: r.production_job_id, customer_id: r.customer_id }))) : null
+  const rows = keep ? allRows.filter((r) => keep.has(r.production_job_id)) : allRows
   if (rows.length === 0) return []
 
   const jobIds = Array.from(new Set(rows.map((r) => r.production_job_id)))

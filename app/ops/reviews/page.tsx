@@ -1,10 +1,11 @@
 export const dynamic = 'force-dynamic'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
+import { redirect, notFound } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessOpsDashboardFromPermissionNames } from '@/lib/permissions'
 import OpsReviewBackstopList, { type OpsReviewRow } from '@/components/reviews/OpsReviewBackstopList'
@@ -23,6 +24,8 @@ function daysSince(iso: string | null): number | null {
 
 export default async function OpsReviewsPage() {
   const { authUser, profile } = await requireAuth()
+  // A person limited to some work categories does not get this page (it is not split by category).
+  if (categoryScopeOf(profile).limited) notFound()
   const admin = createServiceClient()
 
   const opsPermissions = await resolveEffectivePermissionNames(admin, authUser.id, profile)

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { categoryAllowed, categoryScopeOf, leadInScope } from '@/lib/category-scope'
 import { createClient } from '@supabase/supabase-js'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -81,7 +82,7 @@ export async function GET(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id, is_super_admin')
+      .select('org_id, role, custom_role_id, is_super_admin, category_limit')
       .eq('id', user.id)
       .single()
 
@@ -98,6 +99,11 @@ export async function GET(
       .single()
 
     if (leadError || !lead) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+    }
+
+    // Limited to some work categories: a lead outside them is "not found".
+    if (!categoryAllowed(categoryScopeOf(profile), (lead as { category?: string | null }).category)) {
       return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
     }
 
@@ -138,12 +144,16 @@ export async function DELETE(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, is_super_admin, category_limit')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (!(await leadInScope(adminClient, profile.org_id, categoryScopeOf(profile), leadId))) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
     }
 
     // Get the lead to verify ownership and org

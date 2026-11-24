@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { requireAuthApi } from '@/lib/auth'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from '@/lib/invoices'
@@ -16,6 +17,8 @@ async function gate(batchId: string) {
   } catch {
     return { res: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) } as const
   }
+  // Master invoices span customers and categories and are not split by category: not available while limited.
+  if (categoryScopeOf(profile).limited) return { res: NextResponse.json({ error: 'Not found' }, { status: 404 }) } as const
   const admin = createServiceClient()
   const off = await orgFeatureOffResponse(profile.org_id, 'masterInvoices')
   if (off) return { res: off } as const
