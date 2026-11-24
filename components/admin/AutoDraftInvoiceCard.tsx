@@ -29,7 +29,7 @@ export default function AutoDraftInvoiceCard() {
   return (
     <Card className="flex flex-col gap-3 p-4 text-[#2c2c2a]">
       <h2 className="text-lg font-bold">Draft invoice when a visit is done</h2>
-      <p className="text-base">When a crew marks a per-visit plan visit done, make a draft invoice for it. Nothing is sent or charged: you review and send it from All invoices. Monthly, yearly and hourly plans still bill from Ready to bill and Hours to bill.</p>
+      <p className="text-base">When a crew marks a per-visit plan visit done, each finished visit gets its own draft invoice (one invoice per visit). Nothing is sent or charged: you review and send it from All invoices. Monthly, yearly and hourly plans still bill from Ready to bill and Hours to bill.</p>
       <label className="flex min-h-[44px] items-center gap-3 text-base">
         <input type="checkbox" className="h-5 w-5" checked={on} onChange={(e) => setOn(e.target.checked)} />
         Make a draft invoice when a visit is done

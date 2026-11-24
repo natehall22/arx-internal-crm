@@ -311,7 +311,7 @@ export async function createServiceInvoices(admin: SupabaseClient, orgId: string
   return result
 }
 
-export type AutoDraftResult = { made: true; invoiceId: string } | { made: false; reason: 'off' | 'no_plans' | 'not_done' | 'not_per_visit' | 'billed' | 'not_ready' }
+export type AutoDraftResult = { made: true; invoiceId: string } | { made: false; reason: 'off' | 'no_plans' | 'not_done' | 'not_per_visit' | 'billed' | 'no_price' | 'not_ready' }
 
 /**
  * A visit was just marked done: make ONE draft invoice for it — only when the owner turned `serviceBilling.autoDraftOnDone`
@@ -336,7 +336,10 @@ export async function autoDraftInvoiceForVisit(admin: SupabaseClient, orgId: str
   if (!billed) return { made: false, reason: 'not_ready' }
   const { units } = buildBillingUnits([{ ...visit, skipped: false }], plans, billed)
   const unit = units.find((u) => u.kind === 'visit')
-  if (!unit) return { made: false, reason: visit.visitStep && visit.visitStep !== 'service' ? 'not_per_visit' : 'billed' }
+  if (!unit) {
+    if (visit.visitStep && visit.visitStep !== 'service') return { made: false, reason: 'not_per_visit' }
+    return { made: false, reason: !(visit.price != null && visit.price > 0) ? 'no_price' : 'billed' }
+  }
   const addresses = await loadAddresses(admin, orgId, unit.propertyId ? [unit.propertyId] : [])
   const [draft] = groupDraftInvoices([unit], 'visit', (id) => (id ? addresses[id] ?? null : null))
   if (!draft) return { made: false, reason: 'billed' }
@@ -359,6 +362,45 @@ export async function visitInvoiceNumber(admin: SupabaseClient, orgId: string, v
     if (r.job_invoices && r.job_invoices.org_id === orgId && r.job_invoices.status !== 'void') return r.job_invoices.invoice_number ?? 'an invoice'
   }
   return null
+}
+
+/**
+ * Reopening a visit whose ONLY live invoice is a plain draft (no payments, every line is this visit) voids that draft
+ * ("Visit reopened") so the reopen can go ahead. Any other invoice (sent, paid, with other lines, with money) is left alone:
+ * returns false and the caller keeps the refusal. Race safety: the reopen itself is still guarded by the DB trigger
+ * work_orders_billed_visit_guard (same per-company lock as billing), so if an invoice appears between this void and the
+ * reopen the reopen is refused, never silently allowed. The one gap: a draft sent in the milliseconds between the checks
+ * here and the void would be voided (it holds only this visit, which is being reopened).
+ */
+export async function voidDraftInvoiceForReopen(admin: SupabaseClient, orgId: string, visitId: string): Promise<boolean> {
+  const { data, error } = await admin
+    .from('job_invoice_items')
+    .select('invoice_id, job_invoices!inner(id, status, org_id, job_id, paid_outside_cents)')
+    .eq('work_order_id', visitId)
+    .eq('job_invoices.org_id', orgId)
+  if (error) return false
+  type Inv = { id: string; status: string; org_id: string; job_id: string | null; paid_outside_cents?: number | null }
+  const live = new Map<string, Inv>()
+  for (const r of (data ?? []) as unknown as Array<{ job_invoices: Inv | null }>) {
+    const inv = r.job_invoices
+    if (inv && inv.org_id === orgId && inv.status !== 'void') live.set(inv.id, inv)
+  }
+  if (live.size !== 1) return false
+  const inv = Array.from(live.values())[0]
+  if (inv.status !== 'draft' || inv.job_id || Number(inv.paid_outside_cents ?? 0) > 0) return false
+  const { data: lines } = await admin.from('job_invoice_items').select('work_order_id').eq('invoice_id', inv.id)
+  const rows = (lines ?? []) as Array<{ work_order_id: string | null }>
+  if (rows.length === 0 || rows.some((l) => l.work_order_id !== visitId)) return false
+  const { data: pays } = await admin.from('invoice_payments').select('id').eq('invoice_id', inv.id).limit(1)
+  if ((pays ?? []).length > 0) return false
+  try {
+    const { voidInvoice } = await import('@/lib/invoices')
+    await voidInvoice(admin, inv.id, 'Visit reopened')
+    return true
+  } catch (e) {
+    console.error('[billing] void draft for reopen failed', inv.id, e)
+    return false
+  }
 }
 
 /** Payments applied per invoice (one read shape for the Customer File list and the Today unpaid-invoices card). */

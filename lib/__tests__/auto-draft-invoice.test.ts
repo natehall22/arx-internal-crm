@@ -43,6 +43,7 @@ function seed(settings: Record<string, unknown>, opts: { rpcThrows?: boolean } =
       ],
       job_invoices: [],
       job_invoice_items: [],
+      invoice_payments: [],
     },
     {
       relations,
@@ -133,11 +134,44 @@ describe('auto draft invoice on done', () => {
     expect(d.tables.job_invoices[0].created_by).toBeNull()
   })
 
-  it('reopening a visit on its draft invoice says to void that invoice first', async () => {
+  const reopen = (d: ReturnType<typeof seed>) => applyVisitAction(d.client, ORG, 'v1', { action: 'reopen' }, { userId: 'u1', subId: null }, { now: NOW })
+
+  it('reopening a visit whose only invoice is its own plain draft voids the draft and reopens', async () => {
     const d = seed({ serviceBilling: { autoDraftOnDone: true } })
     await done(d, 'v1')
-    const res = await applyVisitAction(d.client, ORG, 'v1', { action: 'reopen' }, { userId: 'u1', subId: null }, { now: NOW })
-    expect(res).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/void that invoice first/) })
+    expect((await reopen(d)).ok).toBe(true)
+    expect(d.tables.job_invoices[0]).toMatchObject({ status: 'void', void_reason: 'Visit reopened' })
+    expect(d.tables.work_orders.find((r) => r.id === 'v1')!.status).toBe('scheduled')
+  })
+
+  it('a sent invoice, a multi-line draft or a draft with a payment keeps the refusal', async () => {
+    for (const mutate of [
+      (d: ReturnType<typeof seed>) => { d.tables.job_invoices[0].status = 'sent' },
+      (d: ReturnType<typeof seed>) => { d.tables.job_invoice_items.push({ id: 'x', invoice_id: d.tables.job_invoices[0].id, work_order_id: 'v3' }) },
+      (d: ReturnType<typeof seed>) => { d.tables.invoice_payments.push({ id: 'p', invoice_id: d.tables.job_invoices[0].id, applied_cents: 100 }) },
+    ]) {
+      const d = seed({ serviceBilling: { autoDraftOnDone: true } })
+      await done(d, 'v1')
+      mutate(d)
+      expect(await reopen(d)).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/void that invoice first/) })
+      expect(d.tables.job_invoices[0].status).not.toBe('void')
+    }
+  })
+
+  it('a failing "done" message never skips the draft', async () => {
+    jest.doMock('@/lib/customer-messages-db', () => ({ queueVisitDone: async () => { throw new Error('boom') } }))
+    const d = seed({ serviceBilling: { autoDraftOnDone: true } })
+    expect((await done(d, 'v3')).ok).toBe(true)
+    expect(d.tables.job_invoices).toHaveLength(1)
+    jest.dontMock('@/lib/customer-messages-db')
+  })
+
+  it('an unpriced per-visit plan says no_price', async () => {
+    const d = seed({ serviceBilling: { autoDraftOnDone: true } })
+    d.tables.service_visit_charges.find((c) => c.work_order_id === 'v3')!.price = null
+    await done(d, 'v3')
+    const { autoDraftInvoiceForVisit } = await import('@/lib/service-billing-db')
+    expect(await autoDraftInvoiceForVisit(d.client, ORG, 'v3', 'u1', NOW)).toEqual({ made: false, reason: 'no_price' })
   })
 })
 

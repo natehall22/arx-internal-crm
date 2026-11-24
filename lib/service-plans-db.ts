@@ -1759,9 +1759,11 @@ export async function applyVisitAction(
   }
   // A billed visit stays done: reopening it would leave an invoice charging for a visit that isn't done.
   if (a.action === 'reopen' && r.status === 'completed') {
-    const { visitInvoiceNumber } = await import('@/lib/service-billing-db')
+    const { visitInvoiceNumber, voidDraftInvoiceForReopen } = await import('@/lib/service-billing-db')
     const invoiceNumber = await visitInvoiceNumber(admin, orgId, visitId)
-    if (invoiceNumber) return { ok: false, status: 409, error: `This visit is on invoice ${invoiceNumber} — void that invoice first` }
+    if (invoiceNumber && (await voidDraftInvoiceForReopen(admin, orgId, visitId))) {
+      // its only invoice was a plain draft for this visit: voided ("Visit reopened"); the DB guard still protects the reopen itself
+    } else if (invoiceNumber) return { ok: false, status: 409, error: `This visit is on invoice ${invoiceNumber} — void that invoice first` }
   }
   // A follow-on step's result options come from the plan (its own copy of the template's steps).
   let results: string[] = []
@@ -1798,8 +1800,12 @@ export async function applyVisitAction(
     // The visit stands even if the follow-on can't be made; ops sees the missing step on the Visits list.
     await createFollowUpVisit(admin, orgId, r, opts.now ?? new Date()).catch((e) => console.error('[service-plans] follow-up failed', visitId, e))
     // The customer's "done" email (only when the company turned it on; sent ~15 min later so a mis-tap can be reopened).
-    const { queueVisitDone } = await import('@/lib/customer-messages-db')
-    await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
+    try {
+      const { queueVisitDone } = await import('@/lib/customer-messages-db')
+      await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
+    } catch (e) {
+      console.error('[service-plans] queue done message failed', visitId, e)
+    }
     // Auto draft invoice (owner setting, default off). Never blocks or undoes the completion; a draft only, never sent.
     try {
       const { autoDraftInvoiceForVisit } = await import('@/lib/service-billing-db')
