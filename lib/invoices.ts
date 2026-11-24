@@ -782,9 +782,11 @@ export async function finalizeAndSendInvoice(
       sent_to_email: email,
     })
     .eq('id', invoiceId)
+    .eq('status', 'draft')
     .select()
-    .single()
+    .maybeSingle()
 
+  if (!error && !updated) throw new Error('This invoice is no longer a draft (it may have been voided), so it was not sent')
   if (error || !updated) {
     throw new Error(`Failed to send invoice: ${error?.message || 'Unknown error'}`)
   }
@@ -1086,7 +1088,9 @@ export async function getInvoicesForJob(
 export async function voidInvoice(
   supabase: SupabaseClient,
   invoiceId: string,
-  reason: string
+  reason: string,
+  /** `onlyIfStatus`: the void is ONE conditional update (`status = onlyIfStatus`); if the invoice moved on meanwhile (e.g. was sent) it throws and changes nothing. */
+  opts: { onlyIfStatus?: 'draft' } = {}
 ): Promise<JobInvoice> {
   if (!reason.trim()) {
     throw new Error('Void reason is required')
@@ -1123,7 +1127,7 @@ export async function voidInvoice(
   }
 
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
-  const { data: updated, error } = await supabase
+  let voidQuery = supabase
     .from('job_invoices')
     .update({
       status: 'void',
@@ -1131,8 +1135,8 @@ export async function voidInvoice(
       void_reason: reason.trim(),
     })
     .eq('id', invoiceId)
-    .select()
-    .single()
+  if (opts.onlyIfStatus) voidQuery = voidQuery.eq('status', opts.onlyIfStatus)
+  const { data: updated, error } = opts.onlyIfStatus ? await voidQuery.select().maybeSingle() : await voidQuery.select().single()
 
   if (error || !updated) {
     throw new Error(`Failed to void invoice: ${error?.message || 'Unknown error'}`)

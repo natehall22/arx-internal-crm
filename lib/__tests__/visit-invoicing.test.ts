@@ -251,6 +251,8 @@ describe('invoices without a job: company fence, payments, paid in full', () => 
 
   it('a billed visit cannot be reopened (void the invoice first); an unbilled one can', async () => {
     const { d } = await billed()
+    // a plain single-visit draft is voided automatically on reopen (auto-draft-invoice.test.ts); a sent invoice keeps the refusal
+    d.tables.job_invoices.forEach((i) => { i.status = 'sent' })
     expect(await applyVisitAction(d.client, ORG, 's1', { action: 'reopen' }, { userId: 'u1', subId: null }, { now: NOW })).toEqual({
       ok: false,
       status: 409,

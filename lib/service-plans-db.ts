@@ -1759,9 +1759,11 @@ export async function applyVisitAction(
   }
   // A billed visit stays done: reopening it would leave an invoice charging for a visit that isn't done.
   if (a.action === 'reopen' && r.status === 'completed') {
-    const { visitInvoiceNumber } = await import('@/lib/service-billing-db')
+    const { visitInvoiceNumber, voidDraftInvoiceForReopen } = await import('@/lib/service-billing-db')
     const invoiceNumber = await visitInvoiceNumber(admin, orgId, visitId)
-    if (invoiceNumber) return { ok: false, status: 409, error: `This visit is on invoice ${invoiceNumber} — void that invoice first` }
+    if (invoiceNumber && (await voidDraftInvoiceForReopen(admin, orgId, visitId))) {
+      // its only invoice was a plain draft for this visit: voided ("Visit reopened"); the DB guard still protects the reopen itself
+    } else if (invoiceNumber) return { ok: false, status: 409, error: `This visit is on invoice ${invoiceNumber} — void that invoice first` }
   }
   // A follow-on step's result options come from the plan (its own copy of the template's steps).
   let results: string[] = []
@@ -1798,8 +1800,19 @@ export async function applyVisitAction(
     // The visit stands even if the follow-on can't be made; ops sees the missing step on the Visits list.
     await createFollowUpVisit(admin, orgId, r, opts.now ?? new Date()).catch((e) => console.error('[service-plans] follow-up failed', visitId, e))
     // The customer's "done" email (only when the company turned it on; sent ~15 min later so a mis-tap can be reopened).
-    const { queueVisitDone } = await import('@/lib/customer-messages-db')
-    await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
+    try {
+      const { queueVisitDone } = await import('@/lib/customer-messages-db')
+      await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
+    } catch (e) {
+      console.error('[service-plans] queue done message failed', visitId, e)
+    }
+    // Auto draft invoice (owner setting, default off). Never blocks or undoes the completion; a draft only, never sent.
+    try {
+      const { autoDraftInvoiceForVisit } = await import('@/lib/service-billing-db')
+      await autoDraftInvoiceForVisit(admin, orgId, visitId, by.userId, opts.now ?? new Date())
+    } catch (e) {
+      console.error('[service-plans] auto draft invoice failed', visitId, e)
+    }
   }
   if (a.action === 'move') {
     await recordWorkOrderMoves(admin, orgId, [{ workOrderId: visitId, from: r.scheduled_date, to: a.date, reason: a.reason ?? null, kind: opts.moveKind ?? 'move', userId: by.userId, subId: by.subId }])
@@ -2122,16 +2135,18 @@ export type BillableVisit = {
  * with at least one done visit. Skipped / cancelled visits never bill. What was billed lives on the invoice lines
  * (job_invoice_items.work_order_id / service_plan_id + billing_month); nothing here is ever rewritten.
  */
-export async function loadCompletedServiceVisits(admin: SupabaseClient, orgId: string, fromIso: string, toIso: string): Promise<BillableVisit[]> {
+export async function loadCompletedServiceVisits(admin: SupabaseClient, orgId: string, fromIso: string, toIso: string, opts: { visitIds?: string[] } = {}): Promise<BillableVisit[]> {
   const out: BillableVisit[] = []
   for (let page = 0; ; page += PAGE) {
-    const { data, error } = await orgDb(admin, orgId)
+    let q = orgDb(admin, orgId)
       .from('work_orders')
       .select('id, service_plan_id, customer_id, property_id, completed_at, scheduled_date, visit_step')
       .eq('work_order_type', SERVICE_VISIT_TYPE)
       .eq('status', 'completed')
       .gte('completed_at', fromIso)
       .lt('completed_at', toIso)
+    if (opts.visitIds) q = q.in('id', opts.visitIds)
+    const { data, error } = await q
       .order('id')
       .range(page, page + PAGE - 1)
     if (error) throw error

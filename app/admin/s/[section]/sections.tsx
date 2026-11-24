@@ -4,6 +4,7 @@ import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
 import CrewIncentivesSettingsCard from '@/components/admin/CrewIncentivesSettingsCard'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
+import AutoDraftInvoiceCard from '@/components/admin/AutoDraftInvoiceCard'
 import PaymentTermsCard from '@/components/admin/PaymentTermsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import OrgProfileCard from '@/components/admin/OrgProfileCard'
@@ -76,6 +77,7 @@ export const SECTION_PAGES: Record<string, SectionPage> = {
         ),
       },
       { anchor: 'hourly-billing', render: () => <HourlyBillingSettingsCard /> },
+      { anchor: 'auto-draft-invoice', render: () => <AutoDraftInvoiceCard /> },
     ],
   },
   quotes: {
