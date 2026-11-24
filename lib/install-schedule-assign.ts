@@ -9,6 +9,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadTradeWithJob, syncTradeCalendar } from '@/lib/job-trade-calendar'
+import { recordJobChanges, tradeScheduleChanges } from '@/lib/job-changes'
+import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { JOB_TRADE_COLUMNS, newCrewLinkToken, parseInstallDays, type JobTradeRow } from '@/lib/job-trades'
 import { syncJobScheduleFromTrades } from '@/lib/job-trades-db'
 import { markMaterialsOrdered } from '@/lib/job-status-events'
@@ -59,7 +61,7 @@ export async function assignInstallTrade(adminClient: SupabaseClient, ctx: Assig
     return { status: 400, body: { error: `This trade is ${trade.status} — reopen it before scheduling` } }
   }
 
-  const { data: sub } = await adminClient.from('sub_contractors').select('id').eq('id', subId).eq('org_id', orgId).maybeSingle()
+  const { data: sub } = await adminClient.from('sub_contractors').select('id, company_name').eq('id', subId).eq('org_id', orgId).maybeSingle()
   if (!sub) return { status: 404, body: { error: 'Subcontractor not found' } }
 
   // A reassignment posts no date and keeps the one already on the trade.
@@ -110,7 +112,27 @@ export async function assignInstallTrade(adminClient: SupabaseClient, ctx: Assig
     ])
   }
 
-  await syncJobScheduleFromTrades(adminClient, orgId, job.id)
+  await syncJobScheduleFromTrades(adminClient, orgId, job.id, { changedBy: ctx.by?.userId ?? null })
+
+  // The job's history: this trade's crew / day / length, when any of them changed. Never blocks the move.
+  try {
+    let oldCrew: string | null = null
+    if (trade.assigned_sub_id && trade.assigned_sub_id !== subId) {
+      const { data: prev } = await adminClient.from('sub_contractors').select('company_name').eq('id', trade.assigned_sub_id).eq('org_id', orgId).maybeSingle()
+      oldCrew = (prev as { company_name?: string | null } | null)?.company_name ?? 'Another crew'
+    } else if (trade.assigned_sub_id) {
+      oldCrew = (sub as { company_name?: string | null }).company_name ?? null
+    }
+    const name = tradeLabel(trade.trade, await loadOrgTrades(adminClient, orgId))
+    const changes = tradeScheduleChanges(
+      name,
+      { scheduled_date: trade.scheduled_date, install_days: trade.install_days, crew: oldCrew },
+      { scheduled_date: effectiveDate, install_days: updatePayload.install_days as number, crew: (sub as { company_name?: string | null }).company_name ?? null }
+    )
+    await recordJobChanges(adminClient, orgId, job.id, ctx.by?.userId ?? null, 'schedule', changes, ctx.by?.subId && !ctx.by.userId ? 'Moved by the crew (phone link)' : null)
+  } catch (e) {
+    console.error('[install-schedule assign] history failed', e)
+  }
 
   // An installer-supplied trade counts as covered once its crew is scheduled; if that completes
   // the job's materials, record it. Records a status only — never sends anything to a supplier.

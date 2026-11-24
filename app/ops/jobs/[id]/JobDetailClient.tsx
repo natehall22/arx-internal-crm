@@ -1,5 +1,6 @@
 'use client'
 
+import JobHistoryButton from '@/components/ops/JobHistoryButton'
 import {
   JOB_STATUS_CONFIG,
   jobStatusConfig,
@@ -1808,6 +1809,7 @@ export default function JobDetailClient({
                   {!isCancelled && renderWorkflowButton(job, primaryId, true, wfOpts)}
                   {!isCancelled && secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}
                   <div className="flex-1 min-w-[8px]" aria-hidden />
+                  <JobHistoryButton jobId={job.id} />
                   {overflowAllowed && (
                     <details className="relative">
                       <summary className="list-none cursor-pointer min-h-[44px] px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 inline-flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
@@ -1883,6 +1885,7 @@ export default function JobDetailClient({
                   {!isCancelled && secondaryIds.length > 0 && (
                     <div className="grid grid-cols-2 gap-2 [&>button]:w-full">{secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}</div>
                   )}
+                  <JobHistoryButton jobId={job.id} className="min-h-[44px] w-full" />
                   {overflowAllowed && (
                     <details className="relative">
                       <summary className="list-none cursor-pointer min-h-[44px] w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 text-center select-none [&::-webkit-details-marker]:hidden">

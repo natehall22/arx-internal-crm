@@ -10,6 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { JOB_OWNER_COLUMN, isMissingColumn } from '@/lib/job-catch-up-db'
+import { recordJobChanges } from '@/lib/job-changes'
 import { isFieldRoleLike } from '@/lib/permissions'
 
 /** Sales and outside roles that never own a production job (field roles are caught by isFieldRoleLike). */
@@ -53,17 +54,27 @@ export type SetJobOwnerResult =
   | { ok: false; status: 400 | 404 | 409 | 500; error: string }
 
 /** Set (or clear, with null) a job's owner. The caller has already checked jobs:edit. */
-export async function setJobOwner(admin: SupabaseClient, orgId: string, jobId: string, ownerUserId: string | null): Promise<SetJobOwnerResult> {
+export async function setJobOwner(admin: SupabaseClient, orgId: string, jobId: string, ownerUserId: string | null, actorUserId: string | null = null): Promise<SetJobOwnerResult> {
   const { data: job } = await admin.from('production_jobs').select('id').eq('id', jobId).eq('org_id', orgId).maybeSingle()
   if (!job) return { ok: false, status: 404, error: 'Job not found' }
   if (ownerUserId) {
     const candidates = await loadJobOwnerCandidates(admin, orgId)
     if (!candidates.some((c) => c.id === ownerUserId)) return { ok: false, status: 400, error: 'Pick an active office or production person' }
   }
+  // The owner before, for the job's history. Tolerant: the column may not exist yet (the save below says so).
+  const { data: before } = await admin.from('production_jobs').select(JOB_OWNER_COLUMN).eq('id', jobId).eq('org_id', orgId).maybeSingle()
+  const oldOwnerId = ((before as unknown as Record<string, string | null> | null)?.[JOB_OWNER_COLUMN] ?? null) || null
   const { error } = await admin.from('production_jobs').update({ [JOB_OWNER_COLUMN]: ownerUserId }).eq('id', jobId).eq('org_id', orgId)
   if (error) {
     if (isMissingColumn(error, JOB_OWNER_COLUMN)) return { ok: false, status: 409, error: 'Job owners are not switched on yet (database update pending).' }
     return { ok: false, status: 500, error: 'Could not save the owner' }
+  }
+  if (oldOwnerId !== ownerUserId) {
+    const ids = [oldOwnerId, ownerUserId].filter((x): x is string => !!x)
+    const { data: people } = ids.length ? await admin.from('users').select('id, full_name, email').eq('org_id', orgId).in('id', ids) : { data: [] }
+    const nameOf = (id: string | null) => (id ? ((people ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>).find((p) => p.id === id) : null)
+    const word = (id: string | null) => (id ? (nameOf(id)?.full_name || nameOf(id)?.email || 'Someone') : null)
+    await recordJobChanges(admin, orgId, jobId, actorUserId, 'owner', [{ field: 'owner_user_id', label: 'Owner', old: word(oldOwnerId), new: word(ownerUserId) }])
   }
   return { ok: true, ownerUserId }
 }

@@ -16,6 +16,7 @@ import {
   type Category,
   type CategoryChange,
 } from '@/lib/categories'
+import { recordJobChanges } from '@/lib/job-changes'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { isMissingColumn } from '@/lib/supabase/errors'
 
@@ -71,16 +72,19 @@ export async function setCustomerCategory(
 }
 
 /** THE writer of `production_jobs.category` (the override). null / '' = back to "same as the customer". */
-export async function setJobCategory(admin: SupabaseClient, orgId: string, jobId: string, requested: unknown): Promise<Write> {
+export async function setJobCategory(admin: SupabaseClient, orgId: string, jobId: string, requested: unknown, actorUserId: string | null = null): Promise<Write> {
   const { data: row, error: readError } = await admin.from('production_jobs').select('category').eq('id', jobId).eq('org_id', orgId).maybeSingle()
   if (readError) return isMissingColumn(readError, 'category') ? { ok: false, status: 503, error: CATEGORIES_NOT_READY } : { ok: false, status: 500, error: 'Could not save' }
   if (!row) return { ok: false, status: 404, error: 'Job not found' }
   const current = ((row as { category?: string | null }).category ?? null) || null
-  const choice = resolveCategoryChoice(await loadOrgCategories(admin, orgId), requested, current)
+  const list = await loadOrgCategories(admin, orgId)
+  const choice = resolveCategoryChoice(list, requested, current)
   if (!choice.ok) return { ok: false, status: 400, error: choice.error }
   if (choice.slug === current) return { ok: true, category: current }
   const { error } = await admin.from('production_jobs').update({ category: choice.slug }).eq('id', jobId).eq('org_id', orgId)
   if (error) return { ok: false, status: 500, error: 'Could not save' }
+  const word = (slug: string | null) => (slug ? (list.find((c) => c.slug === slug)?.label ?? slug) : null)
+  await recordJobChanges(admin, orgId, jobId, actorUserId, 'category', [{ field: 'category', label: 'Category', old: word(current), new: word(choice.slug) }])
   return { ok: true, category: choice.slug }
 }
 

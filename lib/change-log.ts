@@ -4,11 +4,14 @@
  */
 export type FieldChange = { field: string; label: string; old: unknown; new: unknown }
 
+/** A value as a change-log line shows it. */
+export function showValue(v: unknown): string {
+  return Array.isArray(v) ? (v.length ? v.map((x) => (x && typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', ') : '(none)') : v === null || v === undefined || v === '' ? '(empty)' : typeof v === 'object' ? JSON.stringify(v) : String(v)
+}
+
 /** One line for a change-log screen. */
 export function describeChange(c: FieldChange): string {
-  const show = (v: unknown) =>
-    Array.isArray(v) ? (v.length ? v.map((x) => (x && typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', ') : '(none)') : v === null || v === undefined || v === '' ? '(empty)' : typeof v === 'object' ? JSON.stringify(v) : String(v)
-  return `${c.label}: ${show(c.old)} → ${show(c.new)}`
+  return `${c.label}: ${showValue(c.old)} → ${showValue(c.new)}`
 }
 
 /**

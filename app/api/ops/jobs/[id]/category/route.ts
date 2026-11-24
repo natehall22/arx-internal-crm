@@ -48,7 +48,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (!access.canEditJobs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const body = (await request.json().catch(() => null)) as { category?: unknown } | null
   if (!body || !('category' in body)) return NextResponse.json({ error: 'category is required (use null to clear)' }, { status: 400 })
-  const r = await setJobCategory(admin, profile.org_id, params.id, body.category)
+  const r = await setJobCategory(admin, profile.org_id, params.id, body.category, profile.id)
   if (!r.ok) return NextResponse.json({ error: r.status === 503 ? CATEGORIES_NOT_READY : r.error }, { status: r.status })
   return NextResponse.json({ jobCategory: r.category })
 }

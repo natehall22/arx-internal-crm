@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { jobStatusWord, recordJobChanges } from '@/lib/job-changes'
 import { resolveJobProposalId } from '@/lib/job-sold-scope'
 import {
   JOB_TRADE_COLUMNS,
@@ -240,7 +241,7 @@ export async function syncJobScheduleFromTrades(
   admin: SupabaseClient,
   orgId: string,
   jobId: string,
-  opts: { revertToMaterials?: boolean } = {}
+  opts: { revertToMaterials?: boolean; /** Who caused it, for the job's history (null = the schedule on its own). */ changedBy?: string | null } = {}
 ): Promise<DerivedJobSchedule | null> {
   const [{ data: job }, { data: trades }] = await Promise.all([
     admin
@@ -273,6 +274,9 @@ export async function syncJobScheduleFromTrades(
   if (Object.keys(update).length > 0) {
     const { error } = await admin.from('production_jobs').update(update).eq('id', jobId).eq('org_id', orgId)
     if (error) console.error('[syncJobScheduleFromTrades] update failed', jobId, error)
+    else if (update.status !== undefined) {
+      await recordJobChanges(admin, orgId, jobId, opts.changedBy ?? null, 'schedule', [{ field: 'status', label: 'Status', old: jobStatusWord(job.status), new: jobStatusWord(derived.status) }], opts.changedBy ? null : 'Moved by the crew schedule')
+    }
   }
   return derived
 }
