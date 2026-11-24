@@ -42,3 +42,4 @@ have caught, add ONE line here (date, pattern, the check that would have caught 
 - 2026-11-23 · A retry/duplicate check must use exactly the writer's own match (key format, customer).
 - 2026-11-23 · A locked prefilled dropdown needs a plan when its option isn't loaded: show a message, never silently pick another.
 - 2026-11-23 · When a function now throws on a lost race, check every caller already guards or catches it; a lost race is a normal answer, not a 500.
+- 2026-11-23 · eslint-disable for a rule the config doesn't load (@typescript-eslint/no-var-requires) is itself a lint ERROR. Run eslint on test files too.
