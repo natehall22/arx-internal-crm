@@ -1,3 +1,4 @@
+import { dealHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
@@ -278,7 +279,7 @@ export async function POST(request: Request) {
       .eq('org_id', profile.org_id)
       .single()
 
-    if (!opportunity) {
+    if (!opportunity || (await dealHiddenFrom(supabase, profile, opportunityId))) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
 

@@ -1,4 +1,5 @@
-import { redirect } from 'next/navigation'
+import { categoryScopeOf, leadInScope } from '@/lib/category-scope'
+import { notFound, redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
 import LeadView from '@/app/leads/[id]/LeadView'
@@ -15,6 +16,8 @@ export const dynamic = 'force-dynamic'
 export default async function ProspectFile({ params }: { params: { leadId: string } }) {
   const { profile } = await requireAuth()
   const admin = createServiceClient()
+  // A person limited to some work categories opens only prospects inside them.
+  if (!(await leadInScope(admin, profile.org_id, categoryScopeOf(profile), params.leadId))) notFound()
   const { data: opp } = await admin
     .from('opportunities')
     .select('id, customer_id')

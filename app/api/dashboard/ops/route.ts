@@ -1,3 +1,4 @@
+import { categoryScopeOf } from '@/lib/category-scope'
 import { JOB_COLLECTION_COLUMNS, evaluateJobCollection } from '@/lib/job-collection'
 import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { NextResponse } from 'next/server'
@@ -23,6 +24,10 @@ export async function GET() {
     // Field roles never see production or money (CLAUDE.md): explicit deny by role slug / custom-role NAME first, then the same
     // ops-dashboard permission the Operations dashboard is built on. Money (balance owed, material costs, "payment needed") only
     // with job financials — the same gate as the job page.
+    // Company-wide totals cannot be cut by work category: not for a person limited to some categories.
+    if (categoryScopeOf(profile).limited) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
     if (await resolveIsFieldRole(supabase, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }

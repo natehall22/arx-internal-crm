@@ -1,3 +1,4 @@
+import { dealHiddenFrom, limitCol } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest) {
 
     const { data: profile, error: profileError } = await admin
       .from('users')
-      .select('id, org_id, role')
+      .select(`id, org_id, role, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -99,6 +100,10 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
 
     if (oppError || !opportunity) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
+    if (await dealHiddenFrom(admin, profile, opportunityId)) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
 

@@ -1,3 +1,4 @@
+import { categoryScopeOf, dealHiddenFrom, filterProposalsToScope } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
 
     // If opportunity_id provided, get the address for that opportunity
     if (opportunityId) {
+      if (await dealHiddenFrom(adminClient, profile, opportunityId)) return NextResponse.json({ opportunity: null })
       const { data: opportunity } = await adminClient
         .from('opportunities')
         .select('address_text, lat, lng')
@@ -51,7 +53,9 @@ export async function GET(request: NextRequest) {
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
 
-      return NextResponse.json({ measurements: measurements || [] })
+      // A person limited to some work categories sees only the measurements of deals inside them.
+      const visible = await filterProposalsToScope(adminClient, profile.org_id, categoryScopeOf(profile), (measurements || []) as Array<{ opportunity_id?: string | null }>)
+      return NextResponse.json({ measurements: visible })
     }
 
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
@@ -84,6 +88,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { measurements, opportunityId } = body
+    if (opportunityId && (await dealHiddenFrom(adminClient, profile, opportunityId))) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
     if (await firstForeignRef(adminClient, profile.org_id, { opportunityId: ['opportunities', opportunityId] })) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }

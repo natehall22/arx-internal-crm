@@ -1,3 +1,4 @@
+import { applyCategoryScope, categoryScopeOf } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
@@ -30,13 +31,13 @@ export async function GET() {
     }
 
     // Over-fetch by 1 to detect hasMore; SQL prefilter then apply attribution helper.
-    const { data: rows, error } = await admin
+    const { data: rows, error } = await applyCategoryScope(admin
       .from('leads')
       .select(
         'id, lat, lng, address_text, homeowner_name, phone, canvass_disposition, canvass_notes, status, created_at, updated_at, owner_user_id, pin_attributed_user_id, ownership_reassigned_at'
       )
       .eq('org_id', profile.org_id)
-      .or(`owner_user_id.eq.${userId},pin_attributed_user_id.eq.${userId}`)
+      .or(`owner_user_id.eq.${userId},pin_attributed_user_id.eq.${userId}`), categoryScopeOf(profile))
       .order('updated_at', { ascending: false })
       .limit(LEAD_LIMIT + 1)
 
