@@ -103,10 +103,11 @@ export function bedAmountsOf(
 
 /**
  * Is this stop bed work? (Only then do its measured beds count toward what to LOAD today.) True when any of the stop's words — plan
- * or visit name, the services sold ("Mow, Edge, Beds"), quote / sold line names and categories — mention mulch, straw or beds.
+ * or visit name, quote / sold line names and categories — mention mulch, pine straw or "bed install". Checklist words never count
+ * ("Mow, Edge, Blow, Beds" is ordinary mowing).
  */
 export function isBedWork(texts: ReadonlyArray<string | null | undefined>): boolean {
-  return texts.some((t) => !!t && /\b(mulch|mulching|pine ?straw|straw|beds?)\b/i.test(t))
+  return texts.some((t) => !!t && /\b(mulch|mulching|pine ?straw|bed (install|installation))\b/i.test(t))
 }
 
 /**

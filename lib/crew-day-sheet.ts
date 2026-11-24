@@ -163,7 +163,7 @@ export async function buildCrewDaySheet(admin: SupabaseClient, orgId: string, o:
       loadUnread: false,
       // A plan's default machines belong to its service visits only; a follow-on step visit has its own (or none).
       machineIds: resolveEquipment(visitMachines.get(v.id), v.step === SERVICE_STEP ? planMachines.get(v.planId) : null),
-      workTexts: [v.planName, v.stepLabel, ql?.name, ql?.category, ...v.checklist.map((c) => c.label)],
+      workTexts: [v.planName, v.stepLabel, ql?.name, ql?.category],
     }
   })
 

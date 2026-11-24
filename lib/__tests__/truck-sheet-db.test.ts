@@ -264,9 +264,9 @@ describe('beds from the newest yard measure', () => {
 
   it('per stop as stored, totalled once per property; nothing when the company has no measure tool or the property was never measured', async () => {
     const db = seed()
-    await makePlan(db, { name: 'A beds' })
-    await makePlan(db, { name: 'A beds again', preferred_weekday: 2 })
-    await makePlan(db, { name: 'B beds', property_id: 'p2' }, 'c2')
+    await makePlan(db, { name: 'A mulch' })
+    await makePlan(db, { name: 'A mulch again', preferred_weekday: 2 })
+    await makePlan(db, { name: 'B mulch', property_id: 'p2' }, 'c2')
     mockMeasure.mockImplementation(async (_a: unknown, _o: string, where: { propertyId: string }, limit: number) => {
       expect(limit).toBe(1) // the newest only
       return where.propertyId === 'p1' ? { ready: true, rows: [row()] } : { ready: true, rows: [] }
@@ -275,7 +275,7 @@ describe('beds from the newest yard measure', () => {
     const a = sheet.visits.filter((v) => v.what.startsWith('A'))
     expect(a).toHaveLength(2)
     expect(a.every((v) => v.beds && v.beds.mulchCuYd === 2 && v.beds.strawBales === 5)).toBe(true)
-    expect(sheet.visits.find((v) => v.what === 'B beds')!.beds).toBeNull()
+    expect(sheet.visits.find((v) => v.what === 'B mulch')!.beds).toBeNull()
     expect(sheet.beds).toEqual({ mulchCuYd: 2, strawBales: 5, properties: 1 }) // two stops, one home
 
     mockFeature.mockResolvedValue(false)

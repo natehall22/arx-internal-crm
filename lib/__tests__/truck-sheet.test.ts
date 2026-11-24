@@ -137,7 +137,11 @@ describe('review fixes: shared rules', () => {
   it('isBedWork: mulch / straw / bed words', () => {
     expect(isBedWork(['Weekly mowing', 'Spring Mulch install'])).toBe(true)
     expect(isBedWork(['Pine straw refresh'])).toBe(true)
-    expect(isBedWork(['Bed edging'])).toBe(true)
+    expect(isBedWork(['Bed install'])).toBe(true)
+    expect(isBedWork(['Pine straw install'])).toBe(true)
+    expect(isBedWork(['Mulch 6 yd'])).toBe(true)
+    expect(isBedWork(['Mow, Edge, Blow, Beds'])).toBe(false)
+    expect(isBedWork(['Flower bed edging', 'Weed beds', 'straw blanket'])).toBe(false)
     expect(isBedWork(['Weekly mowing', null, undefined, 'Embedded sprinklers'])).toBe(false)
   })
   it('yd / yard / cu yd combine as one unit', () => {
