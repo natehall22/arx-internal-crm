@@ -34,7 +34,7 @@ import {
   type TargetKey,
 } from '@/lib/hourly-billing'
 // Send = THE no-job invoice send (autopay + pay link when online payments are ready; else exactly sendCustomerInvoice).
-import type { FieldChange } from '@/lib/change-log'
+import { sameValue, type FieldChange } from '@/lib/change-log'
 import { recordJobChanges } from '@/lib/job-changes'
 import { copyCustomerPo } from '@/lib/invoices'
 import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
@@ -787,7 +787,7 @@ export async function saveJobHourlySetup(admin: SupabaseClient, orgId: string, j
   const billingChanges: FieldChange[] = []
   if (currentMode !== patch.mode) billingChanges.push({ field: 'billing_mode', label: 'Billing', old: billingWord(currentMode), new: billingWord(patch.mode) })
   const oldHours = (current as { estimated_hours?: number | null } | null)?.estimated_hours ?? null
-  if (patch.mode === 'time_materials' && Number(oldHours ?? NaN) !== Number(patch.estimatedHours ?? NaN)) billingChanges.push({ field: 'estimated_hours', label: 'Estimated hours', old: oldHours, new: patch.estimatedHours ?? null })
+  if (patch.mode === 'time_materials' && !sameValue(oldHours == null ? null : Number(oldHours), patch.estimatedHours ?? null)) billingChanges.push({ field: 'estimated_hours', label: 'Estimated hours', old: oldHours, new: patch.estimatedHours ?? null })
   await recordJobChanges(admin, orgId, jobId, userId, 'billing', billingChanges)
   // By the hour: base = invoiced pre-tax; as sold: back to the signed contract (both through the one writer).
   if (patch.mode === 'time_materials') await syncTimeAndMaterialsCommissionBase(admin, orgId, jobId)

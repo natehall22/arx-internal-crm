@@ -29,6 +29,6 @@ export async function GET(request: Request, { params }: { params: { id: string }
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   const page = Number(new URL(request.url).searchParams.get('page') ?? 0)
-  const { entries, hasMore, startsAt } = await loadJobHistory(admin, profile.org_id, params.id, { canSeeMoney: access.canViewJobFinancials, page: Number.isFinite(page) ? page : 0 })
-  return NextResponse.json({ entries, hasMore, startsAt })
+  const { entries, hasMore, startsAt, page: lastPage } = await loadJobHistory(admin, profile.org_id, params.id, { canSeeMoney: access.canViewJobFinancials, page: Number.isFinite(page) ? page : 0 })
+  return NextResponse.json({ entries, hasMore, startsAt, page: lastPage })
 }

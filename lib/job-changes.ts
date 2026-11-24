@@ -7,7 +7,10 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { describeChange, diffFields, type FieldChange } from '@/lib/change-log'
+import { formatInTimeZone } from 'date-fns-tz'
+
+import { describeChange, diffFields, showValue, type FieldChange } from '@/lib/change-log'
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { formatMoney } from '@/lib/format'
 import { orgDb } from '@/lib/supabase/org-db'
 
@@ -78,6 +81,8 @@ export async function recordJobChanges(
   changes: FieldChange[],
   note?: string | null
 ): Promise<void> {
+  // A change whose old and new read the same on screen ("(empty) → (empty)", 8 → "8") is not a change.
+  changes = changes.filter((c) => showValue(c.old) !== showValue(c.new))
   if (!changes.length && !note) return
   try {
     const { error } = await orgDb(admin, orgId)
@@ -91,8 +96,21 @@ export async function recordJobChanges(
 
 export type JobHistoryEntry = { id: string; source: JobChangeSource; at: string; by: string | null; lines: string[]; note: string | null }
 
-/** Pure: one line for the screen; money values get a $ sign. */
-export function jobChangeLine(c: FieldChange): string {
+/** Fields that hold an instant (shown as a date and time in the company zone) and fields that hold a calendar day. */
+const INSTANT_FIELDS: ReadonlySet<string> = new Set(['started_at', 'completed_at', 'finance_submitted_at'])
+const DAY_FIELDS: ReadonlySet<string> = new Set(['trade_date'])
+
+function inZone(v: unknown, tz: string, pattern: string, bareDay: boolean): unknown {
+  if (typeof v !== 'string' || !v) return v
+  const d = new Date(bareDay && /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T12:00:00Z` : v)
+  if (Number.isNaN(d.getTime())) return v
+  return formatInTimeZone(d, bareDay ? 'UTC' : tz, pattern)
+}
+
+/** Pure: one line for the screen; money gets a $ sign, instants and days are shown in the company time zone ("Nov 4, 6:12 PM", "Nov 4"). */
+export function jobChangeLine(c: FieldChange, tz: string): string {
+  if (INSTANT_FIELDS.has(c.field)) return describeChange({ ...c, old: inZone(c.old, tz, 'MMM d, h:mm a', false), new: inZone(c.new, tz, 'MMM d, h:mm a', false) })
+  if (DAY_FIELDS.has(c.field)) return describeChange({ ...c, old: inZone(c.old, tz, 'MMM d', true), new: inZone(c.new, tz, 'MMM d', true) })
   if (JOB_MONEY_FIELDS.has(c.field) && c.field !== 'deposit_required_percent') {
     const m = (v: unknown) => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) ? formatMoney(Number(v)) : v)
     return describeChange({ ...c, old: m(c.old), new: m(c.new) })
@@ -103,46 +121,60 @@ export function jobChangeLine(c: FieldChange): string {
 type Row = { id: string; source: JobChangeSource; changed_at: string; changed_by: string | null; changes: FieldChange[] | null; note: string | null }
 
 /** Pure: rows -> screen entries. Without money access, money fields are dropped and an entry left with nothing is dropped. */
-export function toHistoryEntries(rows: Row[], names: Map<string, string | null>, canSeeMoney: boolean): JobHistoryEntry[] {
+export function toHistoryEntries(rows: Row[], names: Map<string, string | null>, canSeeMoney: boolean, tz: string): JobHistoryEntry[] {
   const out: JobHistoryEntry[] = []
   for (const r of rows) {
     const all = r.changes ?? []
     const shown = canSeeMoney ? all : all.filter((c) => !JOB_MONEY_FIELDS.has(c.field))
     if (!shown.length && !r.note) continue
-    out.push({ id: r.id, source: r.source, at: r.changed_at, by: r.changed_by ? (names.get(r.changed_by) ?? 'Someone') : null, lines: shown.map(jobChangeLine), note: r.note })
+    out.push({ id: r.id, source: r.source, at: r.changed_at, by: r.changed_by ? (names.get(r.changed_by) ?? 'Someone') : null, lines: shown.map((c) => jobChangeLine(c, tz)), note: r.note })
   }
   return out
 }
 
-/** Newest first, 50 a page (`page` starts at 0). The caller has already loaded the job in its company. */
+const MAX_PAGES_SCANNED = 5
+
+/**
+ * Newest first, 50 a page (`page` starts at 0). The caller has already loaded the job in its company. A page that is all money
+ * lines for a viewer without money access shows nothing, so the next page is read (a few at most) until something is visible
+ * or there is no more; `page` in the answer is the last one read, so "older" continues from it.
+ */
 export async function loadJobHistory(
   admin: SupabaseClient,
   orgId: string,
   jobId: string,
   opts: { canSeeMoney: boolean; page?: number }
-): Promise<{ entries: JobHistoryEntry[]; hasMore: boolean; startsAt: string }> {
-  const page = Math.max(0, Math.floor(opts.page ?? 0))
-  const from = page * JOB_HISTORY_PAGE_SIZE
-  const { data, error } = await orgDb(admin, orgId)
-    .from('production_job_changes')
-    .select('id, source, changed_at, changed_by, changes, note')
-    .eq('job_id', jobId)
-    .order('changed_at', { ascending: false })
-    .range(from, from + JOB_HISTORY_PAGE_SIZE) // one extra row tells us there is another page
-  if (error) return { entries: [], hasMore: false, startsAt: new Date().toISOString() }
-  const rows = (data ?? []) as Row[]
-  const pageRows = rows.slice(0, JOB_HISTORY_PAGE_SIZE)
-  const userIds = Array.from(new Set(pageRows.map((r) => r.changed_by).filter((x): x is string => !!x)))
-  const { data: users } = userIds.length ? await orgDb(admin, orgId).from('users').select('id, full_name').in('id', userIds) : { data: [] }
-  const names = new Map(((users ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => [u.id, u.full_name]))
-  const entries = toHistoryEntries(pageRows, names, opts.canSeeMoney)
-  // "History starts <date>": the company's first recorded change (no backfill exists), else now.
-  let startsAt = new Date().toISOString()
-  if (!entries.length && page === 0) {
-    const { data: first } = await orgDb(admin, orgId).from('production_job_changes').select('changed_at').order('changed_at', { ascending: true }).limit(1)
-    startsAt = (first as Array<{ changed_at: string }> | null)?.[0]?.changed_at ?? startsAt
+): Promise<{ entries: JobHistoryEntry[]; hasMore: boolean; startsAt: string; page: number }> {
+  const start = Math.max(0, Math.floor(opts.page ?? 0))
+  const tz = await loadOrgTimeZone(admin, orgId)
+  let page = start
+  for (;;) {
+    const from = page * JOB_HISTORY_PAGE_SIZE
+    const { data, error } = await orgDb(admin, orgId)
+      .from('production_job_changes')
+      .select('id, source, changed_at, changed_by, changes, note')
+      .eq('job_id', jobId)
+      .order('changed_at', { ascending: false })
+      .range(from, from + JOB_HISTORY_PAGE_SIZE) // one extra row tells us there is another page
+    if (error) return { entries: [], hasMore: false, startsAt: new Date().toISOString(), page }
+    const rows = (data ?? []) as Row[]
+    const pageRows = rows.slice(0, JOB_HISTORY_PAGE_SIZE)
+    const userIds = Array.from(new Set(pageRows.map((r) => r.changed_by).filter((x): x is string => !!x)))
+    const { data: users } = userIds.length ? await orgDb(admin, orgId).from('users').select('id, full_name').in('id', userIds) : { data: [] }
+    const names = new Map(((users ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => [u.id, u.full_name]))
+    const entries = toHistoryEntries(pageRows, names, opts.canSeeMoney, tz)
+    const hasMore = rows.length > JOB_HISTORY_PAGE_SIZE
+    if (entries.length || !hasMore || page - start + 1 >= MAX_PAGES_SCANNED) {
+      // "History starts <date>": the company's first recorded change (no backfill exists), else now.
+      let startsAt = new Date().toISOString()
+      if (!entries.length && start === 0 && !hasMore) {
+        const { data: first } = await orgDb(admin, orgId).from('production_job_changes').select('changed_at').order('changed_at', { ascending: true }).limit(1)
+        startsAt = (first as Array<{ changed_at: string }> | null)?.[0]?.changed_at ?? startsAt
+      }
+      return { entries, hasMore, startsAt, page }
+    }
+    page += 1
   }
-  return { entries, hasMore: rows.length > JOB_HISTORY_PAGE_SIZE, startsAt }
 }
 
 export type TradeScheduleFacts = { scheduled_date: string | null; install_days: number | string | null; crew: string | null }

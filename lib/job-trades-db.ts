@@ -275,7 +275,7 @@ export async function syncJobScheduleFromTrades(
     const { error } = await admin.from('production_jobs').update(update).eq('id', jobId).eq('org_id', orgId)
     if (error) console.error('[syncJobScheduleFromTrades] update failed', jobId, error)
     else if (update.status !== undefined) {
-      await recordJobChanges(admin, orgId, jobId, opts.changedBy ?? null, 'schedule', [{ field: 'status', label: 'Status', old: jobStatusWord(job.status), new: jobStatusWord(derived.status) }], 'Moved by the crew schedule')
+      await recordJobChanges(admin, orgId, jobId, opts.changedBy ?? null, 'schedule', [{ field: 'status', label: 'Status', old: jobStatusWord(job.status), new: jobStatusWord(derived.status) }], opts.changedBy ? null : 'Moved by the crew schedule')
     }
   }
   return derived

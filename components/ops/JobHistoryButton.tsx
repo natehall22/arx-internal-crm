@@ -30,10 +30,10 @@ export default function JobHistoryButton({ jobId, className }: { jobId: string; 
         setFailed(true)
         return
       }
-      const out = (await res.json().catch(() => ({}))) as { entries?: Entry[]; hasMore?: boolean; startsAt?: string }
+      const out = (await res.json().catch(() => ({}))) as { entries?: Entry[]; hasMore?: boolean; startsAt?: string; page?: number }
       setEntries((prev) => (p === 0 ? (out.entries ?? []) : [...(prev ?? []), ...(out.entries ?? [])]))
       setHasMore(!!out.hasMore)
-      setPage(p)
+      setPage(out.page ?? p)
       setStartsAt(out.startsAt ?? null)
     },
     [jobId]
@@ -57,6 +57,8 @@ export default function JobHistoryButton({ jobId, className }: { jobId: string; 
               <p className="text-ui-base text-ink">Could not load the history. Try again.</p>
             ) : entries === null ? (
               <p className="text-ui-base text-ink">Loading…</p>
+            ) : entries.length === 0 && hasMore ? (
+              <p className="text-ui-base text-ink">Nothing you can see in the newest changes. Show older to keep looking.</p>
             ) : entries.length === 0 ? (
               <p className="text-ui-base text-ink">No changes yet. History starts {formatDateShort(startsAt ?? new Date())}.</p>
             ) : (
