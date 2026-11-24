@@ -896,7 +896,7 @@ export default function JobFileWorkspaceCard({
     userRole === 'regional_manager'
 
   return (
-    <div className={compact ? '' : 'bg-white rounded-xl shadow-sm border p-4 sm:p-6'}>
+    <div className={compact ? 'min-w-0 max-w-full' : 'min-w-0 max-w-full bg-white rounded-xl shadow-sm border p-4 sm:p-6'}>
       {!compact && (
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
@@ -1284,7 +1284,50 @@ export default function JobFileWorkspaceCard({
             ) : documents.length === 0 ? (
               <div className="p-4 text-sm text-gray-700">No documents yet.</div>
             ) : (
-              <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
+              <>
+              {/* Phones: one card per document (no sideways table). */}
+              <ul className="m-2 divide-y divide-gray-200 rounded-md border border-gray-200 sm:hidden">
+                {documents.map((doc) => (
+                  <li key={doc.id} className="space-y-1 p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a
+                        href={`/api/ops/jobs/${jobId}/documents/${doc.id}/download`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="break-words font-medium text-indigo-700 underline underline-offset-2"
+                      >
+                        {doc.title || doc.filename}
+                      </a>
+                      {doc.is_protected && <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">Protected</span>}
+                    </div>
+                    <p className="text-gray-700">
+                      {doc.category}{doc.document_role ? ` · ${doc.document_role}` : ''} · v{doc.version} · {doc.status} · {formatDate(doc.updated_at || doc.created_at)}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-4">
+                      {portalShare?.canShare && (
+                        <label className="inline-flex min-h-[44px] items-center gap-2 text-gray-900">
+                          <input type="checkbox" className="h-5 w-5" checked={doc.shared_with_customer === true} onChange={(e) => void toggleShared(doc.id, e.target.checked)} />
+                          Show to customer
+                        </label>
+                      )}
+                      {doc.is_protected && !canReplaceProtectedDocuments ? (
+                        <span className="text-xs text-gray-700">Restricted (protected doc)</span>
+                      ) : (
+                        <label className="inline-flex min-h-[44px] cursor-pointer items-center text-indigo-700">
+                          {replacingDocumentId === doc.id ? 'Replacing...' : 'Replace Version'}
+                          <input
+                            type="file"
+                            className="hidden"
+                            disabled={replacingDocumentId !== null}
+                            onChange={(e) => handleReplaceDocument(doc.id, e.target.files?.[0])}
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="m-2 hidden overflow-x-auto rounded-md border border-gray-200 sm:block">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-gray-600">
                     <tr>
@@ -1349,6 +1392,7 @@ export default function JobFileWorkspaceCard({
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
         </section>
@@ -1433,7 +1477,44 @@ export default function JobFileWorkspaceCard({
             ) : (
               <>
               {costLines.length > 0 && (
-              <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
+              <ul className="m-2 divide-y divide-gray-200 rounded-md border border-gray-200 sm:hidden" aria-label="Cost lines">
+                {costLines.map((line) => (
+                  <li key={line.id} className="space-y-1 p-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="min-w-0 break-words font-medium text-gray-900">
+                        {line.description}
+                        {isSystemCostLine(line) && (
+                          <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">from financing</span>
+                        )}
+                      </p>
+                      {canSeeAmounts && <p className="shrink-0 font-semibold text-gray-900">{formatCurrency(line.amount)}</p>}
+                    </div>
+                    <p className="text-gray-700">
+                      {line.cost_type}{line.vendor_name ? ` · ${line.vendor_name}` : ''} · {line.status}
+                      {!isSystemCostLine(line) ? ` · ${attachmentCountByLine[line.id] || 0} attachment${(attachmentCountByLine[line.id] || 0) === 1 ? '' : 's'}` : ''}
+                    </p>
+                    {!isSystemCostLine(line) && (
+                      line.approved ? (
+                        <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Approved</span>
+                      ) : canApproveCostLines ? (
+                        <button
+                          type="button"
+                          onClick={() => handleSetCostLineApproved(line.id, true)}
+                          disabled={approvingLineId === line.id}
+                          className="min-h-[44px] rounded-full bg-amber-100 px-3 text-sm font-medium text-amber-900 disabled:opacity-50"
+                        >
+                          {approvingLineId === line.id ? 'Approving…' : 'Pending — Approve'}
+                        </button>
+                      ) : (
+                        <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Pending review</span>
+                      )
+                    )}
+                  </li>
+                ))}
+              </ul>
+              )}
+              {costLines.length > 0 && (
+              <div className="m-2 hidden overflow-x-auto rounded-md border border-gray-200 sm:block">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-gray-600">
                     <tr>
