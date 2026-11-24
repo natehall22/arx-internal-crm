@@ -143,7 +143,7 @@ function boxes(doc: jsPDF, x: number, y: number, width: number, items: Array<{ l
 function daySummary(doc: jsPDF, d: CrewDaySheetData, y: number): number {
   const note = d.officeNote ? wrap(doc, d.officeNote, CONTENT_W - 16, 12) : []
   const dayExtra: string[] = []
-  if (d.beds) dayExtra.push(`Beds (from yard measure, est.): ${bedsText(d.beds)}`)
+  if (d.beds) dayExtra.push(`Bed materials to load (from yard measure, est.): ${bedsText(d.beds)}`)
   if (d.machines.length) dayExtra.push(`Machines today: ${d.machines.join(', ')}`)
   const extra = dayExtra.flatMap((t) => wrap(doc, t, CONTENT_W - 16, 3))
   const dayLoadShown = capped(d.load, MAX_DAY_LOAD)

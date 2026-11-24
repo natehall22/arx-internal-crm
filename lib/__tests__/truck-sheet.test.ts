@@ -1,7 +1,7 @@
 /** @jest-environment node */
 /** Truck sheet — the pure rules: what is loadable and how it adds up, beds as stored, machines default vs override, notes, route order. */
 import { mulchCubicYards, pineStrawBales } from '@/lib/area-measure'
-import { bedAmountsOf, cleanCrewNote, cleanEquipmentIds, combineLoad, dayBeds, dayLoad, distinctEquipment, isLoadable, quantityText, resolveEquipment, sameIds, sortStops } from '@/lib/truck-sheet'
+import { bedAmountsOf, cleanCrewNote, cleanEquipmentIds, combineLoad, dayBeds, dayLoad, distinctEquipment, isBedWork, isLoadable, isMachineItem, quantityText, resolveEquipment, sameIds, sortStops, stopNumbers } from '@/lib/truck-sheet'
 
 const A = '11111111-1111-4111-8111-111111111111'
 const B = '22222222-2222-4222-8222-222222222222'
@@ -120,5 +120,29 @@ describe('sortStops — route order', () => {
       { id: 'd', kind: 'visit' as const, position: 1, address: 'Y' },
     ])
     expect(r.map((x) => x.id)).toEqual(['d', 'c', 'a', 'b'])
+  })
+})
+
+describe('review fixes: shared rules', () => {
+  it('stopNumbers: own number, else place in the list', () => {
+    const m = stopNumbers([{ id: 'a', position: null }, { id: 'b', position: 7 }, { id: 'c', position: null }])
+    expect([m.get('a'), m.get('b'), m.get('c')]).toEqual([1, 7, 3])
+  })
+  it('isMachineItem: on, by the hour, not labor', () => {
+    expect(isMachineItem({ unit: 'hour', active: true, is_labor: false })).toBe(true)
+    expect(isMachineItem({ unit: 'hour', active: false })).toBe(false)
+    expect(isMachineItem({ unit: 'hour', active: true, is_labor: true })).toBe(false)
+    expect(isMachineItem({ unit: 'each', active: true })).toBe(false)
+  })
+  it('isBedWork: mulch / straw / bed words', () => {
+    expect(isBedWork(['Weekly mowing', 'Spring Mulch install'])).toBe(true)
+    expect(isBedWork(['Pine straw refresh'])).toBe(true)
+    expect(isBedWork(['Bed edging'])).toBe(true)
+    expect(isBedWork(['Weekly mowing', null, undefined, 'Embedded sprinklers'])).toBe(false)
+  })
+  it('yd / yard / cu yd combine as one unit', () => {
+    const t = combineLoad([{ name: 'Mulch', category: null, unit: 'yd', quantity: 2 }, { name: 'Mulch', category: null, unit: 'Cubic Yards', quantity: 1 }, { name: 'Mulch', category: null, unit: 'cu yd', quantity: 1 }])
+    expect(t).toHaveLength(1)
+    expect(t[0].quantity).toBe(4)
   })
 })

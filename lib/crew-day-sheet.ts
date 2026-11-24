@@ -22,7 +22,7 @@ import { getDocumentBrand } from '@/lib/org-brand'
 import { SERVICE_STEP } from '@/lib/service-plans'
 import { loadVisits } from '@/lib/service-plans-db'
 import { orgDb } from '@/lib/supabase/org-db'
-import { bedAmountsOf, combineLoad, dayBeds, dayLoad, distinctEquipment, quantityText, resolveEquipment, sortStops, type BedAmounts, type LoadItem, type SoldLine } from '@/lib/truck-sheet'
+import { bedAmountsOf, combineLoad, dayBeds, dayLoad, distinctEquipment, isBedWork, quantityText, resolveEquipment, sortStops, stopNumbers, type BedAmounts, type LoadItem, type SoldLine } from '@/lib/truck-sheet'
 import { loadCrewDayNote, loadEquipmentNames, loadPlanEquipment, loadVisitEquipment } from '@/lib/truck-sheet-db'
 import { loadOwedByCustomer } from '@/lib/visit-collections-db'
 
@@ -39,6 +39,8 @@ type Draft = {
   sold: SoldLine[]
   loadUnread: boolean
   machineIds: string[]
+  /** Words that say what the stop is (plan, quote line, sold lines): bed work when they mention mulch / straw / beds (isBedWork). */
+  workTexts: Array<string | null | undefined>
 }
 
 /** Sold lines of each stopped-at job (the job's proposal line items, via the ONE sold-scope builder). A job whose scope cannot be read is flagged, never shown as an empty load. */
@@ -104,6 +106,7 @@ async function jobStopDrafts(admin: SupabaseClient, orgId: string, subId: string
       sold: sold?.lines ?? [],
       loadUnread: !sold || sold.lines === null,
       machineIds: resolveEquipment(machines.get(s.id), null),
+      workTexts: [s.tradeLabel, ...(sold?.lines ?? []).flatMap((l) => [l.name, l.category])],
     }
   })
 }
@@ -115,6 +118,9 @@ export async function buildCrewDaySheet(admin: SupabaseClient, orgId: string, o:
     jobStopDrafts(admin, orgId, o.subId, o.day),
     loadCrewDayNote(admin, orgId, o.subId, o.day),
   ])
+  // The phone page numbers the day's non-cancelled visits (done ones too); the sheet uses the same numbers (stopNumbers).
+  const dayVisits = visits.filter((v) => v.status !== 'cancelled')
+  const numberOf = stopNumbers(dayVisits.map((v) => ({ id: v.id, position: v.routePosition })))
   const open = visits.filter((v) => v.status === 'scheduled')
   const owed = o.money ? await loadOwedByCustomer(admin, orgId, open.map((v) => v.customerId).filter((x): x is string => !!x)) : new Map()
 
@@ -141,7 +147,7 @@ export async function buildCrewDaySheet(admin: SupabaseClient, orgId: string, o:
     return {
       id: v.id,
       kind: 'visit' as const,
-      position: v.routePosition,
+      position: numberOf.get(v.id) ?? v.routePosition,
       address: v.address,
       propertyId: v.propertyId,
       stop: {
@@ -155,7 +161,9 @@ export async function buildCrewDaySheet(admin: SupabaseClient, orgId: string, o:
       },
       sold: ql ? [{ name: ql.name, category: ql.category, unit: ql.unit, quantity: Number(ql.quantity) || 0 }] : [],
       loadUnread: false,
-      machineIds: resolveEquipment(visitMachines.get(v.id), planMachines.get(v.planId)),
+      // A plan's default machines belong to its service visits only; a follow-on step visit has its own (or none).
+      machineIds: resolveEquipment(visitMachines.get(v.id), v.step === SERVICE_STEP ? planMachines.get(v.planId) : null),
+      workTexts: [v.planName, v.stepLabel, ql?.name, ql?.category, ...v.checklist.map((c) => c.label)],
     }
   })
 
@@ -176,18 +184,21 @@ export async function buildCrewDaySheet(admin: SupabaseClient, orgId: string, o:
     )
   }
 
-  const ordered = sortStops([...visitDrafts, ...jobDrafts])
+  // Job stops keep their saved number, else continue after the day's highest visit number.
+  let next = Math.max(0, ...Array.from(numberOf.values()))
+  const jobNumbered = jobDrafts.map((d) => ({ ...d, position: d.position ?? ++next }))
+  const ordered = sortStops([...visitDrafts, ...jobNumbered])
   const names = await loadEquipmentNames(admin, orgId, ordered.flatMap((d) => d.machineIds))
   const perStopLoad = ordered.map((d) => combineLoad(d.sold))
   const stops: CrewSheetStop[] = ordered.map((d, i) => ({
     ...d.stop,
-    stop: i + 1,
+    stop: d.position ?? i + 1,
     load: toLines(perStopLoad[i]),
     loadUnread: d.loadUnread,
     beds: d.propertyId ? beds.get(d.propertyId) ?? null : null,
     machines: d.machineIds.map((id) => names.get(id) ?? 'Machine'),
   }))
-  const totalBeds = dayBeds(ordered.map((d) => ({ propertyKey: d.propertyId, beds: d.propertyId ? beds.get(d.propertyId) ?? null : null })))
+  const totalBeds = dayBeds(ordered.map((d) => ({ propertyKey: d.propertyId, beds: d.propertyId && isBedWork(d.workTexts) ? beds.get(d.propertyId) ?? null : null })))
   const machineIds = distinctEquipment(ordered.map((d) => d.machineIds))
   return {
     companyName: brand.casualName,

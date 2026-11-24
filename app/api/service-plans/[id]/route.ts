@@ -24,5 +24,5 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   const result = await updateServicePlan(ctx.admin, ctx.orgId, ctx.userId, params.id, body, change)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   if ('preview' in result) return NextResponse.json(result)
-  return NextResponse.json({ plan: redactPlanPrices(result.plan, ctx.access.prices), effect: result.effect })
+  return NextResponse.json({ plan: redactPlanPrices(result.plan, ctx.access.prices), effect: result.effect, ...(result.warning ? { warning: result.warning } : {}) })
 }

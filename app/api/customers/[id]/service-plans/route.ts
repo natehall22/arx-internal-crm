@@ -58,5 +58,5 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const body = await request.json().catch(() => null)
   const result = await createServicePlan(ctx.admin, ctx.orgId, ctx.userId, params.id, body)
   if (!result.ok) return NextResponse.json({ error: result.status === 503 ? SERVICE_PLANS_NOT_READY : result.error }, { status: result.status })
-  return NextResponse.json({ plan: redactPlanPrices(result.plan, ctx.access.prices) }, { status: 201 })
+  return NextResponse.json({ plan: redactPlanPrices(result.plan, ctx.access.prices), ...(result.warning ? { warning: result.warning } : {}) }, { status: 201 })
 }

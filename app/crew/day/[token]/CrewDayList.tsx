@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { formatDateWeekday } from '@/lib/format'
 import { directionsHref } from '@/lib/route-order'
@@ -19,6 +19,7 @@ import { useClock, usePresence, type ClockState } from '@/components/time/useClo
 import CrewScoreboardCard from '@/components/crew/CrewScoreboardCard'
 import type { Scoreboard } from '@/lib/crew-incentives-db'
 import { beforeYouText } from '@/lib/before-you'
+import { stopNumbers } from '@/lib/truck-sheet'
 import type { CrewProjectStop } from '@/lib/crew-day-projects'
 
 export type CrewDayVisit = {
@@ -119,13 +120,14 @@ export default function CrewDayList({
   const [present, setPresent] = usePresence(clock)
   const clockOn = !!initialClock && initialClock.people.length > 0
   const crewAt = (visitId: string) => (clockOn ? (clock.state?.people ?? []).filter((p) => p.open?.workOrderId === visitId).map((p) => p.userId) : [])
+  // The same numbers the printed sheet shows (stopNumbers over the day's list as loaded), stable when a stop is rolled away.
+  const numberOf = useMemo(() => stopNumbers(initial.map((v) => ({ id: v.id, position: v.routePosition }))), [initial])
   const stopLabel = (workOrderId: string | null) => {
     const pr = projects.find((x) => x.id === workOrderId)
     if (pr) return `${pr.tradeLabel}${pr.address ? ` — ${pr.address}` : ''}`
-    const i = visits.findIndex((x) => x.id === workOrderId)
-    if (i < 0) return null
-    const x = visits[i]
-    return `Stop ${x.routePosition ?? i + 1}${x.address ? ` — ${x.address}` : ''}`
+    const x = visits.find((y) => y.id === workOrderId)
+    if (!x) return null
+    return `Stop ${numberOf.get(x.id) ?? x.routePosition}${x.address ? ` — ${x.address}` : ''}`
   }
 
   // A replaced or expired link must not keep showing addresses and gate codes on a phone that still has the page open:
@@ -427,7 +429,7 @@ export default function CrewDayList({
             const crewHere = crewAt(v.id)
             return (
               <li key={v.id} className={`rounded-xl border-2 bg-white p-4 ${closed ? 'border-[#e5e3dc]' : 'border-[#2c2c2a]'}`}>
-                <p className="text-sm font-semibold uppercase tracking-wide">Stop {v.routePosition ?? i + 1}</p>
+                <p className="text-sm font-semibold uppercase tracking-wide">Stop {numberOf.get(v.id) ?? v.routePosition}</p>
                 <p className="text-lg font-bold break-words">{v.address ?? 'No address on file'}</p>
                 <p className="text-base">{v.planName}</p>
                 {v.accessNotes ? (

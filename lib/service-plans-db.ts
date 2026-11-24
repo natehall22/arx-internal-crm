@@ -554,7 +554,7 @@ export function templatePlanValues(
 // Plans: create, edit (with preview), status changes, template push
 // ---------------------------------------------------------------------------------------------------------------------
 
-export type PlanSave = { ok: true; plan: ServicePlan; effect: VisitEffect; changes: FieldChange[] } | Fail
+export type PlanSave = { ok: true; plan: ServicePlan; effect: VisitEffect; changes: FieldChange[]; /** The plan saved but a side save (machines) did not: say so, never fail. */ warning?: string } | Fail
 export type PlanPreview =
   | {
       ok: true
@@ -621,7 +621,9 @@ export async function createServicePlan(
 ): Promise<PlanSave> {
   const prep = await prepareNewPlan(admin, orgId, customerId, body)
   if (!prep.ok) return prep
-  const { base, v } = prep
+  const { base, v: prepared } = prep
+  // Machines are saved after the insert (tolerant before migration 202612010060), never through the insert spread.
+  const { equipment_item_ids: machines, ...v } = prepared
   const { data, error } = await orgDb(admin, orgId)
     .from('service_plans')
     .insert({
@@ -648,6 +650,11 @@ export async function createServicePlan(
     return { ok: false, status: 500, error: 'Could not save the plan' }
   }
   const plan = planFromRow(data as Record<string, unknown>)
+  let warning: string | undefined
+  if (machines) {
+    const saved = await savePlanEquipment(admin, orgId, plan.id, machines)
+    if (!saved.ok) warning = `The plan was made, but the machines did not save. ${saved.error}`
+  }
   const { created } = await ensureServiceVisits(admin, orgId, {
     now,
     planIds: [plan.id],
@@ -660,7 +667,7 @@ export async function createServicePlan(
     changes: [],
     visit_effect: effect,
   })
-  return { ok: true, plan, effect, changes: [] }
+  return { ok: true, plan, effect, changes: [], ...(warning ? { warning } : {}) }
 }
 
 /**
@@ -981,11 +988,11 @@ async function equipmentEdit(
   if (!('equipment_item_ids' in b)) return { ok: true, change: null }
   const clean = cleanEquipmentIds(b.equipment_item_ids)
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
+  const before = (await loadPlanEquipment(admin, orgId, [planId])).get(planId) ?? null
   if (clean.value) {
-    const bad = await machinesRefusal(admin, orgId, clean.value)
+    const bad = await machinesRefusal(admin, orgId, clean.value, before ?? [])
     if (bad) return bad
   }
-  const before = (await loadPlanEquipment(admin, orgId, [planId])).get(planId) ?? null
   if (sameIds(before, clean.value)) return { ok: true, change: null }
   const names = await loadEquipmentNames(admin, orgId, [...(before ?? []), ...(clean.value ?? [])])
   const show = (ids: string[] | null) => (ids ? ids.map((i) => names.get(i) ?? 'Machine') : null)
@@ -1084,9 +1091,15 @@ export async function updateServicePlan(
     }
     plan = planFromRow(saved as Record<string, unknown>)
   }
+  // After the commit a side save failing warns and carries on: visits are topped up and the history is written (without the machines line).
+  let warning: string | undefined
+  let historyChanges = changes
   if (machines.change) {
     const saved = await savePlanEquipment(admin, orgId, plan.id, machines.change.ids)
-    if (!saved.ok) return { ok: false, status: saved.status, error: `Saved, but the machines did not save. ${saved.error}` }
+    if (!saved.ok) {
+      warning = `Saved, but the machines did not save. ${saved.error}`
+      historyChanges = changes.filter((c) => c !== machines.change?.entry)
+    }
   }
   const { created } = await ensureServiceVisits(admin, orgId, {
     now,
@@ -1102,10 +1115,10 @@ export async function updateServicePlan(
     plan_id: plan.id,
     action: opts.action ?? made.action,
     changed_by: userId,
-    changes,
+    changes: historyChanges,
     visit_effect: effect,
   })
-  return { ok: true, plan, effect, changes }
+  return { ok: true, plan, effect, changes: historyChanges, ...(warning ? { warning } : {}) }
 }
 
 /**

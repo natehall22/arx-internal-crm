@@ -7,7 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 import { orgDb } from '@/lib/supabase/org-db'
-import { CREW_NOTE_MAX, cleanCrewNote, cleanEquipmentIds } from '@/lib/truck-sheet'
+import { CREW_NOTE_MAX, cleanCrewNote, cleanEquipmentIds, isMachineItem } from '@/lib/truck-sheet'
 
 export const TRUCK_SHEET_NOT_READY = 'Machines and crew notes turn on once the database update for them is applied. Nothing was saved.'
 
@@ -53,13 +53,16 @@ export async function loadEquipmentNames(admin: SupabaseClient, orgId: string, i
   return out
 }
 
-/** Null when every one is this company's machine (price-book item, unit 'hour' — the set the time clock offers, loadEquipmentChoices), else the refusal. */
-export async function machinesRefusal(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Fail | null> {
+/**
+ * Null when every id is this company's machine under the ONE machine rule (lib/truck-sheet.ts isMachineItem: on, billed by the
+ * hour, not labor — the time clock's list), else the refusal. Ids in `keep` (what the plan / visit already has) are only checked
+ * to be this company's hour-billed non-labor items, so a machine the office later turned off can stay and be saved again.
+ */
+export async function machinesRefusal(admin: SupabaseClient, orgId: string, ids: string[], keep: readonly string[] = []): Promise<Fail | null> {
   if (ids.length === 0) return null
-  const { data, error } = await orgDb(admin, orgId).from('pricebook_items').select('id, unit').in('id', ids)
+  const { data, error } = await orgDb(admin, orgId).from('pricebook_items').select('id, unit, active, is_labor').in('id', ids)
   if (error) return { ok: false, status: 500, error: 'Could not check the machines' }
-  const rows = (data ?? []) as Array<{ id: string; unit: string }>
-  const ok = new Set(rows.filter((r) => r.unit === 'hour').map((r) => r.id))
+  const ok = new Set(((data ?? []) as Array<{ id: string; unit: string; active: boolean | null; is_labor: boolean | null }>).filter((r) => isMachineItem(keep.includes(r.id) ? { ...r, active: true } : r)).map((r) => r.id))
   return ids.every((i) => ok.has(i)) ? null : { ok: false, status: 400, error: 'Pick machines from the list' }
 }
 
@@ -69,7 +72,7 @@ type Saved = { ok: true; ids: string[] | null } | Fail
 export async function savePlanEquipment(admin: SupabaseClient, orgId: string, planId: string, input: unknown): Promise<Saved> {
   const clean = cleanEquipmentIds(input)
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
-  const bad = clean.value ? await machinesRefusal(admin, orgId, clean.value) : null
+  const bad = clean.value ? await machinesRefusal(admin, orgId, clean.value, (await loadPlanEquipment(admin, orgId, [planId])).get(planId) ?? []) : null
   if (bad) return bad
   const { data, error } = await orgDb(admin, orgId).from('service_plans').update({ [COLUMN]: clean.value }).eq('id', planId).select('id')
   if (error) return writeFail(error, 'plan')
@@ -81,7 +84,7 @@ export async function savePlanEquipment(admin: SupabaseClient, orgId: string, pl
 export async function saveVisitEquipment(admin: SupabaseClient, orgId: string, workOrderId: string, input: unknown): Promise<Saved> {
   const clean = cleanEquipmentIds(input)
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
-  const bad = clean.value ? await machinesRefusal(admin, orgId, clean.value) : null
+  const bad = clean.value ? await machinesRefusal(admin, orgId, clean.value, (await loadVisitEquipment(admin, orgId, [workOrderId])).get(workOrderId) ?? []) : null
   if (bad) return bad
   const { data, error } = await orgDb(admin, orgId)
     .from('work_orders')

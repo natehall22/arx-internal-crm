@@ -25,11 +25,18 @@ const NON_PHYSICAL_NAME = /^\s*(labou?r|permits?|discounts?|credits?|(sales )?ta
 /** THE rule: is this sold line something that goes on the truck? Decided by the line's own price-book category and unit (snapshotted on the line). */
 export function isLoadable(line: SoldLine): boolean {
   if (!(Number(line.quantity) > 0)) return false
-  const unit = (line.unit ?? '').trim().toLowerCase()
+  const unit = normalizeUnit(line.unit)
   if (unit && NON_PHYSICAL_UNITS.includes(unit)) return false
   if (line.category && NON_PHYSICAL_CATEGORY.test(line.category)) return false
   if (line.name && NON_PHYSICAL_NAME.test(line.name)) return false
   return !!line.name?.trim()
+}
+
+/** One spelling per unit: yd / yard / yards / cu yd / cubic yard(s) are all cubic yards ('yard'). Everything else is lower-cased as written (roofing 'square' stays 'square': it is the price book's own unit). */
+export function normalizeUnit(unit: string | null | undefined): string {
+  const u = (unit ?? '').trim().toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ')
+  if (['yd', 'yds', 'yard', 'yards', 'cu yd', 'cu yds', 'cuyd', 'cubic yard', 'cubic yards', 'cy'].includes(u)) return 'yard'
+  return u
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -40,7 +47,7 @@ export function combineLoad(lines: readonly SoldLine[]): LoadItem[] {
   for (const l of lines) {
     if (!isLoadable(l)) continue
     const name = l.name.trim().replace(/\s+/g, ' ')
-    const unit = (l.unit ?? '').trim().toLowerCase()
+    const unit = normalizeUnit(l.unit)
     const key = `${name.toLowerCase()}|${unit}`
     const cur = out.get(key)
     if (cur) cur.quantity = round2(cur.quantity + Number(l.quantity))
@@ -54,7 +61,7 @@ export function dayLoad(perStop: ReadonlyArray<readonly LoadItem[]>): LoadItem[]
   return combineLoad(perStop.flat().map((i) => ({ name: i.name, unit: i.unit, quantity: i.quantity })))
 }
 
-const UNIT_WORDS: Record<string, [string, string]> = { each: ['', ''], lf: ['lf', 'lf'], sqft: ['sq ft', 'sq ft'], per_sqft: ['sq ft', 'sq ft'], square: ['square', 'squares'], sheet: ['sheet', 'sheets'], acre: ['acre', 'acres'], yard: ['yd', 'yd'] }
+const UNIT_WORDS: Record<string, [string, string]> = { each: ['', ''], lf: ['lf', 'lf'], sqft: ['sq ft', 'sq ft'], per_sqft: ['sq ft', 'sq ft'], square: ['square', 'squares'], sheet: ['sheet', 'sheets'], acre: ['acre', 'acres'], yard: ['cu yd', 'cu yd'] }
 
 /** "12" / "2.5 squares" / "40 lf": the amount with its unit, in plain words. */
 export function quantityText(i: Pick<LoadItem, 'quantity' | 'unit'>): string {
@@ -95,7 +102,15 @@ export function bedAmountsOf(
 }
 
 /**
- * The day's bed total: each PROPERTY once (two visits at one home on the same day are the same beds), mulch added to two decimals,
+ * Is this stop bed work? (Only then do its measured beds count toward what to LOAD today.) True when any of the stop's words — plan
+ * or visit name, the services sold ("Mow, Edge, Beds"), quote / sold line names and categories — mention mulch, straw or beds.
+ */
+export function isBedWork(texts: ReadonlyArray<string | null | undefined>): boolean {
+  return texts.some((t) => !!t && /\b(mulch|mulching|pine ?straw|straw|beds?)\b/i.test(t))
+}
+
+/**
+ * The bed total to load: each PROPERTY once (two visits at one home on the same day are the same beds), mulch added to two decimals,
  * bales are already whole numbers per property.
  */
 export function dayBeds(stops: ReadonlyArray<{ propertyKey: string | null; beds: BedAmounts | null }>): { mulchCuYd: number; strawBales: number; properties: number } {
@@ -180,4 +195,21 @@ export function sortStops<T extends { position: number | null; kind: 'visit' | '
       (a.address ?? '').localeCompare(b.address ?? '') ||
       a.id.localeCompare(b.id)
   )
+}
+
+/**
+ * THE stop number, for every surface that shows the same list (the printed sheet and the crew phone page): the stop's own number
+ * (a saved order, else its plan's), else its place in the list. Call it on the day's FULL list of non-cancelled stops in route order
+ * (done ones included), then show only what you need — so a stop keeps one number on paper and on the phone.
+ */
+export function stopNumbers(stops: ReadonlyArray<{ id: string; position: number | null }>): Map<string, number> {
+  return new Map(stops.map((s, i) => [s.id, s.position ?? i + 1]))
+}
+
+/**
+ * THE machine rule: a price-book item is a machine when it is on, billed by the hour and not labor. The time clock's list
+ * (`loadEquipmentChoices`) and the plan / visit machine pickers both use it.
+ */
+export function isMachineItem(r: { unit?: unknown; active?: unknown; is_labor?: unknown }): boolean {
+  return r.unit === 'hour' && r.active !== false && r.is_labor !== true
 }

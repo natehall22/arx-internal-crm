@@ -123,10 +123,11 @@ describe('machines: plan default, visit override', () => {
     expect(sheet.machines).toEqual(['Zero-turn mower', 'Backpack blower'])
 
     const v = todayVisit(db, planId)
-    expect((await saveVisitEquipment(db.client, ORG, String(v.id), [TRUCK])).ok).toBe(true)
+    expect((await saveVisitEquipment(db.client, ORG, String(v.id), [BLOWER])).ok).toBe(true)
+    ;(db.tables.pricebook_items as Array<Record<string, unknown>>).find((i) => i.id === BLOWER)!.active = false // retired later
     sheet = await buildCrewDaySheet(db.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
-    expect(sheet.visits[0].machines).toEqual(['Dump trailer']) // a retired machine still shows by name
-    expect(sheet.machines).toEqual(['Dump trailer'])
+    expect(sheet.visits[0].machines).toEqual(['Backpack blower']) // a retired machine still shows by name
+    expect(sheet.machines).toEqual(['Backpack blower'])
 
     expect((await saveVisitEquipment(db.client, ORG, String(v.id), [])).ok).toBe(true)
     sheet = await buildCrewDaySheet(db.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
@@ -246,14 +247,14 @@ describe('load list', () => {
     expect(JSON.stringify(sheet)).not.toMatch(/unit_price|line_total|price/i)
   })
 
-  it('stops come in route order (a visit’s own stop number beats its plan’s; visits and job stops share one numbering)', async () => {
+  it('stops come in route order (a visit’s own stop number beats its plan’s; a job stop keeps its saved number; the number is the one the phone shows)', async () => {
     const db = seed({ work_orders: [{ id: 'w1', org_id: ORG, job_id: 'j1', property_id: null, stop_order: 2 }], production_jobs: [{ id: 'j1', org_id: ORG, customer_id: 'c1', job_number: '26-0001' }] })
     mockProjects.mockResolvedValue([{ id: 'w1', jobNumber: '26-0001', tradeLabel: 'Roofing', address: '9 Pine Rd', status: 'scheduled', dayNumber: null, dayCount: null }])
     const a = await makePlan(db, { name: 'First by plan', route_position: 9 })
-    const b = await makePlan(db, { name: 'Second by plan', property_id: 'p2', route_position: 1 }, 'c2')
+    const b = await makePlan(db, { name: 'Second by plan', property_id: 'p2', route_position: 5 }, 'c2')
     todayVisit(db, a).stop_order = 1 // arranged on the board: beats the plan's 9
     const sheet = await buildCrewDaySheet(db.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
-    expect(sheet.visits.map((v) => [v.stop, v.what])).toEqual([[1, 'First by plan'], [2, 'Second by plan'], [3, 'Roofing · Job 26-0001']].map(([n, w]) => [n, w]))
+    expect(sheet.visits.map((v) => [v.stop, v.what])).toEqual([[1, 'First by plan'], [2, 'Roofing · Job 26-0001'], [5, 'Second by plan']])
     void b
   })
 })
@@ -263,9 +264,9 @@ describe('beds from the newest yard measure', () => {
 
   it('per stop as stored, totalled once per property; nothing when the company has no measure tool or the property was never measured', async () => {
     const db = seed()
-    await makePlan(db, { name: 'A' })
-    await makePlan(db, { name: 'A again', preferred_weekday: 2 })
-    await makePlan(db, { name: 'B', property_id: 'p2' }, 'c2')
+    await makePlan(db, { name: 'A beds' })
+    await makePlan(db, { name: 'A beds again', preferred_weekday: 2 })
+    await makePlan(db, { name: 'B beds', property_id: 'p2' }, 'c2')
     mockMeasure.mockImplementation(async (_a: unknown, _o: string, where: { propertyId: string }, limit: number) => {
       expect(limit).toBe(1) // the newest only
       return where.propertyId === 'p1' ? { ready: true, rows: [row()] } : { ready: true, rows: [] }
@@ -274,7 +275,7 @@ describe('beds from the newest yard measure', () => {
     const a = sheet.visits.filter((v) => v.what.startsWith('A'))
     expect(a).toHaveLength(2)
     expect(a.every((v) => v.beds && v.beds.mulchCuYd === 2 && v.beds.strawBales === 5)).toBe(true)
-    expect(sheet.visits.find((v) => v.what === 'B')!.beds).toBeNull()
+    expect(sheet.visits.find((v) => v.what === 'B beds')!.beds).toBeNull()
     expect(sheet.beds).toEqual({ mulchCuYd: 2, strawBales: 5, properties: 1 }) // two stops, one home
 
     mockFeature.mockResolvedValue(false)
@@ -361,7 +362,7 @@ describe('the sheet itself', () => {
     await saveCrewDayNote(db.client, ORG, 'u1', 's1', DAY, 'Bring the long hose.')
     const sheet = await buildCrewDaySheet(db.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
     const text = pdfText(generateCrewDaySheetPDF(sheet))
-    for (const want of ['NOTE FROM THE OFFICE', 'Bring the long hose.', 'LOAD LIST', 'Pine straw refresh', 'Beds (from yard measure, est.)', 'Zero-turn mower']) expect(text).toContain(want)
+    for (const want of ['NOTE FROM THE OFFICE', 'Bring the long hose.', 'LOAD LIST', 'Pine straw refresh', 'Bed materials to load (from yard measure, est.)', 'Zero-turn mower']) expect(text).toContain(want)
     expect(text).not.toMatch(/\$\d/)
   })
 
@@ -372,5 +373,108 @@ describe('the sheet itself', () => {
     const stop = { stop: 1, firstName: 'Pat', address: '1 Oak', what: 'Job', accessNotes: null, notes: null, checklist: [], collectCents: null, load: many, loadUnread: false, beds: null, machines: [] }
     const pdf = generateCrewDaySheetPDF({ companyName: 'Co', crewName: 'Crew', dateLabel: 'Tue, Nov 10', officeNote: 'x'.repeat(900), load: many, beds: null, machines: ['A', 'B'], visits: [stop, stop] })
     expect(pdfText(pdf)).toContain('more (see the job)')
+  })
+})
+
+describe('review fixes', () => {
+  const measured = { ready: true, rows: [{ id: 'm1', bed_sqft: 216, totals: { materials: { mulchCuYd: 2, strawBales: 5 } }, settings: {} }] }
+
+  it('beds show per stop as information but join the day total only for bed work', async () => {
+    const db = seed()
+    await makePlan(db, { name: 'Weekly mowing' })
+    mockMeasure.mockResolvedValue(measured)
+    let sheet = await buildCrewDaySheet(db.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
+    expect(sheet.visits[0].beds).toMatchObject({ mulchCuYd: 2, strawBales: 5 })
+    expect(sheet.beds).toBeNull() // mowing is not bed work: nothing to load
+    const db2 = seed()
+    await makePlan(db2, { name: 'Weekly mowing' })
+    await makePlan(db2, { name: 'Spring mulch', property_id: 'p2' }, 'c2')
+    sheet = await buildCrewDaySheet(db2.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
+    expect(sheet.beds).toEqual({ mulchCuYd: 2, strawBales: 5, properties: 1 })
+  })
+
+  it('a bed-work quote line (by name) on a mowing plan loads the beds', async () => {
+    const db = seed({ proposal_line_items: [{ id: 'ql1', org_id: ORG, name: 'Pine straw refresh', category: 'Landscape', unit: 'each', quantity: 1 }] })
+    const id = await makePlan(db)
+    ;(db.tables.service_plans as Array<Record<string, unknown>>).find((p) => p.id === id)!.quote_line_id = 'ql1'
+    mockMeasure.mockResolvedValue(measured)
+    const sheet = await buildCrewDaySheet(db.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
+    expect(sheet.beds).toMatchObject({ properties: 1 })
+  })
+
+  it('plan default machines apply to service visits only, not follow-on step visits', async () => {
+    const db = seed()
+    const planId = await makePlan(db, { equipment_item_ids: [MOWER] })
+    todayVisit(db, planId).visit_step = 'inspect'
+    const sheet = await buildCrewDaySheet(db.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
+    expect(sheet.visits[0].machines).toEqual([])
+  })
+
+  it('a new plan saves machines AFTER the insert (never in the insert), and a machine save failure keeps the plan with a warning', async () => {
+    const db = seed()
+    const real = (db.client as unknown as { from: (t: string) => unknown }).from.bind(db.client)
+    let insertedKeys: string[] = []
+    ;(db.client as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+      const q = real(t) as Record<string, (...a: unknown[]) => unknown>
+      if (t !== 'service_plans') return q
+      return new Proxy(q, {
+        get(target, k) {
+          if (k === 'insert') return (row: Record<string, unknown>) => { insertedKeys = Object.keys(row); return target.insert(row) }
+          return target[k as string]
+        },
+      })
+    }
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', plan({ equipment_item_ids: [MOWER] }), NOW)
+    expect(r.ok).toBe(true)
+    expect(insertedKeys).not.toContain('equipment_item_ids')
+    expect((await loadPlanEquipment(db.client, ORG, [(r as { plan: { id: string } }).plan.id])).get((r as { plan: { id: string } }).plan.id)).toEqual([MOWER])
+  })
+
+  it('after the plan transaction a machine save failure warns and continues: visits topped up, history written without the machines line', async () => {
+    const db = seed()
+    const planId = await makePlan(db)
+    // The machines column is "not there yet": the tolerant save fails after the plan itself saved.
+    const real = (db.client as unknown as { from: (t: string) => unknown }).from.bind(db.client)
+    ;(db.client as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+      const q = real(t) as Record<string, (...a: unknown[]) => unknown>
+      if (t !== 'service_plans') return q
+      return new Proxy(q, {
+        get(target, k) {
+          if (k === 'update') return (row: Record<string, unknown>) => (row && 'equipment_item_ids' in row ? { eq: () => ({ eq: () => ({ select: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'boom', code: 'XX000' } }) }) }) }) } : target.update(row))
+          return target[k as string]
+        },
+      })
+    }
+    const r = await updateServicePlan(db.client, ORG, 'u1', planId, { equipment_item_ids: [MOWER], route_position: 5 }, null, NOW)
+    expect(r).toMatchObject({ ok: true })
+    expect((r as { warning?: string }).warning).toMatch(/machines did not save/)
+    expect((db.tables.service_plans[0] as Record<string, unknown>).route_position).toBe(5)
+    const last = db.tables.service_plan_changes.at(-1) as { changes: Array<{ field: string }> }
+    expect(last.changes.map((c) => c.field)).toEqual(['route_position'])
+  })
+
+  it('one machine list: a retired or labor item is refused for a new pick, but a machine already on the plan can stay', async () => {
+    const LABOR = '66666666-6666-4666-8666-666666666666'
+    const db = seed({ pricebook_items: [
+      { id: MOWER, org_id: ORG, name: 'Zero-turn mower', unit: 'hour', active: true },
+      { id: TRUCK, org_id: ORG, name: 'Dump trailer', unit: 'hour', active: false },
+      { id: LABOR, org_id: ORG, name: 'Crew labor', unit: 'hour', active: true, is_labor: true },
+    ] })
+    const planId = await makePlan(db)
+    expect(await savePlanEquipment(db.client, ORG, planId, [LABOR])).toMatchObject({ ok: false, status: 400 })
+    expect(await savePlanEquipment(db.client, ORG, planId, [TRUCK])).toMatchObject({ ok: false, status: 400 })
+    expect((await savePlanEquipment(db.client, ORG, planId, [MOWER])).ok).toBe(true)
+    ;(db.tables.pricebook_items as Array<Record<string, unknown>>)[0].active = false // office later retires the mower
+    expect((await savePlanEquipment(db.client, ORG, planId, [MOWER])).ok).toBe(true) // still on the plan: kept
+  })
+
+  it('the sheet and the phone page number stops with ONE helper (a saved order beats the plan’s; done visits keep their number)', async () => {
+    const db = seed()
+    const a = await makePlan(db, { name: 'A', route_position: 1 })
+    const b = await makePlan(db, { name: 'B', property_id: 'p2', route_position: 2 }, 'c2')
+    todayVisit(db, a).status = 'completed'
+    const sheet = await buildCrewDaySheet(db.client, ORG, { subId: 's1', crewName: 'Crew One', day: DAY, money: false })
+    expect(sheet.visits.map((v) => [v.what, v.stop])).toEqual([['B', 2]]) // A is done (off the paper) but B stays 2, as on the phone
+    void b
   })
 })

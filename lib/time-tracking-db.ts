@@ -24,6 +24,7 @@ import { findOrCreateWeek, findWeekNear, PERIOD_COLS, periodIsEditable } from '@
 import { isCrewFieldRole, isFieldRoleLike } from '@/lib/permissions'
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 import { orgDb } from '@/lib/supabase/org-db'
+import { isMachineItem } from '@/lib/truck-sheet'
 import {
   ENTRY_FIELD_LABELS,
   PEOPLE_ACTIONS,
@@ -1083,9 +1084,10 @@ export async function loadClockState(admin: SupabaseClient, actor: ClockActor, n
  * profiles migration 202611100090; until then this list is empty and the Equipment button stays hidden).
  */
 export async function loadEquipmentChoices(admin: SupabaseClient, orgId: string): Promise<Array<{ id: string; name: string }>> {
-  const { data, error } = await orgDb(admin, orgId).from('pricebook_items').select('id, name, unit, active').eq('active', true).limit(500)
+  const { data, error } = await orgDb(admin, orgId).from('pricebook_items').select('id, name, unit, active, is_labor').eq('active', true).limit(500)
   if (error) return []
-  return ((data ?? []) as Array<{ id: string; name: string; unit: string }>).filter((r) => r.unit === 'hour').map((r) => ({ id: r.id, name: r.name })).sort((a, b) => a.name.localeCompare(b.name))
+  // The ONE machine rule (lib/truck-sheet.ts isMachineItem), shared with the plan / visit machine pickers.
+  return ((data ?? []) as Array<{ id: string; name: string; unit: string; is_labor?: boolean | null }>).filter((r) => isMachineItem(r)).map((r) => ({ id: r.id, name: r.name })).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
