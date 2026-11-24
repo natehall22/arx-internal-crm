@@ -131,6 +131,7 @@ export async function GET(request: NextRequest) {
     let usersMap: Record<string, any> = {}
     if (userIds.size > 0) {
       const { data: usersData } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('users')
         .select('id, full_name, role')
         .in('id', Array.from(userIds))
@@ -146,6 +147,7 @@ export async function GET(request: NextRequest) {
     
     if (appointmentIds.length > 0) {
       const { data: statusUpdates } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('inspection_status_updates')
         .select('appointment_id, outcome, notes, setter_feedback, completed_at')
         .in('appointment_id', appointmentIds)

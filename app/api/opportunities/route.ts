@@ -127,6 +127,7 @@ export async function GET(request: NextRequest) {
       const leadMap: Record<string, any> = {}
       if (leadIdList.length > 0) {
         const { data: leads } = await adminClient
+          // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
           .from('leads')
           .select('id, homeowner_name, phone, email, closer_user_id')
           .in('id', leadIdList)
@@ -146,6 +147,7 @@ export async function GET(request: NextRequest) {
       const userMap: Record<string, string> = {}
       if (userIdsForDisplay.size > 0) {
         const { data: users } = await adminClient
+          // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
           .from('users')
           .select('id, full_name')
           .in('id', Array.from(userIdsForDisplay))
@@ -168,6 +170,7 @@ export async function GET(request: NextRequest) {
       // Fetch customers
       if (customerIdList.length > 0) {
         const { data: customers } = await adminClient
+          // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
           .from('customers')
           .select('id, name, phone, email')
           .in('id', customerIdList)
@@ -185,6 +188,7 @@ export async function GET(request: NextRequest) {
       
       // Latest inspection rows from inspection_status_updates (by opportunity, and by lead when opportunity_id was null)
       const { data: inspectionStatuses } = await adminClient
+        // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
         .from('inspection_status_updates')
         .select('opportunity_id, lead_id, outcome, notes, created_at')
         .in('opportunity_id', oppIdList)
@@ -197,6 +201,7 @@ export async function GET(request: NextRequest) {
       let leadInspectionMap = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
       if (leadIdList.length > 0) {
         const { data: leadOnlyStatuses } = await adminClient
+          // org-scope-ok: ids come from rows loaded company-scoped above, then category-filtered
           .from('inspection_status_updates')
           .select('lead_id, outcome, notes, created_at')
           .in('lead_id', leadIdList)

@@ -472,6 +472,7 @@ export async function limitCol(): Promise<string> {
   if (limitColumnKnown && (limitColumnKnown.present || Date.now() - limitColumnKnown.at < 60_000)) {
     return limitColumnKnown.present ? ', category_limit' : ''
   }
+  // org-scope-ok: column probe, not company data (limit 0 reads no rows)
   const { error } = await createServiceClient().from('users').select('category_limit').limit(0)
   limitColumnKnown = { present: !isMissingColumn(error, 'category_limit'), at: Date.now() }
   return limitColumnKnown.present ? ', category_limit' : ''
