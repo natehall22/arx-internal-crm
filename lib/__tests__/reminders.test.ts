@@ -35,6 +35,7 @@ const make = () =>
     reminders: [],
     notifications: [],
     opportunities: [],
+    service_plans: [],
   }, { idFactory: () => id(seq++) })
 
 describe('parseReminderInput', () => {
@@ -242,8 +243,8 @@ describe('Make a visit from a reminder', () => {
     )
     const on = await loadRemindersQueue(db.client as never, ORG, { id: JAKE }, 'mine', NOW, { canMakeVisit: true })
     const byId = Object.fromEntries(on.items.map((i) => [i.reminderId, i.visit]))
-    expect(byId[id(71)]).toEqual({ customerId: C1, propertyId: null, date: '2026-11-20', notes: 'Fix the sprinkler head' })
-    expect(byId[id(72)]).toEqual({ customerId: C1, propertyId: P1, date: '2026-11-20', notes: 'Gate code changed' })
+    expect(byId[id(71)]).toEqual({ customerId: C1, propertyId: null, date: '2026-11-20', today: '2026-11-20', text: 'Fix the sprinkler head' })
+    expect(byId[id(72)]).toEqual({ customerId: C1, propertyId: P1, date: '2026-11-20', today: '2026-11-20', text: 'Gate code changed' })
     expect(byId[id(73)]).toBeUndefined()
     expect(byId[id(74)]).toBeUndefined()
     const off = await loadRemindersQueue(db.client as never, ORG, { id: JAKE }, 'mine', NOW)
@@ -267,16 +268,38 @@ describe('Make a visit from a reminder', () => {
       rem({ id: id(76), assignee_user_id: BOSS, created_by: BOSS, customer_id: C1 })
     )
     const a = { id: JAKE, seesAll: false }
-    expect(await checkReminderForVisit(db.client as never, ORG, a, id(71), C1)).toEqual({ ok: true })
-    expect(await checkReminderForVisit(db.client as never, ORG, a, id(72), C1)).toEqual({ ok: true })
-    expect(await checkReminderForVisit(db.client as never, ORG, a, id(73), C1)).toMatchObject({ ok: false, status: 400 })
-    expect(await checkReminderForVisit(db.client as never, ORG, a, id(71), CX)).toMatchObject({ ok: false, status: 400 })
-    expect(await checkReminderForVisit(db.client as never, ORG, a, 'nope', C1)).toMatchObject({ ok: false, status: 400 })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(71), { customerId: C1, propertyId: P1 })).toEqual({ ok: true, alreadyDone: false })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(72), { customerId: C1, propertyId: P1 })).toEqual({ ok: true, alreadyDone: false })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(73), { customerId: C1, propertyId: P1 })).toMatchObject({ ok: false, status: 400 })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(71), { customerId: CX, propertyId: P1 })).toMatchObject({ ok: false, status: 400 })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, 'nope', { customerId: C1, propertyId: P1 })).toMatchObject({ ok: false, status: 400 })
     // Another company's reminder: the same answer as a missing one.
-    expect(await checkReminderForVisit(db.client as never, ORG, { id: ME, seesAll: true }, id(75), CX)).toMatchObject({ ok: false, status: 404 })
+    expect(await checkReminderForVisit(db.client as never, ORG, { id: ME, seesAll: true }, id(75), { customerId: CX })).toMatchObject({ ok: false, status: 404 })
     // Somebody else's reminder: not found unless office.
-    expect(await checkReminderForVisit(db.client as never, ORG, a, id(76), C1)).toMatchObject({ ok: false, status: 404 })
-    expect(await checkReminderForVisit(db.client as never, ORG, { id: ME, seesAll: true }, id(76), C1)).toEqual({ ok: true })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(76), { customerId: C1, propertyId: P1 })).toMatchObject({ ok: false, status: 404 })
+    expect(await checkReminderForVisit(db.client as never, ORG, { id: ME, seesAll: true }, id(76), { customerId: C1 })).toEqual({ ok: true, alreadyDone: false })
+  })
+
+  test('a done reminder is refused unless the key is an existing visit; a property reminder needs that property', async () => {
+    const db = make()
+    db.tables.properties.push({ id: P1, org_id: ORG, customer_id: C1 }, { id: id(92), org_id: ORG, customer_id: C1 })
+    db.tables.service_plans.push({ id: id(80), org_id: ORG, customer_id: C1, one_off_key: 'key-for-this-visit' }, { id: id(81), org_id: ORG, customer_id: CX, one_off_key: 'someone-elses-key' })
+    db.tables.reminders.push(
+      rem({ id: id(71), customer_id: C1, done_at: '2026-11-19T10:00:00Z' }),
+      rem({ id: id(72), property_id: P1 })
+    )
+    const a = { id: JAKE, seesAll: false }
+    const v = { customerId: C1, propertyId: P1 }
+    // Stale page / second person: no second visit.
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(71), { ...v, oneOffKey: 'brand-new-key' })).toMatchObject({ ok: false, status: 409 })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(71), v)).toMatchObject({ ok: false, status: 409 })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(71), { ...v, oneOffKey: 'someone-elses-key' })).toMatchObject({ ok: false, status: 409 })
+    // A retry with the key of the visit already made: allowed, and the reminder is not touched again.
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(71), { ...v, oneOffKey: 'key-for-this-visit' })).toEqual({ ok: true, alreadyDone: true })
+    // The reminder names a property: the visit must be there.
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(72), { customerId: C1, propertyId: id(92) })).toMatchObject({ ok: false, status: 400 })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(72), { customerId: C1 })).toMatchObject({ ok: false, status: 400 })
+    expect(await checkReminderForVisit(db.client as never, ORG, a, id(72), { customerId: C1, propertyId: P1 })).toEqual({ ok: true, alreadyDone: false })
   })
 
   test('after the visit is saved the reminder is done, and a repeat is harmless', async () => {

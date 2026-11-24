@@ -1805,10 +1805,12 @@ test('remind sheet / phone: tap targets, 16px inputs, Done for the creator, sets
   await dialog.getByRole('button', { name: 'Make a visit' }).first().click()
   const sheet = page.getByRole('dialog', { name: 'One-off visit' })
   await sheet.waitFor()
-  await expect(sheet.getByLabel('Notes for the crew (optional)')).toHaveValue('Call about the sprinkler quote')
+  // The reminder text is context for the office person, never copied into the crew note.
+  await expect(sheet.getByText('Call about the sprinkler quote')).toBeVisible()
+  await expect(sheet.getByLabel('Notes for the crew (optional)')).toHaveValue('')
   await sheet.getByRole('button', { name: 'Add visit' }).click()
   await expect.poll(() => visits.length).toBe(1)
-  expect(visits[0]).toMatchObject({ customer_id: 'cust-1', reminder_id: 'r1', notes: 'Call about the sprinkler quote' })
+  expect(visits[0]).toMatchObject({ customer_id: 'cust-1', reminder_id: 'r1', notes: '' })
   await expectNoSidewaysScroll(page)
 })
 

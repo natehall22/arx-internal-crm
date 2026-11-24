@@ -67,8 +67,9 @@ export async function GET(request: Request) {
  * starts and ends that day (lib/service-plans-db.ts createOneOffVisit), so the visit has a visit code, a crew-day stop and a
  * price like any plan visit and is billed the same way. Needs the same permission as starting a plan.
  * Optional `reminder_id`: a visit made from a reminder (Today "Make a visit"). The reminder is checked BEFORE anything is made (this
- * company's, the person may finish it, about this customer), and marked done through setReminderDone after the visit is saved; a
- * retried request (same idempotency_key) returns the same visit and marks it done again, which changes nothing.
+ * company's, the person may finish it, about this customer), and marked done through setReminderDone after the visit is saved. A reminder that is already done is refused (409)
+ * unless the idempotency_key is that of an existing visit (a retry: same visit back, the reminder is not touched again); a reminder
+ * that names a property only makes a visit at that property.
  */
 export async function POST(request: Request) {
   const ctx = await servicePlanRouteAuth('edit')
@@ -80,15 +81,17 @@ export async function POST(request: Request) {
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const reminderId = body?.reminder_id
   const actor = { id: ctx.userId, seesAll: canSeeAllReminders(ctx.profile) }
+  let reminderAlreadyDone = false
   if (reminderId !== undefined && reminderId !== null && reminderId !== '') {
     if (!(await isOrgFeatureOn(ctx.orgId, 'reminders'))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    const ok = await checkReminderForVisit(ctx.admin, ctx.orgId, actor, reminderId, customerId)
+    const ok = await checkReminderForVisit(ctx.admin, ctx.orgId, actor, reminderId, { customerId, propertyId: body?.property_id, oneOffKey: body?.idempotency_key })
     if (!ok.ok) return NextResponse.json({ error: ok.error }, { status: ok.status })
+    reminderAlreadyDone = ok.alreadyDone
   }
   const result = await createOneOffVisit(ctx.admin, ctx.orgId, ctx.userId, customerId, body)
   if (!result.ok) return NextResponse.json({ error: result.status === 503 ? SERVICE_PLANS_NOT_READY : result.error }, { status: result.status })
   let reminderDone: boolean | undefined
-  if (typeof reminderId === 'string' && reminderId) {
+  if (typeof reminderId === 'string' && reminderId && !reminderAlreadyDone) {
     reminderDone = (await setReminderDone(ctx.admin, ctx.orgId, actor, reminderId, true)).ok
   }
   return NextResponse.json({ visitId: result.visitId, workOrderNumber: result.workOrderNumber, date: result.date, ...(reminderDone === undefined ? {} : { reminderDone }) }, { status: 201 })

@@ -35,7 +35,7 @@ export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer' | 'crew'
  */
 export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string; phone?: string | null; /** A reminder row: the card shows a Done button for it. */ reminderId?: string
   /** A reminder about a customer / property when the viewer may make visits: what the "Make a visit" sheet starts with. */
-  visit?: { customerId: string; propertyId: string | null; date: string; notes: string } }
+  visit?: { customerId: string; propertyId: string | null; date: string; today: string; text: string } }
 export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string; /** Collapsed under the list ("Upcoming (N)"); not part of `count`. */ upcoming?: QueueItem[] }
 
 export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean; customRoleName?: string | null; customRoleDisplayName?: string | null }): TodayKind {
@@ -698,7 +698,7 @@ export async function loadRemindersQueue(
   const visitFor = (r: (typeof picked)[number]): QueueItem['visit'] => {
     if (!reminderCanBecomeVisit(r, !!opts.canMakeVisit)) return undefined
     const customerId = r.customerId ?? (r.propertyId ? customerOf.get(r.propertyId) : undefined)
-    return customerId ? { customerId, propertyId: r.propertyId, date: visitDateForReminder(r.dueOn, today), notes: r.body } : undefined
+    return customerId ? { customerId, propertyId: r.propertyId, date: visitDateForReminder(r.dueOn, today), today, text: r.body } : undefined
   }
   const asItem = (r: (typeof picked)[number]): QueueItem => ({
     id: r.id,

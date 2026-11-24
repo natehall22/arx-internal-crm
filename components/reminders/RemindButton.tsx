@@ -110,7 +110,7 @@ export default function RemindButton({ target, className }: { target: Target; cl
                       </p>
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
                         {r.customerId && reminderCanBecomeVisit({ jobId: r.jobId ?? null, partnerId: r.partnerId ?? null, customerId: r.customerId, propertyId: r.propertyId ?? null }, data?.canMakeVisit === true) ? (
-                          <OneOffVisit prefill={{ reminderId: r.id, customerId: r.customerId, propertyId: r.propertyId ?? null, date: visitDateForReminder(r.dueOn, today), notes: r.body }} label="Make a visit" className="min-h-tap" onCreated={() => void load()} />
+                          <OneOffVisit prefill={{ reminderId: r.id, customerId: r.customerId, propertyId: r.propertyId ?? null, date: visitDateForReminder(r.dueOn, today), today, text: r.body }} label="Make a visit" className="min-h-tap" onCreated={() => void load()} />
                         ) : null}
                         {r.assigneeId === data?.meId || r.createdById === data?.meId || data?.seesAll ? <Button size="sm" variant="secondary" onClick={() => void done(r.id)}>Done</Button> : null}
                       </div>

@@ -13,11 +13,11 @@ type Found = { id: string; name: string | null; phone?: string | null }
  * Used on the Visits board (the person searches for the customer) and on the Customer File (customer already known).
  * Saves through POST /api/ops/visits; the visit is an ordinary service visit (visit code, crew-day stop, billed like a plan visit).
  */
-export type OneOffPrefill = { customerId: string; propertyId?: string | null; date: string; notes: string; reminderId: string }
+export type OneOffPrefill = { customerId: string; propertyId?: string | null; date: string; today: string; text: string; reminderId: string }
 
 /**
- * `prefill` = "Make a visit" from a reminder: the customer (and property, when the reminder has one), the day and the reminder
- * text as the crew note are filled in, and the save also sends the reminder id so the server marks the reminder done.
+ * `prefill` = "Make a visit" from a reminder: the customer (and property, when the reminder has one), the day; the reminder text is shown above the form for the office person and is never copied into the crew note.
+ * The save also sends the reminder id so the server marks the reminder done. A reminder that names a property keeps the visit at it.
  */
 export default function OneOffVisit({ customerId, onCreated, size = 'sm', variant = 'secondary', prefill, label = '+ One-off visit', className }: { customerId?: string; onCreated?: () => void; size?: 'sm' | 'md'; variant?: 'primary' | 'secondary'; prefill?: OneOffPrefill; label?: string; className?: string }) {
   customerId = prefill?.customerId ?? customerId
@@ -32,7 +32,8 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
   const keyRef = React.useRef('')
   const [f, setF] = React.useState({ property_id: '', trade: '', name: '', date: '', sub_id: '', price: '', taxable: false, notes: '' })
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }))
-  const today = todayLocal()
+  // The company's day (sent by the server for a reminder visit), never the phone's.
+  const today = prefill?.today ?? todayLocal()
 
   function start() {
     setCustomer(customerId ? { id: customerId, name: null } : null)
@@ -40,7 +41,7 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
     setFound([])
     setOptions(null)
     setOptionsFailed(false)
-    setF({ property_id: '', trade: '', name: '', date: prefill?.date ?? todayLocal(), sub_id: '', price: '', taxable: false, notes: prefill?.notes ?? '' })
+    setF({ property_id: '', trade: '', name: '', date: prefill?.date ?? todayLocal(), sub_id: '', price: '', taxable: false, notes: '' })
     keyRef.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `k${Date.now()}${Math.random().toString(36).slice(2)}`
     setOpen(true)
   }
@@ -103,6 +104,7 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
       {open ? (
         <Dialog open onOpenChange={(o) => !o && !saving && setOpen(false)}>
           <DialogContent className="scroll-pb-40" title="One-off visit" description="One visit, not a plan. It goes on the crew’s day and is billed like any visit.">
+            {prefill?.text ? <p className="rounded-ui border border-surface-line bg-surface-subtle p-2 text-ui-base text-ink"><span className="font-semibold">Reminder:</span> {prefill.text}</p> : null}
             <form
               className="flex flex-col gap-3 pb-2"
               onSubmit={(e) => {
@@ -138,7 +140,7 @@ export default function OneOffVisit({ customerId, onCreated, size = 'sm', varian
                   {options && options.properties.length > 0 ? (
                     <>
                       {options.properties.length > 1 ? (
-                        <Field label="Property *">{(a) => <Select {...a} className="text-base" value={f.property_id} onChange={(e) => set({ property_id: e.target.value })}>{options.properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}</Field>
+                        <Field label="Property *">{(a) => <Select {...a} className="text-base" disabled={!!prefill?.propertyId} value={f.property_id} onChange={(e) => set({ property_id: e.target.value })}>{options.properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}</Field>
                       ) : null}
                       <Field label="Service *">{(a) => <Select {...a} className="text-base" value={f.trade} onChange={(e) => set({ trade: e.target.value })}>{options.trades.map((t) => <option key={t.slug} value={t.slug}>{t.label}</option>)}</Select>}</Field>
                       <Field label="What are we doing? (optional)">{(a) => <Input {...a} className="text-base" maxLength={120} placeholder="One-time visit" value={f.name} onChange={(e) => set({ name: e.target.value })} />}</Field>
