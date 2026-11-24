@@ -14,6 +14,7 @@ import { isYmd, stageEnd } from '@/lib/job-schedule'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { isMissingProjectToolsSchema } from '@/lib/project-tools/budget-db'
 import { addDaysYmd, daysBetweenYmd, SERVICE_STEP, ymdInZone } from '@/lib/service-plans'
+import { UNLIMITED_SCOPE, filterByLeadScope, inScopeJobIds, type CategoryScope } from '@/lib/category-scope'
 import { loadVisitsPage } from '@/lib/service-plans-db'
 import type { WorkFilterable, WorkType } from '@/lib/schedule-filters'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -51,7 +52,7 @@ export type AllWork = {
 
 export const ALL_WORK_MAX_DAYS = 62
 
-type Viewer = { visits: boolean; appointments: boolean; timeZone: string }
+type Viewer = { visits: boolean; appointments: boolean; timeZone: string; scope?: CategoryScope }
 
 const CAP = 2000
 /** One page of visits (loadVisitsPage's own maximum). */
@@ -60,6 +61,7 @@ const VISIT_CAP = 1000
 export async function loadAllWork(admin: SupabaseClient, orgId: string, from: string, to: string, viewer: Viewer): Promise<AllWork> {
   if (!isYmd(from) || !isYmd(to) || to < from || daysBetweenYmd(from, to) > ALL_WORK_MAX_DAYS) throw new Error('Pick up to 9 weeks')
   const db = orgDb(admin, orgId)
+  const viewerScope = viewer.scope ?? UNLIMITED_SCOPE
   const orgTrades = await loadOrgTrades(admin, orgId)
   const items: WorkItem[] = []
   const capped: AllWork['capped'] = []
@@ -76,9 +78,9 @@ export async function loadAllWork(admin: SupabaseClient, orgId: string, from: st
       .lte('scheduled_date', to)
       .order('scheduled_date')
       .limit(CAP + 1),
-    viewer.visits ? loadVisitsPage(admin, orgId, { from, to, accessNotes: false, limit: VISIT_CAP }) : Promise.resolve({ visits: [] as Awaited<ReturnType<typeof loadVisitsPage>>['visits'], total: 0, hasMore: false }),
+    viewer.visits ? loadVisitsPage(admin, orgId, { from, to, accessNotes: false, limit: VISIT_CAP, scope: viewer.scope }) : Promise.resolve({ visits: [] as Awaited<ReturnType<typeof loadVisitsPage>>['visits'], total: 0, hasMore: false }),
     db.from('job_stages').select('id, job_id, name, trade, work_order_id, start_date, workdays, done_at').gte('start_date', addDaysYmd(from, -60)).lte('start_date', to).limit(CAP + 1),
-    viewer.appointments ? loadAppointments(admin, orgId, from, to, viewer.timeZone) : Promise.resolve({ items: [] as WorkItem[], capped: false }),
+    viewer.appointments ? loadAppointments(admin, orgId, from, to, viewer.timeZone, viewer.scope ?? UNLIMITED_SCOPE) : Promise.resolve({ items: [] as WorkItem[], capped: false }),
     db.from('sub_contractors').select('id, company_name'),
   ])
   if (wos.error) throw wos.error
@@ -100,8 +102,12 @@ export async function loadAllWork(admin: SupabaseClient, orgId: string, from: st
     for (const j of (data ?? []) as unknown as Array<{ id: string; job_number: string | null; address_text: string | null; cancelled_at: string | null; status: string | null; customer: { id: string; name: string | null } | Array<{ id: string; name: string | null }> | null }>)
       jobs.set(j.id, { ...j, customer: Array.isArray(j.customer) ? (j.customer[0] ?? null) : j.customer })
   }
+  // Jobs outside a limited person's categories drop out (job override, else the customer's).
+  const scopeRows = Array.from(jobs.values()).map((j) => ({ id: j.id, customer_id: j.customer?.id ?? null }))
+  const inScope = viewerScope.limited ? await inScopeJobIds(admin, orgId, viewerScope, scopeRows).catch((e) => (console.error('[all-work] job scope failed', e), new Set<string>())) : null
   const live = (jobId: string) => {
     const j = jobs.get(jobId)
+    if (inScope && !inScope.has(jobId)) return null
     return j && !j.cancelled_at && j.status !== 'cancelled' ? j : null
   }
 
@@ -169,10 +175,10 @@ async function loadCommunities(admin: SupabaseClient, orgId: string, propertyIds
   return out
 }
 
-async function loadAppointments(admin: SupabaseClient, orgId: string, from: string, to: string, timeZone: string): Promise<{ items: WorkItem[]; capped: boolean }> {
+async function loadAppointments(admin: SupabaseClient, orgId: string, from: string, to: string, timeZone: string, scope: CategoryScope): Promise<{ items: WorkItem[]; capped: boolean }> {
   const { data, error } = await orgDb(admin, orgId)
     .from('scheduled_appointments')
-    .select('id, scheduled_for, status, appointment_type, closer_user_id, lead:leads(homeowner_name, address_text)')
+    .select('id, lead_id, scheduled_for, status, appointment_type, closer_user_id, lead:leads(homeowner_name, address_text)')
     // Padded a day each side; the exact day is decided in the org time zone below.
     .gte('scheduled_for', `${addDaysYmd(from, -1)}T00:00:00Z`)
     .lte('scheduled_for', `${addDaysYmd(to, 2)}T00:00:00Z`)
@@ -183,7 +189,9 @@ async function loadAppointments(admin: SupabaseClient, orgId: string, from: stri
     console.error('[all-work] appointments failed', error)
     return { items: [], capped: false }
   }
-  const allRows = (data ?? []) as unknown as Array<{ id: string; scheduled_for: string; status: string; appointment_type: string | null; closer_user_id: string | null; lead: { homeowner_name: string | null; address_text: string | null } | Array<{ homeowner_name: string | null; address_text: string | null }> | null }>
+  const allRows0 = (data ?? []) as unknown as Array<{ id: string; lead_id: string | null; scheduled_for: string; status: string; appointment_type: string | null; closer_user_id: string | null; lead: { homeowner_name: string | null; address_text: string | null } | Array<{ homeowner_name: string | null; address_text: string | null }> | null }>
+  // A limited person sees only appointments of leads inside their categories (a read error hides them all).
+  const allRows = await filterByLeadScope(admin, orgId, scope, allRows0, (r) => r.lead_id).catch((e) => (console.error('[all-work] appointment scope failed', e), [] as typeof allRows0))
   const capped = allRows.length > CAP
   const rows = allRows.slice(0, CAP)
   const closers = Array.from(new Set(rows.map((r) => r.closer_user_id).filter((x): x is string => !!x)))

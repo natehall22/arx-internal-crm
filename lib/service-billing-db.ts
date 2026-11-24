@@ -6,6 +6,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { filterByCustomerScope, filterJobOrCustomerRows, UNLIMITED_SCOPE, type CategoryScope } from '@/lib/category-scope'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
 // Send = THE no-job invoice send (autopay + pay link when online payments are ready; else exactly sendCustomerInvoice).
@@ -202,7 +203,7 @@ async function loadSkippedServiceVisits(admin: SupabaseClient, orgId: string, fr
 }
 
 /** Everything the Ready to bill screen needs: done, unbilled units within the look-back, and the facts to preview them. */
-export async function loadReadyToBill(admin: SupabaseClient, orgId: string, opts: { lookbackDays?: number; now?: Date } = {}): Promise<ReadyToBill> {
+export async function loadReadyToBill(admin: SupabaseClient, orgId: string, opts: { lookbackDays?: number; now?: Date; scope?: CategoryScope } = {}): Promise<ReadyToBill> {
   const now = opts.now ?? new Date()
   const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
   const lookbackDays = Math.round(opts.lookbackDays ?? BILLING_LOOKBACK_DAYS)
@@ -216,7 +217,11 @@ export async function loadReadyToBill(admin: SupabaseClient, orgId: string, opts
   const planIds = Array.from(new Set(visits.map((v) => v.planId)))
   const [plans, billed] = await Promise.all([loadPlanFacts(admin, orgId, planIds), loadBilled(admin, orgId, done.map((v) => v.visitId), planIds)])
   if (!billed) return { ready: false, error: SERVICE_BILLING_NOT_READY }
-  const { units, notBillable } = buildBillingUnits(visits, plans, billed)
+  const built = buildBillingUnits(visits, plans, billed)
+  // A person limited to some work categories bills only customers inside them (visits follow their customer).
+  const scope = opts.scope ?? UNLIMITED_SCOPE
+  const units = await filterByCustomerScope(admin, orgId, scope, built.units, (u) => u.customerId)
+  const notBillable = await filterByCustomerScope(admin, orgId, scope, built.notBillable, (n) => n.customerId)
   const customerIds = Array.from(new Set([...units.map((u) => u.customerId), ...notBillable.map((n) => n.customerId).filter((x): x is string => !!x)]))
   const propertyIds = Array.from(new Set(units.map((u) => u.propertyId).filter((x): x is string => !!x)))
   const [customers, addresses, salesTax] = await Promise.all([
@@ -251,11 +256,11 @@ export type BillResult = {
  * Make the invoices for the selected drafts. Everything is recomputed here from the database — the browser only names
  * which drafts. Each invoice: create_service_invoice (idempotent) → totals + tax → optionally email.
  */
-export async function createServiceInvoices(admin: SupabaseClient, orgId: string, userId: string, req: BillRequest, now = new Date()): Promise<BillResult | { error: string; status: 400 | 503 }> {
+export async function createServiceInvoices(admin: SupabaseClient, orgId: string, userId: string, req: BillRequest, now = new Date(), scope?: CategoryScope): Promise<BillResult | { error: string; status: 400 | 503 }> {
   const keys = Array.from(new Set(req.keys.filter((k) => typeof k === 'string' && k.length <= 120)))
   if (keys.length === 0) return { error: 'Pick at least one invoice to make', status: 400 }
   if (keys.length > MAX_INVOICES_PER_REQUEST) return { error: `At most ${MAX_INVOICES_PER_REQUEST} invoices at a time`, status: 400 }
-  const data = await loadReadyToBill(admin, orgId, { lookbackDays: req.lookbackDays, now })
+  const data = await loadReadyToBill(admin, orgId, { lookbackDays: req.lookbackDays, now, scope })
   if (!data.ready) return { error: data.error, status: 503 }
   // Bill exactly what the office previewed; anything newer waits for the next run.
   const seen = onlyPreviewed(data.units, new Set(req.unitKeys), new Set(req.visitIds))
@@ -563,7 +568,7 @@ export const ALL_INVOICES_CAP = 2000
  * unpaid list's answer (loadUnpaidInvoices, capped by what its job still owes), an open service invoice total − paid
  * (invoicePaidCents). `today` is the company's calendar day (late = a balance owed past the due day).
  */
-export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts: { today: string; customerId?: string | null; cap?: number }): Promise<{ rows: InvoiceListRow[]; capped: boolean } | null> {
+export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts: { today: string; customerId?: string | null; cap?: number; scope?: CategoryScope }): Promise<{ rows: InvoiceListRow[]; capped: boolean } | null> {
   const cap = opts.cap ?? ALL_INVOICES_CAP
   let invoices: JobInvoice[] = []
   const read = async (apply: (q: any) => any) => {
@@ -633,7 +638,9 @@ export async function loadAllInvoices(admin: SupabaseClient, orgId: string, opts
       daysOverdue: invoiceDaysOverdue(dueAt, opts.today, balance),
     }
   })
-  return { rows, capped }
+  // A person limited to some work categories sees only invoices inside them (a job invoice follows its job, the rest its customer).
+  const visibleRows = await filterJobOrCustomerRows(admin, orgId, opts.scope ?? UNLIMITED_SCOPE, rows, (r) => ({ jobId: r.jobId, customerId: r.customerId || null }))
+  return { rows: visibleRows, capped }
 }
 
 /** batch id → "B-0003" for the rows that carry one (job page, invoice list). */

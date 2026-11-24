@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { categoryScopeOf, filterJobsToScope } from '@/lib/category-scope'
 import { enrichJobsWithCategory, loadOrgCategories } from '@/lib/categories-db'
 import { sumCollectedCents } from '@/lib/job-collection'
 import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
@@ -38,7 +39,8 @@ export default async function OpsPage() {
     .eq('org_id', profile.org_id)
     .order('scheduled_date', { ascending: true, nullsFirst: false })
 
-  const rawJobs = (jobsRes.data ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
+  // Limited to some work categories: jobs outside them are not on the board (no-op for everyone else).
+  const rawJobs = await filterJobsToScope(admin, profile.org_id, categoryScopeOf(profile), (jobsRes.data ?? []) as unknown as Array<{ id: string; customer_id?: string | null } & Record<string, unknown>>)
   await enrichOpsJobsWithPayrollSentAt(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithSoldSquares(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithMeasureSoldSquaresFallback(supabase, profile.org_id, rawJobs)

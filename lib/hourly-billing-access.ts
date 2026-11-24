@@ -35,7 +35,7 @@ export async function resolveHourlyAccess(admin: SupabaseClient, profile: Profil
 }
 
 /** Route guard: signed in (401), hourly billing on (404), then `need` (403). */
-export async function hourlyRouteAuth(need: 'bill' | 'viewJob' | 'editJob' | 'owner'): Promise<{ admin: SupabaseClient; userId: string; orgId: string; access: HourlyAccess } | Response> {
+export async function hourlyRouteAuth(need: 'bill' | 'viewJob' | 'editJob' | 'owner'): Promise<{ admin: SupabaseClient; userId: string; orgId: string; access: HourlyAccess; profile: Profile } | Response> {
   const { NextResponse } = await import('next/server')
   const { requireAuthApi } = await import('@/lib/auth')
   const { createServiceClient } = await import('@/lib/supabase/service')
@@ -50,5 +50,5 @@ export async function hourlyRouteAuth(need: 'bill' | 'viewJob' | 'editJob' | 'ow
   const access = await resolveHourlyAccess(admin, profile)
   if (!access.feature) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!access[need]) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  return { admin, userId: profile.id, orgId: profile.org_id, access }
+  return { admin, userId: profile.id, orgId: profile.org_id, access, profile }
 }

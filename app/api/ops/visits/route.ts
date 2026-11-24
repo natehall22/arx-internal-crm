@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import { categoryScopeOf } from '@/lib/category-scope'
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
 import { SERVICE_PLANS_NOT_READY, createOneOffVisit, crewDayLinkSubIds, ensureServiceVisits, loadVisitsPage } from '@/lib/service-plans-db'
 import { addDaysYmd, daysBetweenYmd, isYmd, ymdInZone } from '@/lib/service-plans'
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
   const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0)
   // The horizon top-up runs on the first page only (a "Load more" never re-runs it).
   if (offset === 0) await ensureServiceVisits(ctx.admin, ctx.orgId, { timeZone }).catch((e) => console.error('[visits] ensure failed', e))
-  const filter = crew === 'mine' ? { from, to, userId: ctx.userId, accessNotes: true } : { from, to, subId: crew === 'none' ? null : crew || undefined, accessNotes: true }
+  const filter = crew === 'mine' ? { from, to, userId: ctx.userId, accessNotes: true, scope: categoryScopeOf(ctx.profile) } : { from, to, subId: crew === 'none' ? null : crew || undefined, accessNotes: true, scope: categoryScopeOf(ctx.profile) }
   const [page, subs, linked] = await Promise.all([
     loadVisitsPage(ctx.admin, ctx.orgId, { ...filter, offset }),
     orgDb(ctx.admin, ctx.orgId).from('sub_contractors').select('id, company_name, phone').eq('active', true).order('company_name'),

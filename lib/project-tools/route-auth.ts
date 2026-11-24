@@ -2,6 +2,7 @@
  * The one door for every project-tools API route (budget, selections, schedule, daily log): signed in, the company has
  * `projectTools` on, the job is this company's, and what the caller may do. Throwing helpers stay out of routes' way.
  */
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -41,7 +42,7 @@ export async function projectToolsAuth(jobId: string): Promise<ProjectToolsAuth>
     .select('id, project_id, customer_id, address_text, job_number, sale_amount, lat, lng, status')
     .eq('id', jobId)
     .maybeSingle()
-  if (!job) return { ok: false, response: NextResponse.json({ error: 'Job not found' }, { status: 404 }) }
+  if (!job || (await jobHiddenFrom(admin, profile, jobId))) return { ok: false, response: NextResponse.json({ error: 'Job not found' }, { status: 404 }) }
   return {
     ok: true,
     ctx: {

@@ -6,7 +6,7 @@ import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
 import { DEFAULT_INDUSTRY_PROFILE } from '@/lib/industry-profiles'
 import { loadOrgProfile } from '@/lib/org-profile'
 import { canOpenDeal } from '@/lib/threads/api'
-import { dealRefsFor } from '@/lib/threads/get-thread'
+import { dealRefsFor, loadDeal } from '@/lib/threads/get-thread'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 
 /**
@@ -40,7 +40,9 @@ async function canOpen(admin: ReturnType<typeof createServiceClient>, profile: P
   const viewer = await resolveThreadViewer(admin, profile)
   const refs = await dealRefsFor(admin, profile.org_id, [dealId])
   const ref = refs.get(dealId)
-  return !!ref && canOpenDeal(viewer, ref)
+  if (!ref || !canOpenDeal(viewer, ref)) return false
+  // Outside the person's work categories the old page stays (and answers its own not-found).
+  return viewer.categoryScope?.limited ? !!(await loadDeal(admin, profile.org_id, dealId, viewer.categoryScope)) : true
 }
 
 function go(route: string, role: string, t: Target): never {

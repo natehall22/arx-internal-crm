@@ -6,6 +6,9 @@
  *     grouping, sorting and exports
  * Metrics themselves are defined once in the SQL views; this file only filters, groups and totals.
  */
+import { NO_CATEGORY, categoryAllowed, resolveCategoryScope, type CategoryScope } from '@/lib/category-scope'
+import { categoryLabel } from '@/lib/categories'
+import { loadOrgCategories } from '@/lib/categories-db'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -26,13 +29,19 @@ export type ReportContext = {
   scopedUserIds: string[] | null
   /** Company feature switches (lib/org-features.ts); a dataset of a switched-off feature is refused. Missing = all on. */
   features?: OrgFeatures
+  /**
+   * A person limited to some work categories (lib/category-scope.ts): only rows of those categories count, and a report with no
+   * category column is refused. `categoryLabels` = the allowed categories' labels (the views carry the label). Missing = no limit.
+   */
+  categoryScope?: CategoryScope
+  categoryLabels?: ReadonlySet<string>
   /** Report templates the company's industry profile offers (lib/org-profile.ts); null/missing = every template. */
   starterReports?: readonly string[] | null
   /** The company's Reports overview row and cards (lib/industry-profiles.ts); null/missing = the roofing overview. */
   overview?: { kpis: readonly string[]; tiles: readonly string[] } | null
 }
 
-type Viewer = { id: string; org_id: string; role: string; custom_role_id?: string | null; team_id?: string | null; region_id?: string | null }
+type Viewer = { id: string; org_id: string; role: string; category_limit?: string[] | null; custom_role_id?: string | null; team_id?: string | null; region_id?: string | null }
 
 export async function buildReportContext(admin: SupabaseClient, profile: Viewer): Promise<ReportContext> {
   const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
@@ -56,7 +65,14 @@ export async function buildReportContext(admin: SupabaseClient, profile: Viewer)
   }
   if (scopedUserIds && !scopedUserIds.includes(profile.id)) scopedUserIds.push(profile.id)
   const orgProfile = await loadOrgProfile(admin, profile.org_id)
+  const categoryScope = await resolveCategoryScope(admin, profile)
+  let categoryLabels: Set<string> | undefined
+  if (categoryScope.limited) {
+    const list = await loadOrgCategories(admin, profile.org_id)
+    categoryLabels = new Set(Array.from(categoryScope.allowed).filter((s) => s !== NO_CATEGORY).flatMap((s) => [categoryLabel(s, list), s]))
+  }
   return {
+    ...(categoryScope.limited ? { categoryScope, categoryLabels } : {}),
     orgId: profile.org_id,
     userId: profile.id,
     scope,
@@ -119,6 +135,7 @@ export function checkAccess(ctx: ReportContext, ds: Dataset, spec: ReportSpec): 
     spec.sortBy ?? null,
     ...spec.filters.map((f) => f.column),
   ].filter(Boolean) as string[]
+  if (ctx.categoryScope?.limited && !columnOf(ds, 'category')) throw new ReportAccessError('That report cannot be split by work category yet, so it is hidden while your account is limited to some categories.')
   if (used.some((k) => needsFinancials(ctx, columnOf(ds, k)))) {
     throw new ReportAccessError('That report uses cost, margin or pay figures, which your role cannot see.')
   }
@@ -169,6 +186,7 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
   if (spec.sortBy && spec.sortBy !== '@group') wanted.add(spec.sortBy)
   const groupSort = spec.mode === 'summary' && spec.sortBy === '@group' ? ds.groupSortColumn ?? null : null
   if (groupSort) wanted.add(groupSort)
+  if (ctx.categoryScope?.limited) wanted.add('category')
   const select = Array.from(wanted).join(',')
 
   const { start, end } = opts.bounds ?? dateBounds(spec.date)
@@ -198,6 +216,18 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
     all.push(...page)
     if (page.length < PAGE) break
     if (from + PAGE >= MAX_ROWS_SCANNED) truncated = true
+  }
+
+  // A limited person's rows: only their categories (the views carry the category's label; blank = Not set).
+  if (ctx.categoryScope?.limited) {
+    const scope = ctx.categoryScope
+    const labels = ctx.categoryLabels ?? new Set<string>()
+    const kept = all.filter((r) => {
+      const lab = typeof r.category === 'string' ? r.category.trim() : ''
+      return lab === '' ? categoryAllowed(scope, null) : labels.has(lab)
+    })
+    all.length = 0
+    all.push(...kept)
   }
 
   if (spec.mode === 'rows') {

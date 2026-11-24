@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   const ctx = await billingRouteAuth()
   if (ctx instanceof Response) return ctx
   const lookbackDays = lookbackParam(new URL(request.url).searchParams.get('lookback'))
-  const data = await loadReadyToBill(ctx.admin, ctx.orgId, { lookbackDays })
+  const data = await loadReadyToBill(ctx.admin, ctx.orgId, { lookbackDays, scope: ctx.scope })
   if (!data.ready) return NextResponse.json({ error: data.error, code: 'not_ready' }, { status: 503 })
   return NextResponse.json({ ...data, maxPerRequest: MAX_INVOICES_PER_REQUEST })
 }
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     includeCurrentMonth: body.includeCurrentMonth === true,
     lookbackDays: lookbackParam(body.lookbackDays),
     send: body.send === true,
-  })
+  }, new Date(), ctx.scope)
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json(result)
 }

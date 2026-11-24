@@ -34,7 +34,7 @@ export function canOpenDeal(v: ThreadViewer, deal: NonNullable<DealRef>): boolea
 }
 
 export async function threadDeal(ctx: ThreadCtx, dealId: string) {
-  const deal = await loadDeal(ctx.admin, ctx.viewer.orgId, dealId)
+  const deal = await loadDeal(ctx.admin, ctx.viewer.orgId, dealId, ctx.viewer.categoryScope)
   if (!deal || !canOpenDeal(ctx.viewer, deal)) return null
   return deal
 }

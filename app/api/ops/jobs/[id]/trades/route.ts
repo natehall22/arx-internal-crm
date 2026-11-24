@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -40,6 +41,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const ctx = await authorize()
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const admin = createServiceClient()
+  if (await jobHiddenFrom(admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   const { canJobBoard, canEditJobs } = await resolveOpsAccess(admin, ctx.authUser.id, ctx.profile)
   if (!canJobBoard) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
@@ -155,6 +157,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const ctx = await authorize()
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const admin = createServiceClient()
+  if (await jobHiddenFrom(admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   const { canEditJobs } = await resolveOpsAccess(admin, ctx.authUser.id, ctx.profile)
   if (!canEditJobs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
@@ -188,6 +191,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   const ctx = await authorize()
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const admin = createServiceClient()
+  if (await jobHiddenFrom(admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   const { canEditJobs } = await resolveOpsAccess(admin, ctx.authUser.id, ctx.profile)
   if (!canEditJobs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 

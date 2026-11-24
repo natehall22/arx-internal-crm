@@ -1,4 +1,5 @@
 import { insertOpportunityRow } from '@/lib/new-deal'
+import { categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { requireAuthApi } from '@/lib/auth'
@@ -17,6 +18,7 @@ export async function POST(
   try {
     const { profile } = await requireAuthApi()
     const supabase = createServiceClient()
+    if (!(await customerInScope(supabase, profile.org_id, categoryScopeOf(profile), params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     const customerPermissions = await resolveEffectivePermissionNames(supabase, profile.id, profile)
     if (!canEditCustomerRecordsFromPermissionNames(customerPermissions)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

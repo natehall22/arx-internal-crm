@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -14,6 +15,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   let ctx
   try {
     const { authUser, profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const admin = createServiceClient()
     ctx = { admin, authUser, profile, ...(await resolveSupplierOrderAccess(admin, authUser.id, profile)) }
   } catch {

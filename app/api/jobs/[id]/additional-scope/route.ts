@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
@@ -8,6 +9,7 @@ export async function POST(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const jobId = params.id
     
     const body = await request.json()
@@ -68,6 +70,7 @@ export async function GET(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const jobId = params.id
     
     const serviceSupabase = createServiceClient()
@@ -97,6 +100,7 @@ export async function DELETE(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const { searchParams } = new URL(request.url)
     const itemId = searchParams.get('itemId')
 

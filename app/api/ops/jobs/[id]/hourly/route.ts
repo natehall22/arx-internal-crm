@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { hourlyRouteAuth } from '@/lib/hourly-billing-access'
@@ -11,6 +12,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const ctx = await hourlyRouteAuth('viewJob')
   if (ctx instanceof Response) return ctx
   if (!isUuidLike(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (await jobHiddenFrom(ctx.admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const r = await loadJobHourlySetup(ctx.admin, ctx.orgId, params.id)
   if ('ok' in r) return NextResponse.json({ error: r.error }, { status: r.status })
   return NextResponse.json({ ...r, canEdit: ctx.access.editJob, canBill: ctx.access.bill })
@@ -21,6 +23,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   const ctx = await hourlyRouteAuth('editJob')
   if (ctx instanceof Response) return ctx
   if (!isUuidLike(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (await jobHiddenFrom(ctx.admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const parsed = parseJobHourlyPatch(await request.json().catch(() => null))
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const r = await saveJobHourlySetup(ctx.admin, ctx.orgId, params.id, parsed.patch, ctx.userId)

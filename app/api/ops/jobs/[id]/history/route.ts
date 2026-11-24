@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -19,6 +20,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   const { authUser, profile } = ctx
   const admin = createServiceClient()
   const access = await resolveOpsAccess(admin, authUser.id, profile)

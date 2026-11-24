@@ -1,3 +1,4 @@
+import { UNLIMITED_SCOPE, categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { crossSiteWrite } from '@/lib/online-payments/access'
@@ -13,6 +14,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (crossSiteWrite(request)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
+  if (!(await customerInScope(ctx.admin, ctx.viewer.orgId, (ctx.viewer.categoryScope ?? UNLIMITED_SCOPE), params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const { viewer } = ctx
   if (!viewer.ownerLike) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!(await isOrgFeatureOn(viewer.orgId, 'customerPortal'))) return NextResponse.json({ error: 'Not found' }, { status: 404 })

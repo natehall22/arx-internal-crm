@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getJobPaymentSummary } from '@/lib/job-payments'
@@ -34,6 +35,7 @@ export async function PATCH(
 ) {
   try {
     const { authUser, profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const adminClient = createServiceClient()
 
     const { canEditJobs, canViewJobFinancials } = await resolveOpsAccess(
@@ -217,6 +219,7 @@ export async function GET(
 ) {
   try {
     const { authUser, profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const adminClient = createServiceClient()
     const { canJobBoard, canViewJobFinancials } = await resolveOpsAccess(
       adminClient,
@@ -272,6 +275,7 @@ export async function DELETE(
 ) {
   try {
     const { authUser, profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const adminClient = createServiceClient()
 
     const { canDeleteProductionJob } = await resolveOpsAccess(adminClient, authUser.id, profile)

@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
@@ -62,6 +63,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   try {
     const supabase = createServiceClient()
@@ -203,6 +205,7 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   if (profile.role !== 'admin' || !(await callerCanAccessJobBilling(createServiceClient(), profile))) {
     return NextResponse.json({ error: 'Only admins can delete job costs' }, { status: 403 })
   }

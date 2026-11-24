@@ -12,6 +12,7 @@ import {
 import { requireAuthApi } from '@/lib/auth'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
+import { categoryScopeOf, filterJobsToScope } from '@/lib/category-scope'
 import { enrichJobsWithCategory } from '@/lib/categories-db'
 import { enrichJobsWithCostLedger } from '@/lib/job-cost-ledger'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
@@ -316,7 +317,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch jobs' }, { status: 500 })
     }
 
-    const jobList = (jobs ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
+    // Limited to some work categories: jobs outside them are not on the board (no-op for everyone else).
+    const jobList = await filterJobsToScope(adminClient, profile.org_id, categoryScopeOf(profile), (jobs ?? []) as unknown as Array<{ id: string; customer_id?: string | null } & Record<string, unknown>>)
     await enrichOpsJobsWithPayrollSentAt(adminClient, profile.org_id, jobList)
     await enrichOpsJobsWithSoldSquares(adminClient, profile.org_id, jobList)
     await enrichOpsJobsWithMeasureSoldSquaresFallback(adminClient, profile.org_id, jobList)
@@ -331,6 +333,7 @@ export async function GET(request: Request) {
     // Invoice sales tax owed on top of the sale amount (lib/job-invoice-tax.ts) — feeds the board's paid chip.
     const invoiceTaxByJob = jobIds.length > 0 ? await loadJobInvoiceFacts(adminClient, jobIds) : new Map<string, JobInvoiceFacts>()
     if (jobIds.length > 0) {
+      // org-scope-ok: job ids come from this company's own board read above (then cut to the person's work categories)
       const { data: paymentRows } = await adminClient
         .from('job_payments')
         .select('job_id, amount_cents, funding_status')

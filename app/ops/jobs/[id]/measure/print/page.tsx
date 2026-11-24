@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { jobHiddenFrom } from '@/lib/category-scope'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { getOrgBrand } from '@/lib/org-brand'
@@ -30,6 +31,7 @@ export default async function ExteriorMeasurePrintPage({ params }: { params: { i
   const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
   if (!canJobBoard) redirect('/dashboard')
 
+  if (await jobHiddenFrom(supabase, profile, params.id)) notFound()
   const context = await resolveJobMeasureContext(supabase, profile.org_id, params.id)
   if (!context) notFound()
 

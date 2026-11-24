@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
@@ -20,6 +21,7 @@ export async function GET(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await jobHiddenFrom(createServiceClient(), authContext.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
     const admin = createServiceClient()
     const jobId = params.id
@@ -67,6 +69,7 @@ export async function PATCH(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await jobHiddenFrom(createServiceClient(), authContext.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
     const body = await request.json()
     const itemKey = typeof body.item_key === 'string' ? body.item_key.trim() : ''

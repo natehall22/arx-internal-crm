@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { cutoffYmd, weekCutoffContaining } from '@/lib/payroll-week-schedule'
 import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
 import { NextResponse } from 'next/server'
@@ -29,6 +30,7 @@ export const runtime = 'nodejs'
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
     const { authUser, profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const supabase = createServiceClient()
 
     // The board to see the list at all; job financials to see the money.
@@ -99,6 +101,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   try {
     const { profile } = ctx
     const supabase = createServiceClient()

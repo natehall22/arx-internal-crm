@@ -18,7 +18,7 @@ export async function canBillService(admin: SupabaseClient, profile: BillingProf
 }
 
 /** Route guard: signed in (401), service plans on (404), records money (403). */
-export async function billingRouteAuth(): Promise<{ admin: SupabaseClient; userId: string; orgId: string } | Response> {
+export async function billingRouteAuth(): Promise<{ admin: SupabaseClient; userId: string; orgId: string; scope: import('@/lib/category-scope').CategoryScope } | Response> {
   const { NextResponse } = await import('next/server')
   const { requireAuthApi } = await import('@/lib/auth')
   const { createServiceClient } = await import('@/lib/supabase/service')
@@ -33,5 +33,6 @@ export async function billingRouteAuth(): Promise<{ admin: SupabaseClient; userI
   const { feature, bill } = await canBillService(admin, profile)
   if (!feature) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!bill) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  return { admin, userId: profile.id, orgId: profile.org_id }
+  const { categoryScopeOf } = await import('@/lib/category-scope')
+  return { admin, userId: profile.id, orgId: profile.org_id, scope: categoryScopeOf(profile) }
 }

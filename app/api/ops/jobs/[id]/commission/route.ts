@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -13,6 +14,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const admin = createServiceClient()
     if (!(await canSeeFinancials(admin, profile))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const { data: job } = await admin.from('production_jobs').select('id').eq('id', params.id).eq('org_id', profile.org_id).maybeSingle()

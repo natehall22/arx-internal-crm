@@ -22,7 +22,7 @@ export const getThread: McpTool = {
   readOnly: true,
   async run(ctx, args: z.infer<typeof schema>) {
     const viewer = await resolveThreadViewer(ctx.admin, ctx.profile)
-    const deal = await loadDeal(ctx.admin, ctx.orgId, args.deal_id)
+    const deal = await loadDeal(ctx.admin, ctx.orgId, args.deal_id, viewer.categoryScope)
     // Same two doors as the Customer File: who may open the deal, then per message who may read it (getTimeline).
     if (!deal || !canOpenDeal(viewer, deal)) throw new ToolError('not_found')
     const t = await getTimeline(ctx.admin, viewer, deal, { limit: args.limit ?? 25 })

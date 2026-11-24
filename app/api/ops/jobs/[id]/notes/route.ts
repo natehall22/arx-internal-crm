@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { dealRefOf } from '@/lib/threads/get-thread'
@@ -39,6 +40,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const admin = createServiceClient()
 
     // Same people the job page lets in (it redirects anyone without job-board access).
@@ -68,6 +70,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const admin = createServiceClient()
 
     if (!canReadJobNotes(await resolveOpsAccess(admin, authUser.id, profile))) {

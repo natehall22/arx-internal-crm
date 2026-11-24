@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
@@ -223,6 +224,7 @@ export async function PATCH(
   try {
     const adminClient = createServiceClient()
     const { authUser, profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const { canJobBoard, canViewJobFinancials } = await resolveOpsAccess(adminClient, authUser.id, profile)
     if (!canJobBoard || !canViewJobFinancials) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

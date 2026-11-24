@@ -11,6 +11,7 @@ import { formatDateShort, formatDateWeekday, formatMoney, formatCents, formatPho
 import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
 import { maskE164 } from '@/lib/sms/phone'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { customerInScope, dealInScope, filterJobOrCustomerRows, leadInScope, type CategoryScope } from '@/lib/category-scope'
 import { loadCheckups } from '@/lib/checkups'
 import { listBlockedQuotes } from '@/lib/quotes/blocked'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
@@ -513,11 +514,11 @@ export async function loadCheckupsDueQueue(admin: SupabaseClient, orgId: string,
  * per crew, and visits skipped in the last 7 days. Email-safe: crew names, plan names and counts, no customer or address.
  * Ids match the industry profiles' planned Today cards ('todays-visits', 'skipped-visits').
  */
-export async function loadServiceVisitQueues(admin: SupabaseClient, orgId: string, now = new Date()): Promise<Queue[]> {
+export async function loadServiceVisitQueues(admin: SupabaseClient, orgId: string, now = new Date(), scope?: CategoryScope): Promise<Queue[]> {
   const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
   const [todays, recent] = await Promise.all([
-    loadVisits(admin, orgId, { from: today, to: today, accessNotes: false }),
-    loadVisits(admin, orgId, { from: addDaysYmd(today, -7), to: addDaysYmd(today, -1), accessNotes: false }),
+    loadVisits(admin, orgId, { from: today, to: today, accessNotes: false, scope }),
+    loadVisits(admin, orgId, { from: addDaysYmd(today, -7), to: addDaysYmd(today, -1), accessNotes: false, scope }),
   ])
   const byCrew = new Map<string, { name: string; total: number; done: number; open: number }>()
   for (const v of todays.filter((x) => x.status !== 'cancelled')) {
@@ -560,9 +561,9 @@ export async function loadServiceVisitQueues(admin: SupabaseClient, orgId: strin
  * Visits from the last 14 days that are still "scheduled" — the crew never marked them done or skipped. Behind, by the
  * calendar's own count (visits carry no planned time, so "behind" is never guessed from the clock). Cancelled ones are left out.
  */
-export async function loadCarriedOverVisitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
+export async function loadCarriedOverVisitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP, scope?: CategoryScope): Promise<Queue> {
   const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
-  const rows = (await loadVisits(admin, orgId, { from: addDaysYmd(today, -14), to: addDaysYmd(today, -1), accessNotes: false })).filter((v) => v.status === 'scheduled')
+  const rows = (await loadVisits(admin, orgId, { from: addDaysYmd(today, -14), to: addDaysYmd(today, -1), accessNotes: false, scope })).filter((v) => v.status === 'scheduled')
   return {
     id: 'carried-over-visits',
     title: 'Visits left from earlier days',
@@ -576,9 +577,9 @@ export async function loadCarriedOverVisitsQueue(admin: SupabaseClient, orgId: s
 }
 
 /** Visits in the next 7 days (today included) with no crew and no person on them: nobody is going. */
-export async function loadUnassignedVisitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
+export async function loadUnassignedVisitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP, scope?: CategoryScope): Promise<Queue> {
   const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
-  const rows = (await loadVisits(admin, orgId, { from: today, to: addDaysYmd(today, 6), accessNotes: false })).filter((v) => v.status === 'scheduled' && !v.subId && !v.userId)
+  const rows = (await loadVisits(admin, orgId, { from: today, to: addDaysYmd(today, 6), accessNotes: false, scope })).filter((v) => v.status === 'scheduled' && !v.subId && !v.userId)
   return {
     id: 'unassigned-visits',
     title: 'Visits with no crew',
@@ -716,4 +717,99 @@ export async function loadRemindersQueue(
   const upcoming = later.map(asItem)
   const base = { count: due.length, items: due.slice(0, LIST_CAP).map(asItem), empty: 'Nothing due.', ...(later.length > 0 ? { upcoming } : {}) }
   return scope === 'mine' ? { id: 'my-reminders', title: 'My reminders', ...base } : { id: 'all-reminders', title: 'Everyone’s reminders', ...base }
+}
+
+const HREF_ID = '([0-9a-fA-F-]{36})'
+type RecordRef = { kind: 'job' | 'deal' | 'lead' | 'customer' | 'proposal' | 'invoice'; id: string; customerId?: string }
+
+/** The record a Today row opens (from its link), or null when the row is not about one record (a crew total, a settings link…). */
+function recordOfHref(href: string): RecordRef | null {
+  let m = href.match(new RegExp(`^/ops/jobs/${HREF_ID}`))
+  if (m) return { kind: 'job', id: m[1] }
+  m = href.match(new RegExp(`^/c/${HREF_ID}/d/${HREF_ID}`))
+  if (m) return { kind: 'deal', id: m[2], customerId: m[1] }
+  m = href.match(new RegExp(`^/c/lead/${HREF_ID}`))
+  if (m) return { kind: 'lead', id: m[1] }
+  m = href.match(new RegExp(`^/(?:c|customers)/${HREF_ID}`))
+  if (m) return { kind: 'customer', id: m[1] }
+  m = href.match(new RegExp(`^/opportunities/${HREF_ID}`))
+  if (m) return { kind: 'deal', id: m[1] }
+  m = href.match(new RegExp(`^/leads/${HREF_ID}`))
+  if (m) return { kind: 'lead', id: m[1] }
+  m = href.match(new RegExp(`^/proposals/${HREF_ID}`))
+  if (m) return { kind: 'proposal', id: m[1] }
+  m = href.match(new RegExp(`^/invoices/${HREF_ID}/print`))
+  if (m) return { kind: 'invoice', id: m[1] }
+  return null
+}
+
+/**
+ * Today for a person limited to some work categories: a row about a customer, job, deal, lead, proposal or invoice outside their
+ * categories is dropped (job override, else the customer; a deal follows its customer, else its lead). A row that is not about one
+ * record stays; the visit queues are scoped where they load (loadVisits). The count falls by what was dropped (a capped list keeps
+ * its hidden remainder). A record that cannot be read is dropped (fail closed). Unlimited: the same queues, no query.
+ */
+export async function scopeQueues(admin: SupabaseClient, orgId: string, scope: CategoryScope, queues: Queue[]): Promise<Queue[]> {
+  if (!scope.limited) return queues
+  const db = orgDb(admin, orgId)
+  const rows = queues.flatMap((q) => [...q.items, ...(q.upcoming ?? [])])
+  const refs = new Map<string, RecordRef>()
+  for (const r of rows) {
+    const ref = recordOfHref(r.href)
+    if (ref) refs.set(`${ref.kind}:${ref.id}`, ref)
+  }
+  const allowed = new Set<string>()
+  const list = Array.from(refs.values())
+  const byKind = (k: RecordRef['kind']) => list.filter((r) => r.kind === k)
+  try {
+    const customers = byKind('customer')
+    for (const r of customers) if (await customerInScope(admin, orgId, scope, r.id)) allowed.add(`customer:${r.id}`)
+    for (const r of byKind('lead')) if (await leadInScope(admin, orgId, scope, r.id)) allowed.add(`lead:${r.id}`)
+    const deals = byKind('deal')
+    if (deals.length) {
+      const { data, error } = await db.from('opportunities').select('id, customer_id, lead_id').in('id', deals.map((d) => d.id))
+      if (error) throw error
+      for (const d of (data ?? []) as Array<{ id: string; customer_id: string | null; lead_id: string | null }>) if (await dealInScope(admin, orgId, scope, d)) allowed.add(`deal:${d.id}`)
+    }
+    const proposals = byKind('proposal')
+    if (proposals.length) {
+      const { data, error } = await db.from('proposals').select('id, opportunity_id').in('id', proposals.map((p) => p.id))
+      if (error) throw error
+      const opps = Array.from(new Set(((data ?? []) as Array<{ opportunity_id: string | null }>).map((p) => p.opportunity_id).filter((x): x is string => !!x)))
+      const ok = new Set<string>()
+      if (opps.length) {
+        const res = await db.from('opportunities').select('id, customer_id, lead_id').in('id', opps)
+        if (res.error) throw res.error
+        for (const d of (res.data ?? []) as Array<{ id: string; customer_id: string | null; lead_id: string | null }>) if (await dealInScope(admin, orgId, scope, d)) ok.add(d.id)
+      }
+      for (const p of (data ?? []) as Array<{ id: string; opportunity_id: string | null }>) if (p.opportunity_id && ok.has(p.opportunity_id)) allowed.add(`proposal:${p.id}`)
+    }
+    const jobs = byKind('job')
+    if (jobs.length) {
+      const { data, error } = await db.from('production_jobs').select('id, customer_id').in('id', jobs.map((j) => j.id))
+      if (error) throw error
+      const keep = await filterJobOrCustomerRows(admin, orgId, scope, ((data ?? []) as Array<{ id: string; customer_id: string | null }>), (j) => ({ jobId: j.id, customerId: j.customer_id }))
+      keep.forEach((j) => allowed.add(`job:${j.id}`))
+    }
+    const invoices = byKind('invoice')
+    if (invoices.length) {
+      const { data, error } = await db.from('job_invoices').select('id, job_id, customer_id').in('id', invoices.map((i) => i.id))
+      if (error) throw error
+      const keep = await filterJobOrCustomerRows(admin, orgId, scope, ((data ?? []) as Array<{ id: string; job_id: string | null; customer_id: string | null }>), (i) => ({ jobId: i.job_id, customerId: i.customer_id }))
+      keep.forEach((i) => allowed.add(`invoice:${i.id}`))
+    }
+  } catch (e) {
+    console.error('today scope failed', e)
+    // Fail closed: keep only rows that are not about one record.
+  }
+  const keepRow = (r: QueueItem) => {
+    const ref = recordOfHref(r.href)
+    return !ref || allowed.has(`${ref.kind}:${ref.id}`)
+  }
+  return queues.map((q) => {
+      const items = q.items.filter(keepRow)
+      const upcoming = q.upcoming?.filter(keepRow)
+      const dropped = q.items.length - items.length
+      return { ...q, items, ...(upcoming ? { upcoming } : {}), count: Math.max(items.length, q.count - dropped) }
+  })
 }

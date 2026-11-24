@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { escapeHtml } from '@/lib/html'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
 import { getDocumentBrand } from '@/lib/org-brand'
@@ -31,11 +32,17 @@ async function view(admin: Parameters<typeof orgDb>[0], orgId: string, customerI
   }
 }
 
+/** The customer, or null when missing / another company's / outside a limited person's work categories. */
+async function loadScopedCustomer(a: { admin: Parameters<typeof loadCustomer>[0]; profile: Parameters<typeof categoryScopeOf>[0] & { org_id: string } }, id: string) {
+  if (!(await customerInScope(a.admin, a.profile.org_id, categoryScopeOf(a.profile), id))) return null
+  return loadCustomer(a.admin, a.profile.org_id, id)
+}
+
 /** GET — the customer's card on file (brand / last 4 only) and whether autopay can be offered. Billing staff. */
 export async function GET(_request: Request, { params }: Ctx) {
   const a = await requireOnlinePaymentsCaller('billing')
   if (a.error) return a.error
-  if (!(await loadCustomer(a.admin, a.profile.org_id, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+  if (!(await loadScopedCustomer(a, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   return NextResponse.json(await view(a.admin, a.profile.org_id, params.id))
 }
 
@@ -47,7 +54,7 @@ export async function POST(request: Request, { params }: Ctx) {
   const a = await requireOnlinePaymentsCaller('billing', request)
   if (a.error) return a.error
   const orgId = a.profile.org_id
-  const customer = await loadCustomer(a.admin, orgId, params.id)
+  const customer = await loadScopedCustomer(a, params.id)
   if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const op = await loadOnlinePayments(a.admin, orgId)
   if (!op.featureOn) return NextResponse.json({ error: 'Online payments are off for this company' }, { status: 404 })
@@ -84,7 +91,7 @@ export async function POST(request: Request, { params }: Ctx) {
 export async function PATCH(request: Request, { params }: Ctx) {
   const a = await requireOnlinePaymentsCaller('billing', request)
   if (a.error) return a.error
-  if (!(await loadCustomer(a.admin, a.profile.org_id, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+  if (!(await loadScopedCustomer(a, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const body = (await request.json().catch(() => ({}))) as { autopay?: unknown }
   if (body.autopay !== false) return NextResponse.json({ error: 'Only the customer can turn automatic payments on (send them the save-card link)' }, { status: 400 })
   if (!(await setAutopayOff(a.admin, a.profile.org_id, params.id))) return NextResponse.json({ error: 'No card on file' }, { status: 404 })
@@ -95,7 +102,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
 export async function DELETE(request: Request, { params }: Ctx) {
   const a = await requireOnlinePaymentsCaller('billing', request)
   if (a.error) return a.error
-  if (!(await loadCustomer(a.admin, a.profile.org_id, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+  if (!(await loadScopedCustomer(a, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   if (!(await removeCardOnFile(a.admin, a.profile.org_id, params.id, a.profile.id))) return NextResponse.json({ error: 'No card on file' }, { status: 404 })
   return NextResponse.json(await view(a.admin, a.profile.org_id, params.id))
 }

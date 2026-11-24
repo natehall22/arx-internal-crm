@@ -1,6 +1,7 @@
 import { isThreadSchemaMissing, ThreadSchemaPendingError } from '@/lib/threads/schema-guard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { dealInScope, type CategoryScope } from '@/lib/category-scope'
 import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import { canReadMessage, canReadRowOnDeal, type Audience, type DealRef, type ThreadViewer } from '@/lib/threads/visibility'
 
@@ -144,7 +145,7 @@ export async function dealRefsFor(admin: SupabaseClient, orgId: string, oppIds: 
   return out
 }
 
-export async function loadDeal(admin: SupabaseClient, orgId: string, opportunityId: string): Promise<DealFull | null> {
+export async function loadDeal(admin: SupabaseClient, orgId: string, opportunityId: string, scope?: CategoryScope): Promise<DealFull | null> {
   const { data } = await admin
     .from('opportunities')
     .select('id, owner_user_id, setter_user_id, customer_id, lead_id, address_text, status')
@@ -152,6 +153,8 @@ export async function loadDeal(admin: SupabaseClient, orgId: string, opportunity
     .eq('org_id', orgId)
     .maybeSingle()
   if (!data) return null
+  // A person limited to some work categories: a deal outside them answers exactly like one that does not exist.
+  if (scope?.limited && !(await dealInScope(admin, orgId, scope, data as { customer_id: string | null; lead_id: string | null }))) return null
   const refs = await dealRefsFor(admin, orgId, [opportunityId])
   const ref = refs.get(opportunityId)
   return { ...(data as Omit<DealFull, 'closer_user_ids' | 'extra_user_ids'>), closer_user_ids: ref?.closer_user_ids ?? [], extra_user_ids: ref?.extra_user_ids ?? [] }

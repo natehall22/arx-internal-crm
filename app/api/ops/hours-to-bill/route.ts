@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { categoryScopeOf } from '@/lib/category-scope'
 import { hourlyRouteAuth } from '@/lib/hourly-billing-access'
 import { approveHours, loadHoursToBill, parseApproveRequest } from '@/lib/hourly-billing-db'
 
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
   const ctx = await hourlyRouteAuth('bill')
   if (ctx instanceof Response) return ctx
   const n = Number(new URL(request.url).searchParams.get('lookback'))
-  const data = await loadHoursToBill(ctx.admin, ctx.orgId, { lookbackDays: Number.isFinite(n) && n > 0 ? n : undefined })
+  const data = await loadHoursToBill(ctx.admin, ctx.orgId, { lookbackDays: Number.isFinite(n) && n > 0 ? n : undefined, scope: categoryScopeOf(ctx.profile) })
   if (!data.ready) return NextResponse.json({ error: data.error, code: 'not_ready' }, { status: 503 })
   return NextResponse.json(data)
 }
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
   if (ctx instanceof Response) return ctx
   const parsed = parseApproveRequest(await request.json().catch(() => null))
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
-  const result = await approveHours(ctx.admin, ctx.orgId, ctx.userId, parsed.req)
+  const result = await approveHours(ctx.admin, ctx.orgId, ctx.userId, parsed.req, new Date(), categoryScopeOf(ctx.profile))
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json(result)
 }

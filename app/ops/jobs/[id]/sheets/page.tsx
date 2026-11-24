@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { notFound, redirect } from 'next/navigation'
 
 import { requireAuth } from '@/lib/auth'
@@ -16,6 +17,7 @@ export default async function JobSheetsPage({ params }: { params: { id: string }
   const { canJobBoard, canEditJobs } = await resolveOpsAccess(admin, authUser.id, profile)
   if (!canJobBoard) redirect('/dashboard')
 
+  if (await jobHiddenFrom(admin, profile, params.id)) notFound()
   const sheet = await buildJobRunSheet(admin, profile.org_id, params.id)
   if (!sheet) notFound()
 

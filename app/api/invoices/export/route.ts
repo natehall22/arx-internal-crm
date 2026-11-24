@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
+import { categoryScopeOf } from '@/lib/category-scope'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { filterInvoiceRows, invoiceRowsToResult } from '@/lib/invoice-list'
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
   if (!ctx.finance || !ctx.canExport) return NextResponse.json({ error: 'Not authorized to export' }, { status: 403 })
   const p = request.nextUrl.searchParams
   const today = ymdInZone(new Date(), await loadOrgTimeZone(admin, profile.org_id))
-  const loaded = await loadAllInvoices(admin, profile.org_id, { today })
+  const loaded = await loadAllInvoices(admin, profile.org_id, { today, scope: categoryScopeOf(profile) })
   const rows = filterInvoiceRows(loaded?.rows ?? [], { status: p.get('status') ?? '', period: p.get('period') ?? '', customer: p.get('customer') ?? '', q: p.get('q') ?? '' }, today)
   return new NextResponse(resultToCsv(invoiceRowsToResult(rows)), {
     headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="invoices-${today}.csv"`, 'Cache-Control': 'no-store' },

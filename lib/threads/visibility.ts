@@ -18,6 +18,8 @@
  * crew link, and is never moved onto or off another audience after the fact.
  */
 
+import type { CategoryScope } from '@/lib/category-scope'
+
 export const AUDIENCES = ['team', 'sales', 'production', 'crew', 'customer', 'private'] as const
 export type Audience = (typeof AUDIENCES)[number]
 
@@ -44,6 +46,8 @@ export type ThreadViewer = {
   pricingBarred: boolean
   /** Inside-sales / call-center worker: works the whole queue, never production or pricing. */
   insideSales?: boolean
+  /** Work categories this person may see (lib/category-scope.ts). Absent / not limited = everything. */
+  categoryScope?: CategoryScope
 }
 
 /** A role the thread rules positively know. Anyone else (sub, custom-only roles) reads nothing: fail closed. */

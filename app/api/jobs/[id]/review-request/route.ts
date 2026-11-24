@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -38,6 +39,7 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   const supabase = createServiceClient()
   const body = await request.json().catch(() => ({}))

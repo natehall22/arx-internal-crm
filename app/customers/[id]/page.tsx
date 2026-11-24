@@ -13,6 +13,7 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 import { filesObjectHref } from '@/lib/files/files-object'
+import { categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { redirectCustomerToFile } from '@/lib/customer-file/redirects'
 import { withoutCustomFields } from '@/lib/custom-fields'
 
@@ -80,6 +81,8 @@ export default async function CustomerDetailPage({
   if (!customer) {
     notFound()
   }
+  // Limited to some work categories: a customer outside them is "not found".
+  if (!(await customerInScope(createServiceClient(), profile.org_id, categoryScopeOf(profile), params.id))) notFound()
 
   let projectsQuery = supabase
     .from('projects')

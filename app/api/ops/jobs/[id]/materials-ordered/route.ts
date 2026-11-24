@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -28,6 +29,7 @@ async function authorize() {
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const ctx = await authorize()
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (await jobHiddenFrom(ctx.admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   if (!ctx.canEditJobs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = (await request.json().catch(() => null)) as { source?: unknown } | null
@@ -42,6 +44,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   const ctx = await authorize()
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (await jobHiddenFrom(ctx.admin, ctx.profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   if (!ctx.canEditJobs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const result = await unmarkMaterialsOrdered(ctx.admin, { orgId: ctx.profile.org_id, jobId: params.id })

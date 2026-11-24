@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { categoryScopeOf, filterJobsToScope, jobHiddenFrom } from '@/lib/category-scope'
 import { wrapUntrusted } from '@/lib/ai-connector/untrusted'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -28,6 +29,8 @@ export const getJobSummary: McpTool = {
     const db = orgDb(ctx.admin, ctx.orgId)
     const { data: job } = await db.from('production_jobs').select('id, job_number, status, customer_id, address_text, scheduled_date, sale_date, completed_at, materials_status, sale_amount').eq('id', args.job_id).maybeSingle()
     if (!job) throw new ToolError('not_found')
+    // Outside the person's work categories answers exactly like a job that does not exist.
+    if (await jobHiddenFrom(ctx.admin, ctx.profile, args.job_id)) throw new ToolError('not_found')
     const j = job as Record<string, unknown>
     let customerName: string | null = null
     if (typeof j.customer_id === 'string') {
@@ -77,13 +80,13 @@ export const listSchedule: McpTool = {
     if (!Number.isFinite(days) || days < 0 || days > 62) throw new ToolError('bad_input', 'Pick a range of up to 62 days.')
     const { data } = await orgDb(ctx.admin, ctx.orgId)
       .from('production_jobs')
-      .select('id, job_number, status, address_text, scheduled_date')
+      .select('id, customer_id, job_number, status, address_text, scheduled_date')
       .gte('scheduled_date', args.from)
       .lte('scheduled_date', args.to)
       .neq('status', 'cancelled')
       .order('scheduled_date')
       .limit(100)
-    const rows = (data ?? []) as Array<Record<string, unknown>>
+    const rows = await filterJobsToScope(ctx.admin, ctx.orgId, categoryScopeOf(ctx.profile), (data ?? []) as Array<{ id: string; customer_id: string | null } & Record<string, unknown>>)
     return { data: { jobs: rows.map((r) => ({ id: r.id, job_number: r.job_number, status: r.status, scheduled_date: r.scheduled_date, address: wrapUntrusted(r.address_text, 300) })) }, recordIds: rows.map((r) => String(r.id)) }
   },
 }

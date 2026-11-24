@@ -39,7 +39,8 @@ import { loadQuickBooksStuckQueue } from '@/lib/quickbooks/activity'
 import { loadQuickBooksNeedsYouQueue } from '@/lib/quickbooks/connection'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
-import { loadRemindersQueue, loadAiChangesQueue, loadCloserQueues, loadDoorCollectionsQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadUnpaidInvoicesQueue, todayKindFor, unpaidInvoicesFailedQueue, type TodayKind } from '@/lib/today'
+import { categoryScopeOf } from '@/lib/category-scope'
+import { scopeQueues, loadRemindersQueue, loadAiChangesQueue, loadCloserQueues, loadDoorCollectionsQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadUnpaidInvoicesQueue, todayKindFor, unpaidInvoicesFailedQueue, type TodayKind } from '@/lib/today'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 import { leadsWaitingFailedQueue, loadLeadsWaitingQueue } from '@/lib/leads-waiting'
 
@@ -104,7 +105,7 @@ export default async function TodayPage() {
   // Leads nobody has contacted: owners see them in the owner list (loadOwnerExceptions); everyone else but field roles sees their own.
   const myLeadsWaiting = kind === 'closer' || kind === 'ops' ? await loadLeadsWaitingQueue(admin, profile.org_id, new Date(), { ownerUserId: profile.id }).catch((e) => { console.error('today: leads waiting failed', e); return leadsWaitingFailedQueue() }) : null
   const [visitQueues, closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
-    visitsOn ? loadServiceVisitQueues(admin, profile.org_id).catch((e) => { console.error('today: visits failed', e); return [] }) : Promise.resolve([]),
+    visitsOn ? loadServiceVisitQueues(admin, profile.org_id, new Date(), categoryScopeOf(profile)).catch((e) => { console.error('today: visits failed', e); return [] }) : Promise.resolve([]),
     kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: true }) : Promise.resolve([]),
     kind === 'ops' ? loadOpsQueues(admin, profile.org_id) : Promise.resolve([]),
     kind === 'owner' ? loadOwnerExceptions(admin, profile.org_id, new Date(), { money: hasFinancials(perms) }) : Promise.resolve([]),
@@ -158,7 +159,9 @@ export default async function TodayPage() {
   const canMakeVisit = remindersOn && orgProfile.features.servicePlans ? (await resolveServicePlanAccess(admin, profile.id, profile).catch(() => null))?.edit === true : false
   const myReminders = remindersOn ? await loadRemindersQueue(admin, profile.org_id, profile, 'mine', new Date(), { canMakeVisit }).catch((e) => { console.error('today: my reminders failed', e); return null }) : null
   const otherReminders = remindersOn && canSeeAllReminders(profile) ? await loadRemindersQueue(admin, profile.org_id, profile, 'others', new Date(), { canMakeVisit }).catch((e) => { console.error('today: reminders failed', e); return null }) : null
-  const queues = [...(myReminders && (myReminders.count > 0 || (myReminders.upcoming?.length ?? 0) > 0) ? [myReminders] : []), ...(otherReminders && (otherReminders.count > 0 || (otherReminders.upcoming?.length ?? 0) > 0) ? [otherReminders] : []), ...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...(visitCardsOn ? visitQueues : []), ...(doorCollections && doorCollections.count > 0 ? [doorCollections] : []), ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...(myLeadsWaiting && (myLeadsWaiting.count > 0 || myLeadsWaiting.empty.includes('couldn’t load')) ? [myLeadsWaiting] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
+  const queuesAll = [...(myReminders && (myReminders.count > 0 || (myReminders.upcoming?.length ?? 0) > 0) ? [myReminders] : []), ...(otherReminders && (otherReminders.count > 0 || (otherReminders.upcoming?.length ?? 0) > 0) ? [otherReminders] : []), ...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(quickBooksStuck ? [quickBooksStuck] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...(visitCardsOn ? visitQueues : []), ...(doorCollections && doorCollections.count > 0 ? [doorCollections] : []), ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...(myLeadsWaiting && (myLeadsWaiting.count > 0 || myLeadsWaiting.empty.includes('couldn’t load')) ? [myLeadsWaiting] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
+  // A person limited to some work categories sees only rows inside them (owners and admins are never limited).
+  const queues = await scopeQueues(admin, profile.org_id, categoryScopeOf(profile), queuesAll)
 
   return (
     <div className="min-h-screen bg-surface-subtle">

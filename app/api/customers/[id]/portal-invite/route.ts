@@ -1,3 +1,4 @@
+import { UNLIMITED_SCOPE, categoryScopeOf, customerInScope } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 
 import { crossSiteWrite } from '@/lib/online-payments/access'
@@ -22,6 +23,7 @@ async function staff(request: Request) {
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const ctx = await staff(request)
   if (ctx instanceof NextResponse) return ctx
+  if (!(await customerInScope(ctx.admin, ctx.viewer.orgId, (ctx.viewer.categoryScope ?? UNLIMITED_SCOPE), params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const r = await inviteCustomerToPortal(ctx.admin, ctx.viewer.orgId, params.id, ctx.viewer.userId)
   return r.ok ? NextResponse.json({ ok: true, sentTo: r.sentTo }) : NextResponse.json({ error: r.error }, { status: r.status })
 }
@@ -30,5 +32,6 @@ export async function POST(request: Request, { params }: { params: { id: string 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const ctx = await staff(request)
   if (ctx instanceof NextResponse) return ctx
+  if (!(await customerInScope(ctx.admin, ctx.viewer.orgId, (ctx.viewer.categoryScope ?? UNLIMITED_SCOPE), params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   return (await removeCustomerPortalAccess(ctx.admin, ctx.viewer.orgId, params.id)) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'Not found' }, { status: 404 })
 }

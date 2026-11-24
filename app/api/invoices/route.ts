@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
+import { categoryScopeOf } from '@/lib/category-scope'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { buildReportContext } from '@/lib/reporting/run'
@@ -27,7 +28,7 @@ export async function GET() {
   const admin = createServiceClient()
   if (!(await callerCanAccessJobBilling(admin, profile))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const today = ymdInZone(new Date(), await loadOrgTimeZone(admin, profile.org_id))
-  const [loaded, ctx] = await Promise.all([loadAllInvoices(admin, profile.org_id, { today }), buildReportContext(admin, profile)])
+  const [loaded, ctx] = await Promise.all([loadAllInvoices(admin, profile.org_id, { today, scope: categoryScopeOf(profile) }), buildReportContext(admin, profile)])
   const all = loaded?.rows ?? []
   const rows = ctx.finance ? all : all.filter((r) => r.balanceCents > 0).map((r) => ({ ...r, paidCents: 0 }))
   return NextResponse.json({ rows, capped: loaded?.capped ?? false, today, fullHistory: ctx.finance, canExport: ctx.finance && ctx.canExport, masterInvoices: await isOrgFeatureOn(profile.org_id, 'masterInvoices') })

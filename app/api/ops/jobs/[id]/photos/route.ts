@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
@@ -15,6 +16,7 @@ export async function GET(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (await jobHiddenFrom(createServiceClient(), profile, params.id)) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const supabase = createServiceClient()
     const jobId = params.id
 

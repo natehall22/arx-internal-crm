@@ -9,6 +9,7 @@ import { notFound } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { resolveServicePlanAccess } from '@/lib/service-plans-access'
 import { loadPlanCustomerIds } from '@/lib/service-plans-db'
+import { applyCategoryScope, categoryScopeOf } from '@/lib/category-scope'
 import { loadCustomerCategories, loadOrgCategories } from '@/lib/categories-db'
 import { customerFileDefaultFor } from '@/lib/customer-file/redirects'
 import { loadOrgProfile } from '@/lib/org-profile'
@@ -40,7 +41,7 @@ export default async function CustomersPage({
       .not('customer_id', 'is', null)
     const customerIds = Array.from(new Set((projectRows || []).map((row) => row.customer_id)))
     if (customerIds.length > 0) {
-      const { data } = await supabase.from('customers').select('id, name, phone, email, address_text').in('id', customerIds).order('created_at', { ascending: false }).limit(1000)
+      const { data } = await applyCategoryScope(supabase.from('customers').select('id, name, phone, email, address_text').in('id', customerIds), categoryScopeOf(profile)).order('created_at', { ascending: false }).limit(1000)
       customers = (data ?? []).map((c) => ({ ...c, bought: true }))
     }
   } else {
@@ -48,6 +49,8 @@ export default async function CustomersPage({
     let customerQuery = supabase.from('customers').select('id, name, phone, email, address_text').eq('org_id', profile.org_id)
     // A ?q= link searches the whole customer list on the server (the table's own search only covers what is loaded).
     if (query) customerQuery = customerQuery.or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%,address_text.ilike.%${query}%`)
+    // Limited to some work categories: only customers inside them (no-op for everyone else).
+    customerQuery = applyCategoryScope(customerQuery, categoryScopeOf(profile))
     const { data } = await customerQuery.order('created_at', { ascending: false }).limit(3000)
     const ids = (data ?? []).map((c) => c.id as string)
     // Who has bought (a project or a won deal): asked only for the customers on screen, so no row cap can mislabel anyone.
