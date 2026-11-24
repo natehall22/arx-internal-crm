@@ -24,9 +24,14 @@ begin
     execute format('alter table public.activities drop constraint %I', c.conname);
   end loop;
 end $$;
-alter table public.activities add constraint activities_audience_check check (audience is null or audience in ('team', 'sales', 'production', 'crew', 'customer', 'private'));
+-- Added NOT VALID (no long table lock on a live table), then validated on its own. Safe to re-run: the loop above drops the old audience
+-- check, and the list check is dropped if it exists before it is added again.
+alter table public.activities add constraint activities_audience_check check (audience is null or audience in ('team', 'sales', 'production', 'crew', 'customer', 'private')) not valid;
+alter table public.activities validate constraint activities_audience_check;
 -- The list only means something on a private message.
-alter table public.activities add constraint activities_visible_user_ids_private check (visible_user_ids is null or audience = 'private');
+alter table public.activities drop constraint if exists activities_visible_user_ids_private;
+alter table public.activities add constraint activities_visible_user_ids_private check (visible_user_ids is null or audience = 'private') not valid;
+alter table public.activities validate constraint activities_visible_user_ids_private;
 
 -- The evaluator with the message's own people list + writer. Same rule as 202611120060 plus the private branch.
 create or replace function arx_private.message_visible_to(

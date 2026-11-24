@@ -1,4 +1,5 @@
 import { visibleActivities } from '@/lib/threads/legacy-feed'
+import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { ADJUSTER_MEETING_APPOINTMENT_TYPE } from '@/lib/adjuster-meeting'
@@ -397,13 +398,15 @@ export async function GET(request: NextRequest) {
     const queuedOpportunityIds = queueItems.map((item: any) => item.id)
     const activityMap = new Map<string, any[]>()
     if (queuedOpportunityIds.length > 0) {
-      const { data: activitiesRaw } = await adminClient
-        .from('activities')
-        .select('id, opportunity_id, type, body, created_at, audience, restricted_pricing, deleted_at, users(full_name)')
-        .in('opportunity_id', queuedOpportunityIds)
-        .order('created_at', { ascending: false })
+      const { data: activitiesRaw } = await selectWithVisibleCol('id, opportunity_id, type, body, created_at, user_id, audience, restricted_pricing, visible_user_ids, deleted_at, users(full_name)', (cols) =>
+        adminClient
+          .from('activities')
+          .select(cols)
+          .in('opportunity_id', queuedOpportunityIds)
+          .order('created_at', { ascending: false })
+      )
       // Same audience rules as the thread (this client skips RLS).
-      const activities = await visibleActivities(adminClient, profile as any, activitiesRaw)
+      const activities = await visibleActivities(adminClient, profile as any, activitiesRaw as any[] | null)
 
       for (const activity of activities || []) {
         const key = activity.opportunity_id

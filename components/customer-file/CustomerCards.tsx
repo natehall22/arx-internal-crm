@@ -1,4 +1,5 @@
 import ReferralsSection from '@/components/ReferralsSection'
+import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import CategoryField from '@/components/categories/CategoryField'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 import AccountCard, { type AccountActivity, type AccountLead, type AccountProject } from '@/components/customer-file/AccountCard'
@@ -173,13 +174,15 @@ async function loadAccount(admin: ReturnType<typeof createServiceClient>, profil
   addIn('lead_id', leads.map((l) => l.id))
   addIn('project_id', projectRows.map((p) => p.id))
   addIn('opportunity_id', dealRows.map((d) => d.id))
-  const { data: acts } = await db
-    .from('activities')
-    .select('id, type, body, created_at, opportunity_id, audience, restricted_pricing, deleted_at, users(full_name)')
-    .is('deleted_at', null)
-    .or(parts.join(','))
-    .order('created_at', { ascending: false })
-    .limit(100)
+  const { data: acts } = await selectWithVisibleCol('id, type, body, created_at, opportunity_id, user_id, audience, restricted_pricing, visible_user_ids, deleted_at, users(full_name)', (cols) =>
+    db
+      .from('activities')
+      .select(cols)
+      .is('deleted_at', null)
+      .or(parts.join(','))
+      .order('created_at', { ascending: false })
+      .limit(100)
+  )
   const activities = (await visibleActivities(admin, profile, (acts ?? []) as unknown as Array<AccountActivity & { opportunity_id: string | null; audience: never; restricted_pricing: boolean | null; deleted_at: string | null }>)).slice(0, 50)
   return { leads, projects: projectRows.map(({ id, project_type, address_text }) => ({ id, project_type, address_text })), activities: activities as AccountActivity[] }
 }

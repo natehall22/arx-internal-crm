@@ -224,3 +224,92 @@ describe('private notes never reach customers or crews', () => {
     expect(read('lib/job-catch-up-db.ts')).toContain("r.audience !== 'private'")
   })
 })
+
+describe('private notes: deploy-order fallback (column not there yet)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { selectWithVisibleCol, withoutVisibleCol } = require('@/lib/threads/private-columns') as typeof import('@/lib/threads/private-columns')
+  const { loadMessage } = require('@/lib/threads/post-message') as typeof import('@/lib/threads/post-message')
+  const missing = { code: '42703', message: 'column activities.visible_user_ids does not exist' }
+
+  it('re-runs the same select without the column on a missing-column error, and only then', async () => {
+    const seen: string[] = []
+    const r = await selectWithVisibleCol('id, audience, visible_user_ids, body', async (cols) => {
+      seen.push(cols)
+      return cols.includes('visible_user_ids') ? { data: null, error: missing } : { data: [{ id: 1 }], error: null }
+    })
+    expect(seen).toEqual(['id, audience, visible_user_ids, body', 'id, audience, body'])
+    expect(r.data).toEqual([{ id: 1 }])
+    // another error is returned untouched, no second try
+    const other = { code: '57014', message: 'timeout' }
+    const calls: string[] = []
+    const r2 = await selectWithVisibleCol('id, visible_user_ids', async (cols) => { calls.push(cols); return { data: null, error: other } })
+    expect(calls).toHaveLength(1)
+    expect(r2.error).toBe(other)
+    expect(withoutVisibleCol('a, visible_user_ids, users(full_name)')).toBe('a, users(full_name)')
+  })
+
+  it('a note just written still loads (postMessage never fails after writing) when the column is missing', async () => {
+    const row = { id: 'n1', user_id: 'owner', type: 'note', body: 'hi', created_at: '2026-12-01T00:00:00Z', audience: 'team', origin: 'human', priority: 'fyi', restricted_pricing: false, reply_to_id: null, mentioned_user_ids: [], pinned_at: null, pin_scope: null, pin_expires_at: null, edited_at: null, deleted_at: null, deleted_user_name: null, users: { full_name: 'A' } }
+    const chain = (cols: string): unknown => {
+      const c: Record<string, unknown> = {}
+      for (const k of ['eq']) c[k] = () => c
+      c.maybeSingle = async () => (cols.includes('visible_user_ids') ? { data: null, error: missing } : { data: row, error: null })
+      return c
+    }
+    const admin = { from: () => ({ select: (cols: string) => chain(cols) }) }
+    const m = await loadMessage(admin as never, 'org1', 'n1')
+    expect(m).toMatchObject({ id: 'n1', audience: 'team', visible_user_ids: [] })
+  })
+})
+
+describe('private notes: replies and notifications', () => {
+  const ORG = 'org1'
+  const mkv = (o: Partial<ThreadViewer> & { userId: string }): ThreadViewer => ({ ...base, orgId: ORG, ...o })
+  const owner = mkv({ userId: 'owner', ownerLike: true, jobBoard: true, jobEdit: true })
+  const mkUser = (id: string, role: string) => ({ id, full_name: `Person ${id}`, email: `${id}@x.com`, active: true, role, custom_role_id: null, is_super_admin: id === 'owner', org_id: ORG })
+  const dealRow = { id: 'd1', owner_user_id: 'closer', setter_user_id: 'setter', customer_id: 'c1', lead_id: null }
+  const fresh = () => createFakeDb({ users: [mkUser('owner', 'admin'), mkUser('ops', 'operations'), mkUser('setter', 'setter')], opportunities: [{ org_id: ORG, ...dealRow }], activities: [], threads: [], thread_members: [] })
+  const send = (db: ReturnType<typeof fresh>, draft: Record<string, unknown>) =>
+    postMessage(db.client as never, { id: 'owner', org_id: ORG, role: 'x' }, dealRow, { body: 'x', ...draft } as never, { viewer: owner, resolveViewer: (async (u: { id: string }) => mkv({ userId: u.id })) as never })
+
+  it('a reply to a private note always keeps the parent\'s readers, whatever the draft says', async () => {
+    const db = fresh()
+    const p = await send(db, { body: 'secret', audience: 'private', visibleUserIds: ['ops'] })
+    if (!p.ok) throw new Error('x')
+    const r = await send(db, { body: 'more', replyToId: p.message.id, visibleUserIds: ['setter'] })
+    expect(r.ok && r.message.visible_user_ids).toEqual(['ops'])
+    const r2 = await send(db, { body: 'again', replyToId: p.message.id, visibleUserIds: [] })
+    expect(r2.ok && r2.message.visible_user_ids).toEqual(['ops'])
+  })
+
+  it('notifications for a private note carry no body: not in the bell, not in push, not in email', async () => {
+    jest.resetModules()
+    const push = jest.fn()
+    const sendMail = jest.fn(async () => undefined)
+    jest.doMock('@/lib/push-apns', () => ({ sendPushToUserBackground: push }))
+    jest.doMock('@/lib/setter-email', () => ({ getMailTransport: () => ({ sendMail }) }))
+    jest.doMock('@/lib/crm-email-from', () => ({ getCrmEmailFrom: async () => 'from@x.com' }))
+    jest.doMock('@/lib/company-links', () => ({ orgAppUrl: async () => 'https://app.test' }))
+    process.env.SMTP_HOST = 'smtp.test'
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { notifyMessage } = require('@/lib/threads/notify') as typeof import('@/lib/threads/notify')
+    const inserted: Array<Record<string, unknown>> = []
+    const admin = {
+      from: (t: string) => t === 'notifications'
+        ? { insert: async (rows: Array<Record<string, unknown>>) => { inserted.push(...rows); return { error: null } } }
+        : { select: () => ({ in: async () => ({ data: [{ id: 'ops', email: 'ops@x.com', full_name: 'Ops' }] }) }) },
+    }
+    const secret = 'The customer is suing, do not mention it'
+    await notifyMessage(admin as never, {
+      orgId: ORG, senderId: 'owner', senderName: 'Nathan', deal: { id: 'd1', customerId: 'c1', leadId: null, label: '12 Oak St' },
+      message: { id: 'm1', body: secret, audience: 'private' } as never,
+      recipients: [{ userId: 'ops', priority: 'needs_reply', reason: 'mention' }], blindMentions: [],
+    })
+    expect(inserted[0].title).toBe('Nathan left you a private note on 12 Oak St')
+    const everything = JSON.stringify([inserted, push.mock.calls, sendMail.mock.calls])
+    expect(everything).not.toContain('suing')
+    expect(everything).toContain('private note on 12 Oak St')
+    expect(everything).toContain('/c/c1/d/d1/overview/n/m1') // the link is still there
+    jest.dontMock('@/lib/push-apns'); jest.dontMock('@/lib/setter-email'); jest.dontMock('@/lib/crm-email-from'); jest.dontMock('@/lib/company-links')
+  })
+})

@@ -38,6 +38,9 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
   // In-app rows and push carry the path only; the absolute link is built inside the email try, so a missing app address
   // costs the email (logged), never the notification rows.
   const path = messageLink('', { customerId: input.deal.customerId, dealId: input.deal.id, leadId: input.deal.leadId }, input.message.id)
+  // A private note's words never leave the CRM screen: bell, push and email say only that one exists (owner decision).
+  const isPrivate = input.message.audience === 'private'
+  const privateLine = `${input.senderName} left you a private note on ${input.deal.label}`
   const rows = [
     ...input.recipients.map((r) => ({ ...r, blind: false })),
     ...input.blindMentions.map((userId) => ({ userId, priority: 'fyi' as Priority, reason: 'mention', blind: true })),
@@ -50,8 +53,8 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
       recipient_user_id: r.userId,
       actor_user_id: input.senderId,
       type: r.blind ? 'thread_mention_blind' : `thread_${r.priority}`,
-      title: r.blind ? `${input.senderName} mentioned you` : `${input.senderName} · ${input.deal.label}`,
-      body: r.blind ? 'Mentioned you in a message you do not have access to' : input.message.body.slice(0, 200),
+      title: r.blind ? `${input.senderName} mentioned you` : isPrivate ? privateLine : `${input.senderName} · ${input.deal.label}`,
+      body: r.blind ? 'Mentioned you in a message you do not have access to' : isPrivate ? 'Open the note to read it.' : input.message.body.slice(0, 200),
       link_url: path,
       activity_id: input.message.id,
       priority: r.priority,
@@ -64,7 +67,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
     sendPushToUserBackground(
       r.userId,
       r.blind ? PRODUCT_NAME : r.priority === 'urgent' ? `URGENT · ${input.deal.label}` : input.deal.label,
-      r.blind ? `${input.senderName} mentioned you` : `${input.senderName}: ${input.message.body.slice(0, 140)}`,
+      r.blind ? `${input.senderName} mentioned you` : isPrivate ? privateLine : `${input.senderName}: ${input.message.body.slice(0, 140)}`,
       { type: 'thread_message', url: path, activity_id: input.message.id }
     )
   }
@@ -82,9 +85,13 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
         if (!u?.email) return Promise.resolve()
         const text = r.blind
           ? `${input.senderName} mentioned you in a job conversation.`
-          : `${input.senderName} on ${input.deal.label}:\n\n${input.message.body}`
+          : isPrivate
+            ? privateLine
+            : `${input.senderName} on ${input.deal.label}:\n\n${input.message.body}`
         const subject = r.blind
           ? `${input.senderName} mentioned you`
+          : isPrivate
+            ? privateLine
           : r.priority === 'urgent'
             ? `URGENT from ${input.senderName} · ${input.deal.label}`
             : r.priority === 'needs_reply'

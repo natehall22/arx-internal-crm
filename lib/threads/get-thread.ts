@@ -1,6 +1,7 @@
 import { isThreadSchemaMissing, ThreadSchemaPendingError } from '@/lib/threads/schema-guard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import { canReadMessage, canReadRowOnDeal, type Audience, type DealRef, type ThreadViewer } from '@/lib/threads/visibility'
 
 /**
@@ -176,12 +177,13 @@ export async function getTimeline(
   const limit = Math.min(Math.max(filters.limit ?? PAGE, 1), MAX_PAGE)
   const scope: TimelineScope = filters.scope === 'customer' && deal.customer_id ? 'customer' : 'deal'
 
-  let q = admin.from('activities').select(COLS).eq('org_id', viewer.orgId).is('referral_partner_id', null)
-  q = scope === 'customer' ? q.eq('customer_id', deal.customer_id as string) : q.eq('opportunity_id', deal.id)
-  if (filters.before) q = q.lt('created_at', filters.before)
-
   // Over-fetch: rows the viewer may not read are dropped below, and a page must still fill.
-  const { data, error } = await q.order('created_at', { ascending: false }).limit(limit * 3 + 1)
+  const { data, error } = await selectWithVisibleCol(COLS, (cols) => {
+    let q = admin.from('activities').select(cols).eq('org_id', viewer.orgId).is('referral_partner_id', null)
+    q = scope === 'customer' ? q.eq('customer_id', deal.customer_id as string) : q.eq('opportunity_id', deal.id)
+    if (filters.before) q = q.lt('created_at', filters.before)
+    return q.order('created_at', { ascending: false }).limit(limit * 3 + 1)
+  })
   if (error) throw isThreadSchemaMissing(error) ? new ThreadSchemaPendingError() : new Error(`timeline: ${error.message}`)
 
   const dealRef: DealRef = dealRefOf(deal)
@@ -243,19 +245,21 @@ export async function getPinned(
   deal: NonNullable<Awaited<ReturnType<typeof loadDeal>>>,
   now = Date.now()
 ): Promise<ThreadMessage[]> {
-  const { data: pinRows } = await admin
-    .from('activities')
-    .select(COLS)
-    .eq('org_id', viewer.orgId)
-    .not('pinned_at', 'is', null)
-    .is('deleted_at', null)
-    .or(
-      deal.customer_id
-        ? `opportunity_id.eq.${deal.id},and(customer_id.eq.${deal.customer_id},pin_scope.eq.customer)`
-        : `opportunity_id.eq.${deal.id}`
-    )
-    .order('pinned_at', { ascending: false })
-    .limit(20)
+  const { data: pinRows } = await selectWithVisibleCol(COLS, (cols) =>
+    admin
+      .from('activities')
+      .select(cols)
+      .eq('org_id', viewer.orgId)
+      .not('pinned_at', 'is', null)
+      .is('deleted_at', null)
+      .or(
+        deal.customer_id
+          ? `opportunity_id.eq.${deal.id},and(customer_id.eq.${deal.customer_id},pin_scope.eq.customer)`
+          : `opportunity_id.eq.${deal.id}`
+      )
+      .order('pinned_at', { ascending: false })
+      .limit(20)
+  )
   const rows = (pinRows ?? []) as unknown as Row[]
   const refs = await dealRefsFor(admin, viewer.orgId, rows.map((r) => r.opportunity_id).filter((x): x is string => !!x))
   return rows

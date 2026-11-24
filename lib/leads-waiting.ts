@@ -59,7 +59,7 @@ export function waitingFor(lead: Pick<WaitingLead, 'created_at' | 'ownership_rea
 /** Activity written within this long of the lead's creation is part of creating it (e.g. the typist's own note), not a follow-up. */
 const CREATION_GRACE_MS = 10_000
 
-type ActivityRow = { lead_id: string | null; opportunity_id: string | null; user_id: string | null; origin: string | null; created_at: string }
+type ActivityRow = { lead_id: string | null; opportunity_id: string | null; user_id: string | null; origin: string | null; audience: string | null; created_at: string }
 
 /**
  * Which of these leads has been worked by a PERSON: any activity written by a user after the lead was created — a note, a
@@ -71,7 +71,7 @@ type ActivityRow = { lead_id: string | null; opportunity_id: string | null; user
 async function leadsTouchedByAPerson(admin: SupabaseClient, orgId: string, leads: Array<{ id: string; created_at: string }>): Promise<Set<string>> {
   const createdAt = new Map(leads.map((l) => [l.id, new Date(l.created_at).getTime()]))
   const ids = leads.map((l) => l.id)
-  const COLS = 'lead_id, opportunity_id, user_id, origin, created_at'
+  const COLS = 'lead_id, opportunity_id, user_id, origin, audience, created_at'
   const paged = <T,>(run: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) =>
     fetchSupabaseAllPages<T>(run).then((data) => ({ data, error: null }))
 
@@ -91,6 +91,8 @@ async function leadsTouchedByAPerson(admin: SupabaseClient, orgId: string, leads
   for (const a of [...byLead, ...byOpp]) {
     const leadId = a.lead_id && createdAt.has(a.lead_id) ? a.lead_id : a.opportunity_id ? leadOfOpp.get(a.opportunity_id) : undefined
     if (!leadId || touched.has(leadId)) continue
+    // A private note is an owner's internal aside, not a follow-up with the customer: it does not count as working the lead.
+    if (a.audience === 'private') continue
     if (!a.user_id || a.origin === 'system' || a.origin === 'customer_portal' || a.origin === 'sms') continue
     if (new Date(a.created_at).getTime() <= (createdAt.get(leadId) ?? 0) + CREATION_GRACE_MS) continue
     touched.add(leadId)

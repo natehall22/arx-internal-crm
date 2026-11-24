@@ -1,3 +1,4 @@
+import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import { isThreadSchemaMissing, SCHEMA_PENDING_MESSAGE } from '@/lib/threads/schema-guard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -180,7 +181,8 @@ export async function postMessage(
   let visibleIds: string[] | null = null
   if (audience === 'private') {
     const activeIds = new Set(((orgUsers ?? []) as OrgUser[]).map((u) => u.id))
-    const wanted = Array.from(new Set((draft.visibleUserIds ?? (parent?.audience === 'private' ? parent.visible_user_ids : [])).filter((x): x is string => typeof x === 'string'))).filter((id) => id !== viewer.userId)
+    // A reply to a private note ALWAYS keeps the parent's readers (the draft's list is ignored).
+    const wanted = Array.from(new Set((parent?.audience === 'private' ? parent.visible_user_ids : draft.visibleUserIds ?? []).filter((x): x is string => typeof x === 'string'))).filter((id) => id !== viewer.userId)
     if (wanted.length > MAX_PRIVATE_PEOPLE) return { ok: false, status: 400, error: `Pick at most ${MAX_PRIVATE_PEOPLE} people` }
     if (wanted.some((id) => !activeIds.has(id))) return { ok: false, status: 400, error: 'Pick people from your own company' }
     visibleIds = wanted
@@ -286,14 +288,10 @@ export async function postMessage(
 }
 
 export async function loadMessage(admin: SupabaseClient, orgId: string, id: string): Promise<ThreadMessage | null> {
-  const { data } = await admin
-    .from('activities')
-    .select(
-      'id, user_id, type, body, created_at, audience, origin, priority, restricted_pricing, reply_to_id, mentioned_user_ids, visible_user_ids, pinned_at, pin_scope, pin_expires_at, edited_at, deleted_at, deleted_user_name, users(full_name)'
-    )
-    .eq('id', id)
-    .eq('org_id', orgId)
-    .maybeSingle()
+  const { data } = await selectWithVisibleCol(
+    'id, user_id, type, body, created_at, audience, origin, priority, restricted_pricing, reply_to_id, mentioned_user_ids, visible_user_ids, pinned_at, pin_scope, pin_expires_at, edited_at, deleted_at, deleted_user_name, users(full_name)',
+    (cols) => admin.from('activities').select(cols).eq('id', id).eq('org_id', orgId).maybeSingle()
+  )
   return data ? toMessage(data as never) : null
 }
 

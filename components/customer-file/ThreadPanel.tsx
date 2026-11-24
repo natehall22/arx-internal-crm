@@ -330,8 +330,8 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
   const locked = !!replyTo?.audience && replyTo.audience !== 'customer' // a reply keeps its thread's audience, except customer: that is picked on purpose
   const effective = locked && replyTo?.audience && data.writable.includes(replyTo.audience) ? replyTo.audience : audience
   useEffect(() => {
-    fetch(`/api/threads/${dealId}/mentionable?audience=${effective}${effective === 'private' ? `&visible=${readers.join(',')}` : ''}`).then((r) => (r.ok ? r.json() : { users: [] })).then((j) => setPeople(j.users ?? [])).catch(() => setPeople([]))
-  }, [dealId, effective, readers])
+    fetch(`/api/threads/${dealId}/mentionable?audience=${effective}${effective === 'private' ? `&visible=${(replyTo?.audience === 'private' ? replyTo.visible_user_ids : readers).join(',')}` : ''}`).then((r) => (r.ok ? r.json() : { users: [] })).then((j) => setPeople(j.users ?? [])).catch(() => setPeople([]))
+  }, [dealId, effective, readers, replyTo])
   // A reply to a private note keeps that note's readers (the server copies them), so the picker only shows for a new private note.
   const choosingReaders = effective === 'private' && replyTo?.audience !== 'private'
   useEffect(() => {

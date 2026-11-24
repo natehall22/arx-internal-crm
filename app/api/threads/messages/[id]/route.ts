@@ -1,3 +1,4 @@
+import { selectWithVisibleCol } from '@/lib/threads/private-columns'
 import { guardThreadSchema } from '@/lib/threads/route-guard'
 import { NextResponse } from 'next/server'
 
@@ -16,12 +17,9 @@ async function handlePATCH(request: Request, { params }: { params: { id: string 
   if (ctx instanceof NextResponse) return ctx
   const { admin, viewer } = ctx
 
-  const { data: row } = await admin
-    .from('activities')
-    .select('id, org_id, opportunity_id, customer_id, user_id, body, created_at, audience, restricted_pricing, deleted_at, pinned_at, visible_user_ids')
-    .eq('id', params.id)
-    .eq('org_id', viewer.orgId)
-    .maybeSingle()
+  const { data: row } = await selectWithVisibleCol('id, org_id, opportunity_id, customer_id, user_id, body, created_at, audience, restricted_pricing, deleted_at, pinned_at, visible_user_ids', (cols) =>
+    admin.from('activities').select(cols).eq('id', params.id).eq('org_id', viewer.orgId).maybeSingle()
+  )
   const r = row as {
     id: string; opportunity_id: string | null; customer_id: string | null; user_id: string | null; body: string | null
     created_at: string; audience: Audience | null; restricted_pricing: boolean | null; deleted_at: string | null; visible_user_ids: string[] | null
@@ -57,12 +55,12 @@ async function handlePATCH(request: Request, { params }: { params: { id: string 
         if ((count ?? 0) >= MAX_CUSTOMER_PINS) return NextResponse.json({ error: `A customer can have ${MAX_CUSTOMER_PINS} alerts` }, { status: 409 })
       }
       const expires = typeof body.expiresAt === 'string' && !Number.isNaN(Date.parse(body.expiresAt)) ? body.expiresAt : null
-      await admin.from('activities').update({ pinned_at: now, pinned_by: viewer.userId, pin_scope: scope, pin_expires_at: expires }).eq('id', r.id)
+      await admin.from('activities').update({ pinned_at: now, pinned_by: viewer.userId, pin_scope: scope, pin_expires_at: expires }).eq('id', r.id).eq('org_id', viewer.orgId)
       break
     }
     case 'unpin': {
       if (!canPin(viewer, r)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-      await admin.from('activities').update({ pinned_at: null, pinned_by: null, pin_scope: null, pin_expires_at: null }).eq('id', r.id)
+      await admin.from('activities').update({ pinned_at: null, pinned_by: null, pin_scope: null, pin_expires_at: null }).eq('id', r.id).eq('org_id', viewer.orgId)
       break
     }
     case 'edit': {
@@ -73,13 +71,13 @@ async function handlePATCH(request: Request, { params }: { params: { id: string 
       if (!text || text.length > 5000) return NextResponse.json({ error: 'Invalid message' }, { status: 400 })
       // An edit can turn a harmless note into a priced one: re-screen, and never clear an existing flag.
       const flag = r.restricted_pricing === true || looksLikePricing(text) || (r.audience === 'crew' && looksLikePricing(text))
-      await admin.from('activities').update({ body: text, edited_at: now, restricted_pricing: flag ? true : r.restricted_pricing }).eq('id', r.id)
+      await admin.from('activities').update({ body: text, edited_at: now, restricted_pricing: flag ? true : r.restricted_pricing }).eq('id', r.id).eq('org_id', viewer.orgId)
       if (flag && r.restricted_pricing !== true) await scrubNotificationsForActivity(admin, r.id)
       break
     }
     case 'delete': {
       if (!canDeleteMessage(viewer, r)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-      await admin.from('activities').update({ deleted_at: now, deleted_by: viewer.userId, pinned_at: null }).eq('id', r.id)
+      await admin.from('activities').update({ deleted_at: now, deleted_by: viewer.userId, pinned_at: null }).eq('id', r.id).eq('org_id', viewer.orgId)
       await scrubNotificationsForActivity(admin, r.id, true)
       break
     }
@@ -88,7 +86,7 @@ async function handlePATCH(request: Request, { params }: { params: { id: string 
       if (!(AUDIENCES as readonly string[]).includes(to) || !canReclassify(viewer, to, r.audience)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
       // Moving a priced message onto a wider audience (crew leaves the building) flags it; text is re-screened, never un-flagged.
       const flag = r.restricted_pricing === true || looksLikePricing(r.body ?? '')
-      await admin.from('activities').update({ audience: to, restricted_pricing: flag ? true : r.restricted_pricing }).eq('id', r.id)
+      await admin.from('activities').update({ audience: to, restricted_pricing: flag ? true : r.restricted_pricing }).eq('id', r.id).eq('org_id', viewer.orgId)
       await scrubNotificationsForActivity(admin, r.id)
       break
     }
