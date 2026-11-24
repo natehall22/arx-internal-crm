@@ -11,6 +11,7 @@
  *   - excludeIds: Comma-separated IDs already loaded (optional, for incremental loading)
  */
 
+import { applyCategoryScope, categoryScopeOf, limitCol } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createClient } from '@supabase/supabase-js'
@@ -231,7 +232,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and visibility settings
     const { data: profile, error: profileError } = await adminClient
       .from('users')
-      .select('role, org_id, team_id, region_id, canvass_pin_visibility')
+      .select(`role, org_id, team_id, region_id, canvass_pin_visibility, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -288,7 +289,7 @@ export async function GET(request: NextRequest) {
 
     // MINIMAL SELECT - only what's needed for pin rendering
     // Full details fetched via /api/canvass/lead/[id] on click
-    let query = adminClient
+    let query = applyCategoryScope(adminClient
       .from('leads')
       .select('id, lat, lng, canvass_disposition, status, owner_user_id, pin_attributed_user_id, created_at, installation_agreement_signed_at')
       .eq('org_id', profile.org_id)
@@ -297,7 +298,7 @@ export async function GET(request: NextRequest) {
       .gte('lat', minLat)
       .lte('lat', maxLat)
       .gte('lng', minLng)
-      .lte('lng', maxLng)
+      .lte('lng', maxLng), categoryScopeOf(profile))
       .limit(queryLimit)
 
     // Apply visibility filter (include pin_attributed_user_id so deleted users' pins stay visible)
@@ -424,7 +425,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, canvass_pin_visibility, custom_role_id, is_super_admin')
+      .select(`org_id, role, canvass_pin_visibility, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 

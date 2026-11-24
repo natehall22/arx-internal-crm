@@ -1,3 +1,4 @@
+import { jobHiddenFrom } from '@/lib/category-scope'
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -59,10 +60,14 @@ async function staffMayRead(admin: SupabaseClient, profile: User, path: string, 
       .limit(1)
     inOrg = (data?.length ?? 0) > 0
   } else {
-    const { data } = await admin.from('files').select('id').eq('org_id', orgId).eq('storage_path', path).limit(1)
+    const { data } = await admin.from('files').select('id, job_id').eq('org_id', orgId).eq('storage_path', path).limit(1)
     inOrg = (data?.length ?? 0) > 0
+    // A person limited to some work categories opens a job's file only when the job is inside them.
+    const fileJob = (data?.[0] as { job_id?: string | null } | undefined)?.job_id
+    if (inOrg && fileJob && (await jobHiddenFrom(admin, profile, fileJob))) return false
   }
   if (!inOrg) return false
+  if (c.kind === 'job_packet' && (await jobHiddenFrom(admin, profile, c.jobId))) return false
 
   if (fieldRoleMayReadFilesPath(c)) return true
   return !(await isFieldOrSalesDocBarred(admin, profile))

@@ -1,3 +1,4 @@
+import { categoryScopeOf, customerInScope, leadInScope } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -34,11 +35,11 @@ export async function POST(request: NextRequest) {
   let email: string | null = null
   if (body.referrer_type === 'customer') {
     const { data: c } = await admin.from('customers').select('id, name, phone, email').eq('id', body.referrer_id).eq('org_id', orgId).maybeSingle()
-    if (!c) return NextResponse.json({ error: 'Referrer not found' }, { status: 404 })
+    if (!c || !(await customerInScope(admin, orgId, categoryScopeOf(profile), body.referrer_id))) return NextResponse.json({ error: 'Referrer not found' }, { status: 404 })
     ;({ id: customerId, name, phone, email } = c as { id: string; name: string | null; phone: string | null; email: string | null })
   } else {
     const { data: r } = await admin.from('leads').select('id, homeowner_name, phone, email, address_text, customer_id').eq('id', body.referrer_id).eq('org_id', orgId).maybeSingle()
-    if (!r) return NextResponse.json({ error: 'Referrer not found' }, { status: 404 })
+    if (!r || !(await leadInScope(admin, orgId, categoryScopeOf(profile), body.referrer_id))) return NextResponse.json({ error: 'Referrer not found' }, { status: 404 })
     name = r.homeowner_name as string | null
     phone = r.phone as string | null
     email = r.email as string | null

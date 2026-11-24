@@ -1,3 +1,4 @@
+import { categoryOrFilter, categoryScopeOf, limitCol } from '@/lib/category-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { calendarConnectedUserIds } from '@/lib/calendar/connection'
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest) {
     
     const { data: profileData, error: profileError } = await adminClient
       .from('users')
-      .select('role, org_id, team_id, region_id, canvass_pin_visibility, full_name, custom_role_id, is_super_admin')
+      .select(`role, org_id, team_id, region_id, canvass_pin_visibility, full_name, custom_role_id, is_super_admin${await limitCol()}` as '*')
       .eq('id', user.id)
       .single()
 
@@ -200,6 +201,9 @@ export async function GET(request: NextRequest) {
       leadsQuery = leadsQuery.or(`owner_user_id.in.(${idList}),pin_attributed_user_id.in.(${idList})`)
     }
 
+    // A person limited to some work categories sees only pins inside them (no limit: the same query).
+    const scopeFilter = categoryOrFilter(categoryScopeOf(profile))
+    if (scopeFilter) leadsQuery = leadsQuery.or(scopeFilter)
     const { data: leadsRaw, error: leadsError } = await leadsQuery
 
     if (leadsError) {
