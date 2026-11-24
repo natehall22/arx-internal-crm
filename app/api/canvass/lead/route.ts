@@ -27,6 +27,7 @@ import { firstForeignRef } from '@/lib/supabase/org-db'
 import { resolveCompanyRecipient } from '@/lib/company-recipient'
 import { isCanvassDoorEligible } from '@/lib/canvass-lead-attribution'
 import { isContactScoped, LEAD_CONTACT_FIELDS, myLeadIds } from '@/lib/contact-scope'
+import { categoryScopeOf, leadInScope } from '@/lib/category-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -305,6 +306,10 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}))
 
     const leadId = String(body.lead_id || '')
+    // Category limit: a pin outside the person's work categories is not theirs to touch (same answer as not found).
+    if (leadId && !(await leadInScope(supabase, profile.org_id, categoryScopeOf(profile), leadId))) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+    }
     let closerUserId = body.closer_user_id ? String(body.closer_user_id) : null
     let teamIdForRoundRobin: string | null = null
     
@@ -1397,6 +1402,9 @@ export async function DELETE(request: Request) {
 
     if (!leadId) {
       return NextResponse.json({ error: 'Lead ID is required' }, { status: 400 })
+    }
+    if (!(await leadInScope(createServiceClient(), profile.org_id, categoryScopeOf(profile), leadId))) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
     }
 
     const supabase = createServiceClient()
