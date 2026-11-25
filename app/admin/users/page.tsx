@@ -1206,44 +1206,6 @@ export default function UsersPage() {
                     </div>
                   </div>
 
-                  {/* Work categories */}
-                  {canLimitCategories && categories.length > 0 && (
-                    <div className="border-t pt-4">
-                      <h3 className="text-sm font-medium text-gray-900 mb-2">Work categories</h3>
-                      <p className="text-xs text-gray-700 mb-3">
-                        Limit what this person can see. Other categories are hidden everywhere. Owners and admins always see everything.
-                      </p>
-                      <div className="space-y-1">
-                        <label className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
-                          <input type="radio" name="category-limit-mode" className="h-5 w-5" checked={formCategoryLimit === null} onChange={() => setFormCategoryLimit(null)} />
-                          All categories
-                        </label>
-                        <label className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
-                          <input type="radio" name="category-limit-mode" className="h-5 w-5" checked={formCategoryLimit !== null} onChange={() => setFormCategoryLimit(formCategoryLimit ?? [])} />
-                          Only these
-                        </label>
-                        {formCategoryLimit !== null && (
-                          <div className="ml-8 space-y-1">
-                            {[...activeCategories(categories).map((c) => ({ value: c.slug, label: c.label })), { value: NO_CATEGORY, label: 'Not set' }].map((o) => (
-                              <label key={o.value} className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
-                                <input
-                                  type="checkbox"
-                                  className="h-5 w-5"
-                                  checked={formCategoryLimit.includes(o.value)}
-                                  onChange={(e) =>
-                                    setFormCategoryLimit(e.target.checked ? [...formCategoryLimit, o.value] : formCategoryLimit.filter((v) => v !== o.value))
-                                  }
-                                />
-                                {o.label}
-                              </label>
-                            ))}
-                            {formCategoryLimit.length === 0 && <p className="text-xs text-red-700">Pick at least one, or choose All categories.</p>}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Canvass Pin Visibility */}
                   {canvassingOn && (
                   <div className="border-t pt-4">
@@ -1737,6 +1699,44 @@ export default function UsersPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Work categories */}
+                {canLimitCategories && categories.length > 0 && (
+                  <div className="border-t pt-4">
+                    <h3 className="text-sm font-medium text-gray-900 mb-2">Work categories</h3>
+                    <p className="text-xs text-gray-700 mb-3">
+                      Limit what this person can see. Other categories are hidden everywhere. Owners and admins always see everything.
+                    </p>
+                    <div className="space-y-1">
+                      <label className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
+                        <input type="radio" name="category-limit-mode" className="h-5 w-5" checked={formCategoryLimit === null} onChange={() => setFormCategoryLimit(null)} />
+                        All categories
+                      </label>
+                      <label className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
+                        <input type="radio" name="category-limit-mode" className="h-5 w-5" checked={formCategoryLimit !== null} onChange={() => setFormCategoryLimit(formCategoryLimit ?? [])} />
+                        Only these
+                      </label>
+                      {formCategoryLimit !== null && (
+                        <div className="ml-8 space-y-1">
+                          {[...activeCategories(categories).map((c) => ({ value: c.slug, label: c.label })), { value: NO_CATEGORY, label: 'Not set' }].map((o) => (
+                            <label key={o.value} className="flex items-center gap-3 min-h-[44px] text-sm text-gray-900">
+                              <input
+                                type="checkbox"
+                                className="h-5 w-5"
+                                checked={formCategoryLimit.includes(o.value)}
+                                onChange={(e) =>
+                                  setFormCategoryLimit(e.target.checked ? [...formCategoryLimit, o.value] : formCategoryLimit.filter((v) => v !== o.value))
+                                }
+                              />
+                              {o.label}
+                            </label>
+                          ))}
+                          {formCategoryLimit.length === 0 && <p className="text-xs text-red-700">Pick at least one, or choose All categories.</p>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Dashboard View */}
                 <div className="border-t pt-4 mt-4">

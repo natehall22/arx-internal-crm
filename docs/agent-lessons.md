@@ -52,3 +52,4 @@ have caught, add ONE line here (date, pattern, the check that would have caught 
 - 2026-11-24 · Scoping handler by handler skipped one verb in an already-scoped file (proposal builder PUT) and write routes taking a related id in the body (jobId). After gating a route file, check EVERY exported handler; grep write routes that take related ids in the body.
 - 2026-11-24 · A per-recipient filter that fails open (read error → nobody treated as limited) sends restricted data. Restriction lookups fail CLOSED.
 - 2026-11-24 · 'Route too big to gate' is not a reason to skip it: a record gate is one line at the top of each handler, after the id is parsed.
+- 2026-11-24 · A setting was added to the CREATE form while the save logic read it on EDIT (two forms on one page); tests only grepped the source. Check the control renders where it's saved: open the real screen (harness or live) before reporting done.
